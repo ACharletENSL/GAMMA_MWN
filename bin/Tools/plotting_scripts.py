@@ -1,20 +1,27 @@
 # -*- coding: utf-8 -*-
 # @Author: eliotayache
 # @Date:   2020-05-14 16:24:48
-# @Last Modified by:   Eliot Ayache
-# @Last Modified time: 2022-03-22 16:22:32
+# @Last Modified by:   Arthur Charlet
+# @Last Modified time: 
 
 '''
 This file contains functions used to print GAMMA outputs. These functions 
 should be run from the ./bin/Tools directory.
 This can be run from a jupyter or iPython notebook:
 $run plotting_scripts.py
+
+acharlet: Added z normalisation, separated data opening and data plotting
+Modifications for wrapper script additional_plotting.py
+Global rewrite to be done to fully separate the two
 '''
 
 # Imports
 # --------------------------------------------------------------------------------------------------
 import numpy as np
+from scipy.signal import savgol_filter
 import pandas as pd
+import matplotlib
+matplotlib.use('tkagg')
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
@@ -44,10 +51,9 @@ def readData(key, it=None, sequence=False):
 def pivot(data, key):
   return(data.pivot(index="j", columns="i", values=key).to_numpy())
 
-
 # Plotting functions
 # --------------------------------------------------------------------------------------------------
-def plotMulti(data, keys, jtrack=None, log=[], labels={}, **kwargs):
+def plotMulti(data, keys, jtrack=None, logx=True, logz=[], znorms={}, labels={}, **kwargs):
 
   '''
   Plots multiple variables for a single 1D track in the same figure.
@@ -82,20 +88,23 @@ def plotMulti(data, keys, jtrack=None, log=[], labels={}, **kwargs):
 
     logkey = False
     label = None
-    if key in log:
-      logkey = True
+    z_norm = None
+    if key in logz:
+      logzkey = True
     if key in labels:
       label = labels[key]
+    if key in znorms:
+      z_norm = znorms[key]
 
-    plot1D(data, key, ax, jtrack=jtrack, log=logkey, label=label, **kwargs)
+    plot1D(data, key, ax, z_norm=z_norm, jtrack=jtrack, logx=logx, logz=logzkey, label=label, **kwargs)
 
-  plt.tight_layout()
+  #plt.tight_layout()
 
   return(f, axes)
 
 
-def plot1D(data, key, ax=None, mov="x", log=False, v1min=None, tracer=True,
-           line=True, r2=False, x_norm=None, jtrack=None, label=None, 
+def plot1D(data, key, ax=None, mov="x", logx=False, logz=True, v1min=None, tracer=False,
+           line=True, r2=False, x_norm=None, z_norm=None, jtrack=None, label=None, 
            **kwargs):
 
   '''
@@ -113,28 +122,7 @@ def plot1D(data, key, ax=None, mov="x", log=False, v1min=None, tracer=True,
   plot1D(data, "rho", log=True, jtrack=0)
   '''
 
-  if key == "lfac":
-    var = "vx"
-  else:
-    var = key
-
-  if jtrack is not(None):
-    z = pivot(data, var)[jtrack, :]
-    x = pivot(data, "x")[jtrack, :]
-    tracvals = pivot(data, "trac")[jtrack, :]
-  else:
-    z = data[var].to_numpy()
-    x = np.copy(data["x"].to_numpy())
-    tracvals = data["trac"].to_numpy()
-
-  if x_norm is not(None):
-    x /= x_norm
-
-  if key == "lfac":
-    z = 1./np.sqrt(1 - z**2)
-
-  if r2:
-    z *= x**2
+  x, z, tracvals = getData1D(data, key, r2, x_norm, z_norm, jtrack)
 
   if ax is None:
     plt.figure()
@@ -145,7 +133,10 @@ def plot1D(data, key, ax=None, mov="x", log=False, v1min=None, tracer=True,
   else:
     ax.set_ylabel(key)
 
-  if log:
+  if logx:
+    ax.set_xscale('log')
+  
+  if logz:
     ax.set_yscale('log')
 
   if line:
@@ -153,6 +144,110 @@ def plot1D(data, key, ax=None, mov="x", log=False, v1min=None, tracer=True,
   ax.scatter(x, z, c='None', edgecolors='k', lw=2, zorder=2, label="numerical")
   if tracer:
     ax.scatter(x, z, c=tracvals, edgecolors='None', zorder=3, cmap='cividis')
+
+def plotSlope1D(data, key, ax=None, mov="x", v1min=None, tracer=False,
+           line=True, r2=False, x_norm=None, jtrack=None, label=None, 
+           **kwargs):
+  '''
+  Plots the logarithmic slope of the chosen data. Follows the rules of plot1D()
+  Without options logx, logz and znorm of plot1D
+  '''
+
+  x, z, tracvals = getData1D(data, key, r2, x_norm, jtrack)
+
+  if ax is None:
+    plt.figure()
+    ax = plt.gca()
+
+  if label is not(None):
+    ax.set_ylabel(label)
+  else:
+    ax.set_ylabel(key+' slope')
+  
+  logx = np.log10(x)
+  logz = np.log10(z)
+  grad = np.gradient(logz, logx)
+  s = savgol_filter(grad, 9, 3)
+
+  if line:
+    ax.plot(x, s, 'k',zorder=1)    
+  ax.scatter(x, s, c='None', edgecolors='k', lw=2, zorder=2, label="numerical")
+  if tracer:
+    ax.scatter(x, s, c=tracvals, edgecolors='None', zorder=3, cmap='cividis')
+  
+  ax.set_xscale("log")
+  ax.set_ylim((-5, 5))
+
+
+def getData1D(data, key, r2=False, x_norm=None, z_norm=None, jtrack=None):
+  '''
+  Returns x and z data according to chosen key
+  '''
+  def gamma(rho, p):
+    g = 5./3.
+    a = p/(rho * (g-1.))
+    e_ratio = a + np.sqrt(1 + a*a)
+    g_eff = g - (g-1.)/2. * (1.-1./(e_ratio*e_ratio))
+    return g_eff
+
+  if key == "lfac":
+    var = "vx"
+  elif key == "erest":
+    var = "rho"
+  elif key == "u":
+    var = "vx"
+  else:
+    var = key
+
+  if jtrack is not(None):
+    z = pivot(data, var)[jtrack, :]
+    x = pivot(data, "x")[jtrack, :]
+    tracvals = pivot(data, "trac")[jtrack, :]
+  else:
+    if key == "T":
+      rho = data["rho"].to_numpy()
+      p = data["p"].to_numpy()
+      z = p / rho
+    elif key == "h":
+      rho = data["rho"].to_numpy()
+      p = data["p"].to_numpy()
+      gma = gamma(rho, p)
+      z   = 1.+p*gma/(gma-1.)/rho
+    elif key == "u":
+      v = data["vx"].to_numpy()
+      lfac = 1./np.sqrt(1 - v**2)
+      z = v*lfac
+    elif key == "ref":
+      D = data["D"].to_numpy()
+      z = refCriterion(D)
+    elif key == "ekin":
+      rho = data["rho"].to_numpy()
+      vx = data["vx"].to_numpy()
+      lfac = 1./np.sqrt(1 - vx**2)
+      z = (lfac-1)*rho
+    elif key == "eint":
+      rho = data["rho"].to_numpy()
+      p = data["p"].to_numpy()
+      gma = gamma(rho, p)
+      z = p/(gma-1)
+    else:
+      z = data[var].to_numpy()
+    x = np.copy(data["x"].to_numpy())
+    tracvals = data["trac"].to_numpy()
+
+  if x_norm is not(None):
+    x *= x_norm
+  
+  if z_norm is not(None):
+    z *= z_norm
+
+  if key == "lfac":
+    z = 1./np.sqrt(1 - z**2)
+
+  if r2:
+    z *= x**2
+  
+  return x, z, tracvals
 
 
 def plot2D(data, key, z_override=None, mov="x", log=False, v1min=None, 
