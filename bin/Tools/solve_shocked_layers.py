@@ -9,12 +9,7 @@ This file solves for the shocked layer profiles
 # --------------------------------------------------------------------------------------------------
 import numpy as np
 from scipy.integrate import solve_ivp
-
-# Parameters
-# add import
-delta = 0
-omega = 10
-k = 0
+from environment import delta, omega, k
 
 # Get shocked profile in CGS units
 # --------------------------------------------------------------------------------------------------

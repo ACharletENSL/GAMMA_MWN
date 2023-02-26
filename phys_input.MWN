@@ -1,0 +1,11 @@
+# -*- coding: utf-8 -*-
+# @Author: acharlet
+
+'''
+This file contains parameters to be read for sim initialization and analysis
+'''
+
+P_0 = 1             # initial rotation period in ms
+E_0 = 0.1           # total injected energy in units E_SN
+lfacwind = 100      # Lorentz factor
+t_start = 1e-2      # SNR age at simulation start in units t_0

@@ -8,25 +8,7 @@ This file contains (semi-)analytical models for the evolution of MWN
 # Imports
 # --------------------------------------------------------------------------------------------------
 import numpy as np
-from constants import *
-
-# Parameters
-# to add: consistent reading of parameters 
-# --------------------------------------------------------------------------------------------------
-L0 = 5e45         # erg/s, wind kinetic luminosity
-t0 = 2e4          # s, spindown time
-n = 3             # braking index
-m = (n+1)/(n-1)   # spindown luminosity index
-E_sn = 1.e51      # erg, SNR kinetic energy
-M_ej = 3.*Msun_   # g, ejecta mass
-delta = 0         # ejecta core density index
-omega = 10        # ejecta envelope density index
-
-# intermediate values
-# --------------------------------------------------------------------------------------------------
-fac1 = (5-delta)/(11-2*delta)
-vt = np.sqrt(2*(5-delta)*(omega-5) / ((3-delta)*(omega-3))) * np.sqrt(E_sn/M_ej)
-D = (5-delta)*(omega-5)/(2*pi*(omega-delta)) * E_sn / vt**5
+from environment import *
 
 # MWN bubble functions for t<<t0, from Bandiera et al. 2023
 # --------------------------------------------------------------------------------------------------

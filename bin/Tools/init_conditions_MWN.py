@@ -10,24 +10,6 @@ This file generates initial conditions for a nebula expanding in a supernova eje
 from models_MWN import *
 from solve_shocked_layers import get_shockedLayer
 
-# Parameters
-# to add: consistent reading of parameters 
-# --------------------------------------------------------------------------------------------------
-lfacwind = 100                  # wind Lorentz factor
-theta = 1.e-3                   # wind relativistic temperature at injection
-wc = 0.8                        # 0<wc<1, limit between internal and external shells
-r_0 = 1e18                      # scaling length for CSM in case k != 0
-k = 0                           # CSM density index
-t = 1e3                         # SN age at sim start
-
-# grid limits. Will be obtained from grid constructor later
-rmin0 = 1e9
-rmax0 = 1e12
-
-# intermediate values
-# --------------------------------------------------------------------------------------------------
-
-
 # Init condition generator
 # --------------------------------------------------------------------------------------------------
 # r is in cm, (rho, v, p) in CGS units
@@ -97,7 +79,7 @@ def init_conds_withShocks(r, t):
 
     A = (Pr_in/Pr_out) * ((3-k)/(omega-3))**2
     a = (omega - 3)/(omega - k)
-    R_e = (A * D *vt**omega / (mp_ * r_0**k))**(1/(omega-k)) * t**a
+    R_e = (A * D *vt**omega / (mp_ * R_0**k))**(1/(omega-k)) * t**a
     R_rs = rscd * R_e
     R_fs = fscd * R_e
 
@@ -162,7 +144,7 @@ def get_CSM_vars(r, t):
         v = 0.
         p = 1.
 
-    rho *= mp_ * (r_0/r)**k
+    rho *= mp_ * (R_0/r)**k
     p *= rho * c_**2 * 1e-6
 
     return rho, v, p
