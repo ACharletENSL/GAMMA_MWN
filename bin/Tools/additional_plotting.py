@@ -17,9 +17,29 @@ import matplotlib.animation as mpla
 c = 2.99792458e10
 mp = 1.67262192e-24
 
-rho_norm = 1*mp
+rho_norm = 1*mp   # normalize to external ambient density, read params if you want to change aprameter later
 p_norm = rho_norm * c**2
 x_norm = c
+
+# Parameters
+# to add: consistent reading of parameters 
+# --------------------------------------------------------------------------------------------------
+L0 = 5e45         # erg/s, wind kinetic luminosity
+t0 = 2e4          # s, spindown time
+n = 3             # braking index
+m = (n+1)/(n-1)   # spindown luminosity index
+E_sn = 1.e51      # erg, SNR kinetic energy
+M_ej = 3.*Msun_   # g, ejecta mass
+delta = 0         # ejecta core density index
+omega = 10        # ejecta envelope density index
+
+# characteristic scales from Truelove & McKee 1999, see also Bandiera 21 and following papers
+R_ch = (M_ej/rho_norm)**(1./3.)
+t_ch = E_sn**(-0.5)*M_ej**(5./6.)*rho_norm**(-1./3.)
+L_ch = E_sn/t_ch
+
+
+
 znorms = {#scale all variables
   "rho":rho_norm,
   "D":rho_norm,
@@ -112,6 +132,7 @@ def plotAnimated(var, itmin=0, itmax=None, filename='out.gif', key='Last'):
   
   def init():
     data, t, dt = openData_withtime(itmin, key)
+
     x, z, tracvals = getData1D(data, var, x_norm=x_norm, z_norm=znorms[var])
     ax.set_title("it {},  ".format(it) + r"$t_{sim} = $" +"{:.3e} s".format(dt))
     ax.loglog(x, z, 'rx')
@@ -192,7 +213,7 @@ def plotSim_default(it, key='Last'):
   data, t, dt = openData_withtime(it, key)
   varlist = ["rho", "u", "p"]
   
-  title = "it {},  ".format(it) + r"$t_{sim} = $" +"{:.3e} s".format(dt)
+  title = f"it {it},  " + r"$t_{sim}/t_{ch} = $" + f"{dt/t_ch:.3e} s"
 
   f, axes = plotMulti(data, varlist, logz=varlist, znorms=znorms, line=True, labels=labels, x_norm=x_norm)
   axes[-1].set_xlabel("$r$ (cm)")
