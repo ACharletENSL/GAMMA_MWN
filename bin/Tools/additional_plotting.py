@@ -13,8 +13,10 @@ from environment import *
 from plotting_scripts import *
 import matplotlib.animation as mpla
 
+t_start = 100 # need to rewrite a few things to update this correctly
+# maybe norms as a class? Plotting as functions of a data class?
 r_t = v_t * t_start
-rho_norm = M_ej/(4.*pi*r_t**3)
+rho_norm = D * t_start**3
 p_norm = rho_norm * c**2
 #rho_norm = 1*mp   # normalize to external ambient density, read params if you want to change aprameter later
 x_norm = c
@@ -65,6 +67,10 @@ def openData_withtime(it, key='Last'):
   dt = t-t0
   return data, t, dt
 
+def read_physInput(key='Last'):
+  dir_path = f'../../results/{key}/phys_input.MWN'
+  setupEnv(dir_path)
+
 # error criterion for AMR
 def calc_LoehnerError(sigma, eps=1e-2):
   '''Get refinement criterion for a given sigma(U)
@@ -111,7 +117,6 @@ def plotAnimated(var, itmin=0, itmax=None, filename='out.gif', key='Last'):
   
   def init():
     data, t, dt = openData_withtime(itmin, key)
-
     x, z, tracvals = getData1D(data, var, x_norm=x_norm, z_norm=znorms[var])
     ax.set_title("it {},  ".format(it) + r"$t_{sim} = $" +"{:.3e} s".format(dt))
     ax.loglog(x, z, 'rx')
@@ -190,9 +195,10 @@ def plotSim_default(it, key='Last'):
   By default will look for phys*it*.out in the Last/ folder
   '''
   data, t, dt = openData_withtime(it, key)
+  read_physInput(key)
   varlist = ["rho", "u", "p"]
   
-  title = f"it {it},  " + r"$t_{sim}/t_{ch} = $" + f"{dt/t_ch}"
+  title = f"it {it},  " + r"$t_{sim}/t_{c} = $" + f"{dt/t_c}"
 
   f, axes = plotMulti(data, varlist, logz=varlist, znorms=znorms, line=True, labels=labels, x_norm=x_norm)
   axes[-1].set_xlabel("$r$ (cm)")

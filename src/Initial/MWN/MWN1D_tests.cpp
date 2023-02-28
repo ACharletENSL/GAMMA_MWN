@@ -14,34 +14,34 @@ static double t_start = 1.e2;
 
 // Grid parameters
 static double dth     = M_PI/2./1000.;
-static double Ncells  = 2000;                  // Initial cell numbers in r direction
-static double Nmax    = 5000;                  // Max number of cells, must be > Ncells
-static double rmin0   = 1. ;                   // min r coordinate of grid (cm)
-static double rmax0   = 1. ;                   // max r coordinate of grid (cm)
+static double Ncells  = 2000;               // Initial cell numbers in r direction
+static double Nmax    = 5000;               // Max number of cells, must be > Ncells
+static double rmin0   = 1.0000e+09 ;        // min r coordinate of grid (cm)
+static double rmax0   = 1.0000e+13 ;        // max r coordinate of grid (cm)
 
 // Physical radii
-static double R_b = 1. ;                // nebula bubble radius (cm)
-static double R_c = 1. ;                // ejecta core radius (cm)
-static double R_e = 1. ;                // ejecta envelope radius (cm)
-static double R_0 = 1.e18 ;             // CSM scaling radius (for non-constant CSM)
+static double R_b = 5.1175e+10 ;            // nebula bubble radius (cm)
+static double R_c = 2.1556e+11 ;            // ejecta core radius (cm)
+static double R_e = 2.6944e+11 ;            // ejecta envelope radius (cm)
+static double R_0 = 1.e18 ;                 // CSM scaling radius (for non-constant CSM)
 
 // Flow variables
-static double rho_w   = 1. ;            // wind density at grid inner radius (g cm^-3)
-static double beta_w  = 1. ;            // wind velocity (units of c)
-static double Theta   = 1.e-6 ;         // wind relativistic temperature (p/rho c^2) at injection
-static double rho_ej  = 1. ;            // ejecta core density (g cm^-3)
-static double rho_csm = 1. ;            // CSM density (g cm^-3) 
-static double delta = 0 ;               // ejecta core density gradient
-static double omega = 10 ;              // ejecta envelope density gradient
-static double k = 0 ;                   // CSM density gradient
+static double rho_w   = 8.6552e-10 ;        // wind density at grid inner radius (g cm^-3)
+static double beta_w  = 9.9995e-01 ;        // wind velocity (units of c)
+static double Theta   = 1.e-6 ;             // wind relativistic temperature (p/rho c^2) at injection
+static double rho_ej  = 9.9566e-02 ;        // ejecta core density (g cm^-3)
+static double rho_csm = 1. ;                // CSM density (g cm^-3) 
+static double delta = 0 ;                   // ejecta core density gradient
+static double omega = 10 ;                  // ejecta envelope density gradient
+static double k = 0 ;                       // CSM density gradient
 
 // Refinement parameters
-static double ar0 = (rmax0-rmin0) / (Ncells*rmax0*dth);        // inital cell aspect ratio
-static double target_ar  = ar0;              // target aspect ratio
-static double split_AR   = 1.8;              // set upper bound as ratio of target_AR
-static double merge_AR   = pow(2., -lmax);   // set lower bound as ratio of target_AR
-static double split_chi  = 0.3;              // set upper bound for gradient-based refinement criterion (split cells at interface)
-static double merge_chi  = 0.1;              // set lower bound for gradient-based refinement criterion (merge cells outside of interfaces)
+static double ar0 = (rmax0-rmin0) / (Ncells*rmax0*dth);        // initial cell aspect ratio
+static double target_ar  = ar0;             // target aspect ratio
+static double split_AR   = 1.8;             // set upper bound as ratio of target_AR
+static double merge_AR   = pow(2., -lmax);  // set lower bound as ratio of target_AR
+static double split_chi  = 0.3;             // set upper bound for gradient-based refinement criterion (split cells at interface)
+static double merge_chi  = 0.1;             // set lower bound for gradient-based refinement criterion (merge cells outside of interfaces)
 
 // normalisation constants:
 static double rhoNorm = rho_ej;               // density normalised to ejecta density

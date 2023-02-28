@@ -6,13 +6,15 @@ This file contains physical constants in CGS units, read parameters and derives 
 '''
 from pathlib import Path
 import os
-from numpy import pi
+import numpy as np
+
+#params_path = Path().absolute().parents[1] / 'phys_input.MWN'
 
 # Constants
 c_ = 2.99792458e10
 mp_ = 1.67262192e-24
 Msun_ = 1.9891e33
-pi_ = pi
+pi_ = np.pi
 
 # Standard values
 R_ns = 1.e6                 # NS radius (cm)
@@ -30,62 +32,69 @@ wc = 0.8                    # ratio SNR core / SNR envelope (for non-shock initi
 rho_0 = 1. * mp_            # external density
 R_0 = 1.e18                 # external density scaling length (for non-constant CSM)        
 
-# parameters, to be initialized by reading phys_input.MWN
-P_0 = None                  # initial rotation period (s)
-E_0 = None                  # total energy injected in the nebula (erg)
-lfacwind = None             # wind Lorentz factor
 
-P_0, E_0, lfacwind, t_start = readParams()
-
-# intermediate values
-f = get_spindown_f(theta_B, sp_law)
-t_0 = I * c_**3 * P_0**2 / (8. * pi**2 * f * R_ns**6 * B_0**2)
-#L_0 = f * B_0**2 * R_ns**6 * (2.*pi)**4 / (c_**3 * P_0**4)
-L_0 = 2. * E_0 / ((n-1.)*t_0)
-
-fac1 = (5-delta)/(11-2*delta)
+# ejecta core expansion velocity (cm/s) at the core/envelope boundary
 v_t = np.sqrt(2*(5-delta)*(omega-5) / ((3-delta)*(omega-3))) * np.sqrt(E_sn/M_ej)
-D = (5-delta)*(omega-5)/(2*pi*(omega-delta)) * E_sn / v_t**5
+# density scaling of the ejecta (g cm^-3 s^3), rho = D * (v_t * t / r)^(index) / t^3
+D = (5-delta)*(omega-5)/(2*pi_*(omega-delta)) * E_sn / v_t**5
 
-# crossing time and radius from Blondin et al 2001 (see Granot 2017 appendix B)
-t_c = t_0 * 2.64 * ((omega - 5)/omega) * ((n-1)/2)
-R_c = v_t * t_c
+# stored in the MyEnv class:
+#P_0                  # initial rotation period (s)
+#E_0                  # total energy injected in the nebula (erg)
+#lfacwind             # wind Lorentz factor
+#t_start              # SNR age at simulation beginning
+#rmin0                # grid rmin (cm)
+#rmax0                # grid rmax (cm)
+#t_0                  # spindown time (s)
+#L_0                  # spindown luminosity (erg/s)
+#t_c                  # crossing time for the nebula (Blondin+ 01, see Granot+ 17)
+#R_c                  # crossing radius
 
-params_path = Path().absolute().parents[1] / 'phys_input.MWN'
+class MyEnv:
+  def setupEnv(self, path):
+    self.read_input(path)
+    self.update_params()
 
-def readParams(path=params_path):
-    '''Reads GAMMA/phys_input.MWN file, returns P_0'''
-    vars = ['P_0', 'E_0', 'lfacwind', 't_start']
-    P_0 = 0.
-    E_0 = 0.
-    lfacwind = 0.
-    if path.exists():
-        with path.open('r') as f:
-            lines = f.read().splitlines()
-            for line in lines:
-                l = line.split()
-                if l[0] == vars[0]:
-                    P_0 = float(l[2]) * 1e-3
-                elif l[0] == vars[1]:
-                    E_0 = float(l[2]) * E_sn
-                elif l[0] == vars[2]:
-                    lfacwind = float(l[2])
-                elif l[0] == vars[3]:
-                    t_start = float(l[3]) * t_0
-    else:
-        print('Parameter file not found')
-        exit(2)
-    
-    return P_0, E_0, lfacwind
-    
+  def read_input(self, path):
+    '''Reads GAMMA/phys_input.MWN file, updates environment values'''
+    with open(path, 'r') as f:
+      lines = f.read().splitlines()
+      for line in lines:
+        if line.startswith('P_0'):
+          l = line.split()
+          self.P_0 = float(l[2]) * 1e-3
+        elif line.startswith('E_0'):
+          l = line.split()
+          self.E_0 = float(l[2]) * E_sn
+        elif line.startswith('lfacwind'):
+          l = line.split()
+          self.lfacwind = float(l[2])
+        elif line.startswith('t_start'):
+          l = line.split()
+          self.t_start = float(l[2])
+        elif line.startswith('rmin0'):
+          l = line.split()
+          self.rmin0 = float(l[2])
+        elif line.startswith('rmax0'):
+          l = line.split()
+          self.rmax0 = float(l[2])
+      
+  def update_params(self):
+    '''Physical values derived from input parameters'''
+    f = get_spindown_f(theta_B, sp_law)
+    self.t_0 = I * c_**3 * self.P_0**2 / (8. * pi_**2 * f * R_ns**6 * B_0**2)
+    self.t_start *= self.t_0
+    self.L_0 = 2. * self.E_0 / ((n-1.)*self.t_0)
+    self.t_c = self.t_0 * 2.64 * ((omega - 5)/omega) * ((n-1)/2)
+    self.R_c = v_t * self.t_c
 
 def get_spindown_f(theta_B, sp_law):
-    '''Derive spindown parameter f'''
-    if sp_law=='vacuum':
-        f = (2./3.)*np.sin(theta_B)**2
-    elif sp_law=='force-free':
-        f = 1. + np.sin(theta_B)**2
-    else:
-        print('Wrong spindown law input, must be vacuum or force-free\nExiting...')
-        exit(1)
-    return f
+  '''Derive spindown parameter f'''
+  if sp_law=='vacuum':
+    f = (2./3.)*np.sin(theta_B)**2
+  elif sp_law=='force-free':
+    f = 1. + np.sin(theta_B)**2
+  else:
+    print('Wrong spindown law input, must be vacuum or force-free\nExiting...')
+    exit(1)
+  return f
