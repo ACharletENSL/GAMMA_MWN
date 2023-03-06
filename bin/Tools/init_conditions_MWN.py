@@ -7,15 +7,19 @@ This file generates initial conditions for a nebula expanding in a supernova eje
 
 # Imports
 # --------------------------------------------------------------------------------------------------
-from models_MWN import *
+from models_MWN import R_1st
+from environment import *
 from solve_shocked_layers import get_shockedLayer
 
 # Init condition generator
 # --------------------------------------------------------------------------------------------------
+env = MyEnv()
+env.setupEnv('../../phys_input.MWN')
+
 # r is in cm, (rho, v, p) in CGS units
 def init_conds_noShocks(r, t):
-    R_b = R_1st(t)                  # nebula radius
-    R_c = vt*t                      # ejecta core radius
+    R_b = R_1st(t, env.L_0, env.t_0)                  # nebula radius
+    R_c = v_t*t                     # ejecta core radius
     R_e = R_c/wc                    # ejecta envelope radius
 
     r_w = r[r<=R_b]
@@ -36,8 +40,8 @@ def init_conds_noShocks(r, t):
     return rho, v, p
 
 def init_conds_withShocks(r, t):
-    R_b = R_1st(t)                  # nebula radius
-    R_c = vt*t                      # ejecta core radius
+    R_b = R_1st(t, env.L_0, env.t_0)                  # nebula radius
+    R_c = v_t*t                     # ejecta core radius
     print(f"Initial conditions:\nNebula radius {R_b:.3e} cm, ejecta core radius {R_c:.3e} cm.\n")
     gma = 5./3.
 
@@ -56,9 +60,9 @@ def init_conds_withShocks(r, t):
     p_sh = np.array([])
     if l_sh:
         print(f"Shell initialized on {l_sh} cells\n")
-        eta = r_sh/R_b
+        eta = r_sh/R_s
         O, U, C = sol_thinshell.sol(eta)
-        rho_sh = D * vt**delta * r_sh**(-delta) * t**(delta-3) * O
+        rho_sh = D * v_t**delta * r_sh**(-delta) * t**(delta-3) * O
         v_sh = (r_sh/t) * U
         cs_sh =  (r_sh/t) * C
         p_sh = np.sqrt(rho_sh/gma)*cs_sh
@@ -79,7 +83,7 @@ def init_conds_withShocks(r, t):
 
     A = (Pr_in/Pr_out) * ((3-k)/(omega-3))**2
     a = (omega - 3)/(omega - k)
-    R_e = (A * D *vt**omega / (mp_ * R_0**k))**(1/(omega-k)) * t**a
+    R_e = (A * D *v_t**omega / (mp_ * R_0**k))**(1/(omega-k)) * t**a
     R_rs = rscd * R_e
     R_fs = fscd * R_e
 
@@ -107,9 +111,9 @@ def init_conds_withShocks(r, t):
 
     r_in = r[(r>=R_rs) & (r<=R_e)]
     if len(r_in):
-        eta = r_in/R_e
+        eta = r_in/R_rs
         O, U, C = sol_inner.sol(eta)
-        rho_in = D * vt**omega * r_in**(-omega) * t**(omega-3) * O
+        rho_in = D * v_t**omega * r_in**(-omega) * t**(omega-3) * O
         v_in = (r_in/t) * U
         cs_in = (r_in/t) * C
         p_in = np.sqrt(rho_in/gma)*cs_in
@@ -117,7 +121,7 @@ def init_conds_withShocks(r, t):
         # shocked CSM
         r_ext = r[(r>=R_e) & (r<=R_fs)]
         if len(r_ext):
-            eta = r_ext/R_e
+            eta = r_ext/R_fs
             O, U, C = sol_outer.sol(eta)
             rho_ext = rho_csm[0] * r_ext**-k * O
             v_ext = (r_ext/t) * U
@@ -152,23 +156,23 @@ def get_CSM_vars(r, t):
 # ejecta
 def get_ejecta_vars(r, t):
     ''' Generates density, velocity and pressure profile of the ejecta'''
-    R_c = vt*t                      # ejecta core radius
+    R_c = v_t*t                     # ejecta core radius
     R_e = R_c/wc                    # ejecta envelope radius
     try:
         size = len(r)
         rho = np.ones(size)
         v = np.ones(size)
         p = np.ones(size)
-        rho = np.where(r <= R_c, D * (vt/r)**delta / t**(3-delta), D * (vt/r)**omega / t**(3-omega))
+        rho = np.where(r <= R_c, D * (v_t/r)**delta / t**(3-delta), D * (v_t/r)**omega / t**(3-omega))
     except TypeError:
         rho = 1.
         v = 1.
         p = 1.
         if r <= R_c:
-            rho *= D * (vt/r)**delta / t**(3-delta)
+            rho *= D * (v_t/r)**delta / t**(3-delta)
         else:
-            rho *= D * (vt/r)**omega / t**(3-omega)
-    
+            rho *= D * (v_t/r)**omega / t**(3-omega)
+   
     v *= r/t
     p *= rho * c_**2 * 1e-6
 
@@ -190,9 +194,9 @@ def get_wind_vars(r, t, theta=1e-6):
         v = 1.
         p = 1.
 
-    rho = L0/(4. * pi_ * r**2 * lfacwind**2 * c_**3)
+    rho = env.L_0/(4. * pi_ * r**2 * env.lfacwind**2 * c_**3)
     v *= c_
-    p *= rho * theta * c_**2 * (rmin0/r)**(2*(gma-1.))
+    p *= rho * theta * c_**2 * (env.rmin0/r)**(2*(gma-1.))
 
     return rho, v, p
 

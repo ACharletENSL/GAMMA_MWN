@@ -28,6 +28,7 @@ M_ej = 3. * Msun_           # ejecta mass (g)
 E_sn = 1.e51                # SNR energy (erg)
 delta = 0                   # ejecta core density index
 omega = 10                  # ejecta envelope density index
+k = 0                       # CSM density index
 wc = 0.8                    # ratio SNR core / SNR envelope (for non-shock initializations)
 rho_0 = 1. * mp_            # external density
 R_0 = 1.e18                 # external density scaling length (for non-constant CSM)        
