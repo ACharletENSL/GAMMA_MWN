@@ -4,10 +4,8 @@ small txt file with physical and grid parameters
 -> copy params file in the results folder systematically, data analysis & plotting will read from there
 
 python script to:
-    create physical setup (grid map with r, dr, rho, v, p) using physical model (self-similar, etc.)
     update job name and automate results folder name/key
 
-Initial file (MWN1D.cpp) to read this map to initialize
 
 plotting:
     better separation between data handling and plot creation
