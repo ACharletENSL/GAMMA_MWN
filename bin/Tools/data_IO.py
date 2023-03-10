@@ -4,15 +4,16 @@
 '''
 This file opens and writes GAMMA data files, based on plotting_scripts.py
 in original GAMMA folder
-to add: 
-  data analysis at opening, identifying zones and adding marker
+to add:
   writing arrays in a GAMMA-compatible file to create initializations as we see fit
 '''
 
 # Imports
 # --------------------------------------------------------------------------------------------------
+import os
 import numpy as np
 import pandas as pd
+from phys_functions import *
 
 # Read data
 # --------------------------------------------------------------------------------------------------
@@ -26,7 +27,15 @@ def readData(key, it=None, sequence=True):
   data = pd.read_csv(filename, sep=" ")
   return(data)
 
-def readData_withzone(key, it=None, sequence=True):
+def openData_withtime(key, it):
+  data = readData(key, 0, True)
+  t0 = data['t'][0]
+  data = readData_withZone(key, it)
+  t = data['t'][0] # beware more complicated sims with adaptive time step ?
+  dt = t-t0
+  return data, t, dt
+
+def readData_withZone(key, it=None, sequence=True):
   data = readData(key, it, sequence)
   data_z = zoneID(data)
   return data_z
@@ -60,6 +69,17 @@ def dataList(key, itmin, itmax):
   its = ittemp
   return its
 
+def get_runfile(key):
+
+  '''
+  Returns path of file with analyzed datas over the run and boolean for its existence
+  '''
+
+  dir_path = '../../results/%s/' % (key)
+  file_path = dir_path + "extracted_data.txt"
+  file_bool = os.path.isfile(file_path)
+  return file_path, file_bool
+
 # Functions on one data file
 # --------------------------------------------------------------------------------------------------
 def get_radius_zone(df, n=0):
@@ -68,12 +88,39 @@ def get_radius_zone(df, n=0):
   Get the radius of the zone of chosen index
   (n=1 wind TS, n=2 nebula radius, etc.)
   '''
+  if n==0:
+    print("Asked n=0, returning rmin0")
   if 'zone' not in df.columns:
     df = zoneID(df)
 
   r = df['x']
   z = df['zone']
-  return r[zone == n].min()
+  return r[z == n].min()
+
+def get_variable(df, var):
+
+  '''
+  Returns coordinate and chosen variable, in code units
+  '''
+
+  # List of vars requiring calculation, as dict with associated function
+  calc_vars = {
+    "T":df_get_T,
+    "h":df_get_h,
+    "lfac":df_get_lfac,
+    "u":df_get_u,
+    "Ekin":df_get_Ekin,
+    "Eint":df_get_Eint
+  }
+
+  r = df["x"]
+  if var in calc_vars:
+    return r, calc_vars[var](df)
+  elif var in df.columns:
+    return r, df[var]
+  else:
+    print("Required variable doesn't exist.")
+    exit(2)
 
 
 # Zone identification
@@ -125,3 +172,35 @@ def get_step(arr):
   step_id = np.argmax(d_step)
 
   return step_id
+
+
+# Physical functions from dataframe
+def df_get_T(df):
+  rho = df["rho"]
+  p = df["p"]
+  return derive_temperature(rho, p)
+
+def df_get_h(df):
+  rho = df["rho"]
+  p = df["p"]
+  return derive_enthalpy(rho, p)
+
+def df_get_Eint(df):
+  rho = df["rho"]
+  p = df["p"]
+  return derive_Eint(rho, p)
+
+def df_get_lfac(df):
+  v = df["vx"]
+  return derive_Lorentz(v)
+
+def df_get_u(df):
+  v = df["vx"]
+  lfac = derive_Lorentz(v)
+  return lfac * v
+
+def df_get_Ekin(df):
+  rho = df["rho"]
+  lfac = df_get_lfac(df)
+  return (lfac-1)*rho
+

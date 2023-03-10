@@ -2,8 +2,12 @@
 # @Author: acharlet
 
 '''
-This file contains physical constants in CGS units, read parameters and derives useful quantities
+This file contains physical constants in CGS units, read parameters 
+and derives useful parameter-dependantquantities
 '''
+
+# Imports
+# --------------------------------------------------------------------------------------------------
 from pathlib import Path
 import os
 import numpy as np
@@ -26,13 +30,15 @@ n = 3                       # braking index
 m = (n+1)/(n-1)             # spindown luminosity index
 M_ej = 3. * Msun_           # ejecta mass (g)
 E_sn = 1.e51                # SNR energy (erg)
-delta = 0                   # ejecta core density index
-omega = 10                  # ejecta envelope density index
+delta = 0                   # ejecta core density index, must be < 3
+omega = 10                  # ejecta envelope density index, must be > 5
 k = 0                       # CSM density index
-wc = 0.8                    # ratio SNR core / SNR envelope (for non-shock initializations)
-rho_0 = 1. * mp_            # external density
+beta_ej = 0.7               # max ejecta velocity (units of c)
+n_0=  1.                    # number density of the CSM
+rho_0 = n_0 * mp_           # external density
 R_0 = 1.e18                 # external density scaling length (for non-constant CSM)        
 
+# add derivation of v_t/v_ej from energy conservation (see Suzuki & Maeda 17)
 
 # ejecta core expansion velocity (cm/s) at the core/envelope boundary
 v_t = np.sqrt(2*(5-delta)*(omega-5) / ((3-delta)*(omega-3))) * np.sqrt(E_sn/M_ej)
@@ -89,7 +95,7 @@ class MyEnv:
     self.t_c = self.t_0 * 2.64 * ((omega - 5)/omega) * ((n-1)/2)
     self.R_c = v_t * self.t_c
 
-def get_spindown_f(theta_B, sp_law):
+def get_spindown_f(theta_B, sp_law='force free'):
   '''Derive spindown parameter f'''
   if sp_law=='vacuum':
     f = (2./3.)*np.sin(theta_B)**2

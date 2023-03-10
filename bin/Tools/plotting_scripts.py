@@ -1,409 +1,131 @@
 # -*- coding: utf-8 -*-
-# @Author: eliotayache
-# @Date:   2020-05-14 16:24:48
-# @Last Modified by:   Arthur Charlet
-# @Last Modified time: 
+# @Author: acharlet
 
 '''
-This file contains functions used to print GAMMA outputs. These functions 
-should be run from the ./bin/Tools directory.
-This can be run from a jupyter or iPython notebook:
-$run plotting_scripts.py
-
-acharlet: Added z normalisation, separated data opening and data plotting
-Modifications for wrapper script additional_plotting.py
-Global rewrite to be done to fully separate the two
+This files contains plotting functions to plot GAMMA outputs and analyzed datas
 '''
 
 # Imports
 # --------------------------------------------------------------------------------------------------
 import numpy as np
-from scipy.signal import savgol_filter
-import pandas as pd
 import matplotlib
 matplotlib.use('tkagg')
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
+from environment import *
+from run_analysis import get_radii
+from data_IO import openData_withtime, readData_withZone, get_variable
 
-
-# MPL options
+# matplotlib options
 # --------------------------------------------------------------------------------------------------
 plt.rc('font', family='serif', size=12)
 plt.rc('xtick', labelsize=12) 
 plt.rc('ytick', labelsize=12) 
 plt.rc('legend', fontsize=12) 
 plt.rcParams['savefig.dpi'] = 200
+# add color coding of zones from 0 to 6, with 0-1, 2-4, 5-6 color grouped
+# if 'Paired' cmap is not what we want
 
+# Scaling
+# add scaling from environment as dictionnary entry
+t_scale_str = "1"
+t_scale = 1.
+r_scale = c_
+z_scale = 1.
 
-# IO functions
+# Legends and labels
+var_exp = {
+  "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$",
+  "D":"$\\gamma\\rho$", "sx":"\\gamma^2\\rho h$", "tau":"$\\tau$",
+  "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
+  "Eint":"$e$", "Ekin":"$e_k$"
+}
+var_units = {
+  "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
+  "D":"", "sx":"", "tau":"",
+  "T":"", "h":"", "lfac":"", "u":"",
+  "Eint":" (erg cm$^{-3}$)", "Ekin":" (erg cm$^{-3}$)"
+}
+
+# One-file plotting functions
 # --------------------------------------------------------------------------------------------------
-def readData(key, it=None, sequence=False):
-  if sequence:
-    filename = '../../results/%s/phys%010d.out' % (key, it)
-  elif it is None:
-    filename = '../../results/%s' % (key)
-  else:
-    filename = '../../results/%s%d.out' % (key, it)
-  data = pd.read_csv(filename, sep=" ")
-  return(data)
-
-
-def pivot(data, key):
-  return(data.pivot(index="j", columns="i", values=key).to_numpy())
-
-# Plotting functions
-# --------------------------------------------------------------------------------------------------
-def plotMulti(data, keys, jtrack=None, logx=True, logz=[], znorms={}, labels={}, **kwargs):
+def plot_mono(var, it, key='Last'):
 
   '''
-  Plots multiple variables for a single 1D track in the same figure.
-
-  Args:
-  -----
-  data: pandas dataframe. Output data.
-  keys: list of string. Variables to plot.
-
-  kwargs:
-  -------
-  log: list of strings. keys of variables to be plotted in logspace.
-
-  Returns:
-  --------
-  f: pyplot figure.
-  axes: list of axes contained in the figure.
-
-  Example usage:
-  --------------
-  f, axes = plotMulti(data, ["rho","p","lfac"], 
-    tracer=False,
-    line=False,
-    labels={"rho":"$\\rho/\\rho_0$", "p":"$p/p_0$","lfac":"$\\gamma$"}, 
-    x_norm=RShock)
+  Plots a var in a single figure with title, labels, etc.
   '''
 
-  Nk = len(keys)
+  df, t, tsim = openData_withtime(key, it)
+  # add t scaling (t_0, t_c, etc.)
+  title = f"it {it}, $t/{t_scale_str} = {tsim/t_scale:.3e}$ s"
+
+  plt.figure()
+  ax = plt.gca()
+  plot1D(var, it, key, ax)
+  ax.set_xlabel(var_exp["x"]+var_units["x"])
+  ax.set_ylabel(var_exp[var]+var_units[var])
+  plt.title(title)
+  plt.tight_layout()
+
+def plot_primvar(it, key='Last'):
+  
+  '''
+  Plots the primitive variables - with lfac*v instead of v - at chosen iteration in a single figure
+  '''
+  plot_multi(["rho", "u", "p"], it, key)
+
+def plot_consvar(it, key='Last'):
+
+  '''
+  Plots the conservative variables at chosen iteration in a signle figure
+  '''
+  plot_multi(["D", "sx", "tau"], it, key)
+
+def plot_multi(varlist, it, key='Last'):
+
+  '''
+  Plots variables among a list in a single figure
+  '''
+
+  df, t, tsim = openData_withtime(key, it)
+  # add t scaling (t_0, t_c, etc.)
+  title = f"it {it}, $t/{t_scale_str} = {tsim/t_scale:.3e}$ s"
+
+  Nk = len(varlist)
   f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6,2*Nk))
 
-  for key, k, ax in zip(keys, range(Nk), axes):
+  for var, k, ax in zip(varlist, range(Nk), axes):
+    ax.set_ylabel(var_exp[var]+var_units[var])
+    plot1D(var, it, key, ax)
+  
+  axes[-1].set_xlabel(var_exp["x"]+var_units["x"])
+  f.suptitle(title)
+  plt.tight_layout()
 
-    logkey = False
-    label = None
-    z_norm = None
-    if key in logz:
-      logzkey = True
-    if key in labels:
-      label = labels[key]
-    if key in znorms:
-      z_norm = znorms[key]
-
-    plot1D(data, key, ax, z_norm=z_norm, jtrack=jtrack, logx=logx, logz=logzkey, label=label, **kwargs)
-
-  #plt.tight_layout()
-
-  return(f, axes)
-
-
-def plot1D(data, key, ax=None, mov="x", logx=False, logz=True, v1min=None, tracer=False,
-           line=True, r2=False, x_norm=None, z_norm=None, jtrack=None, label=None, 
-           **kwargs):
+def plot1D(var, it, key, ax=None, z_norm=1., line=True, **kwargs):
 
   '''
-  Plots 1D outputs from GAMMA.
-  Works on 1D AND 2D outputs. In the 2D case, specify the jtrack to plot.
-
-  Args:
-  -----
-  data: pandas dataframe. Output data.
-  key: string. Variable to plot.
-
-  Example usage:
-  --------------
-  data = readData('Last/phys0000000000.out')
-  plot1D(data, "rho", log=True, jtrack=0)
+  Creates ax object to be insered in plot. Scales data
   '''
-
-  x, z, tracvals = getData1D(data, key, r2, x_norm, z_norm, jtrack)
 
   if ax is None:
     plt.figure()
     ax = plt.gca()
-
-  if label is not(None):
-    ax.set_ylabel(label)
-  else:
-    ax.set_ylabel(key)
-
-  if logx:
-    ax.set_xscale('log')
   
-  if logz:
-    ax.set_yscale('log')
+  ax.set_xscale('log')
+  ax.set_yscale('log')
+  
+  df = readData_withZone(key, it)
+  n = df["zone"] - 1
+  x, z = get_variable(df, var)
+  r = x*c_
+  z *= z_norm
 
   if line:
-    ax.plot(x, z, 'k',zorder=1)    
-  ax.scatter(x, z, c='None', edgecolors='k', lw=2, zorder=2, label="numerical")
-  if tracer:
-    ax.scatter(x, z, c=tracvals, edgecolors='None', zorder=3, cmap='cividis')
-
-def plotSlope1D(data, key, ax=None, mov="x", v1min=None, tracer=False,
-           line=True, r2=False, x_norm=None, jtrack=None, label=None, 
-           **kwargs):
-  '''
-  Plots the logarithmic slope of the chosen data. Follows the rules of plot1D()
-  Without options logx, logz and znorm of plot1D
-  '''
-
-  x, z, tracvals = getData1D(data, key, r2, x_norm, jtrack)
-
-  if ax is None:
-    plt.figure()
-    ax = plt.gca()
-
-  if label is not(None):
-    ax.set_ylabel(label)
-  else:
-    ax.set_ylabel(key+' slope')
-  
-  logx = np.log10(x)
-  logz = np.log10(z)
-  grad = np.gradient(logz, logx)
-  s = savgol_filter(grad, 9, 3)
-
-  if line:
-    ax.plot(x, s, 'k',zorder=1)    
-  ax.scatter(x, s, c='None', edgecolors='k', lw=2, zorder=2, label="numerical")
-  if tracer:
-    ax.scatter(x, s, c=tracvals, edgecolors='None', zorder=3, cmap='cividis')
-  
-  ax.set_xscale("log")
-  ax.set_ylim((-5, 5))
+    ax.plot(r, z, 'k', zorder=1)
+  ax.scatter(r, z, c=n, lw=1, zorder=2, cmap='Paired')
 
 
-def getData1D(data, key, r2=False, x_norm=None, z_norm=None, jtrack=None):
-  '''
-  Returns x and z data according to chosen key
-  '''
-  def gamma(rho, p):
-    g = 5./3.
-    a = p/(rho * (g-1.))
-    e_ratio = a + np.sqrt(1 + a*a)
-    g_eff = g - (g-1.)/2. * (1.-1./(e_ratio*e_ratio))
-    return g_eff
+# Multi file plotting functions
+# --------------------------------------------------------------------------------------------------
+# write extracted datas in a separated file to avoid redo analysis every time
 
-  if key == "lfac":
-    var = "vx"
-  elif key == "erest":
-    var = "rho"
-  elif key == "u":
-    var = "vx"
-  else:
-    var = key
-
-  if jtrack is not(None):
-    z = pivot(data, var)[jtrack, :]
-    x = pivot(data, "x")[jtrack, :]
-    tracvals = pivot(data, "trac")[jtrack, :]
-  else:
-    if key == "T":
-      rho = data["rho"].to_numpy()
-      p = data["p"].to_numpy()
-      z = p / rho
-    elif key == "h":
-      rho = data["rho"].to_numpy()
-      p = data["p"].to_numpy()
-      gma = gamma(rho, p)
-      z   = 1.+p*gma/(gma-1.)/rho
-    elif key == "u":
-      v = data["vx"].to_numpy()
-      lfac = 1./np.sqrt(1 - v**2)
-      z = v*lfac
-    elif key == "ref":
-      D = data["D"].to_numpy()
-      z = refCriterion(D)
-    elif key == "ekin":
-      rho = data["rho"].to_numpy()
-      vx = data["vx"].to_numpy()
-      lfac = 1./np.sqrt(1 - vx**2)
-      z = (lfac-1)*rho
-    elif key == "eint":
-      rho = data["rho"].to_numpy()
-      p = data["p"].to_numpy()
-      gma = gamma(rho, p)
-      z = p/(gma-1)
-    else:
-      z = data[var].to_numpy()
-    x = np.copy(data["x"].to_numpy())
-    tracvals = data["trac"].to_numpy()
-
-  if x_norm is not(None):
-    x *= x_norm
-  
-  if z_norm is not(None):
-    z *= z_norm
-
-  if key == "lfac":
-    z = 1./np.sqrt(1 - z**2)
-
-  if r2:
-    z *= x**2
-  
-  return x, z, tracvals
-
-
-def plot2D(data, key, z_override=None, mov="x", log=False, v1min=None, 
-           geometry="cartesian", quiver=False, color=None,  edges='None', 
-           invert=False, r2=False, cmap='magma', tlayout=False, colorbar=True, 
-           slick=False, phi=0., fig=None, label=None, axis=None,  thetaobs=0., 
-           nuobs=1.e17, shrink=0.6, expand=False):
-
-  '''
-  Plots 2D outputs from GAMMA.
-
-  Args:
-  -----
-  data: pandas dataframe. Output data.
-  key: string. Variable to plot.
-
-  Returns:
-  --------
-  xmin: double. Minimum coordinate x in data.
-  xmax: double. Maximum coordinate x in data.
-  thetamax: double. Highest track angle in polar geometry.
-  im: pyplot.image. 2D map of the requested variable.
-
-  Example usage:
-  --------------
-  data = readData('Last/phys0000000000.out')
-
-  # On specific axes
-  f = plt.figure()
-  ax = plt.axes(projection='polar')
-  plot2D(data, "rho", fig=f, axis=ax, **kwargs)
-
-  # On axies of its own
-  plot2D(data, "rho", geometry='polar', **kwargs)
-  '''
-
-  if z_override is not None:
-    z = z_override
-  if key == "lfac":
-    vx = data.pivot(index='j', columns='i', values="vx").to_numpy()
-    vy = data.pivot(index='j', columns='i', values="vy").to_numpy()
-    z = 1./np.sqrt(1 - (vx**2+vy**2))    
-  else:
-    z = data.pivot(index='j', columns='i', values=key).to_numpy()
-  x = data.pivot(index='j', columns='i', values='x').to_numpy()
-  dx = data.pivot(index='j', columns='i', values='dx').to_numpy()
-  y = data.pivot(index='j', columns='i', values='y').to_numpy()
-  dy = data.pivot(index='j', columns='i', values='dy').to_numpy()
-
-  # duplicating last row for plotting
-  z = np.append(z, np.expand_dims(z[-1, :], axis=0), axis=0)
-  x = np.append(x, np.expand_dims(x[-1, :], axis=0), axis=0)
-  dx = np.append(dx, np.expand_dims(dx[-1, :], axis=0), axis=0)
-  y = np.append(y, np.expand_dims(y[-1, :], axis=0), axis=0)
-  dy = np.append(dy, np.expand_dims(dy[-1, :], axis=0), axis=0)
-
-  # duplicating first column for plotting
-  z = np.append(z, np.expand_dims(z[:, -1], axis=1), axis=1)
-  x = np.append(x, np.expand_dims(x[:, -1], axis=1), axis=1)
-  dx = np.append(dx, np.expand_dims(dx[:, -1], axis=1), axis=1)
-  y = np.append(y, np.expand_dims(y[:, -1], axis=1), axis=1)
-  dy = np.append(dy, np.expand_dims(dy[:, -1], axis=1), axis=1)
-
-  nact = np.array([np.count_nonzero(~np.isnan(xj)) for xj in x])
-
-  if (quiver):
-    vx = data.pivot(index='j', columns='i', values='vx').to_numpy()
-    vx = np.append(vx, np.expand_dims(vx[-1, :], axis=0), axis=0)
-    vx = np.ma.masked_array(vx, np.isnan(vx))
-
-  if r2:
-    z *= x**2
-
-  xmin = np.nanmin(x)
-  xmax = np.nanmax(x)
-  ymin = np.nanmin(y)
-  ymax = np.nanmax(y)
-
-  vmax = np.nanmax(z[4:, :])
-  vmin = np.nanmin(z)
-  if log:
-    vmin = np.nanmin(z[z > 0])
-  if v1min:
-    vmin = v1min
-
-  if geometry == "polar":
-    projection = "polar"
-  else:
-    projection = None
-
-  if axis is None:
-    f = plt.figure()
-    ax = plt.axes(projection=projection)
-  else:
-    f = fig
-    ax = axis
-
-  if geometry == "polar" or axis is not None:
-    ax.set_thetamax(ymax*180./np.pi)
-    ax.set_thetamin(ymin*180./np.pi)
-    if invert:
-      ax.set_thetamin(-ymax*180./np.pi)
-
-  if slick:
-    ax.axis("off")
-
-  for j in range(z.shape[0]-1):
-    xj = x - dx/2.
-    yj = y - dy/2.
-    dyj = dy
-    xj[j, nact[j]-1] += dx[j, nact[j]-1]
-
-    if mov == 'y':
-      tmp = np.copy(xj)
-      xj = yj
-      yj = np.copy(tmp)
-      dyj = dx
-
-    xj[j+1, :] = xj[j, :]   
-    yj[j+1, :] = yj[j, :]+dyj[j, :]   
-
-    xj = xj[j:j+2, :]
-    yj = yj[j:j+2, :]
-    zj = z[j:j+2, :]
-
-    if invert:
-      yj *= -1
-
-    if log:
-      im = ax.pcolor(yj, xj, zj, 
-                     norm=LogNorm(vmin=vmin, vmax=vmax), 
-                     edgecolors=edges,
-                     cmap=cmap,
-                     facecolor=color)
-    else:
-      im = ax.pcolor(yj, xj, zj, 
-                     vmin=vmin, vmax=vmax, 
-                     edgecolors=edges, 
-                     cmap=cmap,
-                     facecolor=color)
-
-  if geometry != "polar":
-    ax.set_aspect('equal')
-  if geometry == "polar" or axis is not None:
-    ax.set_rorigin(0)
-    ax.set_rmin(xmin)
-    ax.set_rticks([xmin, xmax])
-
-  if colorbar:
-    cb = f.colorbar(im, ax=ax, orientation='vertical', shrink=shrink, pad=0.1)
-    if label is None:
-      label = key  
-    cb.set_label(label, fontsize=14)
-
-  if tlayout:
-    f.tight_layout()
-
-  thetamax = ymax*180./np.pi
-  return xmin, xmax, thetamax, im

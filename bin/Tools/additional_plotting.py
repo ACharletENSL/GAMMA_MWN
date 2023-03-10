@@ -10,23 +10,23 @@ in plotting_scripts for plots more suited to our work.
 # --------------------------------------------------------------------------------------------------
 import os
 from environment import *
-from plotting_scripts import *
+from plotting_scripts_old import *
 import matplotlib.animation as mpla
 
 t_start = 100 # need to rewrite a few things to update this correctly
 # maybe norms as a class? Plotting as functions of a data class?
 r_t = v_t * t_start
 rho_norm = D * t_start**3
-p_norm = rho_norm * c**2
+p_norm = rho_norm * c_**2
 #rho_norm = 1*mp   # normalize to external ambient density, read params if you want to change aprameter later
-x_norm = c
+x_norm = c_
 
 znorms = {#scale all variables
   "rho":rho_norm,
   "D":rho_norm,
-  "vx":c,
+  "vx":c_,
   "p":p_norm,
-  "dx":c,
+  "dx":c_,
   "h":1.,
   "T":1.,
   "dx":x_norm,

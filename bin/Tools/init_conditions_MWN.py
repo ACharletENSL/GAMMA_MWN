@@ -18,9 +18,9 @@ env.setupEnv('../../phys_input.MWN')
 
 # r is in cm, (rho, v, p) in CGS units
 def init_conds_noShocks(r, t):
-    R_b = R_1st(t, env.L_0, env.t_0)                  # nebula radius
-    R_c = v_t*t                     # ejecta core radius
-    R_e = R_c/wc                    # ejecta envelope radius
+    R_b = R_1st(t, env.L_0, env.t_0)            # nebula radius
+    R_c = v_t*t                                 # ejecta core radius
+    R_e = R_c * ((v_t/c_)/beta_ej)              # ejecta envelope radius
 
     r_w = r[r<=R_b]
     rho_w, v_w, p_w = get_wind_vars(r_w, t)
@@ -148,7 +148,7 @@ def get_CSM_vars(r, t):
         v = 0.
         p = 1.
 
-    rho *= mp_ * (R_0/r)**k
+    rho *= rho_0 * (R_0/r)**k
     p *= rho * c_**2 * 1e-6
 
     return rho, v, p
