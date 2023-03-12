@@ -105,7 +105,7 @@ int Grid::initialValues(){
       p_ram = std::min(p_ram, p);
 
       c->S.prim[RHO] = rho / rhoNorm;
-      c->S.prim[VV1] = betaw;
+      c->S.prim[VV1] = beta_w;
       c->S.prim[PPP] = p / pNorm;
     }
     else if ((r_denorm > R_b) && (r_denorm <= R_e)){  // SNR ejecta
@@ -170,7 +170,7 @@ void Grid::userBoundaries(int it, double t){
 
     c->G.x[x_]     = r;
     c->computeAllGeom();
-    c->S.prim[RHO] = rho_w/rhoNorm;
+    c->S.prim[RHO] = rho_w / rhoNorm;
     c->S.prim[VV1] = beta_w;
     c->S.prim[VV2] = 0;
     c->S.prim[PPP] = Theta * rho_w * c_ * c_ / pNorm;
