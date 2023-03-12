@@ -39,7 +39,7 @@ static double k = 0 ;                       // CSM density gradient
 static double ar0 = (rmax0-rmin0) / (Ncells*rmax0*dth);        // initial cell aspect ratio
 static double target_ar  = ar0;             // target aspect ratio
 static double split_AR   = 1.8;             // set upper bound as ratio of target_AR
-static double merge_AR   = pow(2., -lmax);  // set lower bound as ratio of target_AR
+static double merge_AR   = 0.1;             // set lower bound as ratio of target_AR
 static double split_chi  = 0.3;             // set upper bound for gradient-based refinement criterion (split cells at interface)
 static double merge_chi  = 0.1;             // set lower bound for gradient-based refinement criterion (merge cells outside of interfaces)
 
