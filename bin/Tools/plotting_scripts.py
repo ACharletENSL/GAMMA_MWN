@@ -53,7 +53,7 @@ def plot_mono(var, it, key='Last'):
   '''
   Plots a var in a single figure with title, labels, etc.
   '''
-
+  # add phys input copy in each folder and read from key
   df, t, tsim = openData_withtime(key, it)
   # add t scaling (t_0, t_c, etc.)
   title = f"it {it}, $t/{t_scale_str} = {tsim/t_scale:.3e}$ s"
@@ -115,17 +115,26 @@ def plot1D(var, it, key, ax=None, z_norm=1., line=True, **kwargs):
   ax.set_yscale('log')
   
   df = readData_withZone(key, it)
-  n = df["zone"] - 1
+  n = df["zone"] + 1
   x, z = get_variable(df, var)
   r = x*c_
   z *= z_norm
 
   if line:
     ax.plot(r, z, 'k', zorder=1)
-  ax.scatter(r, z, c=n, lw=1, zorder=2, cmap='Paired')
+  scatter = ax.scatter(r, z, c=n, lw=1, zorder=2, cmap='Paired')
+  ax.legend(*scatter.legend_elements())
 
 
 # Multi file plotting functions
 # --------------------------------------------------------------------------------------------------
-# write extracted datas in a separated file to avoid redo analysis every time
-
+def plot_radii(key='Last'):
+  '''
+  Plot the various shock/CD radius of the simulation vs time
+  '''
+  rad_legend = ['$R_{TS}$', '$R_{b}$', '$R_{shell}$', '$R_{RS}$', '$R_{CD}$', '$R_{FS}$']
+  time, radii = get_radii(key)
+  Nr = radii.shape[0]
+  for n in range(Nr):
+    plt.loglog(time, radii[n], c=(n+1), label=rad_legend[n], cmap='Paired')
+  plt.legend()

@@ -17,7 +17,7 @@ static double dth     = M_PI/2./1000.;
 static double Ncells  = 2000;               // Initial cell numbers in r direction
 static double Nmax    = 5000;               // Max number of cells, must be > Ncells
 static double rmin0   = 1.0000e+09 ;        // min r coordinate of grid (cm)
-static double rmax0   = 1.0000e+13 ;        // max r coordinate of grid (cm)
+static double rmax0   = 1.0000e+11 ;        // max r coordinate of grid (cm)
 
 // Physical radii
 static double R_b = 5.1175e+10 ;            // nebula bubble radius (cm)
@@ -238,7 +238,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
 void Simu::dataDump(){
   // if (it%5 == 0){ grid.printCols(it, t); }
-  if (it%100 == 0){ grid.printCols(it, t); }
+  if (it%1000 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -251,7 +251,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 5000){ stop = true; }
+  if (it > 50000){ stop = true; }
   // if (t > 1.02e3){stop = true; } // 3.33e8 BOXFIT simu
 
 }

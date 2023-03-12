@@ -16,6 +16,7 @@ def get_radii(key='Last', itmin=0, itmax=None):
 
   '''
   Returns various R(t) of z given results folder
+  Add checking for similarity with existing data and write missing ones
   '''
   dfile_path, dfile_bool = get_runfile(key)
   all_its = dataList(key, 0, None)
@@ -45,21 +46,22 @@ def get_radii(key='Last', itmin=0, itmax=None):
     header = "time\t"
     for rad in radlist[:Nz]:
       header += rad + "\t"
+    header += "\n"
+    with open(dfile_path, 'w') as f:
+      f.write(header)
+
     radii = np.zeros((Nz, Nit))
 
     for i, it in enumerate(its):
       df, t, dt = openData_withtime(key, it)
       time[i] = dt
+      line = f"{dt}\t"
       for n in range(Nz):
         r_n = get_radius_zone(df, n+1)
         radii[n,i] = r_n
-
-    with open(dfile_path, 'w') as f:
-      f.write(header)
-      for i in len(its):
-        line = f"{time[i]}\t"
-        for n in range(Nz):
-          line += f"{radii[n, i]}\t"
-        f.write(line)
+        line += f"{r_n}\t"
+      line += "\n"
+      with open(dfile_path, 'a') as f:
+        f.write(line)   
   
   return time, radii

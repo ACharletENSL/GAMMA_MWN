@@ -149,13 +149,13 @@ def zoneID(df):
     D   = df['D']
     zone = np.zeros(rho.shape)
     
-    i_b  = get_step(p)
-    i_s  = get_step(rho)
-    i_ej = get_step(-p)
+    i_ts  = get_step(p)
+    i_b  = get_step(rho)
+    i_sh = get_step(-p)
 
+    zone[i_ts:]  += 1
     zone[i_b:]  += 1
-    zone[i_s:]  += 1
-    zone[i_ej:] += 1
+    zone[i_sh:] += 1
 
     df2 = df.assign(zone=zone)
     return df2
