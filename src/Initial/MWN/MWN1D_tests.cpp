@@ -30,7 +30,7 @@ static double rho_w   = 8.6552e-10 ;        // wind density at grid inner radius
 static double beta_w  = 9.9995e-01 ;        // wind velocity (units of c)
 static double Theta   = 1.e-6 ;             // wind relativistic temperature (p/rho c^2) at injection
 static double rho_ej  = 9.9566e-02 ;        // ejecta core density (g cm^-3)
-static double rho_csm = 1. ;                // CSM density (g cm^-3) 
+static double rho_csm = 1.6726e-24 ;        // CSM density (g cm^-3) 
 static double delta = 0 ;                   // ejecta core density gradient
 static double omega = 10 ;                  // ejecta envelope density gradient
 static double k = 0 ;                       // CSM density gradient
@@ -122,7 +122,7 @@ int Grid::initialValues(){
       c->S.prim[PPP] = p_ram / pNorm ;
     }
     else{                                             // CSM
-      double rho = rho_CMB * pow(r_denorm/R_0, k);
+      double rho = rho_csm * pow(r_denorm/R_0, k);
       c->S.prim[RHO] = rho / rhoNorm;
       c->S.prim[VV1] = 0.;
       c->S.prim[PPP] = p_ram / pNorm ;
@@ -139,12 +139,12 @@ void Grid::userKinematics(int it, double t){
 
   UNUSED(it);
   UNUSED(t);
-  /*
+  
   for (int n = 0; n < ngst; ++n){
     // fixes ghost cells of left boundary with zero velocity
     int    iL = n;
     Itot[iL].v = 0;
-  }*/
+  }
 }
 
 void Cell::userSourceTerms(double dt){
@@ -157,7 +157,7 @@ void Cell::userSourceTerms(double dt){
 void Grid::userBoundaries(int it, double t){
   // Overrides Grid::updateGhosts in 1d/2d/3d.cpp
 
-  /*double rmin = rmin0;
+  double rmin = rmin0;
   double rmax = rmax0;
   rmin /= lNorm;
   rmax /= lNorm;
@@ -167,24 +167,19 @@ void Grid::userBoundaries(int it, double t){
   for (int i = 0; i <+ iLbnd+1; ++i){
     Cell *c = &Ctot[i];
     double r = rmin - (iLbnd-i+1)*dr;
-    double r_denorm = r*lNorm;
-    // double dr = (r + abs(rmin) - rmin)*(pow(10, step) - 1);
-    double rho = rhow * pow(r_denorm/rmin0, -2);
-    double gma = calcGamma_wind(r_denorm, theta);
-    double p = p_inj * pow(r_denorm/rmin0, -2*gma);
 
     c->G.x[x_]     = r;
     c->computeAllGeom();
-    c->S.prim[RHO] = rho/rhoNorm;
-    c->S.prim[VV1] = uw;
+    c->S.prim[RHO] = rho_w/rhoNorm;
+    c->S.prim[VV1] = beta_w;
     c->S.prim[VV2] = 0;
-    c->S.prim[PPP] = p / pNorm;
+    c->S.prim[PPP] = Theta * rho_w * c_ * c_ / pNorm;
     c->S.prim[TR1] = 1.;
 
     // double dr_n = c->G.dx[x_];
 
     // cout << "calc dr = " << dr*c_ << ", cell init dr = " << dr_i*c_ << ", new dr = " << dr_n*c_ << "\n";
-  }*/
+  }
 
   UNUSED(it);
   UNUSED(t);

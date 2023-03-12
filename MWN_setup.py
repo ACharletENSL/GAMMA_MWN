@@ -38,7 +38,7 @@ def update_simFile(filepath):
 
   vars2update = {
     'rmin0':env.rmin0, 'rmax0':env.rmax0, 'R_b':R_b, 'R_c':R_c, 'R_e':R_e,
-    'rho_w':rho_w, 'beta_w':beta_w, 'rho_ej':rho_ej, 'rho_0':rho_0
+    'rho_w':rho_w, 'beta_w':beta_w, 'rho_ej':rho_ej, 'rho_csm':rho_csm
   }
   out_lines = []
   with open(filepath, 'r') as inf:

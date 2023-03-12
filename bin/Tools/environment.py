@@ -35,7 +35,7 @@ omega = 10                  # ejecta envelope density index, must be > 5
 k = 0                       # CSM density index
 beta_ej = 0.7               # max ejecta velocity (units of c)
 n_0=  1.                    # number density of the CSM
-rho_0 = n_0 * mp_           # external density
+rho_csm = n_0 * mp_         # external density
 R_0 = 1.e18                 # external density scaling length (for non-constant CSM)        
 
 # add derivation of v_t/v_ej from energy conservation (see Suzuki & Maeda 17)
