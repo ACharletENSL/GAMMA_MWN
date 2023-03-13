@@ -163,7 +163,8 @@ void Grid::userBoundaries(int it, double t){
   rmax /= lNorm;
   // double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/ncell[x_];
   double dr = (rmax-rmin)/ncell[x_];
- 
+  double u_w = beta_w / sqrt(1. - beta_w*beta_w);
+
   for (int i = 0; i <+ iLbnd+1; ++i){
     Cell *c = &Ctot[i];
     double r = rmin - (iLbnd-i+1)*dr;
@@ -173,7 +174,7 @@ void Grid::userBoundaries(int it, double t){
     c->G.x[x_]     = r;
     c->computeAllGeom();
     c->S.prim[RHO] = rho / rhoNorm;
-    c->S.prim[VV1] = beta_w;
+    c->S.prim[VV1] = u_w;
     c->S.prim[VV2] = 0;
     c->S.prim[PPP] = Theta * rho_w * c_ * c_ / pNorm;
     c->S.prim[TR1] = 1.;
