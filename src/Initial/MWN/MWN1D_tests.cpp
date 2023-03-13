@@ -17,7 +17,7 @@ static double dth     = M_PI/2./1000.;
 static double Ncells  = 2000;               // Initial cell numbers in r direction
 static double Nmax    = 5000;               // Max number of cells, must be > Ncells
 static double rmin0   = 1.0000e+09 ;        // min r coordinate of grid (cm)
-static double rmax0   = 1.0000e+13 ;        // max r coordinate of grid (cm)
+static double rmax0   = 1.0000e+11 ;        // max r coordinate of grid (cm)
 
 // Physical radii
 static double R_b = 5.1175e+10 ;            // nebula bubble radius (cm)
@@ -169,7 +169,6 @@ void Grid::userBoundaries(int it, double t){
     double r = rmin - (iLbnd-i+1)*dr;
 
     c->G.x[x_]     = r;
-    c->computeAllGeom();
     c->S.prim[RHO] = rho_w / rhoNorm;
     c->S.prim[VV1] = beta_w;
     c->S.prim[VV2] = 0;

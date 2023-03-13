@@ -47,6 +47,16 @@ double FluidState::gamma(){
     double gamma_eff = GAMMA_ - (GAMMA_-1.)/2. * (1.-1./(e_ratio*e_ratio));
     return(gamma_eff);
 
+  #elif EOS_ == RYU_EOS_
+    double rho = prim[RHO];
+    double p = prim[PPP];
+    double T = p/rho;
+    // double h = 2. * (6. * T * T + 4. * T + 1.) / (3. * T + 2.);
+    // double gamma_eff = (h - 1.) / (h - 1. - T);
+    double y = 3. * T + 1.;
+    double gamma_eff = (4. * y + 1.) / (3. * y);
+    return(gamma_eff);
+    
   #endif
 
 }
