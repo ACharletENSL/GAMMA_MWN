@@ -240,7 +240,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
 void Simu::dataDump(){
   // if (it%5 == 0){ grid.printCols(it, t); }
-  if (it%1 == 0){ grid.printCols(it, t); }
+  if (it%100 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -253,7 +253,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 20){ stop = true; }
+  if (it > 1000){ stop = true; }
   // if (t > 1.02e3){stop = true; } // 3.33e8 BOXFIT simu
 
 }
