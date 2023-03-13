@@ -46,7 +46,7 @@ var_units = {
 
 # One-file plotting functions
 # --------------------------------------------------------------------------------------------------
-def plot_mono(var, it, key='Last'):
+def plot_mono(var, it, key='Last', slope=False):
 
   '''
   Plots a var in a single figure with title, labels, etc.
@@ -55,9 +55,14 @@ def plot_mono(var, it, key='Last'):
 
   plt.figure()
   ax = plt.gca()
-  t = plot1D(var, it, key, ax)
+  t = plot1D(var, slope, it, key, ax)
   ax.set_xlabel(var_exp["x"]+var_units["x"])
-  ax.set_ylabel(var_exp[var]+var_units[var])
+  varlabel = var_exp[var]
+  if slope:
+    varlabel = "d$\\log(" + varlabel.replace('$', '') + ")/$d$\\log r$"
+  else:
+    varlabel += var_units[var]
+  ax.set_ylabel(varlabel)
   t_str = f"{t:.2e}"
   base, exponent = t_str.split("e")
   t_str = f"{base} \\times 10^{{{int(exponent)}}}"
@@ -90,7 +95,7 @@ def plot_multi(varlist, it, key='Last'):
 
   for var, k, ax in zip(varlist, range(Nk), axes):
     ax.set_ylabel(var_exp[var]+var_units[var])
-    t = plot1D(var, it, key, ax)
+    t = plot1D(var, False, it, key, ax)
   
   t_str = f"{t:.2e}"
   base, exponent = t_str.split("e")
@@ -101,7 +106,7 @@ def plot_multi(varlist, it, key='Last'):
   f.suptitle(title)
   plt.tight_layout()
 
-def plot1D(var, it, key, ax=None, z_norm=1., line=True, **kwargs):
+def plot1D(var, slope, it, key, ax=None, z_norm=1., line=True, **kwargs):
 
   '''
   Creates ax object to be insered in plot. Scales data
@@ -119,14 +124,22 @@ def plot1D(var, it, key, ax=None, z_norm=1., line=True, **kwargs):
     ax = plt.gca()
   
   ax.set_xscale('log')
-  ax.set_yscale('log')
+  if slope:
+    ax.set_ylim(-5, 2)
+  else:
+    ax.set_yscale('log')
   
   df, t, dt = openData_withtime(key, it)
   dt /= tscales[t_scale_str]
   n = df["zone"] + 1
   x, z = get_variable(df, var)
   r = x*c_
-  z *= z_norm
+  if slope:
+    logx = np.log10(x)
+    logz = np.log10(z)
+    z = np.gradient(logz, logx)
+  else:
+    z *= z_norm
 
   if line:
     ax.plot(r, z, 'k', zorder=1)
