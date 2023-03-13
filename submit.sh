@@ -1,6 +1,6 @@
 #!/bin/sh
-#SBATCH --nodes=2
-#SBATCH --nodelist=cn[04-05]
+#SBATCH --nodes=1
+##SBATCH --nodelist=cn04
 #SBATCH --job-name="lowL0"
 #SBATCH --output=lowL0.out
 #SBATCH --mail-user arthur.charlet@ens-lyon.fr
@@ -19,4 +19,4 @@ spack load mpich gsl
 #export LD_LIBRARY_PATH="/prefix/el8/software/gcc-8.5.0/gsl-2.7.1-g2z66xwa/lib"
 
 # add -c np to set number of CPUs
-srun --mpi=pmix -n 2 ./bin/GAMMA -w
+srun --mpi=pmix -n 1 ./bin/GAMMA -w
