@@ -240,7 +240,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
 void Simu::dataDump(){
   // if (it%5 == 0){ grid.printCols(it, t); }
-  if (it%1000 == 1){ grid.printCols(it, t); }
+  if (it%1 == 1){ grid.printCols(it, t); }
 
 }
 
