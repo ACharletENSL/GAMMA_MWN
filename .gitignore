@@ -3,9 +3,10 @@
 # compiled files
 *.o
 *.pyc
+__pycache__/
 
 # outputs
 *.out
 
-# results forlder
+# results folder
 results/

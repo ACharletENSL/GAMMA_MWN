@@ -17,7 +17,7 @@ from phys_functions import *
 
 # Read data
 # --------------------------------------------------------------------------------------------------
-def readData(key, it=None, sequence=True):
+def openData(key, it=None, sequence=True):
   if sequence:
     filename = '../../results/%s/phys%010d.out' % (key, it)
   elif it is None:
@@ -28,15 +28,15 @@ def readData(key, it=None, sequence=True):
   return(data)
 
 def openData_withtime(key, it):
-  data = readData(key, 0, True)
+  data = openData(key, 0, True)
   t0 = data['t'][0]
-  data = readData_withZone(key, it)
+  data = openData_withZone(key, it)
   t = data['t'][0] # beware more complicated sims with adaptive time step ?
   dt = t-t0
   return data, t, dt
 
 def openData_withZone(key, it=None, sequence=True):
-  data = readData(key, it, sequence)
+  data = openData(key, it, sequence)
   data_z = zoneID(data)
   return data_z
 
