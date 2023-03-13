@@ -21,7 +21,7 @@ static double n0      = 1.;           // cm-3:    CBM number density
 static double rho0    = n0*mp_;       // g.cm-3:  comoving CBM mass density
 
 // simulation starting time and size
-static double tinit = 1.e3;           // s: starting time (physics)
+static double tinit = 1.e3;         // s: starting time (physics)
 // static double rmin0 = 1.e11;        // cm: grid rmin
 // static double rmax0 = 1.e12;        // cm: grid rmax
 // BE CAREFUL ABOUT STARTING TIME, Rcore grows slower than Rwind
@@ -49,8 +49,8 @@ static double Rw = 1.50 * pow(n/(n-5.),.2) * sqrt((n-5.)/(n-3.)) * pow(Esn,.3) *
 // std::cout << "Rw = " << Rw << ", Rcore = " << Rcore << ", Rshell = " << Rshell << "\n";
 
 // grid size depending on shocked bubble position
-static double rmin0 = 1.05*Rw;                   // min r coordinate of grid
-static double rmax0 = 2*Rw;                   // max r coordinate of (initial) grid
+static double rmin0 = 0.5*Rw;                   // min r coordinate of grid
+static double rmax0 = 1.05*Rw;                   // max r coordinate of (initial) grid
 static double dr0   = (rmax0-rmin0)/Ncells;     // inital cell size (for linear grid)
 static double ar0   = dr0 / (rmax0*dth);        // inital cell aspect ratio
 
@@ -65,7 +65,7 @@ static double pfloor = std::min(rhow * uw * uw, rhoej) * c_ * c_ * theta;       
 // determine shock position then implement wind profile for next iteration
 
 // normalisation constants:
-static double rhoNorm = rho0;                 // density normalised to CBM density
+static double rhoNorm = rhoej;                 // density normalised to ejecta core density
 // static double rhoNorm = rhow;               // density normalised to wind density at rmin
 static double lNorm = c_;                     // distance normalised to c
 static double vNorm = c_;                     // velocity normalised to c
@@ -162,7 +162,7 @@ int Grid::initialValues(){
         printf("WARNING - Set GAMMA_ to 4./3.\n");
     }
     else if (EOS_ == SYNGE_EOS_){
-        printf("Self-consistent wind not implemented for Synge-like EoS, using 5./3.");
+        printf("Self-consistent wind not implemented for Synge-like EoS, using 5./3.\n");
     }
     if (VI != 1.){
         printf("WARNING - Set VI to 1.\n");
@@ -226,12 +226,12 @@ void Grid::userKinematics(int it, double t){
 
   UNUSED(it);
   UNUSED(t);
-  /*
+
   for (int n = 0; n < ngst; ++n){
     // fixes ghost cells of left boundary with zero velocity
     int    iL = n;
     Itot[iL].v = 0;
-  }*/
+  }
 }
 
 void Cell::userSourceTerms(double dt){
@@ -241,7 +241,7 @@ void Cell::userSourceTerms(double dt){
 }
 
 void Grid::userBoundaries(int it, double t){
-  /*double rmin = rmin0;
+  double rmin = rmin0;
   double rmax = rmax0;
   rmin /= lNorm;
   rmax /= lNorm;
@@ -268,7 +268,7 @@ void Grid::userBoundaries(int it, double t){
     // double dr_n = c->G.dx[x_];
 
     // cout << "calc dr = " << dr*c_ << ", cell init dr = " << dr_i*c_ << ", new dr = " << dr_n*c_ << "\n";
-  }*/
+  }
 
   UNUSED(it);
   UNUSED(t);
@@ -358,7 +358,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 void Simu::dataDump(){
 
   // if (it%5 == 0){ grid.printCols(it, t); }
-  if (it%100 == 0){ grid.printCols(it, t); }
+  if (it%10 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -371,7 +371,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 5000){ stop = true; }
+  if (it > 50){ stop = true; }
   // if (t > 1.02e3){stop = true; } // 3.33e8 BOXFIT simu
 
 }

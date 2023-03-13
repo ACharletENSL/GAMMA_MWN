@@ -1,4 +1,4 @@
-INITIAL    = MWN/MWN1D_tests
+INITIAL    = MWN/MWN1D_old
 TIMESTEP   = rk3
 GEOMETRY   = spherical1D
 HYDRO      = rel_sph
