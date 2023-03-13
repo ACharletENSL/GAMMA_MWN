@@ -92,7 +92,7 @@ int Grid::initialValues(){
 
   double gma = 4./3.;
   // set pressure such as ejecta is at P_FLOOR_ at minimum
-  double p_inj = std::max(Theta*rho_w*c_*c_/pNorm, P_FLOOR_*pow(R_b/rmin0, 2*gma))
+  double p_inj = std::max(Theta*rho_w*c_*c_/pNorm, P_FLOOR_*pow(R_b/rmin0, 2*gma));
   double p_ram = p_inj;
 
   for (int i = 0; i < ncell[MV]; ++i){                // loop through cells along r
