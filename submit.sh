@@ -12,7 +12,7 @@
 source /prefix/tool/spack/share/spack/setup-env.sh
 
 ## load modules
-spack load mpich gsl
+spack load mpich gsl cmake
 
 ## not required !!! after modules are loaded
 #CPATH=/prefix/el8/software/gcc-8.5.0/gsl-2.7.1-g2z66xwa/include
