@@ -91,8 +91,9 @@ int Grid::initialValues(){
   // Initialises grid with physical values
 
   double gma = 4./3.;
-  double p_inj = rho_w * c_ * c_ * Theta;             // pressure at wind injection
-  double p_ram = p_inj;                               // pressure parameter to set ejecta to same (low) pressure as wind
+  // set pressure such as ejecta is at P_FLOOR_ at minimum
+  double p_inj = std::max(Theta*rho_w*c_*c_/pNorm, P_FLOOR_*pow(R_b/rmin0, 2*gma))
+  double p_ram = p_inj;
 
   for (int i = 0; i < ncell[MV]; ++i){                // loop through cells along r
     Cell *c = &Cinit[i];
@@ -106,7 +107,7 @@ int Grid::initialValues(){
 
       c->S.prim[RHO] = rho / rhoNorm;
       c->S.prim[VV1] = beta_w;
-      c->S.prim[PPP] = std::max((p/pNorm), P_FLOOR_);
+      c->S.prim[PPP] = p / pNorm;
     }
     else if ((r_denorm > R_b) && (r_denorm <= R_e)){  // SNR ejecta
       if (r_denorm <= R_c){     // ejecta core
@@ -119,13 +120,13 @@ int Grid::initialValues(){
       }
       double v = r_denorm / t_start;
       c->S.prim[VV1] = v / vNorm;
-      c->S.prim[PPP] = std::max((p_ram/pNorm), P_FLOOR_);
+      c->S.prim[PPP] = p_ram / pNorm;
     }
     else{                                             // CSM
       double rho = rho_csm * pow(r_denorm/R_0, k);
       c->S.prim[RHO] = rho / rhoNorm;
       c->S.prim[VV1] = 0.;
-      c->S.prim[PPP] = std::max((p_ram/pNorm), P_FLOOR_) ;
+      c->S.prim[PPP] = p_ram / pNorm;
     }
   }
   return 0;
