@@ -106,7 +106,7 @@ int Grid::initialValues(){
 
       c->S.prim[RHO] = rho / rhoNorm;
       c->S.prim[VV1] = beta_w;
-      c->S.prim[PPP] = p / pNorm;
+      c->S.prim[PPP] = std::max((p/pNorm), P_FLOOR_);
     }
     else if ((r_denorm > R_b) && (r_denorm <= R_e)){  // SNR ejecta
       if (r_denorm <= R_c){     // ejecta core
@@ -119,13 +119,13 @@ int Grid::initialValues(){
       }
       double v = r_denorm / t_start;
       c->S.prim[VV1] = v / vNorm;
-      c->S.prim[PPP] = p_ram / pNorm ;
+      c->S.prim[PPP] = std::max((p_ram/pNorm), P_FLOOR_);
     }
     else{                                             // CSM
       double rho = rho_csm * pow(r_denorm/R_0, k);
       c->S.prim[RHO] = rho / rhoNorm;
       c->S.prim[VV1] = 0.;
-      c->S.prim[PPP] = p_ram / pNorm ;
+      c->S.prim[PPP] = std::max((p_ram/pNorm), P_FLOOR_) ;
     }
   }
   return 0;
@@ -178,7 +178,7 @@ void Grid::userBoundaries(int it, double t){
     c->S.prim[RHO] = rho / rhoNorm;
     c->S.prim[VV1] = u_w;
     c->S.prim[VV2] = 0;
-    c->S.prim[PPP] = p / pNorm;
+    c->S.prim[PPP] = std::max((p/pNorm), P_FLOOR_);
     c->S.prim[TR1] = 1.;
 
     // double dr_n = c->G.dx[x_];
