@@ -1,8 +1,8 @@
 #!/bin/sh
 #SBATCH --nodes=1
 ##SBATCH --nodelist=cn04
-#SBATCH --job-name="lowL0"
-#SBATCH --output=lowL0.out
+#SBATCH --job-name="LowE0"
+#SBATCH --output=LowE0.out
 #SBATCH --mail-user arthur.charlet@ens-lyon.fr
 #SBATCH --mail-type BEGIN
 #SBATCH --mail-type END
