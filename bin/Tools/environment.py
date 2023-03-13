@@ -39,7 +39,7 @@ rho_csm = n_0 * mp_         # external density
 R_0 = 1.e18                 # external density scaling length (for non-constant CSM)        
 
 # add derivation of v_t/v_ej from energy conservation (see Suzuki & Maeda 17)
-
+wc = 0.1                    # v_t/v_ej
 # ejecta core expansion velocity (cm/s) at the core/envelope boundary
 v_t = np.sqrt(2*(5-delta)*(omega-5) / ((3-delta)*(omega-3))) * np.sqrt(E_sn/M_ej)
 # density scaling of the ejecta (g cm^-3 s^3), rho = D * (v_t * t / r)^(index) / t^3

@@ -13,7 +13,7 @@ matplotlib.use('tkagg')
 import matplotlib.pyplot as plt
 from environment import *
 from run_analysis import get_radii
-from data_IO import openData_withtime, readData_withZone, get_variable
+from data_IO import *
 
 # matplotlib options
 # --------------------------------------------------------------------------------------------------
@@ -26,9 +26,7 @@ plt.rcParams['savefig.dpi'] = 200
 # if 'Paired' cmap is not what we want
 
 # Scaling
-# add scaling from environment as dictionnary entry
-t_scale_str = "1"
-t_scale = 1.
+t_scale_str = "t_0"   # choice of t scaling. Dictionnary defined in plot1D
 r_scale = c_
 z_scale = 1.
 
@@ -53,16 +51,17 @@ def plot_mono(var, it, key='Last'):
   '''
   Plots a var in a single figure with title, labels, etc.
   '''
-  # add phys input copy in each folder and read from key
-  df, t, tsim = openData_withtime(key, it)
-  # add t scaling (t_0, t_c, etc.)
-  title = f"it {it}, $t/{t_scale_str} = {tsim/t_scale:.3e}$ s"
+  
 
   plt.figure()
   ax = plt.gca()
-  plot1D(var, it, key, ax)
+  t = plot1D(var, it, key, ax)
   ax.set_xlabel(var_exp["x"]+var_units["x"])
   ax.set_ylabel(var_exp[var]+var_units[var])
+  t_str = f"{t:.2e}"
+  base, exponent = t_str.split("e")
+  t_str = f"{base} \\times 10^{{{int(exponent)}}}"
+  title = f"it {it}, $t/{t_scale_str} = {t_str}$"
   plt.title(title)
   plt.tight_layout()
 
@@ -86,17 +85,18 @@ def plot_multi(varlist, it, key='Last'):
   Plots variables among a list in a single figure
   '''
 
-  df, t, tsim = openData_withtime(key, it)
-  # add t scaling (t_0, t_c, etc.)
-  title = f"it {it}, $t/{t_scale_str} = {tsim/t_scale:.3e}$ s"
-
   Nk = len(varlist)
   f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6,2*Nk))
 
   for var, k, ax in zip(varlist, range(Nk), axes):
     ax.set_ylabel(var_exp[var]+var_units[var])
-    plot1D(var, it, key, ax)
+    t = plot1D(var, it, key, ax)
   
+  t_str = f"{t:.2e}"
+  base, exponent = t_str.split("e")
+  t_str = f"{base} \\times 10^{{{int(exponent)}}}"
+  title = f"it {it}, $t/{t_scale_str} = {t_str}$"
+
   axes[-1].set_xlabel(var_exp["x"]+var_units["x"])
   f.suptitle(title)
   plt.tight_layout()
@@ -106,7 +106,14 @@ def plot1D(var, it, key, ax=None, z_norm=1., line=True, **kwargs):
   '''
   Creates ax object to be insered in plot. Scales data
   '''
-
+  physpath = get_physfile(key)
+  env = MyEnv()
+  env.setupEnv(physpath)
+  # add other time scaling
+  tscales = {
+    '1':1.,
+    't_0':env.t_0
+  }
   if ax is None:
     plt.figure()
     ax = plt.gca()
@@ -114,7 +121,8 @@ def plot1D(var, it, key, ax=None, z_norm=1., line=True, **kwargs):
   ax.set_xscale('log')
   ax.set_yscale('log')
   
-  df = readData_withZone(key, it)
+  df, t, dt = openData_withtime(key, it)
+  dt /= tscales[t_scale_str]
   n = df["zone"] + 1
   x, z = get_variable(df, var)
   r = x*c_
@@ -124,6 +132,7 @@ def plot1D(var, it, key, ax=None, z_norm=1., line=True, **kwargs):
     ax.plot(r, z, 'k', zorder=1)
   scatter = ax.scatter(r, z, c=n, lw=1, zorder=2, cmap='Paired')
   ax.legend(*scatter.legend_elements())
+  return dt
 
 
 # Multi file plotting functions
@@ -136,5 +145,5 @@ def plot_radii(key='Last'):
   time, radii = get_radii(key)
   Nr = radii.shape[0]
   for n in range(Nr):
-    plt.loglog(time, radii[n], c=(n+1), label=rad_legend[n], cmap='Paired')
+    plt.loglog(time, radii[n], c=plt.cm.Paired(n), label=rad_legend[n])
   plt.legend()

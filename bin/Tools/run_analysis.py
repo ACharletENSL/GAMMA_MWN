@@ -40,7 +40,7 @@ def get_radii(key='Last', itmin=0, itmax=None):
   else:
     Nit = len(its)
     time= np.zeros(Nit)
-    df  = readData_withZone(key, its[-1])
+    df  = openData_withZone(key, its[-1])
     Nz  = int(df['zone'].max())
     radlist = ['R_ts', 'R_b', 'R_sh', 'R_rs', 'R_cd', 'R_fs']
     header = "time\t"

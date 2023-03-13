@@ -35,7 +35,7 @@ def openData_withtime(key, it):
   dt = t-t0
   return data, t, dt
 
-def readData_withZone(key, it=None, sequence=True):
+def openData_withZone(key, it=None, sequence=True):
   data = readData(key, it, sequence)
   data_z = zoneID(data)
   return data_z
@@ -68,6 +68,17 @@ def dataList(key, itmin, itmax):
   
   its = ittemp
   return its
+
+def get_physfile(key):
+  '''
+  Returns path of phys_input file of the corresponding results folder
+  '''
+  dir_path = '../../results/%s/' % (key)
+  file_path = dir_path + "phys_input.MWN"
+  if os.path.isfile(file_path):
+    return file_path
+  else:
+    return "../../phys_input.MWN"
 
 def get_runfile(key):
 

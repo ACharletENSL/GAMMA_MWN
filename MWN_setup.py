@@ -21,7 +21,7 @@ def main():
   # update MWN1D.cpp and copies phys_input.MWN in the results folder
   # to come: add file check and automatic moving results in new folder
   update_simFile(simFile)
-  #p = subprocess.run("cp -f", "./phys_input.MWN", "./results/Last/")
+  subprocess.call("cp -f ./phys_input.MWN ./results/Last/", shell=True)
   #run_name = get_runName("./phys_input.MWN")
   
 

@@ -17,12 +17,12 @@ static double dth     = M_PI/2./1000.;
 static double Ncells  = 2000;               // Initial cell numbers in r direction
 static double Nmax    = 5000;               // Max number of cells, must be > Ncells
 static double rmin0   = 1.0000e+09 ;        // min r coordinate of grid (cm)
-static double rmax0   = 1.0000e+11 ;        // max r coordinate of grid (cm)
+static double rmax0   = 1.0000e+13 ;        // max r coordinate of grid (cm)
 
 // Physical radii
 static double R_b = 5.1175e+10 ;            // nebula bubble radius (cm)
 static double R_c = 2.1556e+11 ;            // ejecta core radius (cm)
-static double R_e = 2.6944e+11 ;            // ejecta envelope radius (cm)
+static double R_e = 2.1556e+12 ;            // ejecta envelope radius (cm)
 static double R_0 = 1.e18 ;                 // CSM scaling radius (for non-constant CSM)
 
 // Flow variables
