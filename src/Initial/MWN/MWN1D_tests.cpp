@@ -171,7 +171,7 @@ void Grid::userBoundaries(int it, double t){
     double r = rmin - (iLbnd-i+1)*dr;
     double r_denorm = r*lNorm;
     double rho = rho_w * pow(r_denorm/rmin0, -2);
-    double p = Theta * rho_w * c_ * c_ * pow(r_denorm/rmin0, -2*gma);
+    double p = Theta * rho_w * c_ * c_ * pow(r_denorm/rmin0, -2*gma) / pNorm;
 
     c->G.x[x_]     = r;
     c->computeAllGeom();
@@ -240,7 +240,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
 void Simu::dataDump(){
   // if (it%5 == 0){ grid.printCols(it, t); }
-  if (it%1 == 1){ grid.printCols(it, t); }
+  if (it%1 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -253,7 +253,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 50){ stop = true; }
+  if (it > 20){ stop = true; }
   // if (t > 1.02e3){stop = true; } // 3.33e8 BOXFIT simu
 
 }
