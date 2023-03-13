@@ -7,3 +7,6 @@ __pycache__/
 
 # outputs
 *.out
+
+# result file on distant
+results/HPC_Last
