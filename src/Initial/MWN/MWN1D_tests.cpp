@@ -169,6 +169,7 @@ void Grid::userBoundaries(int it, double t){
     double r = rmin - (iLbnd-i+1)*dr;
 
     c->G.x[x_]     = r;
+    c->computeAllGeom();
     c->S.prim[RHO] = rho_w / rhoNorm;
     c->S.prim[VV1] = beta_w;
     c->S.prim[VV2] = 0;
@@ -204,6 +205,8 @@ int Grid::checkCellForRegrid(int j, int i){
   if (ar < merge_AR * target_ar / g) { // if cell is too short for its width
     return(merge_);                       // merge
   }
+
+  return(skip_);
 
 }
 
