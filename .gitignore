@@ -1,0 +1,11 @@
+# files ignored by git
+
+# compiled files
+*.o
+*.pyc
+
+# outputs
+*.out
+
+# results forlder
+results/
