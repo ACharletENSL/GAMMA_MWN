@@ -4,6 +4,7 @@
 *.o
 *.pyc
 __pycache__/
+bin/GAMMA
 
 # outputs
 *.out
