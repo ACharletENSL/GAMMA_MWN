@@ -17,13 +17,17 @@ from phys_functions import *
 
 # Read data
 # --------------------------------------------------------------------------------------------------
+cwd = os.getcwd().split('/')
+iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
+GAMMA_dir = '/'.join(cwd[:iG+1])
+
 def openData(key, it=None, sequence=True):
   if sequence:
-    filename = '../../results/%s/phys%010d.out' % (key, it)
+    filename = GAMMA_dir + '/results/%s/phys%010d.out' % (key, it)
   elif it is None:
-    filename = '../../results/%s' % (key)
+    filename = GAMMA_dir + '/results/%s' % (key)
   else:
-    filename = '../../results/%s%d.out' % (key, it)
+    filename = GAMMA_dir + '/results/%s%d.out' % (key, it)
   data = pd.read_csv(filename, sep=" ")
   return(data)
 
@@ -50,7 +54,7 @@ def dataList(key, itmin, itmax):
   '''
 
   its = []
-  dir_path = '../../results/%s/' % (key)
+  dir_path = GAMMA_dir + '/results/%s/' % (key)
   for path in os.scandir(dir_path):
     if path.is_file:
       fname = path.name
@@ -73,12 +77,12 @@ def get_physfile(key):
   '''
   Returns path of phys_input file of the corresponding results folder
   '''
-  dir_path = '../../results/%s/' % (key)
+  dir_path = GAMMA_dir + '/results/%s/' % (key)
   file_path = dir_path + "phys_input.MWN"
   if os.path.isfile(file_path):
     return file_path
   else:
-    return "../../phys_input.MWN"
+    return GAMMA_dir + "/phys_input.MWN"
 
 def get_runfile(key):
 
@@ -121,7 +125,8 @@ def get_variable(df, var):
     "lfac":df_get_lfac,
     "u":df_get_u,
     "Ekin":df_get_Ekin,
-    "Eint":df_get_Eint
+    "Eint":df_get_Eint,
+    "Emass":df_get_Emass
   }
 
   r = df["x"]
@@ -131,7 +136,6 @@ def get_variable(df, var):
     return r, df[var]
   else:
     print("Required variable doesn't exist.")
-    exit(2)
 
 
 # Zone identification
@@ -215,3 +219,6 @@ def df_get_Ekin(df):
   lfac = df_get_lfac(df)
   return (lfac-1)*rho
 
+def df_get_Emass(df):
+  rho = df["rho"]
+  return rho

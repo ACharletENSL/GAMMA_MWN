@@ -7,20 +7,33 @@ This file generates initial conditions for a nebula expanding in a supernova eje
 
 # Imports
 # --------------------------------------------------------------------------------------------------
-from models_MWN import R_1st
 from environment import *
+from models_MWN import R_1st
 from solve_shocked_layers import get_shockedLayer
 
 # Init condition generator
 # --------------------------------------------------------------------------------------------------
-env = MyEnv()
-env.setupEnv('../../phys_input.MWN')
+def env_init(env, path):
+  '''
+  Initializes a MyEnv object with relevant physical values
+  '''
+  env.setupEnv(path)
+  env.R_b = R_1st(env.t_start, env.L_0, env.t_0)
+  env.R_c = v_t*env.t_start
+  env.R_e = env.R_c/wc
+  env.beta_w = np.sqrt(1. - env.lfacwind**(-2))
+  env.rho_w  = env.L_0/(4. * pi_*env.rmin0**2 * env.lfacwind**2 * c_**3 * env.beta_w)
+  env.rho_ej = D / env.t_start**3
+
 
 # r is in cm, (rho, v, p) in CGS units
-def init_conds_noShocks(r, t):
-    R_b = R_1st(t, env.L_0, env.t_0)            # nebula radius
-    R_c = v_t*t                                 # ejecta core radius
-    R_e = R_c * ((v_t/c_)/beta_ej)              # ejecta envelope radius
+def init_conds_noShocks(r):
+    env = MyEnv()
+    env_init(env, '../../phys_input.MWN')
+    t = env.t_start
+    R_b = env.R_b            # nebula radius
+    R_c = env.R_c            # ejecta core radius
+    R_e = env.R_e            # ejecta envelope radius
 
     r_w = r[r<=R_b]
     rho_w, v_w, p_w = get_wind_vars(r_w, t)
@@ -39,9 +52,12 @@ def init_conds_noShocks(r, t):
 
     return rho, v, p
 
-def init_conds_withShocks(r, t):
-    R_b = R_1st(t, env.L_0, env.t_0)                  # nebula radius
-    R_c = v_t*t                     # ejecta core radius
+def init_conds_withShocks(r):
+    env = MyEnv()
+    env_init(env, '../../phys_input.MWN')
+    t = env.t_start
+    R_b = env.R_b            # nebula radius
+    R_c = env.R_c            # ejecta core radius
     print(f"Initial conditions:\nNebula radius {R_b:.3e} cm, ejecta core radius {R_c:.3e} cm.\n")
     gma = 5./3.
 

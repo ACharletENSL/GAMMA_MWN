@@ -10,7 +10,6 @@ This file contains (semi-)analytical models for the evolution of MWN
 import numpy as np
 from environment import *
 
-
 # MWN bubble functions for t<<t_0, from Bandiera et al. 2023
 # --------------------------------------------------------------------------------------------------
 fac1 = (5-delta)/(11-2*delta)
@@ -20,6 +19,7 @@ def R_0th(t, L_0):
   '''
   Analytical solution of the MWN bubble radius in 0th order expansion of L(t) 
   '''
+  
   fac = (3-delta)*(5-delta)**2 * fac1 / ((9-2*delta))
   param = L_0*t**(6-delta)/(4*pi_*D*v_t**delta)
   return (fac*param)**(1/(5-delta))
@@ -28,7 +28,7 @@ def Q_0th(t, L_0):
   '''
   Analytical solution of the quantity Q = 4 pi p R^4 in the 0th order expansion of L(t)
   '''
-  R0 = R_0th(t)
+  R0 = R_0th(t, L_0)
   return fac1 * L_0 * R0 * t
 
 def p_0th(t, L_0):

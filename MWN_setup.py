@@ -12,8 +12,7 @@ import pathlib
 import numpy as np
 import sys
 sys.path.insert(1, 'bin/Tools/')
-from environment import *
-from models_MWN import R_1st
+from init_conditions_MWN import *
 
 simFile = './src/Initial/MWN/MWN1D_tests.cpp'
 
@@ -23,22 +22,14 @@ def main():
   update_simFile(simFile)
   subprocess.call("cp -f ./phys_input.MWN ./results/Last/", shell=True)
   #run_name = get_runName("./phys_input.MWN")
-  
 
 def update_simFile(filepath):
   env = MyEnv()
-  env.setupEnv('./phys_input.MWN')
-
-  R_b = R_1st(env.t_start, env.L_0, env.t_0)                  # nebula radius
-  R_c = v_t*env.t_start                     # ejecta core radius
-  R_e = R_c/wc                              # ejecta envelope radius
-  beta_w = np.sqrt(1. - env.lfacwind**(-2))
-  rho_w  = env.L_0/(4. * pi_*env.rmin0**2 * env.lfacwind**2 * c_**3 * beta_w)
-  rho_ej = D / env.t_start**3
+  env_init(env, './phys_input.MWN')
 
   vars2update = {
-    'rmin0':env.rmin0, 'rmax0':env.rmax0, 'R_b':R_b, 'R_c':R_c, 'R_e':R_e,
-    'rho_w':rho_w, 'beta_w':beta_w, 'rho_ej':rho_ej, 'rho_csm':rho_csm
+    'rmin0':env.rmin0, 'rmax0':env.rmax0, 'R_b':env.R_b, 'R_c':env.R_c, 'R_e':env.R_e,
+    'rho_w':env.rho_w, 'lfacwind':env.lfacwind, 'rho_ej':env.rho_ej, 'rho_csm':rho_csm
   }
   out_lines = []
   with open(filepath, 'r') as inf:

@@ -57,6 +57,14 @@ D = (5-delta)*(omega-5)/(2*pi_*(omega-delta)) * E_sn / v_t**5
 #t_c                  # crossing time for the nebula (Blondin+ 01, see Granot+ 17)
 #R_c                  # crossing radius
 
+# added in the MyEnv class in MWN_setup.py
+#R_b                  # nebula radius (cm)
+#R_c                  # ejecta core radius (cm)
+#R_e                  # ejecta envelope radius (cm)
+#beta_w               # wind velocity (~1 in units c)
+#rho_w                # wind density at injection and sim start (g/cm3)
+#rho_ej               # ejecta core density at sim start (g/cm3)
+
 class MyEnv:
   def setupEnv(self, path):
     self.read_input(path)
