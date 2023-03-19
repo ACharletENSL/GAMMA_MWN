@@ -28,7 +28,7 @@ static double R_0 = 1.e18 ;                 // CSM scaling radius (for non-const
 // Flow variables
 static double rho_w   = 8.6552e-10 ;        // wind density at grid inner radius (g cm^-3)
 static double beta_w  = 9.9995e-01 ;        // wind velocity (units of c)
-static double Theta   = 1.e-6 ;             // wind relativistic temperature (p/rho c^2) at injection
+static double Theta   = 1.e-4 ;             // wind relativistic temperature (p/rho c^2) at injection
 static double rho_ej  = 9.9566e-02 ;        // ejecta core density (g cm^-3)
 static double rho_csm = 1.6726e-24 ;        // CSM density (g cm^-3) 
 static double delta = 0 ;                   // ejecta core density gradient
@@ -92,8 +92,11 @@ int Grid::initialValues(){
 
   double gma = 4./3.;
   // set pressure such as ejecta is at P_FLOOR_ at minimum
+  double pw = Theta*rho_w*c_*c_/pNorm;
+  double pfloor = P_FLOOR_*pow(R_b/rmin0, 2*gma);
   double p_inj = std::max(Theta*rho_w*c_*c_/pNorm, P_FLOOR_*pow(R_b/rmin0, 2*gma));
   double p_ram = p_inj;
+  std::cout << pw, pfloor;
 
   for (int i = 0; i < ncell[MV]; ++i){                // loop through cells along r
     Cell *c = &Cinit[i];
