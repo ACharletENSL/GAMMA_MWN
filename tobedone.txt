@@ -3,9 +3,11 @@ small txt file with physical and grid parameters
 
 -> copy params file in the results folder systematically, data analysis & plotting will read from there
 
-python script to:
-    update job name and automate results folder name/key
+relaunch without checkCellForRegrid
+grid in dr/r
+add other method cons2prim
+    check if method for regridding/refinment level ?
+what causes crash at 150000 it
+why dx noise doesn't follow density/so different from dx injection noise?
 
-
-plotting:
-    better separation between data handling and plot creation
+physically coherent initial setup

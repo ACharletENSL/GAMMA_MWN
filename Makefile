@@ -1,4 +1,4 @@
-INITIAL    = MWN/MWN1D
+INITIAL    = MWN/MWN1D_tests
 TIMESTEP   = rk3
 GEOMETRY   = spherical1D
 HYDRO      = rel_sph
@@ -42,9 +42,10 @@ else
 ifeq ($(OS_NAME), linux)
 	CXX     = mpicxx
 	CXXFLAGS = -Wall -Wextra -std=c++11 -O3 -fopenmp		#run this line on distant
-	LFLAGS = -L/usr/local/lib -fopenmp -L/usr/lib/x86_64-linux-gnu/hdf5/serial -L/prefix/el8/software/gcc-8.5.0/gsl-2.7.1-g2z66xwa/lib -lgsl -lgslcblas -lm	#run this line on distant
+	LFLAGS = -fopenmp -lmpi -lgsl -lgslcblas -lm
+	#LFLAGS = -L/usr/local/lib -fopenmp -L/usr/lib/x86_64-linux-gnu/hdf5/serial -L/prefix/el8/software/gcc-8.5.0/gsl-2.7.1-g2z66xwa/lib -lgsl -lgslcblas -lm	#run this line on distant
 # 	LFLAGS = -L/usr/local/lib -fopenmp -lhdf5 -lgsl -lgslcblas -lm	#run this line on distant
-	IFLAGS = -I/usr/local/include -I/usr/include
+	#IFLAGS = -I/usr/local/include -I/usr/include
 # 	IFLAGS = -I/usr/local/include -I/usr/include -I/usr/include/hdf5/serial
 else
 ifeq ($(OS_NAME), darwin)
@@ -142,3 +143,5 @@ $(DIMENSIONSS).o: $(DIMENSIONSS).cpp
 
 $(IOO).o: $(IOO).cpp
 	$(CXX) $(CXXFLAGS) $(IFLAGS) -c $< -o $@
+
+

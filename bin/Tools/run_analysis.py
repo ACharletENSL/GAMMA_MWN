@@ -25,7 +25,7 @@ def get_radii(key='Last', itmin=0, itmax=None):
   if dfile_bool:
     with open(dfile_path, 'r') as f:
       header = f.readline().strip('\n')
-      vars = header.split()
+      vars = header.split('\t')
       Nr = sum([True for var in vars if var.startswith('R_')])
     
     data = np.loadtxt(dfile_path, skiprows=1).transpose()
@@ -35,7 +35,7 @@ def get_radii(key='Last', itmin=0, itmax=None):
       imax = its.index(itmax)
     else:
       imax = len(its)
-    radii = data[1:Nr][imin:imax]
+    radii = data[1:Nr+1][imin:imax]
 
   else:
     Nit = len(its)

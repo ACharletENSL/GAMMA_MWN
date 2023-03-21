@@ -90,7 +90,7 @@ def get_runfile(key):
   Returns path of file with analyzed datas over the run and boolean for its existence
   '''
 
-  dir_path = '../../results/%s/' % (key)
+  dir_path = GAMMA_dir + '/results/%s/' % (key)
   file_path = dir_path + "extracted_data.txt"
   file_bool = os.path.isfile(file_path)
   return file_path, file_bool
@@ -110,7 +110,10 @@ def get_radius_zone(df, n=0):
 
   r = df['x']
   z = df['zone']
-  return r[z == n].min()
+  rz = r[z == n].min()
+  if np.isnan(rz):      # if no cell of the zone, take max of previous one
+    rz = r[z==n-1].max()
+  return rz
 
 def get_variable(df, var):
 

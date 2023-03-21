@@ -13,7 +13,8 @@
 static double t_start = 1.e2;
 
 // Grid parameters
-static double dth     = M_PI/2./1000.;
+//static int GRID_TYPE_ = 1;                  // for testing. 0 = lin grid, 1 = log grid
+//static double dth     = M_PI/2./1000.;
 static double Ncells  = 2000;               // Initial cell numbers in r direction
 static double Nmax    = 5000;               // Max number of cells, must be > Ncells
 static double rmin0   = 1.0000e+09 ;        // min r coordinate of grid (cm)
@@ -38,12 +39,15 @@ static double omega = 10 ;                  // ejecta envelope density gradient
 static double k = 0 ;                       // CSM density gradient
 
 // Refinement parameters
-static double ar0 = (rmax0-rmin0) / (Ncells*rmax0*dth);        // initial cell aspect ratio
+/*static double ar0 = (rmax0-rmin0) / (Ncells*rmax0*dth);        // initial cell aspect ratio
 static double target_ar  = ar0;             // target aspect ratio
 static double split_AR   = 1.8;             // set upper bound as ratio of target_AR
 static double merge_AR   = 0.1;             // set lower bound as ratio of target_AR
 static double split_chi  = 0.3;             // set upper bound for gradient-based refinement criterion (split cells at interface)
 static double merge_chi  = 0.1;             // set lower bound for gradient-based refinement criterion (merge cells outside of interfaces)
+*/
+static double mmax = 1;                     // maximum "derefinement" level
+static double lmax = 5;                     // maximum "refinement level"
 
 // normalisation constants:
 static double rhoNorm = rho_w;        // density normalisation
@@ -83,21 +87,38 @@ double calcGamma_wind(double r_denorm, double theta0){
   }
 }
 
+double calcCellSize(double r, int Nc){
+  // returns cell size at given position, depending on grid geometry choice
+  // for grid initialisation and cell size check at regrid step
+  double rmin = rmin0/lNorm;
+  double rmax = rmax0/lNorm;
+  double dr;
+  
+  dr = (rmax-rmin)/Nc;
+  /*if (GRID_TYPE_ == 0){ // linear grid, if it works add 'GRID_TYPE_', 'LIN_' and 'LOG_' to def.h
+    
+  }
+  else if (GRID_TYPE_ == 1){ // log grid}*/
+  double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/Nc;
+  dr  = (r + abs(rmin) - rmin)*(pow(10, step) - 1);
+  
+  return(dr);
+}
+
 int Grid::initialGeometry(){                              
   // Creates initial grid
   // linear grid in wind, logarithmic grid for SNR ejecta
-  double rmin = rmin0;
-  double rmax = rmax0;
-  rmin /= lNorm;
-  rmax /= lNorm;
+  double rmin = rmin0/lNorm;
+  double rmax = rmax0/lNorm;
+  double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/ncell[x_];
 
-  double dr = (rmax-rmin)/ncell[x_];
-  // double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/ncell[x_];
-  // double dr = (r + abs(rmin) - rmin)*(pow(10, step) - 1);
   double r = rmin;
   for (int i = 0; i < ncell[x_]; ++i){
     Cell *c = &Cinit[i];
-    double r      = rmin + (i+0.5)*dr;
+
+    //double dr  = (r + abs(rmin) - rmin)*(pow(10, step) - 1);
+    double dr = calcCellSize(r, ncell[x_]);
+    r = r + dr;
     c->G.x[x_]    = r;
     c->G.dx[x_]   = dr;
     c->computeAllGeom();
@@ -179,19 +200,20 @@ void Grid::userBoundaries(int it, double t){
   // Overrides Grid::updateGhosts in 1d/2d/3d.cpp
 
   double gma = 4./3.;
-  double rmin = rmin0;
-  double rmax = rmax0;
-  rmin /= lNorm;
-  rmax /= lNorm;
+  //double rmin = rmin0;
+  //double rmax = rmax0;
+  //rmin /= lNorm;
+  //rmax /= lNorm;
   double u = beta_w * lfacwind;
   // double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/ncell[x_];
-  double dr = (rmax-rmin)/ncell[x_];
+  //double dr = (rmax-rmin)/ncell[x_];
 
   for (int i = 0; i <+ iLbnd+1; ++i){
     Cell *c = &Ctot[i];
-    double r = rmin - (iLbnd-i+0.5)*dr;
+    //double r = rmin - (iLbnd-i+0.5)*dr;
     // double r_denorm = c->G.x[x_]*lNorm;
     // double r = rmin - (iLbnd-i+1)*dr;
+    double r = c.G.x[r_];
     double r_denorm = r*lNorm;
     
     double rho = rho_w * pow(r_denorm/rmin0, -2);
@@ -227,7 +249,19 @@ int Grid::checkCellForRegrid(int j, int i){
   UNUSED(j);
   
   Cell c  = Ctot[i];
+  double r   = c.G.x[r_];                   // get cell position
   double dr  = c.G.dx[r_];                  // get cell radial spacing
+  double dr_i= calcCellSize(r, ncell[x_]);  // get original grid size at same position
+  double ar = dr/dr_i;
+  
+  if (ar > pow(2., mmax)){    // if cell too big compared to expected size
+    return(split_);
+  }
+  if (ar < pow(2., -lmax)){   // if cell is more than 2^lmax smaller original grid
+    return(merge_);
+  }
+
+  /*
   double rOut = Ctot[iRbnd-1].G.x[x_];
   double ar  = dr / (rOut*dth);             // calculate cell aspect ratio
   double g = 1.;
@@ -240,7 +274,7 @@ int Grid::checkCellForRegrid(int j, int i){
   if (ar < merge_AR * target_ar / g) { // if cell is too short for its width
     return(merge_);                       // merge
   }
-
+  */
   return(skip_);
 
 }
@@ -270,7 +304,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
 void Simu::dataDump(){
   // if (it%5 == 0){ grid.printCols(it, t); }
-  if (it%10 == 0){ grid.printCols(it, t); }
+  if (it%100 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -283,7 +317,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 100){ stop = true; }
+  if (it > 1000){ stop = true; }
   // if (t > 1.02e3){stop = true; } // 3.33e8 BOXFIT simu
 
 }

@@ -213,6 +213,14 @@ def plot_radii(key='Last'):
   rad_legend = ['$R_{TS}$', '$R_{b}$', '$R_{shell}$', '$R_{RS}$', '$R_{CD}$', '$R_{FS}$']
   time, radii = get_radii(key)
   Nr = radii.shape[0]
+  physpath = get_physfile(key)
+  env = MyEnv()
+  env_init(env, physpath)
+  # add other time scaling
+  tscales = {
+    '1':1.,
+    't_0':env.t_0
+  }
   for n in range(Nr):
-    plt.loglog(time, radii[n], c=plt.cm.Paired(n), label=rad_legend[n])
+    plt.loglog(time/env.t_0, radii[n], c=plt.cm.Paired(n), label=rad_legend[n])
   plt.legend()
