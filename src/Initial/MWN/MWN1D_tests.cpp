@@ -200,20 +200,24 @@ void Grid::userBoundaries(int it, double t){
   // Overrides Grid::updateGhosts in 1d/2d/3d.cpp
 
   double gma = 4./3.;
-  //double rmin = rmin0;
-  //double rmax = rmax0;
-  //rmin /= lNorm;
-  //rmax /= lNorm;
+  double rmin = rmin0;
+  double rmax = rmax0;
+  rmin /= lNorm;
+  rmax /= lNorm;
   double u = beta_w * lfacwind;
-  // double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/ncell[x_];
+  double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/ncell[x_];
   //double dr = (rmax-rmin)/ncell[x_];
 
-  for (int i = 0; i <+ iLbnd+1; ++i){
+  //for (int i = 0; i <+ iLbnd+1; ++i){
+  for (int i = iLbnd+1; i >= 0; --i){
     Cell *c = &Ctot[i];
+
     //double r = rmin - (iLbnd-i+0.5)*dr;
     // double r_denorm = c->G.x[x_]*lNorm;
     // double r = rmin - (iLbnd-i+1)*dr;
-    double r = c.G.x[r_];
+    double r = Ctot[i+1].G.x[r_];
+    double dr = calcCellSize(r, ncell[x_]);
+    r = r-dr;
     double r_denorm = r*lNorm;
     
     double rho = rho_w * pow(r_denorm/rmin0, -2);
@@ -225,8 +229,8 @@ void Grid::userBoundaries(int it, double t){
       cout << "p = " << p << "\n";
     }*/
 
-    // c->G.x[x_]     = r;
-    // c->computeAllGeom();
+    c->G.x[x_]     = r;
+    c->computeAllGeom();
     c->S.prim[RHO] = rho / rhoNorm;
     c->S.prim[VV1] = u;
     c->S.prim[VV2] = 0;
