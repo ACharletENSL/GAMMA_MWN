@@ -1,8 +1,8 @@
 #!/bin/sh
 #SBATCH --nodes=1
 ##SBATCH --nodelist=cn04
-#SBATCH --job-name="LowE0_loggrid"
-#SBATCH --output=LowE0_log.out
+#SBATCH --job-name="test"
+#SBATCH --output=test.out
 #SBATCH --mail-user arthur.charlet@ens-lyon.fr
 #SBATCH --mail-type BEGIN
 #SBATCH --mail-type END

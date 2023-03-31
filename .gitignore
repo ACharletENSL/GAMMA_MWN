@@ -1,5 +1,8 @@
 # files ignored by git
 
+# server jobs file
+submit.sh
+
 # compiled files
 *.o
 *.pyc
