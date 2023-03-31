@@ -161,19 +161,20 @@ def zoneID(df):
     print("Zone column already exists in data")
     return(df)
   else:
-    rho = df['rho']
-    vx  = df['vx']
     p   = df['p']
-    D   = df['D']
-    zone = np.zeros(rho.shape)
+    trac= df['trac'].to_numpy()
+    zone = np.zeros(trac.shape)
+    i_w  = np.argwhere(trac >= 1.5).max()
+    i_ej = np.argwhere((trac < 1.5) & (trac >= 0.5)).max()
     
     i_ts  = get_step(p)
-    i_b  = get_step(rho)
     i_sh = get_step(-p)
+    #print(i_w, i_ej, i_ts, i_sh)
 
-    zone[i_ts:]  += 1
-    zone[i_b:]  += 1
-    zone[i_sh:] += 1
+    zone[:i_ts] = 0
+    zone[i_ts:i_w+1]  = 1
+    zone[i_w:i_sh+1]  = 2
+    zone[i_sh:i_ej+1] = 3
 
     df2 = df.assign(zone=zone)
     return df2

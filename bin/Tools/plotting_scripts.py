@@ -46,11 +46,11 @@ var_exp = {
   "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$",
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
-  "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$"
+  "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "trac":''
 }
 var_units = {
   "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
-  "D":"", "sx":"", "tau":"",
+  "D":"", "sx":"", "tau":"", "trac":"",
   "T":"", "h":"", "lfac":"", "u":"",
   "Eint":" (erg cm$^{-3}$)", "Ekin":" (erg cm$^{-3}$)", "Emass":" (erg cm$^{-3}$)"
 }
@@ -176,7 +176,8 @@ def plot1D(var, slope, it, key, ax=None, code_units=False, line=True, colors='Zo
   if slope:
     ax.set_ylim(-5, 2)
   else:
-    ax.set_yscale('log')
+    if var!='trac':
+      ax.set_yscale('log')
   
   df, t, dt = openData_withtime(key, it)
   dt /= tscales[t_scale_str]

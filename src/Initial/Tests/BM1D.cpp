@@ -254,7 +254,7 @@ void Cell::userSourceTerms(double dt){
 void Grid::userBoundaries(int it, double t){
 
   if (t<1.e7){
-    for (int i = 0; i <= iLbnd; ++i){
+    for (int i = 0; i <= iLbnd+1; ++i){
       Cell *c = &Ctot[i];
       double rho, u, p;
       double r = c->G.x[r_]*lNorm;
@@ -371,8 +371,8 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  // if (it > 300){ stop = true; }
-  if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
+  if (it > 3000){ stop = true; }
+  //if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
 
 }
 

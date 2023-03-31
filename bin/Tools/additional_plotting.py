@@ -211,7 +211,7 @@ def plot_energy(it, key='Last'):
   Plots energy densities: kinetic, internal (p), rest-mass (rho) in units c**2
   '''
   data, t, dt = openData_withtime(it, key) 
-  x_norm = c
+  x_norm = c_
   varlist = ["ekin", "eint", "erest"]
   title = "it {},  ".format(it) + r"$t_{sim} = $" +"{:.3e} s".format(dt)
   plt.figure()
@@ -236,7 +236,7 @@ def plot_wrapped(it, var, key='Last'):
   data, t, dt = openData_withtime(it, key)
   title = "it {},  ".format(it) + r"$t_{sim} = $" +"{:.3e} s".format(dt)
 
-  x_norm = c
+  x_norm = c_
   if var == "chi":
     z_norm = 1.
     label = "$\chi$"
@@ -265,7 +265,7 @@ def plot_slope(it, var, key='Last'):
   Plots the log slope of the chosen variable, following the same rules as plot_wrapped
   '''
   data, t, dt = openData_withtime(it, key)
-  x_norm = c
+  x_norm = c_
   z_norm = znorms[var]
   varname = legends[var]
   label = "d$\\log$" + varname + "/d$\\log r$"

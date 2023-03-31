@@ -1,3 +1,11 @@
+- method would be recreating cells according to initialvalues rules if ghost cells coordinate go to far away
+- criterion of merging according dr/r
+- gradient takes precedence
+- try again setup from BM1D for injecting matter
+
+- mail Duffel for boundary algorithm
+- read papers
+
 Plans for code update. Main philosophy -> one config file to rule them all:
 small txt file with physical and grid parameters
 

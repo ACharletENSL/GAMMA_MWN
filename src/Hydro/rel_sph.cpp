@@ -219,6 +219,234 @@ static double f(double p, void *params){
 
 }
 
+/*
+void FluidState::cons2prim(double r, double pin){
+  if (C2P_ == NH14_){
+    // conservative to primitive conversion from Newman & Hamlin
+
+    // Parameters
+    int max_iterations = 15;
+    double tol = 1.0e-12;
+    double pgas_uniform_min = 1.0e-12;
+    double a_min = 1.0e-12;
+    double v_sq_max = 1.0 - 1.0e-12;
+    double rr_max = 1.0 - 1.0e-12;
+
+    // Extract conserved values
+    double D = cons[DEN];         // dd in athena 
+    double tau = cons[TAU] + D;
+    double E = D+tau;             // ee in athena
+    double mm = cons[SS1];
+    double mm_sq = mm*mm;
+    double gma = gamma();
+
+    // Calculate functions of conserved quantities
+    double pgas_min = -E;
+    pgas_min = std::max(pgas_min, pgas_uniform_min);
+
+    // Iterate until convergence
+    double pgas[3];
+    double pgas_old;
+    pgas_old = pin;
+    pgas[0] = std::max(pgas_old, pgas_min);
+    int n;
+    for (n = 0; n < max_iterations; ++n) {
+      // Step 1: Calculate cubic coefficients
+      double a;
+      if (n%3 != 2) {
+        a = E + pgas[n%3];      // (NH 5.7)
+        a = std::max(a, a_min);
+      }
+
+      // Step 2: Calculate correct root of cubic equation
+      double v_sq;
+      if (n%3 != 2) {
+        v_sq = mm_sq / (a*a);                                     // (NH 5.2)
+        v_sq = std::min(std::max(v_sq, 0.), v_sq_max);
+        double lfac2 = 1.0/(1.0-v_sq);                            // (NH 3.1)
+        double lfac = std::sqrt(lfac2);                           // (NH 3.1)
+        double wgas = a/lfac2;                                    // (NH 5.1)
+        double rho = D/lfac;                                      // (NH 4.5)
+        pgas[(n+1)%3] = (gma-1.0)/gma * (wgas - rho);             // (NH 4.1)
+        pgas[(n+1)%3] = std::max(pgas[(n+1)%3], pgas_min);
+      }
+
+      // Step 3: Check for convergence
+      if (n%3 != 2) {
+        if (pgas[(n+1)%3] > pgas_min && std::abs(pgas[(n+1)%3]-pgas[n%3]) < tol) {
+          break;
+        }
+      }
+
+      // Step 4: Calculate Aitken accelerant and check for convergence
+      if (n%3 == 2) {
+        double rr = (pgas[2] - pgas[1]) / (pgas[1] - pgas[0]);    // (NH 7.1)
+        if (!std::isfinite(rr) || std::abs(rr) > rr_max) {
+          continue;
+        }
+        pgas[0] = pgas[1] + (pgas[2] - pgas[1]) / (1.0 - rr);     // (NH 7.2)
+        pgas[0] = std::max(pgas[0], pgas_min);
+        if (pgas[0] > pgas_min && std::abs(pgas[0]-pgas[2]) < tol) {
+          break;
+        }
+      }
+    }
+
+    // Step 5: Set primitives
+    if (n == max_iterations) {
+      return;
+    }
+    double p = pgas[(n+1)%3];
+    //if (!std::isfinite(p)) {
+    //  return;
+    //}
+    double a = E + p;                                 // (NH 5.7)
+    a = std::max(a, a_min);
+    double v_sq = mm_sq / (a*a);                        // (NH 5.2)
+    v_sq = std::min(std::max(v_sq, 0.), v_sq_max);
+    double lfac2 = 1.0/(1.0-v_sq);                      // (NH 3.1)
+    double lfac = std::sqrt(lfac2);                     // (NH 3.1)
+    double rho = D/lfac;                             // (NH 4.5)
+    //if (!std::isfinite(rho)) {
+    //  return;
+    //}
+    double v = mm / a;                                  // (NH 4.6)
+    double uu[NUM_D];
+    uu[0] = lfac*v;                                       // (NH 3.3)
+    //if (!std::isfinite(uu)
+    //    || !std::isfinite(prim(IVY,k,j,i))
+    //    || !std::isfinite(prim(IVZ,k,j,i)) ) {
+    //  return;
+    double wgas = a/lfac2;
+    //prs = (gma-1.0)/gma * (wgas - dty);
+    //*p = prs;
+
+    cons2prim_user(&rho, &p, uu);
+
+    // no matter what we did with the rest, we can't allow the pressure to drop to zero:
+    p = fmax(p,P_FLOOR_);
+
+    prim[PPP] = p;
+    prim[RHO] = rho;
+    for (int d = 0; d < NUM_D; ++d){ 
+      prim[UU1+d] = uu[d];
+    }
+    for (int t = 0; t < NUM_T; ++t){
+      prim[TR1+t] = cons[TR1+t] / D;
+    }
+
+    prim2cons(r); // for consistency
+  }
+
+  else if (C2P_ == M06_){
+    // conservative to primitive conversion from Mignone et al. 2006
+
+    int     status;
+    int     iter = 0, max_iter = 1000;
+    double  res;
+    struct  f_params                params;
+    const   gsl_root_fsolver_type   *T;
+    gsl_root_fsolver                *s;
+    gsl_function                    F;
+
+    F.function = &f;
+    F.params = &params;
+
+    // setting initial parameters
+    double D = cons[DEN];
+    double tau = cons[TAU];
+    double E = D+tau;
+    double ss[NUM_D];
+    double S2 = 0.;
+
+    for (int d = 0; d < NUM_D; ++d) ss[d] = cons[SS1+d];
+    ss[t_] /= r;
+    for (int d = 0; d < NUM_D; ++d) S2 += ss[d]*ss[d];
+
+    double S = sqrt(S2);
+
+    params.D = D;
+    params.S = S;
+    params.E = E;
+
+    double pCand;
+    if (pin != 0) pCand = pin;
+    else pCand = fmax(1.e-13,prim[PPP]);
+
+    // Looking for pressure only if current one doesn't work;
+    double f_init = f(pCand, &params);
+    if (fabs(f_init) > 0.) {
+
+      double p_lo, p_hi;
+      T = gsl_root_fsolver_brent;
+      s = gsl_root_fsolver_alloc (T);
+
+      // setting boundaries
+      // f(p_lo) has to be positive. No solution otherwise
+      // hence, f(p_hi) has to be negative
+      p_lo = fmax(0., (1. + 1e-13) * S - E);
+        // the endpoints not straddling can come from here (when p_lo is set to zero)
+      bool find_p = true;
+      if (f(p_lo, &params)<0) { find_p = false; } // no solution
+
+      if (f_init < 0){
+        p_hi = 1.*pCand;
+      }
+      else {
+        p_hi = pCand;
+        while (f(p_hi, &params) > 0) {p_hi *= 10;}
+      }
+
+      if (p_hi<p_lo) {find_p = false; } // no solution
+
+      if (find_p){
+        gsl_root_fsolver_set (s, &F, p_lo, p_hi);
+        do {
+          iter++;
+          status = gsl_root_fsolver_iterate (s);
+          res = gsl_root_fsolver_root (s);
+          p_lo = gsl_root_fsolver_x_lower (s);
+          p_hi = gsl_root_fsolver_x_upper (s);
+          status = gsl_root_test_interval (p_lo, p_hi, 0., 1.e-13);
+        } while (status == GSL_CONTINUE && iter < max_iter);
+        gsl_root_fsolver_free (s);
+        pCand = res;
+      }
+    }
+
+    double p = pCand;
+    double Ep2 = (E+p)*(E+p);
+    double v2 = S2/Ep2;
+    double lfac = 1./sqrt(fabs(1.-v2)); // fabs in case of non-physical state
+    double rho = D/lfac;
+
+    double uu[NUM_D];
+    if (fabs(S) == 0.) {
+      for (int d = 0; d < NUM_D; ++d) uu[d] = 0;
+    }
+    else {
+      double v = sqrt(1.- 1./(lfac*lfac));
+      for (int d = 0; d < NUM_D; ++d) uu[d] = lfac*v*(ss[d]/S);
+        // Mignone (2006) eq. 3
+    }
+    cons2prim_user(&rho, &p, uu);
+
+    // no matter what we did with the rest, we can't allow the pressure to drop to zero:
+    p = fmax(p,P_FLOOR_);
+
+    prim[PPP] = p;
+    prim[RHO] = rho;
+    for (int d = 0; d < NUM_D; ++d){ 
+      prim[UU1+d] = uu[d];
+    }
+    for (int t = 0; t < NUM_T; ++t){
+      prim[TR1+t] = cons[TR1+t] / D;
+    }
+
+    prim2cons(r); // for consistency
+  }
+}
+*/
 
 void FluidState::cons2prim(double r, double pin){
 
@@ -328,6 +556,8 @@ void FluidState::cons2prim(double r, double pin){
   prim2cons(r); // for consistency
   
 }
+
+
 
 void Interface::wavespeedEstimates(){
 

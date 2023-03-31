@@ -30,6 +30,8 @@
 #define IDEAL_EOS_      0
 #define SYNGE_EOS_      1
 #define RYU_EOS_        2
+//#define M06_            0
+//#define NH14_           1     
 
 enum{RHO,PPP,UU1,UU2,UU3};  // 3rd dimension optional so must be last
 enum{TP1,TP2,VV1,VV2,VV3};
@@ -52,8 +54,9 @@ enum{skip_,merge_,split_};
 #define F2     z_            // fixed dimension 2
 #define VI     1.            // interface velocity (units of CD velocity)
 #define GAMMA_ (4./3.)
-#define EOS_   RYU_EOS_    // carefull, GAMMA_ needs to be set to 5/3 when using SYNGE
+#define EOS_   RYU_EOS_      // carefull, GAMMA_ needs to be set to 5/3 when using SYNGE
 #define CFL_   0.2
+//#define C2P_   NH14_          // cons2prim method
 
 #define MPI_ ENABLED_
 #define OMP_ ENABLED_

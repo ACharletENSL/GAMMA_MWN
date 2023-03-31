@@ -13,8 +13,7 @@
 static double t_start = 1.e2;
 
 // Grid parameters
-//static int GRID_TYPE_ = 1;                  // for testing. 0 = lin grid, 1 = log grid
-//static double dth     = M_PI/2./1000.;
+static int GRID_TYPE_ = 0;                  // for testing. 0 = lin grid, 1 = log grid
 static double Ncells  = 2000;               // Initial cell numbers in r direction
 static double Nmax    = 5000;               // Max number of cells, must be > Ncells
 static double rmin0   = 1.0000e+09 ;        // min r coordinate of grid (cm)
@@ -39,13 +38,6 @@ static double omega = 10 ;                  // ejecta envelope density gradient
 static double k = 0 ;                       // CSM density gradient
 
 // Refinement parameters
-/*static double ar0 = (rmax0-rmin0) / (Ncells*rmax0*dth);        // initial cell aspect ratio
-static double target_ar  = ar0;             // target aspect ratio
-static double split_AR   = 1.8;             // set upper bound as ratio of target_AR
-static double merge_AR   = 0.1;             // set lower bound as ratio of target_AR
-static double split_chi  = 0.3;             // set upper bound for gradient-based refinement criterion (split cells at interface)
-static double merge_chi  = 0.1;             // set lower bound for gradient-based refinement criterion (merge cells outside of interfaces)
-*/
 static double mmax = 1;                     // maximum "derefinement" level
 static double lmax = 5;                     // maximum "refinement level"
 
@@ -87,21 +79,30 @@ double calcGamma_wind(double r_denorm, double theta0){
   }
 }
 
-double calcCellSize(double r, int Nc){
+static void calcWind(double r_denorm, double t, double *rho, double *u, double *p){
+  // returns normalised primitive variables for relativistic wind at position r (denormalised).
+  double p_inj = Theta * rho_w * c_* c_;
+  double gma = 5./3.;
+
+  *rho = rho_w * pow(r_denorm/rmin0, -2) / rhoNorm;
+  *u = c_*sqrt(1.-1./(lfacwind*lfacwind))*lfacwind / vNorm;
+  *p = p_inj * pow(r_denorm/rmin0, -2*gma) / pNorm;
+
+}
+
+double calcCellSize(double r, int Nc, double rmin, double rmax){
   // returns cell size at given position, depending on grid geometry choice
   // for grid initialisation and cell size check at regrid step
-  double rmin = rmin0/lNorm;
-  double rmax = rmax0/lNorm;
   double dr;
   
-  dr = (rmax-rmin)/Nc;
-  /*if (GRID_TYPE_ == 0){ // linear grid, if it works add 'GRID_TYPE_', 'LIN_' and 'LOG_' to def.h
-    
+  //dr = (rmax-rmin)/Nc;
+  if (GRID_TYPE_ == 0){ // linear grid, if it works add 'GRID_TYPE_', 'LIN_' and 'LOG_' to def.h
+    dr = (rmax-rmin)/Nc;
   }
-  else if (GRID_TYPE_ == 1){ // log grid}*/
-  double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/Nc;
-  dr  = (r + abs(rmin) - rmin)*(pow(10, step) - 1);
-  
+  else if (GRID_TYPE_ == 1){ // log grid}
+    double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/Nc;
+    dr  = (r + abs(rmin) - rmin)*(pow(10, step) - 1);
+  }
   return(dr);
 }
 
@@ -110,14 +111,12 @@ int Grid::initialGeometry(){
   // linear grid in wind, logarithmic grid for SNR ejecta
   double rmin = rmin0/lNorm;
   double rmax = rmax0/lNorm;
-  double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/ncell[x_];
 
   double r = rmin;
   for (int i = 0; i < ncell[x_]; ++i){
     Cell *c = &Cinit[i];
 
-    //double dr  = (r + abs(rmin) - rmin)*(pow(10, step) - 1);
-    double dr = calcCellSize(r, ncell[x_]);
+    double dr = calcCellSize(r, ncell[x_], rmin, rmax);
     r = r + dr;
     c->G.x[x_]    = r;
     c->G.dx[x_]   = dr;
@@ -129,12 +128,7 @@ int Grid::initialGeometry(){
 int Grid::initialValues(){
   // Initialises grid with physical values
 
-  double gma = 4./3.;
-  // set pressure at rmin0 such as ejecta is at P_FLOOR_ at minimum
-  // double p_ej  = Theta*rho_ej*c_*c_;                // ejecta pressure, Theta in code units
-  // double p_inj = p_ej * pow(R_b/rmin0, 2*gma);      // pressure at injection set such as p(R_b)=p_ej
-  double p_inj = Theta * rho_w * c_* c_;
-  double p_ram = p_inj;
+  double p_ram = Theta * rho_w * c_* c_;
 
   for (int i = 0; i < ncell[MV]; ++i){              // loop through cells along r
     Cell *c = &Cinit[i];
@@ -142,13 +136,14 @@ int Grid::initialValues(){
     double r_denorm = r*lNorm;
     
     if (r_denorm <= R_b){                           // unshocked wind
-      double rho = rho_w * pow(r_denorm/rmin0, -2);
-      double p = p_inj * pow(r_denorm/rmin0, -2*gma);
+      double rho, u, p;
+      calcWind(r_denorm, t_start, &rho, &u, &p);
       p_ram = std::min(p, p_ram);
 
-      c->S.prim[RHO] = rho / rhoNorm;
+      c->S.prim[RHO] = rho;
       c->S.prim[VV1] = beta_w;
-      c->S.prim[PPP] = p / pNorm;
+      c->S.prim[PPP] = p;
+      c->S.prim[TR1] = 2.;
     }
     else if ((r_denorm > R_b) && (r_denorm <= R_e)){  // SNR ejecta
       if (r_denorm <= R_c){     // ejecta core
@@ -161,13 +156,15 @@ int Grid::initialValues(){
       }
       double v = r_denorm / t_start;
       c->S.prim[VV1] = v / vNorm;
-      c->S.prim[PPP] = p_ram / pNorm;
+      c->S.prim[PPP] = p_ram;   // p already normalized
+      c->S.prim[TR1] = 1.;
     }
     else{                                             // CSM
       double rho = rho_csm * pow(r_denorm/R_0, k);
       c->S.prim[RHO] = rho / rhoNorm;
       c->S.prim[VV1] = 0.;
-      c->S.prim[PPP] = p_ram / pNorm;
+      c->S.prim[PPP] = p_ram;
+      c->S.prim[TR1] = 0.;
     }
   }
   return 0;
@@ -182,11 +179,12 @@ void Grid::userKinematics(int it, double t){
   UNUSED(it);
   UNUSED(t);
   
-  for (int n = 0; n <= ngst; ++n){
+  for (int n = 0; n <= ngst+1; ++n){
     // fixes ghost cells of left boundary with zero velocity
     int    iL = n;
     Itot[iL].v = 0;
   }
+  
 }
 
 void Cell::userSourceTerms(double dt){
@@ -199,48 +197,19 @@ void Cell::userSourceTerms(double dt){
 void Grid::userBoundaries(int it, double t){
   // Overrides Grid::updateGhosts in 1d/2d/3d.cpp
 
-  double gma = 4./3.;
-  double rmin = rmin0;
-  double rmax = rmax0;
-  rmin /= lNorm;
-  rmax /= lNorm;
-  double u = beta_w * lfacwind;
-  double step = log10((rmax + abs(rmin)-rmin)/abs(rmin))/ncell[x_];
-  //double dr = (rmax-rmin)/ncell[x_];
-
-  //for (int i = 0; i <+ iLbnd+1; ++i){
-  for (int i = iLbnd+1; i >= 0; --i){
+  for (int i = 0; i <= iLbnd+1; ++i){
     Cell *c = &Ctot[i];
+    double rho, u, p;
+    double r = c->G.x[r_]*lNorm;
 
-    //double r = rmin - (iLbnd-i+0.5)*dr;
-    // double r_denorm = c->G.x[x_]*lNorm;
-    // double r = rmin - (iLbnd-i+1)*dr;
-    double r = Ctot[i+1].G.x[r_];
-    double dr = calcCellSize(r, ncell[x_]);
-    r = r-dr;
-    double r_denorm = r*lNorm;
+    calcWind(r, t, &rho, &u, &p);
     
-    double rho = rho_w * pow(r_denorm/rmin0, -2);
-    //double p = std::max(Theta*rho_w*c_*c_/pNorm, P_FLOOR_*pow(R_b/rmin0, 2*gma))
-    double p = Theta * rho_w * pow(r_denorm/rmin0, -2*gma) * c_ *c_ ;
-    /*if (i == iLbnd){
-      cout << "r = " << r_denorm << "\n";
-      cout << "rho = " << rho << "\n";
-      cout << "p = " << p << "\n";
-    }*/
-
-    c->G.x[x_]     = r;
-    c->computeAllGeom();
-    c->S.prim[RHO] = rho / rhoNorm;
-    c->S.prim[VV1] = u;
-    c->S.prim[VV2] = 0;
-    c->S.prim[PPP] = p / pNorm;
-    c->S.prim[TR1] = 1.;
-
-    // double dr_n = c->G.dx[x_];
-
-    // cout << "calc dr = " << dr*c_ << ", cell init dr = " << dr_i*c_ << ", new dr = " << dr_n*c_ << "\n";
-  }
+    c->S.prim[RHO] = rho;
+    c->S.prim[UU1] = u;
+    c->S.prim[UU2] = 0;
+    c->S.prim[PPP] = p;
+    c->S.prim[TR1] = 2.;
+    }
 
   UNUSED(it);
   UNUSED(t);
@@ -255,13 +224,22 @@ int Grid::checkCellForRegrid(int j, int i){
   Cell c  = Ctot[i];
   double r   = c.G.x[r_];                   // get cell position
   double dr  = c.G.dx[r_];                  // get cell radial spacing
-  double dr_i= calcCellSize(r, ncell[x_]);  // get original grid size at same position
+  double rmin = Ctot[iLbnd+1].G.x[x_];
+  double rmax = Ctot[iRbnd-1].G.x[x_];
+  double dr_i= calcCellSize(r, ncell[x_], rmin, rmax);  // get original grid size at same position
   double ar = dr/dr_i;
-  
+  double dr0 = calcCellSize(rmin, Ncells, rmin, rmax); // initial resolution at grid min radius
+
+
+  if (i==iLbnd+1){
+    if (dr>dr0){
+      return(split_);
+    }
+  }
   if (ar > pow(2., mmax)){    // if cell too big compared to expected size
     return(split_);
   }
-  if (ar < pow(2., -lmax)){   // if cell is more than 2^lmax smaller original grid
+  if (ar < pow(2., -lmax)){   // if cell is more than 2^lmax smaller than original grid
     return(merge_);
   }
 
@@ -284,7 +262,8 @@ int Grid::checkCellForRegrid(int j, int i){
 }
 
 void Cell::user_regridVal(double *res){
-  // user function to find regrid victims
+  // user function to find regrid victims for circular regridding
+  // called in 1d.cpp/targetRegridVictims etc.
   // adapts the search to special target resolution requirements
   // depending on the tracer value
   
@@ -297,18 +276,117 @@ void Cell::user_regridVal(double *res){
 }
 
 void FluidState::cons2prim_user(double *rho, double *p, double *uu){
-
+  // user defined function for cons2prim, called in the hydro upodate function
+  // implementation of Newman & Hanlin (NH) 2014 from athena code (Stone+ 2020)
+  // In 1D for now
+  
   UNUSED(uu);
   UNUSED(*p);
+  /*
+  // Parameters
+  int max_iterations = 15;
+  double tol = 1.0e-12;
+  double pgas_uniform_min = 1.0e-12;
+  double a_min = 1.0e-12;
+  double v_sq_max = 1.0 - 1.0e-12;
+  double rr_max = 1.0 - 1.0e-12;
 
+  // Extract conserved values
+  double D = cons[DEN];         // dd in athena 
+  double tau = cons[TAU] + D;
+  double E = D+tau;             // ee in athena
+  double mm = cons[SS1];
+  double mm_sq = mm*mm;
+  double gma = gamma();
+
+  // Calculate functions of conserved quantities
+  double pgas_min = -E;
+  pgas_min = std::max(pgas_min, pgas_uniform_min);
+
+  // Iterate until convergence
+  double pgas[3];
+  double pgas_old;
+  pgas_old = *p;
+  pgas[0] = std::max(pgas_old, pgas_min);
+  int n;
+  for (n = 0; n < max_iterations; ++n) {
+    // Step 1: Calculate cubic coefficients
+    double a;
+    if (n%3 != 2) {
+      a = E + pgas[n%3];      // (NH 5.7)
+      a = std::max(a, a_min);
+    }
+
+    // Step 2: Calculate correct root of cubic equation
+    double v_sq;
+    if (n%3 != 2) {
+      v_sq = mm_sq / (a*a);                                     // (NH 5.2)
+      v_sq = std::min(std::max(v_sq, 0.), v_sq_max);
+      double lfac2 = 1.0/(1.0-v_sq);                            // (NH 3.1)
+      double lfac = std::sqrt(lfac2);                           // (NH 3.1)
+      double wgas = a/lfac2;                                    // (NH 5.1)
+      double rho = D/lfac;                                      // (NH 4.5)
+      pgas[(n+1)%3] = (gma-1.0)/gma * (wgas - rho);             // (NH 4.1)
+      pgas[(n+1)%3] = std::max(pgas[(n+1)%3], pgas_min);
+    }
+
+    // Step 3: Check for convergence
+    if (n%3 != 2) {
+      if (pgas[(n+1)%3] > pgas_min && std::abs(pgas[(n+1)%3]-pgas[n%3]) < tol) {
+        break;
+      }
+    }
+
+    // Step 4: Calculate Aitken accelerant and check for convergence
+    if (n%3 == 2) {
+      double rr = (pgas[2] - pgas[1]) / (pgas[1] - pgas[0]);    // (NH 7.1)
+      if (!std::isfinite(rr) || std::abs(rr) > rr_max) {
+        continue;
+      }
+      pgas[0] = pgas[1] + (pgas[2] - pgas[1]) / (1.0 - rr);     // (NH 7.2)
+      pgas[0] = std::max(pgas[0], pgas_min);
+      if (pgas[0] > pgas_min && std::abs(pgas[0]-pgas[2]) < tol) {
+        break;
+      }
+    }
+  }
+
+  // Step 5: Set primitives
+  if (n == max_iterations) {
+    return;
+  }
+  double prs = pgas[(n+1)%3];
+  *p = prs;
+  //if (!std::isfinite(p)) {
+  //  return;
+  //}
+  double a = E + prs;                                 // (NH 5.7)
+  a = std::max(a, a_min);
+  double v_sq = mm_sq / (a*a);                        // (NH 5.2)
+  v_sq = std::min(std::max(v_sq, 0.), v_sq_max);
+  double lfac2 = 1.0/(1.0-v_sq);                      // (NH 3.1)
+  double lfac = std::sqrt(lfac2);                     // (NH 3.1)
+  double dty = D/lfac;
+  *rho = dty;                                         // (NH 4.5)
+  //if (!std::isfinite(rho)) {
+  //  return;
+  //}
+  double v = mm / a;                                  // (NH 4.6)
+  *uu = lfac*v;                                       // (NH 3.3)
+  //if (!std::isfinite(uu)
+  //    || !std::isfinite(prim(IVY,k,j,i))
+  //    || !std::isfinite(prim(IVZ,k,j,i)) ) {
+  //  return;
+  double wgas = a/lfac2;
+  //prs = (gma-1.0)/gma * (wgas - dty);
+  //*p = prs;
+  */
   return;
-
-}
-
+  }
 
 void Simu::dataDump(){
   // if (it%5 == 0){ grid.printCols(it, t); }
-  if (it%100 == 0){ grid.printCols(it, t); }
+  if (it%1000 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -321,7 +399,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 1000){ stop = true; }
+  if (it > 10000){ stop = true; }
   // if (t > 1.02e3){stop = true; } // 3.33e8 BOXFIT simu
 
 }
