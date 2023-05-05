@@ -6,7 +6,7 @@ submit.sh
 # compiled files
 *.o
 *.pyc
-__pycache__/
+bin/Tools/__pycache__/
 bin/GAMMA
 
 # outputs
