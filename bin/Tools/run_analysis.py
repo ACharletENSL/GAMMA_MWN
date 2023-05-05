@@ -12,10 +12,27 @@ from data_IO import *
 
 # Analysis functions
 # --------------------------------------------------------------------------------------------------
+def analyze_run(key):
+
+  '''
+  Analyze a run, creating a pandas dataframe and corresponding .csv file
+  including interfaces radii, number of cells
+  '''
+
+def get_radii_new(key='Last', itmin=0, itmax=None):
+
+  '''
+  Returns various R(t) of z given results folder, writes them in a file
+  Rewritten for a pandas dataframe
+  Add checking for similarity with existing data and write missing ones
+  '''
+  df = open_rundata(key)
+  
+
 def get_radii(key='Last', itmin=0, itmax=None):
 
   '''
-  Returns various R(t) of z given results folder
+  Returns various R(t) of z given results folder, writes them in a file
   Add checking for similarity with existing data and write missing ones
   '''
   dfile_path, dfile_bool = get_runfile(key)

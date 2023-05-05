@@ -1,21 +1,15 @@
-- method would be recreating cells according to initialvalues rules if ghost cells coordinate go to far away
-- criterion of merging according dr/r
-- gradient takes precedence
-- try again setup from BM1D for injecting matter
+Done
+- criterion of merging according dr/r -> added but rough
+- need to take refinement into account -> for now, is not compatible
+- adaptive time step for large scales ? -> there's none
+- added timestep plot to identify problematic zones
 
-- mail Duffel for boundary algorithm
-- read papers
+To finish
+- physically coherent initial setup
+- finish implement+test cons2prim Newman & Hanlin
+- complete setup gestion (copy phys file, sim name, etc.)
+- rework zone id
+- and more
 
-Plans for code update. Main philosophy -> one config file to rule them all:
-small txt file with physical and grid parameters
-
--> copy params file in the results folder systematically, data analysis & plotting will read from there
-
-relaunch without checkCellForRegrid
-grid in dr/r
-add other method cons2prim
-    check if method for regridding/refinment level ?
-what causes crash at 150000 it
-why dx noise doesn't follow density/so different from dx injection noise?
-
-physically coherent initial setup
+Read papers
+- can we accelerate timestep in relativistic hot fluid?

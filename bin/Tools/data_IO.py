@@ -44,6 +44,18 @@ def openData_withZone(key, it=None, sequence=True):
   data_z = zoneID(data)
   return data_z
 
+def open_rundata(key):
+
+  '''
+  returns a pandas dataframe with the extracted data
+  '''
+  dfile_path, dfile_bool = get_runfile(key)
+  if dfile_bool:
+    df = pd.read_csv(dfile_path, index_col=0)
+    return df
+  else:
+    return dfile_bool
+
 def pivot(data, key):
   return(data.pivot(index="j", columns="i", values=key).to_numpy())
 
@@ -91,7 +103,8 @@ def get_runfile(key):
   '''
 
   dir_path = GAMMA_dir + '/results/%s/' % (key)
-  file_path = dir_path + "extracted_data.txt"
+  #file_path = dir_path + "extracted_data.txt"
+  file_path = dir_path + 'run_data.csv'
   file_bool = os.path.isfile(file_path)
   return file_path, file_bool
 
@@ -101,7 +114,7 @@ def get_radius_zone(df, n=0):
 
   '''
   Get the radius of the zone of chosen index
-  (n=1 wind TS, n=2 nebula radius, etc.)
+  (n=1 wind TS, n=2 nebula radius/CD, etc.)
   '''
   if n==0:
     print("Asked n=0, returning rmin0")
@@ -129,7 +142,8 @@ def get_variable(df, var):
     "u":df_get_u,
     "Ekin":df_get_Ekin,
     "Eint":df_get_Eint,
-    "Emass":df_get_Emass
+    "Emass":df_get_Emass,
+    "dt":df_get_dt
   }
 
   r = df["x"]
@@ -161,13 +175,14 @@ def zoneID(df):
     print("Zone column already exists in data")
     return(df)
   else:
-    p   = df['p']
-    trac= df['trac'].to_numpy()
+    p    = df['p']
+    u    = df_get_u(df)
+    trac = df['trac'].to_numpy()
     zone = np.zeros(trac.shape)
     i_w  = np.argwhere(trac >= 1.5).max()
     i_ej = np.argwhere((trac < 1.5) & (trac >= 0.5)).max()
     
-    i_ts  = get_step(p)
+    i_ts  = get_step(-u)
     i_sh = get_step(-p)
     #print(i_w, i_ej, i_ts, i_sh)
 
@@ -226,3 +241,54 @@ def df_get_Ekin(df):
 def df_get_Emass(df):
   rho = df["rho"]
   return rho
+
+# code time step for each cell (before code takes the min of them)
+def df_get_dt(df):
+  '''
+  Get time step for each cell from the Riemannian waves
+  '''
+  
+  # create copies of dataframe with one ghost cell on left and right respectively
+  # dfL : add cell with wind on the left
+  dfL = df.copy(deep=True)
+  row0 = dfL.iloc[0]
+  dfL.loc[-1] = row0  # let's test with a simple copy
+  dfL.index = dfL.index + 1
+  dfL = dfL.sort_index()
+
+  #dfR : add cell of ejecta on the right
+  dfR = df.copy(deep=True)
+  rowLast = pd.DataFrame(dfR.iloc[-1]).transpose() # let's test with a simple copy
+  rowLast.index = rowLast.index + 1
+  dfR = pd.concat([dfR, rowLast])
+
+  # apply function
+  N = len(df)+1
+  dt = np.zeros(N-1)
+  waves = np.zeros((N, 3))
+  for i in range(N):
+    SL = dfL.loc[i]
+    SR = dfR.loc[i]
+    lL, lR, lS = waveSpeedEstimates(SL, SR)
+    waves[i] = [lL, lR, lS]
+  
+  for i in range(N-1):
+    a = df.iloc[i]['dx']
+
+    # wave from left side
+    l = waves[i][1]
+    v = waves[i][2]
+    dt_candL = a / (l - v) if (l > v) else 1e15
+
+    # wave from right side
+    l = waves[i+1][0]
+    v = waves[i+1][2]
+    dt_candR = a / (v - l) if (l < v) else 1e15
+
+    dt_cand = min(dt_candL, dt_candR)
+    dt[i] = dt_cand
+
+  return dt
+
+
+  

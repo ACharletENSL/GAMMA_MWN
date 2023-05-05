@@ -45,15 +45,17 @@ def get_scalings(rhoNorm):
 var_exp = {
   "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$",
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
+  "trac":"", "Sd":"", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
-  "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "trac":''
+  "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt"
 }
 var_units = {
   "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
-  "D":"", "sx":"", "tau":"", "trac":"",
-  "T":"", "h":"", "lfac":"", "u":"",
+  "D":"", "sx":"", "tau":"", "trac":"", "Sd":"", "gmin":"", "gmax":"",
+  "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)",
   "Eint":" (erg cm$^{-3}$)", "Ekin":" (erg cm$^{-3}$)", "Emass":" (erg cm$^{-3}$)"
 }
+nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
 
 # One-file plotting functions
 # --------------------------------------------------------------------------------------------------
@@ -68,7 +70,7 @@ def plot_mono(var, it, key='Last', slope=False, code_units=False, fig=None):
   else:
     fig = plt.figure()
     ax = plt.gca()
-  t = plot1D(var, slope, it, key, ax, code_units)
+  title = plot1D(var, slope, it, key, ax, code_units)
   ax.set_xlabel(var_exp["x"]+var_units["x"])
   varlabel = var_exp[var]
   if slope:
@@ -79,10 +81,6 @@ def plot_mono(var, it, key='Last', slope=False, code_units=False, fig=None):
     else:
       varlabel += var_units[var]
   ax.set_ylabel(varlabel)
-  t_str = f"{t:.2e}"
-  base, exponent = t_str.split("e")
-  t_str = f"{base} \\times 10^{{{int(exponent)}}}"
-  title = f"it {it}, $t/{t_scale_str} = {t_str}$"
   fig.suptitle(title)
   fig.tight_layout()
 
@@ -111,13 +109,8 @@ def plot_multi(varlist, it, key='Last'):
 
   for var, k, ax in zip(varlist, range(Nk), axes):
     ax.set_ylabel(var_exp[var]+var_units[var])
-    t = plot1D(var, False, it, key, ax)
+    title = plot1D(var, False, it, key, ax)
   
-  t_str = f"{t:.2e}"
-  base, exponent = t_str.split("e")
-  t_str = f"{base} \\times 10^{{{int(exponent)}}}"
-  title = f"it {it}, $t/{t_scale_str} = {t_str}$"
-
   axes[-1].set_xlabel(var_exp["x"]+var_units["x"])
   f.suptitle(title)
   plt.tight_layout()
@@ -142,13 +135,8 @@ def plot_comparison(varlist, it, key='Last', colors='Zone'):
 
   for var in varlist:
     varlabel = var_exp[var]+var_units[var]
-    t = plot1D(var, False, it, key, ax, colors=colors, label=varlabel)
+    title = plot1D(var, False, it, key, ax, colors=colors, label=varlabel)
   
-  t_str = f"{t:.2e}"
-  base, exponent = t_str.split("e")
-  t_str = f"{base} \\times 10^{{{int(exponent)}}}"
-  title = f"it {it}, $t/{t_scale_str} = {t_str}$"
-
   ax.set_xlabel(var_exp["x"]+var_units["x"])
   plt.suptitle(title)
   plt.legend()
@@ -173,14 +161,25 @@ def plot1D(var, slope, it, key, ax=None, code_units=False, line=True, colors='Zo
     ax = plt.gca()
   
   ax.set_xscale('log')
+  ax.set_yscale('log')
   if slope:
+    ax.set_yscale('linear')
     ax.set_ylim(-5, 2)
   else:
-    if var!='trac':
-      ax.set_yscale('log')
+    if var in nolog_vars:
+      ax.set_yscale('linear')
   
   df, t, dt = openData_withtime(key, it)
+  rc = (get_radius_zone(df, n=2)*c_ - env.R_b) / env.R_b
   dt /= tscales[t_scale_str]
+  t_str = f"{dt:.2e}"
+  base, exponent = t_str.split("e")
+  t_str = f"{base} \\times 10^{{{int(exponent)}}}"
+  rc_str= f"{rc:.2e}"
+  base, exponent = rc_str.split("e")
+  rc_str=f"{base} \\times 10^{{{int(exponent)}}}"
+  title = f"it {it}, $t/{t_scale_str} = {t_str}$, $\\Delta R_{{CD}}/R_{{CD,0}} = {rc_str}$"
+  
   n = df["zone"] + 1
   x, z = get_variable(df, var)
   r = x*rNorm
@@ -202,7 +201,7 @@ def plot1D(var, slope, it, key, ax=None, code_units=False, line=True, colors='Zo
   else:
     scatter = ax.scatter(r, z, lw=1, zorder=2, **kwargs)
   ax.legend(*scatter.legend_elements())
-  return dt
+  return title
 
 
 # Multi file plotting functions

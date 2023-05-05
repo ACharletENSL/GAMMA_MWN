@@ -48,13 +48,13 @@
     // ------------------------------------------
     // this equation involves numerically solving an integral over pressure
     int n_evals = 10; // number of points in the integral
-    double chi = 0.5; // param for strength of shocks to detect (0:weak, 1:strong)
+    double chi = 0.; // param for strength of shocks to detect (0:weak, 1:strong)
 
     double p1 = S1.prim[PPP];
     double p2 = S2.prim[PPP];
 
     if (fabs((p1-p2)/p1)<1.e-10) return(-1); // no shock possible
-    if (p1 < p2) return (-1); // shock increases pressure
+    //if (p1 < p2) return (-1); // shock increases pressure
 
     double delta_p = p2 - p1;
     double dp = delta_p / (double) n_evals;

@@ -13,11 +13,11 @@
 static double t_start = 1.e2;
 
 // Grid parameters
-static int GRID_TYPE_ = 0;                  // for testing. 0 = lin grid, 1 = log grid
-static double Ncells  = 2000;               // Initial cell numbers in r direction
+static int GRID_TYPE_ = 1;                  // for testing. 0 = lin grid, 1 = log grid
+static double Ncells  = 800;               // Initial cell numbers in r direction
 static double Nmax    = 5000;               // Max number of cells, must be > Ncells
-static double rmin0   = 1.0000e+09 ;        // min r coordinate of grid (cm)
-static double rmax0   = 1.0000e+11 ;        // max r coordinate of grid (cm)
+static double rmin0   = 5.0000e+09 ;        // min r coordinate of grid (cm)
+static double rmax0   = 7.0000e+10 ;        // max r coordinate of grid (cm)
 
 // Physical radii
 static double R_b = 5.1175e+10 ;            // nebula bubble radius (cm)
@@ -26,7 +26,7 @@ static double R_e = 2.1556e+12 ;            // ejecta envelope radius (cm)
 static double R_0 = 1.e18 ;                 // CSM scaling radius (for non-constant CSM)
 
 // Flow variables
-static double rho_w    = 8.6552e-10 ;       // wind density at grid inner radius (g cm^-3)
+static double rho_w    = 3.4621e-11 ;       // wind density at grid inner radius (g cm^-3)
 static double lfacwind = 1.e2       ;       // wind Lorentz factor
 static double beta_w = sqrt(1. - pow(lfacwind, -2));
 static double Theta    = 1.e-4 ;            // ejecta relativistic temperature (p/rho c^2), easier set this than wind
@@ -38,11 +38,15 @@ static double omega = 10 ;                  // ejecta envelope density gradient
 static double k = 0 ;                       // CSM density gradient
 
 // Refinement parameters
+static bool AMR_ = false;                    // refine according to AMR rules or not
 static double mmax = 1;                     // maximum "derefinement" level
-static double lmax = 5;                     // maximum "refinement level"
+static double lmax = 3;                     // maximum "refinement level"
+static double epsilon = 0.01;               // parameter to avoid refining small ripples
+static double chi_r = 0.3;                  // refinement threshold
+static double chi_m = 0.6;                  // unrefinment threshold
 
 // normalisation constants:
-static double rhoNorm = rho_w;        // density normalisation
+static double rhoNorm = rho_w;                // density normalisation
 static double lNorm = c_;                     // distance normalised to c
 static double vNorm = c_;                     // velocity normalised to c
 static double pNorm = rhoNorm*vNorm*vNorm;    // pressure normalised to rhoNorm c^2
@@ -58,25 +62,15 @@ void loadParams(s_par *par){
 
 }
 
-double calcGamma_wind(double r_denorm, double theta0){
-  // using calcGamma and p = p0 (r/r0)**-2 gamma gives the correct 5/3 value
-  // for some reason deriving Theta and then p = rho*theta gives 5/2
-
-  if (EOS_ == IDEAL_EOS_) {
-    return(GAMMA_);
-  }
-  else if (EOS_ == SYNGE_EOS_) {
-    // self consistent gamma in wind has not been implemented yet
-    // using gamma = 5./3. as first order approximation (cold wind)
-    return(GAMMA_);
-  }
-  else if (EOS_ == RYU_EOS_) {
-    double xi = r_denorm / rmin0;
-    double theta = theta0 * (sqrt(3.* pow(xi, -4./3.) + 1.) - 1.);
-    double a = 3.*theta + 1.;
-    double gamma_eff = (4. * a + 1.)/(3. * a);
-    return(gamma_eff);
-  }
+double calc_LoehnerError(double sigL, double sig, double sigR){
+  // derives 2nd order error criterion for refinement, see Löhner 1987 or Mignone 2012 
+  double dSigL  = sig - sigL;
+  double dSigR  = sigR - sig;
+  double sigRef = abs(sigR) + 2.*abs(sig) + abs(sigL);
+  double dSig_diff = abs(dSigR - dSigL);
+  double dSig_sum  = abs(dSigR) + abs(dSigL) + epsilon*sigRef;
+  double chi = sqrt((dSig_diff*dSig_diff) / (dSig_sum*dSig_sum));
+  return(chi);
 }
 
 static void calcWind(double r_denorm, double t, double *rho, double *u, double *p){
@@ -218,10 +212,13 @@ void Grid::userBoundaries(int it, double t){
 
 int Grid::checkCellForRegrid(int j, int i){
   // check cells to apply split / merge method to
+  // check how to use already calculated gradients to speedup process
 
   UNUSED(j);
   
   Cell c  = Ctot[i];
+  Cell cL = Ctot[i-1];
+  Cell cR = Ctot[i+1];
   double r   = c.G.x[r_];                   // get cell position
   double dr  = c.G.dx[r_];                  // get cell radial spacing
   double rmin = Ctot[iLbnd+1].G.x[x_];
@@ -229,34 +226,75 @@ int Grid::checkCellForRegrid(int j, int i){
   double dr_i= calcCellSize(r, ncell[x_], rmin, rmax);  // get original grid size at same position
   double ar = dr/dr_i;
   double dr0 = calcCellSize(rmin, Ncells, rmin, rmax); // initial resolution at grid min radius
+  double chi = calc_LoehnerError(cL.S.cons[TAU], c.S.cons[TAU], cR.S.cons[TAU]);
 
-
-  if (i==iLbnd+1){
-    if (dr>dr0){
+  if (i<=iLbnd+2){
+    if (dr>1.1*dr0){
       return(split_);
     }
   }
   if (ar > pow(2., mmax)){    // if cell too big compared to expected size
     return(split_);
   }
-  if (ar < pow(2., -lmax)){   // if cell is more than 2^lmax smaller than original grid
+  if (ar < pow(2., -lmax)){   // if cell too small compared to expected size
     return(merge_);
   }
-
   /*
-  double rOut = Ctot[iRbnd-1].G.x[x_];
-  double ar  = dr / (rOut*dth);             // calculate cell aspect ratio
-  double g = 1.;
-
-  // note: split_AR = 3, merge_AR = 0.1
-  
-  if (ar > split_AR * target_ar / g) { // if cell is too long for its width
-    return(split_);                       // split
+  if (AMR_ == true){
+    if (chi > chi_r){           // if refinment criterion is met
+      if (ar > pow(2., -lmax)){
+        return(split_);
+      }
+    }
+    else if (chi < chi_m){      // if unrefinment criterion is met
+      if (ar < 0.5){
+        return(merge_);
+      }
+    }
   }
-  if (ar < merge_AR * target_ar / g) { // if cell is too short for its width
-    return(merge_);                       // merge
+  else{
+    if (SHOCK_DETECTION_ == ENABLED_){
+      if ((cR.isShocked or cL.isShocked) and (ar > pow(2., -lmax))){
+        return(split_);
+      }
+    }
+    if (ar > pow(2., mmax)){    // if cell too big compared to expected size
+      return(split_);
+    }
+    if (ar < pow(2., -lmax)){   // if cell too small compared to expected size
+      return(merge_);
+    }
   }
   */
+  
+  /*
+  if (SHOCK_DETECTION_ == ENABLED_){
+    if ((i >= iLbnd+lmax-ngst) and (i <= iRbnd-lmax+ngst)){
+      for (int j = i-lmax; j<=i+lmax; ++i){
+        if (Ctot[j].isShocked){
+          if (ar < pow(2., -lmax)){   // if cell is more than 2^lmax smaller than original grid
+            return(merge_);
+          }
+          else{return(skip_);}
+        }
+      }
+    }
+  }
+  if (SHOCK_DETECTION_ == ENABLED_){
+    if (c.isShocked){
+      if (ar < pow(2., -lmax)){
+        return(merge_);
+      }
+    }
+    else{
+      if (ar < 0.5){return(merge_);}
+    }
+  }
+  else{
+    if (ar < 0.25){return(merge_);}
+  } 
+  */
+
   return(skip_);
 
 }
