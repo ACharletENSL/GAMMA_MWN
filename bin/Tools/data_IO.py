@@ -110,6 +110,20 @@ def get_runfile(key):
 
 # Functions on one data file
 # --------------------------------------------------------------------------------------------------
+def df_get_radii(df):
+
+  '''
+  Get the various radii from a given data file
+  '''
+
+  Nz = int(df['zone'].max())
+  radii = np.zeros(Nz)
+  for n in range(Nz):
+    r_n = get_radius_zone(df, n+1)
+    radii[n] = r_n
+  
+  return radii
+
 def get_radius_zone(df, n=0):
 
   '''
@@ -124,8 +138,9 @@ def get_radius_zone(df, n=0):
   r = df['x']
   z = df['zone']
   rz = r[z == n].min()
-  if np.isnan(rz):      # if no cell of the zone, take max of previous one
-    rz = r[z==n-1].max()
+  while(np.isnan(rz)):      # if no cell of the zone, take max of previous one
+    n -= 1
+    rz = r[z==n].max()
   return rz
 
 def get_variable(df, var):
@@ -175,6 +190,7 @@ def zoneID(df):
     print("Zone column already exists in data")
     return(df)
   else:
+    rho  = df['rho'] 
     p    = df['p']
     u    = df_get_u(df)
     trac = df['trac'].to_numpy()
@@ -183,7 +199,7 @@ def zoneID(df):
     i_ej = np.argwhere((trac < 1.5) & (trac >= 0.5)).max()
     
     i_ts  = get_step(-u)
-    i_sh = get_step(-p)
+    i_sh = max(get_step(-p), get_step(rho))
     #print(i_w, i_ej, i_ts, i_sh)
 
     zone[:i_ts] = 0

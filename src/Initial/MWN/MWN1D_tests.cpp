@@ -437,7 +437,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 10000){ stop = true; }
+  if (it > 20000){ stop = true; }
   // if (t > 1.02e3){stop = true; } // 3.33e8 BOXFIT simu
 
 }

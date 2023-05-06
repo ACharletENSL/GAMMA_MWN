@@ -171,6 +171,7 @@ def plot1D(var, slope, it, key, ax=None, code_units=False, line=True, colors='Zo
   
   df, t, dt = openData_withtime(key, it)
   rc = (get_radius_zone(df, n=2)*c_ - env.R_b) / env.R_b
+  if rc < 0.: rc = 0.
   dt /= tscales[t_scale_str]
   t_str = f"{dt:.2e}"
   base, exponent = t_str.split("e")
@@ -212,6 +213,7 @@ def plot_radii(key='Last'):
   '''
   rad_legend = ['$R_{TS}$', '$R_{b}$', '$R_{shell}$', '$R_{RS}$', '$R_{CD}$', '$R_{FS}$']
   time, radii = get_radii(key)
+  radii *= c_
   Nr = radii.shape[0]
   physpath = get_physfile(key)
   env = MyEnv()
@@ -223,4 +225,26 @@ def plot_radii(key='Last'):
   }
   for n in range(Nr):
     plt.loglog(time/env.t_0, radii[n], c=plt.cm.Paired(n), label=rad_legend[n])
+  plt.legend()
+
+def plot_velshocks(key='Last'):
+  '''
+  Plot the various shock/CD velocities of the simulation vs time
+  '''
+  rad_legend = ['$\\dot{R}_{TS}$', '$\\dot{R}_{b}$', '$\\dot{R}_{shell}$',
+   '$\\dot{R}_{RS}$', '$\\dot{R}_{CD}$', '$\\dot{R}_{FS}$']
+  time, radii = get_radii(key)
+  radii *= c_
+  Nr = radii.shape[0]
+  vel = np.gradient(radii, time, axis=1)
+  physpath = get_physfile(key)
+  env = MyEnv()
+  env_init(env, physpath)
+  # add other time scaling
+  tscales = {
+    '1':1.,
+    't_0':env.t_0
+  }
+  for n in range(Nr):
+    plt.semilogx(time/env.t_0, vel[n], c=plt.cm.Paired(n), label=rad_legend[n])
   plt.legend()
