@@ -8,7 +8,7 @@ To finish
 - physically coherent initial setup
 - finish implement+test cons2prim Newman & Hanlin
 - complete setup gestion (copy phys file, sim name, etc.)
-- rework zone id
+- rework zone id, including use of shock detection
 - and more
 
 Read papers

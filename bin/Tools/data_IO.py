@@ -13,7 +13,9 @@ to add:
 import os
 import numpy as np
 import pandas as pd
+import scipy.signal as sps
 from phys_functions import *
+from environment import c_, pi_
 
 # Read data
 # --------------------------------------------------------------------------------------------------
@@ -110,6 +112,35 @@ def get_runfile(key):
 
 # Functions on one data file
 # --------------------------------------------------------------------------------------------------
+def df_get_zoneIntegrated(df, var):
+
+  '''
+  Get the zone-integrated variable for a given data file
+  '''
+
+  zone = df['zone']
+  Nz = int(zone.max())
+  res = np.zeros(Nz)
+  if var=='Nc':
+    for n in range(Nz):
+      out = zone[zone==n].count()
+      res[n] = out
+      
+  else:
+    r  = df['x']*c_
+    dr = df['dx']*c_
+    dV = 4.*pi_*r**2*dr
+    if var=='V':
+      data = dV
+    else:
+      r, data = get_variable(df, var)
+      data *= dV
+    for n in range(Nz):
+      out = data[zone == n+1].sum()
+      res[n] = out
+  
+  return res
+
 def df_get_radii(df):
 
   '''
@@ -162,10 +193,14 @@ def get_variable(df, var):
   }
 
   r = df["x"]
+  #if smoothing:
+
   if var in calc_vars:
-    return r, calc_vars[var](df)
+    out = calc_vars[var](df)
+    return r, out
   elif var in df.columns:
-    return r, df[var]
+    out = df[var]
+    return r, out
   else:
     print("Required variable doesn't exist.")
 
@@ -195,12 +230,14 @@ def zoneID(df):
     u    = df_get_u(df)
     trac = df['trac'].to_numpy()
     zone = np.zeros(trac.shape)
+
     i_w  = np.argwhere(trac >= 1.5).max()
     i_ej = np.argwhere((trac < 1.5) & (trac >= 0.5)).max()
-    
     i_ts  = get_step(-u)
     i_sh = max(get_step(-p), get_step(rho))
     #print(i_w, i_ej, i_ts, i_sh)
+    #if 'Sd' in df.keys():
+
 
     zone[:i_ts] = 0
     zone[i_ts:i_w+1]  = 1
@@ -222,6 +259,42 @@ def get_step(arr):
   step_id = np.argmax(d_step)
 
   return step_id
+
+def df_denoise_zonedata(df):
+  '''
+  Replace data with smoothed data, using zone conditions
+  '''
+  keylist = ['rho', 'vx', 'p', 'D', 'sx', 'tau']
+  try:
+    zone = df['zone']
+  except KeyError:
+    df = zoneID(df)
+    zone = df['zone']
+  for key in keylist:
+    arr = df[key]
+    arr_shw = arr[zone==1]
+    arr_sm = denoise_data(arr_shw)
+    out = np.where(zone==1, arr_sm, arr)
+
+
+def denoise_data(arr, method='savgol', ker_size=30, interpol_deg=3):
+
+  '''
+  Denoising data for better gradient & slopes calculation
+  '''
+  out = np.zeros(arr.shape)
+  if method == 'roll_ave':
+    ker = np.ones(ker_size)/ker_size
+    out = np.convolve(arr, ker, mode='same')
+  elif method == 'savgol':
+    if ker_size%2==0:
+      ker_size +=1
+    out = sps.savgol_filter(arr, ker_size, interpol_deg)
+  else:
+    print('No method corresponding to this keyword.')
+    pass
+  
+  return out
 
 
 # Physical functions from dataframe

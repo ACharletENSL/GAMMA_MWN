@@ -49,7 +49,7 @@ D = (5-delta)*(omega-5)/(2*pi_*(omega-delta)) * E_sn / v_t**5
 #P_0                  # initial rotation period (s)
 #E_0                  # total energy injected in the nebula (erg)
 #lfacwind             # wind Lorentz factor
-#t_start              # SNR age at simulation beginning
+#t_start              # SNR age at simulation beginning (s)
 #rmin0                # grid rmin (cm)
 #rmax0                # grid rmax (cm)
 #t_0                  # spindown time (s)
@@ -80,6 +80,7 @@ class MyEnv:
           self.P_0 = float(l[2]) * 1e-3
         elif line.startswith('E_0'):
           l = line.split()
+          self.E_0_frac = float(l[2])
           self.E_0 = float(l[2]) * E_sn
         elif line.startswith('lfacwind'):
           l = line.split()
@@ -98,7 +99,6 @@ class MyEnv:
     '''Physical values derived from input parameters'''
     f = get_spindown_f(theta_B, sp_law)
     self.t_0 = I * c_**3 * self.P_0**2 / (8. * pi_**2 * f * R_ns**6 * B_0**2)
-    self.t_start *= self.t_0
     self.L_0 = 2. * self.E_0 / ((n-1.)*self.t_0)
     self.t_c = self.t_0 * 2.64 * ((omega - 5)/omega) * ((n-1)/2)
     self.R_c = v_t * self.t_c
