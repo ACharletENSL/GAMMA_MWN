@@ -6,10 +6,11 @@ This file contains parameters to be read for sim initialization and analysis
 '''
 run name: LowE0
 
-P_0 = 1             # initial rotation period in ms
-E_0 = 0.1           # total injected energy in units E_SN
+Uncomment one between E_0 and P_0
+#P_0 = 1.            # NS spin period in ms 
+E_0 = 0.1           # injected energy in units E_SN
 lfacwind = 100      # wind Lorentz factor
-t_start = 1e2      # SNR age at simulation start in s
+t_start = 1e2       # SNR age at simulation start in s
 
 rmin0 = 5e9         # grid rmin in cm
 rmax0 = 7e10        # grid rmax in cm

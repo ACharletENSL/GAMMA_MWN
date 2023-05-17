@@ -67,6 +67,8 @@ D = (5-delta)*(omega-5)/(2*pi_*(omega-delta)) * E_sn / v_t**5
 
 class MyEnv:
   def setupEnv(self, path):
+    self.P_0 = None
+    self.E_0 = None
     self.read_input(path)
     self.update_params()
 
@@ -98,8 +100,18 @@ class MyEnv:
   def update_params(self):
     '''Physical values derived from input parameters'''
     f = get_spindown_f(theta_B, sp_law)
-    self.t_0 = I * c_**3 * self.P_0**2 / (8. * pi_**2 * f * R_ns**6 * B_0**2)
-    self.L_0 = 2. * self.E_0 / ((n-1.)*self.t_0)
+    if self.P_0 and self.E_0:
+      print("Comment either P_0 or E_0 in phys_inputs file")
+      pass
+    if (not self.P_0) and (not self.E_0):
+      print("Uncomment either P_0 or E_0 in phys_inputs file")
+      pass
+    if P_0:
+      self.t_0 = I * c_**3 * self.P_0**2 / (8. * pi_**2 * f * R_ns**6 * B_0**2)
+      self.L_0 = (f * B_0**2 * R_ns**6 * (2.*pi_/self.P_0)**4 / c_**3 )
+    if E_O:
+      self.t_0 = (n-1) * I**2 * c_**3 / (8. * f * R_ns**6 * B_0**2 * E_0)
+      self.L_0 = 2. * self.E_0 / ((n-1.)*self.t_0)
     self.t_c = self.t_0 * 2.64 * ((omega - 5)/omega) * ((n-1)/2)
     self.R_c = v_t * self.t_c
 
