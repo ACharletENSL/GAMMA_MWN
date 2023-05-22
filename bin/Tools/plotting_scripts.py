@@ -156,12 +156,12 @@ def plot1D(var, slope, it, key, scaletype, ax=None, code_units=False, line=True,
     t_scale, r_scale = scalesDict[scaletype]
     t_scale_str, r_scale_str = scalesNames[scaletype]
     xlabel = f"$r/{r_scale_str}$"
-    rc = get_radius_zone(df, n=2)*c_ / r_scale
+    rc = (get_radius_zone(df, n=2)*c_ - env.R_b) / r_scale
     if rc < 0.: rc = 0.
-    t /= t_scale
-    t_str = reformat_scientific(f"{t:.2e}")
-    #rc_str= reformat_scientific(f"{rc:.2e}")
-    title = f"it {it}, $t/{t_scale_str} = {t_str}$, $R_{{CD}}/{r_scale_str} = {rc:.2f}$"
+    dt /= t_scale
+    t_str = reformat_scientific(f"{dt:.2e}")
+    rc_str= reformat_scientific(f"{rc:.2e}")
+    title = f"it {it}, $\\Delta t/{t_scale_str} = {t_str}$, $\\Delta R_{{CD}}/{r_scale_str} = {rc_str}$"
   else:
     t_str = reformat_scientific(f"{t:.2e}")
     xlabel = var_exp["x"]+var_units["x"]

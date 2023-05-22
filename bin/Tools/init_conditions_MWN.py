@@ -20,7 +20,7 @@ def env_init(env, path):
   env.setupEnv(path)
   env.R_b = R_1st(env.t_start, env.L_0, env.t_0)
   env.R_c = v_t*env.t_start
-  env.R_e = env.R_c/wc
+  env.R_e = v_max*env.t_start
   env.beta_w = np.sqrt(1. - env.lfacwind**(-2))
   env.rho_w  = env.L_0/(4. * pi_*env.rmin0**2 * env.lfacwind**2 * c_**3 * env.beta_w)
   env.rho_ej = D / env.t_start**3

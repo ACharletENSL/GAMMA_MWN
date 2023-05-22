@@ -16,22 +16,23 @@ static double t_start = 1.e2;
 static int GRID_TYPE_ = 1;                  // for testing. 0 = lin grid, 1 = log grid
 static double Ncells  = 800;               // Initial cell numbers in r direction
 static double Nmax    = 5000;               // Max number of cells, must be > Ncells
-static double rmin0   = 5.0000e+09 ;        // min r coordinate of grid (cm)
-static double rmax0   = 7.0000e+10 ;        // max r coordinate of grid (cm)
+static double rmin0   = 1.0000e+09 ;        // min r coordinate of grid (cm)
+static double rmax0   = 1.0000e+10 ;        // max r coordinate of grid (cm)
 
 // Physical radii
-static double R_b = 5.1175e+10 ;            // nebula bubble radius (cm)
-static double R_c = 2.1556e+11 ;            // ejecta core radius (cm)
-static double R_e = 2.1556e+12 ;            // ejecta envelope radius (cm)
+static double R_b = 4.0803e+09 ;            // nebula bubble radius (cm)
+static double R_c = 6.3166e+10 ;            // ejecta core radius (cm)
+static double R_e = 2.0985e+12 ;            // ejecta envelope radius (cm)
 static double R_0 = 1.e18 ;                 // CSM scaling radius (for non-constant CSM)
 
 // Flow variables
-static double rho_w    = 3.4621e-11 ;       // wind density at grid inner radius (g cm^-3)
-static double lfacwind = 1.e2       ;       // wind Lorentz factor
+static double t_sd     = 6.7360e+06 ;       // Neutron Star spindown time
+static double rho_w    = 4.3848e-12 ;       // wind density at grid inner radius (g cm^-3)
+static double lfacwind = 1.0000e+02       ;       // wind Lorentz factor
 static double beta_w = sqrt(1. - pow(lfacwind, -2));
 static double Theta    = 1.e-4 ;            // ejecta relativistic temperature (p/rho c^2), easier set this than wind
 // change Theta def when including hot bubble/young SN ?
-static double rho_ej   = 9.9566e-02 ;       // ejecta core density (g cm^-3)
+static double rho_ej   = 3.9567e+00 ;       // ejecta core density (g cm^-3)
 static double rho_csm  = 1.6726e-24 ;       // CSM density (g cm^-3) 
 static double delta = 0 ;                   // ejecta core density gradient
 static double omega = 10 ;                  // ejecta envelope density gradient
@@ -437,7 +438,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 20000){ stop = true; }
+  if (it > 100000){ stop = true; }
   // if (t > 1.02e3){stop = true; } // 3.33e8 BOXFIT simu
 
 }

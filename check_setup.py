@@ -18,7 +18,7 @@ def main():
   #f2 = plt.figure(2)
   #plot_mono('p', 0, fig=f1)
   #plot_mono('p', 1, fig=f2)
-  plot_primvar(100)
+  plot_primvar(10000)
   plt.show()
 
 if __name__ == "__main__":
