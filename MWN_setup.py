@@ -30,7 +30,7 @@ def update_simFile(filepath):
   vars2update = {
     'rmin0':env.rmin0, 'rmax0':env.rmax0, 'R_b':env.R_b, 'R_c':env.R_c, 'R_e':env.R_e,
     'rho_w':env.rho_w, 'lfacwind':env.lfacwind, 'rho_ej':env.rho_ej, 'rho_csm':rho_csm,
-    't_sd':env.t_0
+    't_sd':env.t_0, 'm_fade':m
   }
   out_lines = []
   with open(filepath, 'r') as inf:
@@ -39,8 +39,14 @@ def update_simFile(filepath):
     for line in inFile:
       if line.startswith('static double'):
         l = line.split()
-        if l[2] in vars2update:
-          line = line.replace(l[4], f'{vars2update[l[2]]:.4e}')
+        var = l[2]
+        if var in vars2update:
+          if var == 'lfacwind':
+            line = line.replace(l[4], f'{vars2update[l[2]]:.0e}')
+          elif var == 'm_fade':
+            line = line.replace(l[4], f'{vars2update[l[2]]:.1f}')
+          else:
+            line = line.replace(l[4], f'{vars2update[l[2]]:.4e}')
       out_lines.append(line)
   
   with open(filepath, 'w') as outf:

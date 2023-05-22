@@ -27,8 +27,9 @@ static double R_0 = 1.e18 ;                 // CSM scaling radius (for non-const
 
 // Flow variables
 static double t_sd     = 6.7360e+06 ;       // Neutron Star spindown time
+static double m_fade   = 2.0  ;             // fading index (power law for luminosity)
 static double rho_w    = 4.3848e-12 ;       // wind density at grid inner radius (g cm^-3)
-static double lfacwind = 1.0000e+02       ;       // wind Lorentz factor
+static double lfacwind = 1e+02 ;            // wind Lorentz factor
 static double beta_w = sqrt(1. - pow(lfacwind, -2));
 static double Theta    = 1.e-4 ;            // ejecta relativistic temperature (p/rho c^2), easier set this than wind
 // change Theta def when including hot bubble/young SN ?
@@ -78,10 +79,11 @@ static void calcWind(double r_denorm, double t, double *rho, double *u, double *
   // returns normalised primitive variables for relativistic wind at position r (denormalised).
   double p_inj = Theta * rho_w * c_* c_;
   double gma = 5./3.;
+  double sd = pow(1. + t/t_sd, -m_fade);
 
-  *rho = rho_w * pow(r_denorm/rmin0, -2) / rhoNorm;
+  *rho = rho_w * pow(r_denorm/rmin0, -2) * sd / rhoNorm;
   *u = c_*sqrt(1.-1./(lfacwind*lfacwind))*lfacwind / vNorm;
-  *p = p_inj * pow(r_denorm/rmin0, -2*gma) / pNorm;
+  *p = p_inj * pow(r_denorm/rmin0, -2*gma) * sd / pNorm;
 
 }
 
