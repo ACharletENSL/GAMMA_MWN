@@ -282,7 +282,7 @@ def plotT(var, slope, key, titletype, ax=None, **kwargs):
   ax.set_xlabel('$t/t_0$ (s)')
   ax.set_ylabel(var_label[var])
   ymin, ymax = ax.get_ylim()
-  if np.log10(ymax) - np.log10(ymin < 2.5):
+  if np.log10(ymax) - np.log10(ymin) < 2.5:
     ax.grid(color='k', alpha=0.5, linestyle='dashed', linewidth=0.5, which='minor')
   
   return title
