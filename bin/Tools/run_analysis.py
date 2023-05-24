@@ -128,7 +128,7 @@ def get_radii(key='Last', itmin=0, itmax=None):
       if nd < len(its):
         fullData = False
   else:           # if not, create it and write the header
-    prep_fileheader(key)
+    prep_fileheader(key, dfile_path)
     dfile_bool = True
     fullData = False
 

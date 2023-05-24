@@ -275,6 +275,7 @@ def df_denoise_zonedata(df):
     arr_shw = arr[zone==1]
     arr_sm = denoise_data(arr_shw)
     out = np.where(zone==1, arr_sm, arr)
+  pass
 
 
 def denoise_data(arr, method='savgol', ker_size=30, interpol_deg=3):
