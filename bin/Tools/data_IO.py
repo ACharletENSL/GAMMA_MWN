@@ -136,7 +136,7 @@ def df_get_zoneIntegrated(df, var):
       r, data = get_variable(df, var)
       data *= dV
     for n in range(Nz):
-      out = data[zone == n+1].sum()
+      out = data[zone == n].sum()
       res[n] = out
   
   return res
