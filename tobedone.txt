@@ -4,12 +4,50 @@ Done
 - adaptive time step for large scales ? -> there's none
 - added timestep plot to identify problematic zones
 
+
 To finish
 - physically coherent initial setup
 - finish implement+test cons2prim Newman & Hanlin
 - complete setup gestion (copy phys file, sim name, etc.)
 - rework zone id, including use of shock detection
 - and more
+- add normalization choice to setup
+- rego into cell resoltuion:
+-> determine some dr/r fraction acceptable + way to check it
+- be able to change normalization of plots on the fly
+-> continue electron distribution & radiation work -> postprocessing
 
-Read papers
-- can we accelerate timestep in relativistic hot fluid?
+ALE to smooth between lagrangian in cold relat speed flows and eulerian in hot slow flows??
+-> criterion based on wave / sound speed ratio?
+-> dump local dt?
+-> should not work: you will be limited by sound speed in any case
+
+Clean run_analysis of old functions
+Update shock strength to Mach number of shock velocity in unshocked medium
+
+Todolist:
+1. Cell resolution
+- find a way to fuse cells in the shocked nebula but not too much
+- add dr/r plots to check
+- once we're only limited by cells at shocks, asks about adaptive timestep
+
+2. Shocks and self-similarity
+- shock detection in post-processing (will be useful in lots of cases: especially analyzing sims ran without it)
+- change shock strength to Mach number (of shock front in unshocked medium)
+- PREPARE TALK ON SELF-SIMILARITY
+
+3. Emitted radiation
+- write post-processing of sim
+-> first using the gamma_min and gamma_max from GAMMA
+-> from shock detection in our method
+First only one power-law, then add before and after gamma_min & gamma_max + cooling regimes
+
+4. Jets in GAMMA
+- make a setup file
+- discussion with Frederic Daigne
+
+5. Internal shocks: collision of two (cold) shells 
+-> ask Minu
+-> relative Lorentz factor, densities ratio, shell width, collision radius...
+equal width in the lab frame is a good starting assumption
+-> redo current test case in planar and spherical

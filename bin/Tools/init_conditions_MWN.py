@@ -24,6 +24,8 @@ def env_init(env, path):
   env.beta_w = np.sqrt(1. - env.lfacwind**(-2))
   env.rho_w  = env.L_0/(4. * pi_*env.rmin0**2 * env.lfacwind**2 * c_**3 * env.beta_w)
   env.rho_ej = D / env.t_start**3
+  env.rhoNorm = env.rho_w
+  env.pNorm = env.rhoNorm * c_**2
 
 
 # r is in cm, (rho, v, p) in CGS units

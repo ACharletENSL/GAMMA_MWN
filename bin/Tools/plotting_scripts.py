@@ -56,6 +56,7 @@ var_units = {
   "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)",
   "Eint":" (erg cm$^{-3}$)", "Ekin":" (erg cm$^{-3}$)", "Emass":" (erg cm$^{-3}$)"
 }
+zone_names = ['wind', 'nebula', 'ej. shell', 'SNR', 'shocked ej.', 'shocked CSM', 'CSM']
 nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
 
 # One-file plotting functions
@@ -244,8 +245,8 @@ def plotT(var, slope, key, titletype, ax=None, **kwargs):
   Create plot to be inserted into a figure
   '''
 
-  var_label = {'R':'$r$ (cm)', 'vel':'$\\beta$', 'posvel':'$\\beta$',
-    'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$',
+  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'posvel':'$\\beta$',
+    'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'shock strength',
     'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}'}
   physpath = get_physfile(key)
   env = MyEnv()
@@ -263,27 +264,38 @@ def plotT(var, slope, key, titletype, ax=None, **kwargs):
     lf_str = reformat_pow10(f'{env.lfacwind:.0e}') 
     title = f'$E_0/E_{{sn}} = {env.E_0_frac}$, $\\gamma_w={lf_str}$'
   
-  positive = True if var == 'posvel' else False
-  time, vars, var_legends = get_timeseries(var, key, slope, positive)
+  df_res = get_timeseries(var, key)
+  time = df_res['time']
+  Nz = get_Nzones(key)
+  varlist = get_varlist(var, Nz)
+  var_legends = ['$' + var_leg + '$' for var_leg in varlist]
+  vars = df_res[varlist].to_numpy().transpose()
+
 
   Nv = vars.shape[0]
   for n in range(Nv):
     if slope:
+      logt = np.log10(time)
+      logvars = np.log10(vars)
+      vars = np.gradient(logvars, logt, axis=1)
+      new_legends = ["d$\\log(" + var_leg.replace('$', '') + ")/$d$\\log r$" for var_leg in var_legends]
+      var_legends = new_legends
       ax.plot(time/env.t_0, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
     else:
       ax.loglog(time/env.t_0, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
   if var=='Nc':
     ax.set_yscale('linear')
-  elif var=='vel':
-    ax.set_yscale('symlog')
+  elif var=='v':
+    ax.set_yscale('linear')
   if slope:
     ax.set_ylim(-2, 3)
     if var == 'R': ax.set_ylim(-.5, 1.5)
   ax.set_xlabel('$t/t_0$ (s)')
   ax.set_ylabel(var_label[var])
   ymin, ymax = ax.get_ylim()
-  if np.log10(ymax) - np.log10(ymin) < 2.5:
-    ax.grid(color='k', alpha=0.5, linestyle='dashed', linewidth=0.5, which='minor')
+  if var != 'v':
+    if np.log10(ymax) - np.log10(ymin) < 2.5:
+      ax.grid(color='k', alpha=0.5, linestyle='dashed', linewidth=0.5, which='minor')
   
   return title
 

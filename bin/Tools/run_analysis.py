@@ -10,15 +10,110 @@ This file analyze opened data
 import numpy as np
 from data_IO import *
 
+
 # Analysis functions
 # --------------------------------------------------------------------------------------------------
-def analyze_run(key):
+def get_timeseries(var, key):
 
   '''
-  Analyze a run, creating a pandas dataframe and corresponding .csv file
-  including interfaces run_radii, number of cells
+  Return asked variable as a function of time and generate legend handle accordingly
+  return time, var, var_legends
   '''
-  pass
+  run_data = open_clean_rundata(key)
+
+  Nz = get_Nzones(key)
+  if var == 'v':
+    varlist = get_varlist('R', Nz)
+    time = run_data['time'].to_numpy()
+    out = run_data['time'].copy(deep=True)
+    vlist = get_varlist('v', Nz)
+    for rad, vel in zip(varlist, vlist):
+      r = run_data[rad].to_numpy()
+      v = np.gradient(r, time)
+      vcol = pd.DataFrame({vel: v}, index=out.index)
+      out = pd.concat([out, vcol], axis='columns')
+  else:
+    varlist = get_varlist(var, Nz)
+    varlist.insert(0, 'time')
+    out = run_data[varlist].copy(deep=True)
+  
+  return out
+
+    
+  # get variable(s) asked
+  # create plot legend and return everything
+
+def open_clean_rundata(key):
+
+  '''
+  Returns pandas dataframe containing data from time series
+  '''  
+  # open file as pandas dataframe (if doesn't exists, returns False)
+  dfile_path, dfile_bool = get_runfile(key)
+  
+  run_data = open_rundata(key)
+  its = np.array(dataList(key))
+
+  # check if .csv exists
+  if not dfile_bool:
+    analyze_run(key)
+    run_data = open_rundata(key)
+  
+  last_it = run_data.index[-1]
+  if last_it <= its[-1]:
+    # check if last data row fits with current analysis
+    df = openData_withZone(key, last_it)
+    last_data = df_get_all(df)
+    lastrow = run_data.iloc[-1]
+    #check diffs
+    same = True
+    if same:
+      if last_it < its[-1]:
+        # continue after last_it
+        analyze_run(key)
+      else:
+        # everything's good
+        pass
+    else:
+      # delete file and do whole analysis
+      os.remove(get_runfile(key)[0])
+      analyze_run(key)
+  else: # last_it > its[-1]
+    # delete file and do whole analysis
+    os.remove(get_runfile(key)[0])
+    analyze_run(key)
+  
+  run_data = open_rundata(key)
+  return run_data
+
+def analyze_run(key, itmin=0, itmax=None):
+
+  '''
+  Analyze a run, filling a pandas dataframe
+  writes it in a corresponding .csv file
+  /!\ if itmin != 0, starts at first iteration AFTER itmin
+  '''
+  dfile_path, dfile_bool = get_runfile(key)
+  varlist = prep_header(key)
+  varlist.insert(0, 'time')
+  data = pd.DataFrame(columns=varlist)
+  its = np.array(dataList(key, itmin, itmax))
+  if itmin:
+    its = [it for it in its if i>itmin]
+  for i, it in enumerate(its):
+    df, t, dt = openData_withtime(key, it)
+    tup = df_get_all(df)
+    results = [item for arr in tup for item in arr]
+    results.insert(0, dt)
+    dict = {var:res for var, res in zip(varlist, results)}
+    data.loc[it] = pd.Series(dict)
+    #entry = pd.DataFrame.from_dict(dict)
+    #data = pd.concat([data, entry], ignore_index=True)
+  
+  data.index
+  data.to_csv(dfile_path)
+
+# olds
 
 def get_radii_new(key='Last', itmin=0, itmax=None):
 
@@ -30,11 +125,6 @@ def get_radii_new(key='Last', itmin=0, itmax=None):
   df = open_rundata(key)
   pass
 
-
-intList  = ['{ts}', 'b', '{sh}', '{rs}', '{cd}', '{fs}'] # interface subscripts
-zsubList = ['w', 'b', '{sh}', '{ej}', '{sh.ej}', '{sh.csm}'] # zone subscripts
-zvarsList = ['Nc', 'V', 'Emass', 'Ekin', 'Eint'] # zone variables
-getvars_funcs = {'R':df_get_radii, }
 
 def prep_fileheader(key, dfile_path):
 
@@ -76,7 +166,8 @@ def resultsFile_lastit(dfile_path):
   
   return last_it
 
-def get_timeseries(var, key, slope=False, positive=False, itmin=0, itmax=None):
+
+def get_timeseries_old(var, key, slope=False, positive=False, itmin=0, itmax=None):
 
   '''
   Return the asked variable as function of time

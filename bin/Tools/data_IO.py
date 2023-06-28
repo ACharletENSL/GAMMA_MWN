@@ -61,7 +61,7 @@ def open_rundata(key):
 def pivot(data, key):
   return(data.pivot(index="j", columns="i", values=key).to_numpy())
 
-def dataList(key, itmin, itmax):
+def dataList(key, itmin=0, itmax=None):
 
   '''
   For a given key, return the list of iterations
@@ -110,8 +110,128 @@ def get_runfile(key):
   file_bool = os.path.isfile(file_path)
   return file_path, file_bool
 
+def get_varlist(var, Nz):
+  '''
+  Returns list of variables names with zone / interface subscripts
+  ''' 
+  varlist = []
+  zvarsList = ['V', 'Emass', 'Ekin', 'Eint']
+  ivarsList = ['R', 'v']
+
+  # subscripts
+  intList  = ['{ts}', 'b', '{sh}', '{rs}', '{cd}', '{fs}']
+  zsubList = ['w', 'b', '{sh}', '{ej}', '{sh.ej}', '{sh.csm}', '{csm}']
+  # construct shocks list
+  shList = [z for z in intList[:Nz-1] if z not in ['b', '{cd}']]
+
+  if var == 'Nc':
+    varlist = [var + '_' + sub for sub in zsubList[:Nz]]
+  elif var in zvarsList:
+    varlist = [var + '_' + sub for sub in zsubList[1:Nz-1]]
+  elif var == 'ShSt':
+    varlist = [var + '_' + sub for sub in shList]
+  elif var in ivarsList:
+    varlist = [var + '_' + sub for sub in intList[:Nz-1]]
+  else:
+    print("Asked variable does not exist")
+  
+  return varlist
+
+def prep_header(key):
+
+  '''
+  List of variables in the file
+  '''
+  vars = ['Nc', 'R', 'V', 'ShSt', 'Emass', 'Ekin', 'Eint']
+
+  Nz  = get_Nzones(key)
+  l = [get_varlist(var, Nz) for var in vars]
+  varlist = [item for sublist in l for item in sublist]
+
+  return varlist
+
+def get_Nzones(key):
+
+  '''
+  Return number of zones in the sim to consider for a run analysis
+  '''
+
+  dfile_path, dfile_bool = get_runfile(key)
+  its = np.array(dataList(key))
+  df  = openData_withZone(key, its[-1])
+  zone = df['zone']
+  Nz = int(zone.max())+1
+
+  return Nz
+
 # Functions on one data file
 # --------------------------------------------------------------------------------------------------
+def df_get_all(df):
+
+  '''
+  Extract all required datas:
+  All interfaces position, cells number in each zone,
+  volume and energy content of zones not touching box limits (in r)
+  '''
+  zone = df['zone']
+  Nz = int(zone.max())
+  res_rad = np.zeros(Nz)
+  res_Nc  = np.zeros(Nz+1)
+  res_V   = np.zeros(Nz-1)
+  res_Em  = np.zeros(Nz-1)
+  res_Ek  = np.zeros(Nz-1)
+  res_Ei  = np.zeros(Nz-1)
+  res_shocks = get_shocksStrength(df)
+
+  for n in range(Nz):
+    res_rad[n] = get_radius_zone(df, n+1)*c_
+  for n in range(Nz+1):
+    res_Nc[n]  = zone[zone==n].count()
+  for n in range(1, Nz):
+    res_V[n-1]   = zone_get_zoneIntegrated(df, 'V', n)
+    res_Em[n-1]  = zone_get_zoneIntegrated(df, 'Emass', n)
+    res_Ek[n-1]  = zone_get_zoneIntegrated(df, 'Ekin', n)
+    res_Ei[n-1]  = zone_get_zoneIntegrated(df, 'Eint', n)
+  
+  return res_Nc, res_rad, res_V, res_shocks, res_Em, res_Ek, res_Ei
+
+def get_shocksStrength(df):
+  '''
+  Derivates shock strength at shock interfaces
+  '''
+  
+  # expected number of shocks
+  zone = df['zone']
+  Nz = int(zone.max())+1
+  shlist = get_varlist('ShSt', Nz)
+  Ns = len(shlist)
+  shstr_list = np.array([])
+  if df['Sd'].sum() == 0.:
+    print("No shock detection")
+    # add own shock detection algo?
+    shstr_list = np.zeros(Ns)
+  else:
+    Sd_list = df.index[df['Sd']==1.0].tolist()
+    while len(Sd_list):
+      i_u = Sd_list[0] - 1
+      i_d = Sd_list[0] + 1
+      if len(Sd_list) > 1:
+        if Sd_list[1] - Sd_list[0] < 10: # maybe not best criterion?
+          i_d = Sd_list[1] + 1
+          del Sd_list[1]
+      del Sd_list[0]
+      b_u = df['vx'].loc[i_u]
+      g_u = derive_Lorentz(b_u)
+      b_d = df['vx'].loc[i_d]
+      g_d = derive_Lorentz(b_d)
+      relg = g_u*g_d* (1. - b_u*b_d)
+      shstr = relg - 1.
+      shstr_list = np.append(shstr_list, shstr)
+    while len(shstr_list) < Ns:
+      shstr_list = np.append(shstr_list, 0.)
+
+  return np.array(shstr_list)
+
 def df_get_zoneIntegrated(df, var):
 
   '''
@@ -120,24 +240,9 @@ def df_get_zoneIntegrated(df, var):
 
   zone = df['zone']
   Nz = int(zone.max())
-  res = np.zeros(Nz)
-  if var=='Nc':
-    for n in range(Nz):
-      out = zone[zone==n].count()
-      res[n] = out
-      
-  else:
-    r  = df['x']*c_
-    dr = df['dx']*c_
-    dV = 4.*pi_*r**2*dr
-    if var=='V':
-      data = dV
-    else:
-      r, data = get_variable(df, var)
-      data *= dV
-    for n in range(Nz):
-      out = data[zone == n].sum()
-      res[n] = out
+  res = np.zeros(Nz-1)
+  for n in range(1, Nz):
+    res[n-1] = zone_get_zoneIntegrated(df, var, n)
   
   return res
 
@@ -297,39 +402,61 @@ def denoise_data(arr, method='savgol', ker_size=30, interpol_deg=3):
   
   return out
 
+def zone_get_zoneIntegrated(df, var, n):
+
+  '''
+  Zone integrated var for zone of index n
+  '''
+  zone = df['zone']
+  r = df['x']*c_
+  dr = df['dx']*c_
+  dV = 4.*pi_*r**2*dr
+  res = 0.
+  if var == 'Nc':
+    res = zone[zone==n].count()
+  else:
+    if var=='V':
+      data = dV
+    else:
+      r, data = get_variable(df, var)
+      data *= dV
+    res = data[zone==n].sum()
+  
+  return res
+
 
 # Physical functions from dataframe
 def df_get_T(df):
-  rho = df["rho"]
-  p = df["p"]
+  rho = df["rho"].to_numpy(copy=True)
+  p = df["p"].to_numpy(copy=True)
   return derive_temperature(rho, p)
 
 def df_get_h(df):
-  rho = df["rho"]
-  p = df["p"]
+  rho = df["rho"].to_numpy(copy=True)
+  p = df["p"].to_numpy(copy=True)
   return derive_enthalpy(rho, p)
 
 def df_get_Eint(df):
-  rho = df["rho"]
-  p = df["p"]
+  rho = df["rho"].to_numpy(copy=True)
+  p = df["p"].to_numpy(copy=True)
   return derive_Eint(rho, p)
 
 def df_get_lfac(df):
-  v = df["vx"]
+  v = df["vx"].to_numpy(copy=True)
   return derive_Lorentz(v)
 
 def df_get_u(df):
-  v = df["vx"]
+  v = df["vx"].to_numpy(copy=True)
   lfac = derive_Lorentz(v)
   return lfac * v
 
 def df_get_Ekin(df):
-  rho = df["rho"]
-  lfac = df_get_lfac(df)
-  return (lfac-1)*rho
+  rho = df["rho"].to_numpy(copy=True)
+  v = df["vx"].to_numpy(copy=True)
+  return derive_Ekin(rho, v)
 
 def df_get_Emass(df):
-  rho = df["rho"]
+  rho = df["rho"].to_numpy(copy=True)
   return rho
 
 # code time step for each cell (before code takes the min of them)
