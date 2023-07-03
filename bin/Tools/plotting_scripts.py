@@ -48,12 +48,12 @@ var_exp = {
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
   "trac":"", "Sd":"", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
-  "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt"
+  "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r"
 }
 var_units = {
   "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
   "D":"", "sx":"", "tau":"", "trac":"", "Sd":"", "gmin":"", "gmax":"",
-  "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)",
+  "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)", "res":"",
   "Eint":" (erg cm$^{-3}$)", "Ekin":" (erg cm$^{-3}$)", "Emass":" (erg cm$^{-3}$)"
 }
 zone_names = ['wind', 'nebula', 'ej. shell', 'SNR', 'shocked ej.', 'shocked CSM', 'CSM']

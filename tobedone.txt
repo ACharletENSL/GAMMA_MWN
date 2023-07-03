@@ -12,7 +12,7 @@ To finish
 - rework zone id, including use of shock detection
 - and more
 - add normalization choice to setup
-- rego into cell resoltuion:
+- rego into cell resolution:
 -> determine some dr/r fraction acceptable + way to check it
 - be able to change normalization of plots on the fly
 -> continue electron distribution & radiation work -> postprocessing
@@ -26,15 +26,18 @@ Clean run_analysis of old functions
 Update shock strength to Mach number of shock velocity in unshocked medium
 
 Todolist:
-1. Cell resolution
+1. Cell resolution, numerics, and plotting
 - find a way to fuse cells in the shocked nebula but not too much
-- add dr/r plots to check
 - once we're only limited by cells at shocks, asks about adaptive timestep
+- recheck N&H cons2prim and RC EoS
+- add theoretical estimates (expected Rcd growth rate with time)
+- choice of x, y normalization on plot function
 
 2. Shocks and self-similarity
-- shock detection in post-processing (will be useful in lots of cases: especially analyzing sims ran without it)
+- shock detection in post-processing 
+-> will be useful in lots of cases: especially analyzing sims ran without it -> update zone id
 - change shock strength to Mach number (of shock front in unshocked medium)
-- PREPARE TALK ON SELF-SIMILARITY
+- PREPARE TALK ON SELF-SIMILARITY -> send references to Minu
 
 3. Emitted radiation
 - write post-processing of sim
@@ -43,11 +46,20 @@ Todolist:
 First only one power-law, then add before and after gamma_min & gamma_max + cooling regimes
 
 4. Jets in GAMMA
-- make a setup file
+- make a setup file -> kinda done but hard to check in 2D
 - discussion with Frederic Daigne
+- papiers Ayache Daigne, Lamberts Daigne pour comparer les approches
+- question du reverse shock dans l'afterglow (diversité des lightcurves difficile à expliquer avec FS seulement)
+-> parler de notre taf avec Minu
+- variabilité de l'injection -> variabilité du profil de densité qui peut influencer le passage du RS
+- faut vraiment les lightcurves ptn
+- Uhm, Zhang 2012 -> checker le Uhm Beloborodov 2007 pour la méthode
 
 5. Internal shocks: collision of two (cold) shells 
 -> ask Minu
 -> relative Lorentz factor, densities ratio, shell width, collision radius...
 equal width in the lab frame is a good starting assumption
 -> redo current test case in planar and spherical
+
+Done (clear and update between meetings):
+- add dr/r plots to check

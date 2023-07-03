@@ -216,9 +216,10 @@ void Grid::userBoundaries(int it, double t){
 int Grid::checkCellForRegrid(int j, int i){
   // check cells to apply split / merge method to
   // check how to use already calculated gradients to speedup process
-
+  UNUSED(i);
   UNUSED(j);
   
+  /*
   Cell c  = Ctot[i];
   Cell cL = Ctot[i-1];
   Cell cR = Ctot[i+1];
@@ -242,6 +243,17 @@ int Grid::checkCellForRegrid(int j, int i){
   if (ar < pow(2., -lmax)){   // if cell too small compared to expected size
     return(merge_);
   }
+  if (chi > chi_r){           // if refinment criterion is met
+    if (ar > pow(2., -lmax)){
+      return(split_);
+    }
+  }
+  else if (chi < chi_m){      // if unrefinment criterion is met
+    if (ar < 0.5){
+      return(merge_);
+    }
+  }*/
+
   /*
   if (AMR_ == true){
     if (chi > chi_r){           // if refinment criterion is met

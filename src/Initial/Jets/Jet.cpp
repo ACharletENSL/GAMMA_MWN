@@ -1,6 +1,7 @@
 #include "../../environment.h"
 #include "../../grid.h"
 #include "../../constants.h"
+#include "../../simu.h"
 
 #ifndef BM_
 #define BM_
@@ -19,7 +20,7 @@ static double eta     = 1.e-5;        //          eta = p/(rho*c^2)
 static double b       = 6.;           // power-law index for E(theta)
 static double th_c0   = 0.05;         // rad: initial jet core angle
 
-static double th_simu = PI;           // rad:     simulation angle
+static double th_simu = PI/2;           // rad:     simulation angle
 static double th_min  = 99.*PI/3200.;  //0. // rad:     minimum angle if avioding jet axis
 
 
@@ -30,7 +31,7 @@ static double vNorm = c_;                     // velocity normalised to c
 static double pNorm = rhoNorm*vNorm*vNorm;    // pressure normalised to rho_CMB/c^2
 
 // BM parameters
-static double Eiso = 1.e53;       // erg:  equivalent isotropic energy
+static double Eiso = 1.e50;       // erg:  equivalent isotropic energy
 static double n_ext = 1.e0;       // external medium number density
 static double tinit = 1.e2;       // s,starting time (determines initial position of BW)
 static double lfacstart = 1000;   // starting lfac behind the shock (determines initial position of BW)
@@ -257,17 +258,18 @@ void Cell::userSourceTerms(double dt){
 
 void Grid::userBoundaries(int it, double t){
 
-  // for (int j = 0; j < nde_nax[F1]; ++j){
-  //   for (int i = 0; i <= iLbnd[j]; ++i){
-  //     Cell *c = &Ctot[j][i];
-  //     double rho, u, p;
-  //     double r = c->G.x[r_]*lNorm;
-  //     calcBM(r, t, &rho, &u, &p);
-  //     c->S.prim[RHO] = rho;
-  //     c->S.prim[UU1] = u;
-  //     c->S.prim[PPP] = p;
-  //   }
-  // }
+  for (int j = 0; j < nde_nax[F1]; ++j){
+    for (int i = 0; i <= iLbnd[j]; ++i){
+      Cell *c = &Ctot[j][i];
+      double rho, u, p;
+      double r = c->G.x[r_]*lNorm;
+      double th= c->G.x[t_];
+      calcJet(r, th, t, &rho, &u, &p);
+      c->S.prim[RHO] = rho;
+      c->S.prim[UU1] = u;
+      c->S.prim[PPP] = p;
+    }
+  }
 
   UNUSED(t);
   UNUSED(it);

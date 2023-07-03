@@ -294,7 +294,8 @@ def get_variable(df, var):
     "Ekin":df_get_Ekin,
     "Eint":df_get_Eint,
     "Emass":df_get_Emass,
-    "dt":df_get_dt
+    "dt":df_get_dt,
+    "res":df_get_res
   }
 
   r = df["x"]
@@ -459,6 +460,11 @@ def df_get_Emass(df):
   rho = df["rho"].to_numpy(copy=True)
   return rho
 
+def df_get_res(df):
+  r = df["x"].to_numpy(copy=True)
+  dr = df["dx"].to_numpy(copy=True)
+  return dr/r
+
 # code time step for each cell (before code takes the min of them)
 def df_get_dt(df):
   '''
@@ -507,5 +513,17 @@ def df_get_dt(df):
 
   return dt
 
+def df_detect_shocks(df):
+  '''
+  Detects shocks in data and adds a dataframe column 'Sd' if it doesn't exist
+  '''
+  if df['Sd'].sum() > 0.:
+    # if shocks were already detected by GAMMA and written in data
+    return df
+  else:
+    df['Sd'] = 0.
+    df['Sd'].iloc[:-1] = df.apply(
+                              lambda row: detect_shocks(row, df.iloc[row.name+1]) ,
+                              axis=1).iloc[:-2]
+    return df
 
-  

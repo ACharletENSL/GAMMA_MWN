@@ -14,3 +14,7 @@ bin/GAMMA
 
 # result file on distant
 results/HPC_Last
+results/Last/run_data.csv
+results/Last_MWN/run_data.csv
+results/default/run_data.csv
+bin/Tools/__pycache__/data_IO.cpython-310.pyc

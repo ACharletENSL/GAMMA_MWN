@@ -1,13 +1,14 @@
 #include "../../environment.h"
 #include "../../grid.h"
 #include "../../constants.h"
+#include "../../simu.h"
 
 #ifndef BM_
 #define BM_
 #define LORENTZ_ 1
 #endif
 
-bool onedim = true;
+bool onedim = false;
 
 // set shell and CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
@@ -323,6 +324,38 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
   return;
 
 }
+
+void Simu::dataDump(){
+
+  // if (it%1 == 0){ grid.printCols(it, t); }
+  if (it%500 == 0){ grid.printCols(it, t); }
+
+  // datadump in log time:
+  int ndumps_per_decade = 1000;
+  static double t_last_dump = tstart;
+  double logdiff = log10(t)-log10(t_last_dump);
+  if (logdiff > 1./ndumps_per_decade){
+    t_last_dump = t; 
+    grid.printCols(it, t); 
+  }
+
+}
+
+void Simu::runInfo(){
+
+  // if ((worldrank == 0) and (it%1 == 0)){ printf("it: %ld time: %le\n", it, t);}
+  if ((worldrank == 0) and (it%100 == 0)){ printf("it: %ld time: %le\n", it, t);}
+
+}
+
+void Simu::evalEnd(){
+
+  //if (it > 3000){ stop = true; }
+  if (t > 3.33e6){ stop = true; } // 3.33e8 BOXFIT simu
+
+}
+
+
 
 
 
