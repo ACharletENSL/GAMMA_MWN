@@ -19,11 +19,11 @@ def env_init(env, path):
   '''
   env.setupEnv(path)
   env.R_b = R_1st(env.t_start, env.L_0, env.t_0)
-  env.R_c = v_t*env.t_start
+  env.R_c = env.env.v_t*env.t_start
   env.R_e = v_max*env.t_start
   env.beta_w = np.sqrt(1. - env.lfacwind**(-2))
   env.rho_w  = env.L_0/(4. * pi_*env.rmin0**2 * env.lfacwind**2 * c_**3 * env.beta_w)
-  env.rho_ej = D / env.t_start**3
+  env.rho_ej = env.env.D / env.t_start**3
   env.rhoNorm = env.rho_w
   env.pNorm = env.rhoNorm * c_**2
 
@@ -80,7 +80,7 @@ def init_conds_withShocks(r):
         print(f"Shell initialized on {l_sh} cells\n")
         eta = r_sh/R_s
         O, U, C = sol_thinshell.sol(eta)
-        rho_sh = D * v_t**delta * r_sh**(-delta) * t**(delta-3) * O
+        rho_sh = env.D * env.v_t**delta * r_sh**(-delta) * t**(delta-3) * O
         v_sh = (r_sh/t) * U
         cs_sh =  (r_sh/t) * C
         p_sh = np.sqrt(rho_sh/gma)*cs_sh
@@ -101,7 +101,7 @@ def init_conds_withShocks(r):
 
     A = (Pr_in/Pr_out) * ((3-k)/(omega-3))**2
     a = (omega - 3)/(omega - k)
-    R_e = (A * D *v_t**omega / (mp_ * R_0**k))**(1/(omega-k)) * t**a
+    R_e = (A * env.D *env.v_t**omega / (mp_ * R_0**k))**(1/(omega-k)) * t**a
     R_rs = rscd * R_e
     R_fs = fscd * R_e
 
@@ -131,7 +131,7 @@ def init_conds_withShocks(r):
     if len(r_in):
         eta = r_in/R_rs
         O, U, C = sol_inner.sol(eta)
-        rho_in = D * v_t**omega * r_in**(-omega) * t**(omega-3) * O
+        rho_in = env.D * env.v_t**omega * r_in**(-omega) * t**(omega-3) * O
         v_in = (r_in/t) * U
         cs_in = (r_in/t) * C
         p_in = np.sqrt(rho_in/gma)*cs_in
@@ -174,22 +174,22 @@ def get_CSM_vars(r, t):
 # ejecta
 def get_ejecta_vars(r, t):
     ''' Generates density, velocity and pressure profile of the ejecta'''
-    R_c = v_t*t                     # ejecta core radius
+    R_c = env.v_t*t                     # ejecta core radius
     R_e = R_c/wc                    # ejecta envelope radius
     try:
         size = len(r)
         rho = np.ones(size)
         v = np.ones(size)
         p = np.ones(size)
-        rho = np.where(r <= R_c, D * (v_t/r)**delta / t**(3-delta), D * (v_t/r)**omega / t**(3-omega))
+        rho = np.where(r <= R_c, env.D * (env.v_t/r)**delta / t**(3-delta), env.D * (env.v_t/r)**omega / t**(3-omega))
     except TypeError:
         rho = 1.
         v = 1.
         p = 1.
         if r <= R_c:
-            rho *= D * (v_t/r)**delta / t**(3-delta)
+            rho *= env.D * (env.v_t/r)**delta / t**(3-delta)
         else:
-            rho *= D * (v_t/r)**omega / t**(3-omega)
+            rho *= env.D * (env.v_t/r)**omega / t**(3-omega)
    
     v *= r/t
     p *= rho * c_**2 * 1e-6

@@ -20,20 +20,20 @@ def get_timeseries(var, key):
   return time, var, var_legends
   '''
   run_data = open_clean_rundata(key)
-
+  mode = run_data.attrs['mode']
   Nz = get_Nzones(key)
   if var == 'v':
-    varlist = get_varlist('R', Nz)
+    varlist = get_varlist('R', Nz, mode)
     time = run_data['time'].to_numpy()
     out = run_data['time'].copy(deep=True)
-    vlist = get_varlist('v', Nz)
+    vlist = get_varlist('v', Nz, mode)
     for rad, vel in zip(varlist, vlist):
       r = run_data[rad].to_numpy()
       v = np.gradient(r, time)
       vcol = pd.DataFrame({vel: v}, index=out.index)
       out = pd.concat([out, vcol], axis='columns')
   else:
-    varlist = get_varlist(var, Nz)
+    varlist = get_varlist(var, Nz, mode)
     varlist.insert(0, 'time')
     out = run_data[varlist].copy(deep=True)
   
@@ -114,16 +114,6 @@ def analyze_run(key, itmin=0, itmax=None):
   data.to_csv(dfile_path)
 
 # olds
-
-def get_radii_new(key='Last', itmin=0, itmax=None):
-
-  '''
-  Returns various R(t) of z given results folder, writes them in a file
-  Rewritten for a pandas dataframe
-  Add checking for similarity with existing data and write missing ones
-  '''
-  df = open_rundata(key)
-  pass
 
 
 def prep_fileheader(key, dfile_path):

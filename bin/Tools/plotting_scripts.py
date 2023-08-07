@@ -28,7 +28,16 @@ plt.rcParams['savefig.dpi'] = 200
 # if 'Paired' cmap is not what we want
 
 # Scaling
-scale = "sim"   # choice of t and r scaling: None, sim, sd (spindown)
+def get_scaledvar(var, scaletype, slope=None):
+  '''
+  Return x, y values and relevant labels according to chosen scaletype
+  Includes: code, CGS, shells
+  to add: MWN_sd, MWN_SNR
+  '''
+
+# choice of t and r scaling: None, sim, sd (spindown)
+
+
 rNorm = c_
 
 def get_scalings(rhoNorm):
@@ -36,8 +45,8 @@ def get_scalings(rhoNorm):
   var_scale = {}
   for var, unit in var_units.items():
     if unit == " (cm)": var_scale[var]=rNorm
-    elif var == "rho" or var == "D": var_scale[var]=rhoNorm
-    elif var == "p" or unit == " (erg cm$^{-3}$)": var_scale[var]=pNorm
+    elif unit == " (g cm$^{-3}$)": var_scale[var]=rhoNorm
+    elif unit == " (Ba)" or unit == " (erg cm$^{-3}$)": var_scale[var]=pNorm
     else: var_scale[var]=1.
   return var_scale
 
@@ -49,19 +58,29 @@ var_exp = {
   "trac":"", "Sd":"", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
   "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r"
-}
-var_units = {
+  }
+units_CGS  = {
   "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
   "D":"", "sx":"", "tau":"", "trac":"", "Sd":"", "gmin":"", "gmax":"",
   "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)", "res":"",
   "Eint":" (erg cm$^{-3}$)", "Ekin":" (erg cm$^{-3}$)", "Emass":" (erg cm$^{-3}$)"
+  }
+CGS2code   = {
+  " (cm)":"ls", " (g cm$^{-3}$)":"$/\\rho_{norm}$",
+  " (Ba)":"$/\\rho_{norm}c^2$", " (erg cm$^{-3}$)":"$/\\rho_{norm}c^2$"}
+units_none =  {key:"" for key in units_CGS.keys()}
+units_code =  {key:CGS2code[value] for (key,value) in units_CGS.items()}
+units      = {"CGS":units_CGS, None:units_none, "code":units_code}
+zone_names = {
+  'PWN':['wind', 'nebula', 'ej. shell', 'SNR', 'shocked ej.', 'shocked CSM', 'CSM'],
+  'shells':['4', '3', '2', '1']
 }
-zone_names = ['wind', 'nebula', 'ej. shell', 'SNR', 'shocked ej.', 'shocked CSM', 'CSM']
+
 nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
 
 # One-file plotting functions
 # --------------------------------------------------------------------------------------------------
-def plot_mono(var, it, key='Last', slope=False, scaletype='sim', code_units=False, fig=None):
+def plot_mono(var, it, key='Last', slope=False, scaletype='sim', fig=None):
 
   '''
   Plots a var in a single figure with title, labels, etc.
@@ -72,25 +91,25 @@ def plot_mono(var, it, key='Last', slope=False, scaletype='sim', code_units=Fals
   else:
     fig = plt.figure()
     ax = plt.gca()
-  title = plot1D(var, slope, it, key, scaletype, ax, code_units)
+  title = plot1D(var, slope, it, key, scaletype, ax)
   fig.suptitle(title)
   fig.tight_layout()
 
-def plot_primvar(it, key='Last', scaletype='sim'):
+def plot_primvar(it, key='Last', scaletype=None):
   
   '''
   Plots the primitive variables - with lfac*v instead of v - at chosen iteration in a single figure
   '''
   plot_multi(["rho", "u", "p"], it, key, scaletype)
 
-def plot_consvar(it, key='Last', scaletype='sim'):
+def plot_consvar(it, key='Last', scaletype=None):
 
   '''
   Plots the conservative variables at chosen iteration in a single figure
   '''
   plot_multi(["D", "sx", "tau"], it, key, scaletype)
 
-def plot_multi(varlist, it, key='Last', scaletype='sim'):
+def plot_multi(varlist, it, key='Last', scaletype=None):
 
   '''
   Plots variables among a list in a single figure with subplots
@@ -116,7 +135,7 @@ def plot_energy(it, key='Last'):
   plot_comparison(varlist, it, key, colors=None)
 
 
-def plot_comparison(varlist, it, key='Last', scaletype='sim', colors='Zone'):
+def plot_comparison(varlist, it, key='Last', scaletype=None, colors='Zone'):
 
   '''
   Plots variables among a list in a single figure
@@ -133,7 +152,7 @@ def plot_comparison(varlist, it, key='Last', scaletype='sim', colors='Zone'):
   plt.legend()
   plt.tight_layout()
 
-def plot1D(var, slope, it, key, scaletype, ax=None, code_units=False, line=True, colors='Zone', **kwargs):
+def plot1D(var, slope, it, key, scaletype=None, ax=None, code_units=False, line=True, colors='Zone', **kwargs):
 
   '''
   Creates ax object to be insered in plot. Scales data
@@ -141,34 +160,29 @@ def plot1D(var, slope, it, key, scaletype, ax=None, code_units=False, line=True,
 
   physpath = get_physfile(key)
   env = MyEnv()
-  env_init(env, physpath)
-  scalesDict = {
-    'sim':(env.t_start, env.R_b),
-    'sd':(env.t_0, 1.) # add characteristic scale depending on E_0/E_SN
-  }
-  scalesNames = {
-    'sim':('t_i', 'R_{CD,i}'),
-    'sd':('t_0', 'R_0')
-  }
-
+  env.setupEnv(physpath)
+  # generate scalings (value + corresponding units/var names) depending on scaletype arg
+  t_scale, r_scale, rho_scale, t_scale_str, r_scale_str = env.get_scalings(scaletype)
+  Rcd0 = 1.
+  if env.mode == 'shells':
+    Rcd0 = env.R_0
+  elif env.mode == 'MWN':
+    Rcd0 = env.R_b
   df, t, dt = openData_withtime(key, it)
-  
   if scaletype:
-    t_scale, r_scale = scalesDict[scaletype]
-    t_scale_str, r_scale_str = scalesNames[scaletype]
     xlabel = f"$r/{r_scale_str}$"
-    rc = (get_radius_zone(df, n=2)*c_ - env.R_b) / r_scale
+    rc = (get_radius_zone(df, n=2)*c_ - Rcd0) / r_scale
     if rc < 0.: rc = 0.
     dt /= t_scale
     t_str = reformat_scientific(f"{dt:.2e}")
     rc_str= reformat_scientific(f"{rc:.2e}")
     title = f"it {it}, $\\Delta t/{t_scale_str} = {t_str}$, $\\Delta R_{{CD}}/{r_scale_str} = {rc_str}$"
   else:
-    t_str = reformat_scientific(f"{t:.2e}")
+    t_str = reformat_scientific(f"{dt:.2e}")
     xlabel = var_exp["x"]+var_units["x"]
-    title = f"it {it}, $t = {t_str}$ s"
+    title = f"it {it}, $t_{{sim}} = {t_str}$ s"
 
-  var_scale = 1. if code_units else get_scalings(env.rho_w)[var]
+  var_scale = 1. if code_units else get_scalings(rho_scale)[var]
   varlabel = var_exp[var]
   if slope:
     varlabel = "d$\\log(" + varlabel.replace('$', '') + ")/$d$\\log r$"
@@ -195,6 +209,8 @@ def plot1D(var, slope, it, key, scaletype, ax=None, code_units=False, line=True,
   ax.set_xlabel(xlabel)
   
   n = df["zone"] + 1
+  if env.mode == 'shells':
+    n = 5 - n
   #if slope: smoothing=slope
   x, z = get_variable(df, var)
   r = x*rNorm/r_scale
@@ -239,38 +255,44 @@ def plot_timeseries(var_keys, key, titletype='E', slope=False, fig=False):
   plt.legend()
   fig.suptitle(title)
 
-def plotT(var, slope, key, titletype, ax=None, **kwargs):
+def plotT(var, slope, key, titletype=None, ax=None, **kwargs):
 
   '''
   Create plot to be inserted into a figure
   '''
-
-  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'posvel':'$\\beta$',
-    'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'shock strength',
-    'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}'}
   physpath = get_physfile(key)
   env = MyEnv()
-  env_init(env, physpath)
+  env.setupEnv(physpath)
+
+  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'posvel':'$\\beta$',
+    'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
+    'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}'}
+  
   if ax is None:
     plt.figure()
     ax = plt.gca()
 
-  if titletype == 'Lt':
-    L0_str = reformat_scientific(f'{env.L_0:.1e}')
-    t0_str = reformat_scientific(f'{env.t_0:.2e}')
-    lf_str = reformat_pow10(f'{env.lfacwind:.0e}') 
-    title = f'$L_0={L0_str}$ erg s$^{{-1}}$, $t_0={t0_str}$ s, $\\gamma_w={lf_str}$'
-  elif titletype == 'E':
-    lf_str = reformat_pow10(f'{env.lfacwind:.0e}') 
-    title = f'$E_0/E_{{sn}} = {env.E_0_frac}$, $\\gamma_w={lf_str}$'
+  #if titletype == 'Lt':
+  #  L0_str = reformat_scientific(f'{env.L_0:.1e}')
+  #  t0_str = reformat_scientific(f'{env.t_0:.2e}')
+  #  lf_str = reformat_pow10(f'{env.lfacwind:.0e}') 
+  #  title = f'$L_0={L0_str}$ erg s$^{{-1}}$, $t_0={t0_str}$ s, $\\gamma_w={lf_str}$'
+  #elif titletype == 'E':
+  #  lf_str = reformat_pow10(f'{env.lfacwind:.0e}') 
+  #  title = f'$E_0/E_{{sn}} = {env.E_0_frac}$, $\\gamma_w={lf_str}$'
+  
+  if env.mode == 'shells':
+    title = f'' # relevant parameters
   
   df_res = get_timeseries(var, key)
   time = df_res['time']
   Nz = get_Nzones(key)
-  varlist = get_varlist(var, Nz)
+  varlist = get_varlist(var, Nz, env.mode)
+    
   var_legends = ['$' + var_leg + '$' for var_leg in varlist]
   vars = df_res[varlist].to_numpy().transpose()
-
+  if env.mode == 'shells' and var == 'R':
+    vars /= c_
 
   Nv = vars.shape[0]
   for n in range(Nv):
@@ -283,19 +305,19 @@ def plotT(var, slope, key, titletype, ax=None, **kwargs):
       ax.plot(time/env.t_0, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
     else:
       ax.loglog(time/env.t_0, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
-  if var=='Nc':
+  if var in ['Nc', 'v']:
     ax.set_yscale('linear')
-  elif var=='v':
-    ax.set_yscale('linear')
+  elif var=='R':
+    ax.set_yscale('log')
   if slope:
     ax.set_ylim(-2, 3)
     if var == 'R': ax.set_ylim(-.5, 1.5)
   ax.set_xlabel('$t/t_0$ (s)')
   ax.set_ylabel(var_label[var])
   ymin, ymax = ax.get_ylim()
-  if var != 'v':
-    if np.log10(ymax) - np.log10(ymin) < 2.5:
-      ax.grid(color='k', alpha=0.5, linestyle='dashed', linewidth=0.5, which='minor')
+  #if var != 'v':
+  #  if np.log10(ymax) - np.log10(ymin) < 2.5:
+  #    ax.grid(color='k', alpha=0.5, linestyle='dashed', linewidth=0.5, which='minor')
   
   return title
 

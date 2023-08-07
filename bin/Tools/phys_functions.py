@@ -54,15 +54,39 @@ def derive_Eint(rho, p):
 # Velocity and related
 def derive_Lorentz(v):
   '''
-  Lorentz factor from velocity
+  Lorentz factor from velocity (beta)
   '''
   return 1./np.sqrt(1 - v**2)
 
 def derive_velocity(lfac):
   '''
-  Velocity from Lorentz factor
+  Velocity (beta) from Lorentz factor
   '''
   return 1. - lfac**-2
+
+def derive_proper(v):
+  '''
+  Proper velocity from velocity (beta)
+  '''
+  return v/np.sqrt(1 - v**2)
+
+def derive_Lorentz_from_proper(u):
+  '''
+  Lorentz factor from proper velocity
+  '''
+  return np.sqrt(1+u**2)
+
+def derive_proper_from_Lorentz(lfac):
+  '''
+  Proper velocity from Lorentz factor
+  '''
+  return np.sqrt(lfac**2 - 1)
+
+def derive_velocity_from_proper(u):
+  '''
+  Velocity in rest frame from proper velocity
+  '''
+  return u/np.sqrt(1+u**2)
 
 def derive_Ekin(rho, v):
   '''

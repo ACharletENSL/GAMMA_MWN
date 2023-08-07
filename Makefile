@@ -1,7 +1,7 @@
-INITIAL    = MWN/MWN1D_tests
+INITIAL    = Shells/Shells_v1
 TIMESTEP   = rk3
-GEOMETRY   = spherical1D
-HYDRO      = rel_sph
+GEOMETRY   = cartesian
+HYDRO      = rel_cart
 RADIATION  = radiation_sph
 SOLVER     = hllc
 DIMENSIONS = 1d

@@ -87,6 +87,7 @@ def plotMulti(data, keys, jtrack=None, logx=True, logz=[], znorms={}, labels={},
   for key, k, ax in zip(keys, range(Nk), axes):
 
     logkey = False
+    logzkey = False
     label = None
     z_norm = None
     if key in logz:

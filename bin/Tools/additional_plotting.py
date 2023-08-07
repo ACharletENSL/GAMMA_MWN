@@ -13,12 +13,14 @@ from environment import *
 from plotting_scripts_old import *
 import matplotlib.animation as mpla
 
+plt.ion()
+
 t_start = 100 # need to rewrite a few things to update this correctly
 # maybe norms as a class? Plotting as functions of a data class?
-r_t = v_t * t_start
-rho_norm = D * t_start**3
-p_norm = rho_norm * c_**2
-#rho_norm = 1*mp   # normalize to external ambient density, read params if you want to change aprameter later
+#r_t = v_t * t_start
+#rho_norm = D * t_start**3
+rho_norm = 1.#1e4*mp_   # normalize to external ambient density, read params if you want to change aprameter later
+p_norm = 1.#rho_norm * c_**2
 x_norm = c_
 
 znorms = {#scale all variables
@@ -27,6 +29,7 @@ znorms = {#scale all variables
   "vx":c_,
   "p":p_norm,
   "dx":c_,
+  "Sd":1.,
   "h":1.,
   "T":1.,
   "dx":x_norm,
@@ -40,6 +43,7 @@ legends = {
   "D":"$\\gamma\\rho$",
   "vx":"$v$",
   "p":"$p$",
+  "Sd":"shock",
   "u":"$\\gamma \\beta$",
   "T":"$\\Theta=p/\\rho c^2$",
   "dx":"$dr$",
@@ -51,10 +55,13 @@ labels = {
   "dx":"$dr$ (cm)",
   "ref":"ref. crit.",
   "rho":"$\\rho$ (g.cm$^{-3}$)",
-  "D":"\\gamma\\rho",
+  "D":"$\\gamma\\rho$",
   "vx":"$v$ (cm.s$^{-1}$)",
+  "sx":"$\\gamma^2\\rho h$",
   "u":"$\\gamma \\beta$",
+  "Sd":"shock",
   "p":"$p$ (Ba)",
+  "tau":"$\\tau$",
   "h":"$h$ ($c^2$)",
   "T":"$\\Theta = p/\\rho c^2$"}
 
@@ -189,16 +196,35 @@ def plotAnimated_default(itmin=0, itmax=None, filename='out.gif', key='Last'):
   plt.close()
 
 # Default plot
-def plotSim_default(it, key='Last'):
+def plotSim_default(it, key='Last', logx=True):
   '''
   Plots density, velocity and pressure in loglog scale
   By default will look for phys*it*.out in the Last/ folder
   '''
   data, t, dt = openData_withtime(it, key)
-  read_physInput(key)
+  #read_physInput(key)
   varlist = ["rho", "u", "p"]
   
-  title = f"it {it},  " + r"$t_{sim}/t_{c} = $" + f"{dt/t_c}"
+  #title = f"it {it},  " + r"$t_{sim}/t_{c} = $" + f"{dt/t_c}"
+  title = f"it {it}, $t_{{sim}} = {t:.3e}$ s, run: {key}"
+
+  f, axes = plotMulti(data, varlist, logx=logx, logz=varlist, znorms=znorms, line=True, labels=labels, x_norm=x_norm)
+  axes[-1].set_xlabel("$r$ (cm)")
+  f.suptitle(title)
+  plt.tight_layout()
+  plt.show()
+
+def plotSim_consvar(it, key='Last'):
+  '''
+  Plots density, velocity and pressure in loglog scale
+  By default will look for phys*it*.out in the Last/ folder
+  '''
+  data, t, dt = openData_withtime(it, key)
+  #read_physInput(key)
+  varlist = ["D", "sx", "tau"]
+  
+  #title = f"it {it},  " + r"$t_{sim}/t_{c} = $" + f"{dt/t_c}"
+  title = f"it {it}, t_{{sim}} = {t:.3e} s, run: {key}"
 
   f, axes = plotMulti(data, varlist, logz=varlist, znorms=znorms, line=True, labels=labels, x_norm=x_norm)
   axes[-1].set_xlabel("$r$ (cm)")

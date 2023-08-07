@@ -219,18 +219,114 @@ static double f(double p, void *params){
 
 }
 
-/*
+bool cons2primNormal(double D, double mm, double E,
+  double gma, double pgas_old,
+  double *rho, double *uu, double *p){
+
+  // Parameters
+  int max_iterations = 15;
+  double tol = 1.0e-12;
+  double pgas_uniform_min = 1.0e-12;
+  double a_min = 1.0e-12;
+  double v_sq_max = 1.0 - 1.0e-12;
+  double rr_max = 1.0 - 1.0e-12;
+
+  // Extract conserved values
+  // double D = cons[DEN];         // dd in athena 
+  // double tau = cons[TAU];
+  // double E = D+tau;             // ee in athena
+  // double mm = cons[SS1];
+  double mm_sq = mm*mm;
+  // double gma = 4./3.;
+
+  // Calculate functions of conserved quantities
+  double pgas_min = -E;
+  pgas_min = std::max(pgas_min, pgas_uniform_min);
+
+  // Iterate until convergence
+  double pgas[3];
+  //double pgas_old;
+  //pgas_old = *p;
+  pgas[0] = std::max(pgas_old, pgas_min);
+  int n;
+  for (n = 0; n < max_iterations; ++n) {
+    // Step 1: Calculate cubic coefficients
+    double a;
+    if (n%3 != 2) {
+      a = E + pgas[n%3];      // (NH 5.7)
+      a = std::max(a, a_min);
+    }
+
+    // Step 2: Calculate correct root of cubic equation
+    double v_sq;
+    if (n%3 != 2) {
+      v_sq = mm_sq / (a*a);                                     // (NH 5.2)
+      v_sq = std::min(std::max(v_sq, 0.), v_sq_max);
+      double lfac2 = 1.0/(1.0-v_sq);                            // (NH 3.1)
+      double lfac = std::sqrt(lfac2);                           // (NH 3.1)
+      double wgas = a/lfac2;                                    // (NH 5.1)
+      double rho = D/lfac;                                      // (NH 4.5)
+      pgas[(n+1)%3] = (gma-1.0)/gma * (wgas - rho);             // (NH 4.1)
+      pgas[(n+1)%3] = std::max(pgas[(n+1)%3], pgas_min);
+    }
+
+    // Step 3: Check for convergence
+    if (n%3 != 2) {
+      if (pgas[(n+1)%3] > pgas_min && std::abs(pgas[(n+1)%3]-pgas[n%3]) < tol) {
+        break;
+      }
+    }
+
+    // Step 4: Calculate Aitken accelerant and check for convergence
+    if (n%3 == 2) {
+      double rr = (pgas[2] - pgas[1]) / (pgas[1] - pgas[0]);    // (NH 7.1)
+      if (!std::isfinite(rr) || std::abs(rr) > rr_max) {
+        continue;
+      }
+      pgas[0] = pgas[1] + (pgas[2] - pgas[1]) / (1.0 - rr);     // (NH 7.2)
+      pgas[0] = std::max(pgas[0], pgas_min);
+      if (pgas[0] > pgas_min && std::abs(pgas[0]-pgas[2]) < tol) {
+        break;
+      }
+    }
+    
+  }
+
+  // Step 5: Set primitives
+  if (n == max_iterations) {
+    return false;
+  }
+  double prs = pgas[(n+1)%3];
+  *p = prs;
+  if (!std::isfinite(prs)) {
+    return false;
+  }
+  double a = E + prs;                                 // (NH 5.7)
+  a = std::max(a, a_min);
+  double v_sq = mm_sq / (a*a);                        // (NH 5.2)
+  v_sq = std::min(std::max(v_sq, 0.), v_sq_max);
+  double lfac2 = 1.0/(1.0-v_sq);                      // (NH 3.1)
+  double lfac = std::sqrt(lfac2);                     // (NH 3.1)
+  double dty = D/lfac;
+  *rho = dty;                                         // (NH 4.5)
+  if (!std::isfinite(dty)) {
+    return false;
+  }
+  double v = mm / a;                                  // (NH 4.6)
+  *uu = lfac*v;                                       // (NH 3.3)
+  double u1 = *uu;
+  if (!std::isfinite(u1)) {
+    return false;
+    }
+  //*nf_lfac = lfac;
+  return true;
+}
+
+
 void FluidState::cons2prim(double r, double pin){
   if (C2P_ == NH14_){
-    // conservative to primitive conversion from Newman & Hamlin
+    // conservative to primitive conversion from Newman & Hamlin (2014)
 
-    // Parameters
-    int max_iterations = 15;
-    double tol = 1.0e-12;
-    double pgas_uniform_min = 1.0e-12;
-    double a_min = 1.0e-12;
-    double v_sq_max = 1.0 - 1.0e-12;
-    double rr_max = 1.0 - 1.0e-12;
 
     // Extract conserved values
     double D = cons[DEN];         // dd in athena 
@@ -239,103 +335,20 @@ void FluidState::cons2prim(double r, double pin){
     double mm = cons[SS1];
     double mm_sq = mm*mm;
     double gma = gamma();
+    double rho;
+    double uu;
+    double p;
 
-    // Calculate functions of conserved quantities
-    double pgas_min = -E;
-    pgas_min = std::max(pgas_min, pgas_uniform_min);
+    bool success = cons2primNormal(D, mm, E,
+      gma, pgas_old, rho, uu, p);
 
-    // Iterate until convergence
-    double pgas[3];
-    double pgas_old;
-    pgas_old = pin;
-    pgas[0] = std::max(pgas_old, pgas_min);
-    int n;
-    for (n = 0; n < max_iterations; ++n) {
-      // Step 1: Calculate cubic coefficients
-      double a;
-      if (n%3 != 2) {
-        a = E + pgas[n%3];      // (NH 5.7)
-        a = std::max(a, a_min);
-      }
-
-      // Step 2: Calculate correct root of cubic equation
-      double v_sq;
-      if (n%3 != 2) {
-        v_sq = mm_sq / (a*a);                                     // (NH 5.2)
-        v_sq = std::min(std::max(v_sq, 0.), v_sq_max);
-        double lfac2 = 1.0/(1.0-v_sq);                            // (NH 3.1)
-        double lfac = std::sqrt(lfac2);                           // (NH 3.1)
-        double wgas = a/lfac2;                                    // (NH 5.1)
-        double rho = D/lfac;                                      // (NH 4.5)
-        pgas[(n+1)%3] = (gma-1.0)/gma * (wgas - rho);             // (NH 4.1)
-        pgas[(n+1)%3] = std::max(pgas[(n+1)%3], pgas_min);
-      }
-
-      // Step 3: Check for convergence
-      if (n%3 != 2) {
-        if (pgas[(n+1)%3] > pgas_min && std::abs(pgas[(n+1)%3]-pgas[n%3]) < tol) {
-          break;
-        }
-      }
-
-      // Step 4: Calculate Aitken accelerant and check for convergence
-      if (n%3 == 2) {
-        double rr = (pgas[2] - pgas[1]) / (pgas[1] - pgas[0]);    // (NH 7.1)
-        if (!std::isfinite(rr) || std::abs(rr) > rr_max) {
-          continue;
-        }
-        pgas[0] = pgas[1] + (pgas[2] - pgas[1]) / (1.0 - rr);     // (NH 7.2)
-        pgas[0] = std::max(pgas[0], pgas_min);
-        if (pgas[0] > pgas_min && std::abs(pgas[0]-pgas[2]) < tol) {
-          break;
-        }
-      }
+    // Handle failures
+    if (!success) {
+      rho = rho_old;
+      p = pgas_old;
+      uu = u1_old;
+      //fixed = true;
     }
-
-    // Step 5: Set primitives
-    if (n == max_iterations) {
-      return;
-    }
-    double p = pgas[(n+1)%3];
-    //if (!std::isfinite(p)) {
-    //  return;
-    //}
-    double a = E + p;                                 // (NH 5.7)
-    a = std::max(a, a_min);
-    double v_sq = mm_sq / (a*a);                        // (NH 5.2)
-    v_sq = std::min(std::max(v_sq, 0.), v_sq_max);
-    double lfac2 = 1.0/(1.0-v_sq);                      // (NH 3.1)
-    double lfac = std::sqrt(lfac2);                     // (NH 3.1)
-    double rho = D/lfac;                             // (NH 4.5)
-    //if (!std::isfinite(rho)) {
-    //  return;
-    //}
-    double v = mm / a;                                  // (NH 4.6)
-    double uu[NUM_D];
-    uu[0] = lfac*v;                                       // (NH 3.3)
-    //if (!std::isfinite(uu)
-    //    || !std::isfinite(prim(IVY,k,j,i))
-    //    || !std::isfinite(prim(IVZ,k,j,i)) ) {
-    //  return;
-    double wgas = a/lfac2;
-    //prs = (gma-1.0)/gma * (wgas - dty);
-    //*p = prs;
-
-    cons2prim_user(&rho, &p, uu);
-
-    // no matter what we did with the rest, we can't allow the pressure to drop to zero:
-    p = fmax(p,P_FLOOR_);
-
-    prim[PPP] = p;
-    prim[RHO] = rho;
-    for (int d = 0; d < NUM_D; ++d){ 
-      prim[UU1+d] = uu[d];
-    }
-    for (int t = 0; t < NUM_T; ++t){
-      prim[TR1+t] = cons[TR1+t] / D;
-    }
-
-    prim2cons(r); // for consistency
   }
 
   else if (C2P_ == M06_){
@@ -429,25 +442,28 @@ void FluidState::cons2prim(double r, double pin){
       for (int d = 0; d < NUM_D; ++d) uu[d] = lfac*v*(ss[d]/S);
         // Mignone (2006) eq. 3
     }
-    cons2prim_user(&rho, &p, uu);
+  } 
 
-    // no matter what we did with the rest, we can't allow the pressure to drop to zero:
-    p = fmax(p,P_FLOOR_);
+  cons2prim_user(&rho, &p, uu);
 
-    prim[PPP] = p;
-    prim[RHO] = rho;
-    for (int d = 0; d < NUM_D; ++d){ 
-      prim[UU1+d] = uu[d];
-    }
-    for (int t = 0; t < NUM_T; ++t){
-      prim[TR1+t] = cons[TR1+t] / D;
-    }
+  // no matter what we did with the rest, we can't allow the pressure to drop to zero:
+  p = fmax(p,P_FLOOR_);
 
-    prim2cons(r); // for consistency
+  prim[PPP] = p;
+  prim[RHO] = rho;
+  for (int d = 0; d < NUM_D; ++d){ 
+    prim[UU1+d] = uu[d];
   }
-}
-*/
+  for (int t = 0; t < NUM_T; ++t){
+    prim[TR1+t] = cons[TR1+t] / D;
+  }
 
+  prim2cons(r); // for consistency
+ 
+}
+
+
+/*
 void FluidState::cons2prim(double r, double pin){
 
   int     status;
@@ -556,7 +572,7 @@ void FluidState::cons2prim(double r, double pin){
   prim2cons(r); // for consistency
   
 }
-
+*/
 
 
 void Interface::wavespeedEstimates(){

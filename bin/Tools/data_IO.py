@@ -14,8 +14,19 @@ import os
 import numpy as np
 import pandas as pd
 import scipy.signal as sps
+import scipy.ndimage as spi
 from phys_functions import *
-from environment import c_, pi_
+from phys_constants import c_, pi_
+
+# subscripts
+interfaces_names = {
+  'PWN':['{ts}', 'b', '{sh}', '{rs}', '{cd}', '{fs}'],
+  'shells':['{rs}', '{cd}', '{fs}']
+}
+zone_names = {
+  'PWN':['w', 'b', '{sh}', '{ej}', '{sh.ej}', '{sh.csm}', '{csm}'],
+  'shells':['4', '3', '2', '1']
+}
 
 # Read data
 # --------------------------------------------------------------------------------------------------
@@ -31,6 +42,8 @@ def openData(key, it=None, sequence=True):
   else:
     filename = GAMMA_dir + '/results/%s%d.out' % (key, it)
   data = pd.read_csv(filename, sep=" ")
+  mode = get_runmode(key)
+  data.attrs['mode'] = mode
   return(data)
 
 def openData_withtime(key, it):
@@ -46,14 +59,27 @@ def openData_withZone(key, it=None, sequence=True):
   data_z = zoneID(data)
   return data_z
 
+def get_runmode(key):
+  physpath = get_physfile(key)
+  with open(physpath, 'r') as f:
+    lines = f.read().splitlines()
+    lines = filter(lambda x: x.startswith('mode') , lines)
+    for line in lines:
+      name, value = line.split()[:2]
+      if name == 'mode':
+        mode = value
+  return mode
+
 def open_rundata(key):
 
   '''
   returns a pandas dataframe with the extracted data
   '''
   dfile_path, dfile_bool = get_runfile(key)
+  mode = get_runmode(key)
   if dfile_bool:
     df = pd.read_csv(dfile_path, index_col=0)
+    df.attrs['mode'] = mode
     return df
   else:
     return dfile_bool
@@ -92,11 +118,11 @@ def get_physfile(key):
   Returns path of phys_input file of the corresponding results folder
   '''
   dir_path = GAMMA_dir + '/results/%s/' % (key)
-  file_path = dir_path + "phys_input.MWN"
+  file_path = dir_path + "phys_input.ini"
   if os.path.isfile(file_path):
     return file_path
   else:
-    return GAMMA_dir + "/phys_input.MWN"
+    return GAMMA_dir + "/phys_input.ini"
 
 def get_runfile(key):
 
@@ -110,24 +136,27 @@ def get_runfile(key):
   file_bool = os.path.isfile(file_path)
   return file_path, file_bool
 
-def get_varlist(var, Nz):
+
+def get_varlist(var, Nz, mode):
   '''
-  Returns list of variables names with zone / interface subscripts
+  Creates list of variables names with zone / interface subscripts
   ''' 
   varlist = []
   zvarsList = ['V', 'Emass', 'Ekin', 'Eint']
   ivarsList = ['R', 'v']
+  zsubList  = zone_names[mode]
+  intList   = interfaces_names[mode]
 
-  # subscripts
-  intList  = ['{ts}', 'b', '{sh}', '{rs}', '{cd}', '{fs}']
-  zsubList = ['w', 'b', '{sh}', '{ej}', '{sh.ej}', '{sh.csm}', '{csm}']
   # construct shocks list
   shList = [z for z in intList[:Nz-1] if z not in ['b', '{cd}']]
 
   if var == 'Nc':
     varlist = [var + '_' + sub for sub in zsubList[:Nz]]
   elif var in zvarsList:
-    varlist = [var + '_' + sub for sub in zsubList[1:Nz-1]]
+    if mode == 'PWN':
+      varlist = [var + '_' + sub for sub in zsubList[1:Nz-1]]
+    elif mode =='shells':
+      varlist = [var + '_' + sub for sub in zsubList[:Nz]]
   elif var == 'ShSt':
     varlist = [var + '_' + sub for sub in shList]
   elif var in ivarsList:
@@ -143,9 +172,9 @@ def prep_header(key):
   List of variables in the file
   '''
   vars = ['Nc', 'R', 'V', 'ShSt', 'Emass', 'Ekin', 'Eint']
-
   Nz  = get_Nzones(key)
-  l = [get_varlist(var, Nz) for var in vars]
+  mode = get_runmode(key)
+  l = [get_varlist(var, Nz, mode) for var in vars]
   varlist = [item for sublist in l for item in sublist]
 
   return varlist
@@ -175,23 +204,35 @@ def df_get_all(df):
   '''
   zone = df['zone']
   Nz = int(zone.max())
+  Nint = Nz-1
+  mode = df.attrs['mode']
+  if mode == 'shells':
+    Nint = Nz+1
   res_rad = np.zeros(Nz)
   res_Nc  = np.zeros(Nz+1)
-  res_V   = np.zeros(Nz-1)
-  res_Em  = np.zeros(Nz-1)
-  res_Ek  = np.zeros(Nz-1)
-  res_Ei  = np.zeros(Nz-1)
+  res_V   = np.zeros(Nint)
+  res_Em  = np.zeros(Nint)
+  res_Ek  = np.zeros(Nint)
+  res_Ei  = np.zeros(Nint)
+  
   res_shocks = get_shocksStrength(df)
 
   for n in range(Nz):
     res_rad[n] = get_radius_zone(df, n+1)*c_
   for n in range(Nz+1):
     res_Nc[n]  = zone[zone==n].count()
-  for n in range(1, Nz):
-    res_V[n-1]   = zone_get_zoneIntegrated(df, 'V', n)
-    res_Em[n-1]  = zone_get_zoneIntegrated(df, 'Emass', n)
-    res_Ek[n-1]  = zone_get_zoneIntegrated(df, 'Ekin', n)
-    res_Ei[n-1]  = zone_get_zoneIntegrated(df, 'Eint', n)
+  if mode == 'MWN':
+    for n in range(1, Nz):
+      res_V[n-1]   = zone_get_zoneIntegrated(df, 'V', n)
+      res_Em[n-1]  = zone_get_zoneIntegrated(df, 'Emass', n)
+      res_Ek[n-1]  = zone_get_zoneIntegrated(df, 'Ekin', n)
+      res_Ei[n-1]  = zone_get_zoneIntegrated(df, 'Eint', n)
+  elif mode =='shells':
+    for n in range(Nz+1):
+      res_V[n-1]   = zone_get_zoneIntegrated(df, 'V', n)
+      res_Em[n-1]  = zone_get_zoneIntegrated(df, 'Emass', n)
+      res_Ek[n-1]  = zone_get_zoneIntegrated(df, 'Ekin', n)
+      res_Ei[n-1]  = zone_get_zoneIntegrated(df, 'Eint', n)
   
   return res_Nc, res_rad, res_V, res_shocks, res_Em, res_Ek, res_Ei
 
@@ -201,15 +242,26 @@ def get_shocksStrength(df):
   '''
   
   # expected number of shocks
-  zone = df['zone']
+  zone = df['zone'].to_numpy()
   Nz = int(zone.max())+1
-  shlist = get_varlist('ShSt', Nz)
+  mode = df.attrs['mode']
+  shlist = get_varlist('ShSt', Nz, mode)
   Ns = len(shlist)
   shstr_list = np.array([])
+  Sd_list = []
   if df['Sd'].sum() == 0.:
-    print("No shock detection")
-    # add own shock detection algo?
-    shstr_list = np.zeros(Ns)
+    if len(np.unique(zone)) < Ns + 2:
+      return np.zeros(Ns)
+    if mode == 'shells':
+      Sd_list = [np.argwhere(zone==z).min() for z in [1., 3.]]
+    elif mode == 'MWN':
+      Sd_list = [np.argwhere(zone==z).min() for z in [1., 3., 4., 6.]]
+    for i in Sd_list:
+      i_u = i - 1
+      i_d = i + 1
+      shstr = df_get_shockStrength(df, i_u, i_d)
+      shstr_list = np.append(shstr_list, shstr)
+
   else:
     Sd_list = df.index[df['Sd']==1.0].tolist()
     while len(Sd_list):
@@ -220,12 +272,7 @@ def get_shocksStrength(df):
           i_d = Sd_list[1] + 1
           del Sd_list[1]
       del Sd_list[0]
-      b_u = df['vx'].loc[i_u]
-      g_u = derive_Lorentz(b_u)
-      b_d = df['vx'].loc[i_d]
-      g_d = derive_Lorentz(b_d)
-      relg = g_u*g_d* (1. - b_u*b_d)
-      shstr = relg - 1.
+      shstr = df_get_shockStrength(df, i_u, i_d)
       shstr_list = np.append(shstr_list, shstr)
     while len(shstr_list) < Ns:
       shstr_list = np.append(shstr_list, 0.)
@@ -318,13 +365,16 @@ def zoneID(df):
   '''
   Takes a panda dataframe as input and adds a zone marker column to it
   External interacting layer and CSM id to be added
-  0: unshocked wind
-  1: shocked wind, jump in p at RS
-  2: shocked shell, jump in rho at CD
-  3: SNR, fall in p at FS
-  4: shocked SNR, rho jump by 4
-  5: shocked CSM, d rho / rho changes sign at CD
-  6: unshocked CSM
+  For PWN/MWN:
+    0: unshocked wind
+    1: shocked wind, jump in p at RS
+    2: shocked shell, jump in rho at CD
+    3: SNR, fall in p at FS
+    4: shocked SNR, rho jump by 4
+    5: shocked CSM, d rho / rho changes sign at CD
+    6: unshocked CSM
+  For shells:
+    0 to 3 -> shells 4 to 1
   '''
 
   if 'zone' in df.columns:
@@ -334,37 +384,44 @@ def zoneID(df):
     rho  = df['rho'] 
     p    = df['p']
     u    = df_get_u(df)
-    trac = df['trac'].to_numpy()
-    zone = np.zeros(trac.shape)
+    zone = np.zeros(rho.shape)
 
-    i_w  = np.argwhere(trac >= 1.5).max()
-    i_ej = np.argwhere((trac < 1.5) & (trac >= 0.5)).max()
-    i_ts  = get_step(-u)
-    i_sh = max(get_step(-p), get_step(rho))
-    #print(i_w, i_ej, i_ts, i_sh)
-    #if 'Sd' in df.keys():
-
-
-    zone[:i_ts] = 0
-    zone[i_ts:i_w+1]  = 1
-    zone[i_w:i_sh+1]  = 2
-    zone[i_sh:i_ej+1] = 3
-
+    i_list = get_steps(rho)
+    l=0
+    for k in range(len(zone)):
+      if k in i_list: l+=1
+      zone[k] = l
+    if df['t'].mean() == 0.: # ad hoc, need to correct this
+      zone = np.where(zone==0., 0., 3.)
     df2 = df.assign(zone=zone)
     return df2
 
-def get_step(arr):
+def get_steps(arr, h=0.01):
 
   '''
   Get step up in data by convoluting with step function
   '''
 
+  arr /= arr.max()
+  smth_arr = spi.gaussian_filter1d(arr, sigma=1, order=0)
+  d = np.gradient(smth_arr)
+  
+  # get peaks
+  steps_up   = sps.find_peaks(d, height=h)[0]
+  steps_down = sps.find_peaks(-d, height=h)[0]
+  steps = np.concatenate((steps_up, steps_down))
+
+  return np.sort(steps)
+
+def step_convolve(arr):
+  '''
+  Convolution part of the steps detection
+  '''
   d = arr - np.average(arr)
   step = np.hstack((np.ones(len(d)), -1*np.ones(len(d))))
   d_step = np.convolve(d, step, mode='valid')
-  step_id = np.argmax(d_step)
+  return d_step
 
-  return step_id
 
 def df_denoise_zonedata(df):
   '''
@@ -384,7 +441,7 @@ def df_denoise_zonedata(df):
   pass
 
 
-def denoise_data(arr, method='savgol', ker_size=30, interpol_deg=3):
+def denoise_data(arr, method='savgol', ker_size=30, interpol_deg=3, sigma=1):
 
   '''
   Denoising data for better gradient & slopes calculation
@@ -397,6 +454,8 @@ def denoise_data(arr, method='savgol', ker_size=30, interpol_deg=3):
     if ker_size%2==0:
       ker_size +=1
     out = sps.savgol_filter(arr, ker_size, interpol_deg)
+  elif method == 'gaussian':
+    out = spi.gaussian_filter1d(arr, sigma=sigma)
   else:
     print('No method corresponding to this keyword.')
     pass
@@ -519,6 +578,7 @@ def df_detect_shocks(df):
   '''
   if df['Sd'].sum() > 0.:
     # if shocks were already detected by GAMMA and written in data
+    print('Shock detection already done by GAMMA')
     return df
   else:
     df['Sd'] = 0.
@@ -527,3 +587,14 @@ def df_detect_shocks(df):
                               axis=1).iloc[:-2]
     return df
 
+def df_get_shockStrength(df, i_u, i_d):
+  '''
+  Derives the shock strength by comparing hydrodynamical properties
+  upstream (at i_u) and downstream (at i_d)
+  '''
+  b_u = df['vx'].loc[i_u]
+  g_u = derive_Lorentz(b_u)
+  b_d = df['vx'].loc[i_d]
+  g_d = derive_Lorentz(b_d)
+  relg = g_u*g_d* (1. - b_u*b_d)
+  return relg - 1.

@@ -8,7 +8,8 @@ This file contains (semi-)analytical models for the evolution of MWN
 # Imports
 # --------------------------------------------------------------------------------------------------
 import numpy as np
-from environment import *
+from phys_constants import *
+from phys_functions_MWN import *
 
 # MWN bubble functions for t<<t_0, from Bandiera et al. 2023 eqn B4-6 and B8-10
 # --------------------------------------------------------------------------------------------------

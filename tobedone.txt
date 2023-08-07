@@ -25,6 +25,30 @@ ALE to smooth between lagrangian in cold relat speed flows and eulerian in hot s
 Clean run_analysis of old functions
 Update shock strength to Mach number of shock velocity in unshocked medium
 
+FOCUS:
+1. launch sims internal shocks
+--> do we reproduce the analytics in planar symmetry?
+start at the beginning of the shock
+don't even need split/merge (at least for starters)
+box size -> moving window (see BM method, but use density and not only pressure bcause cold shells)
+u1 = 100, u4 = 200, density contrast ~1/4 (slowest is more dense)...
+see Minu's notes for quantities to plot
+/!\ add velocity before and after shells to avoid shock structures on the external sides as much as possible
+for this compare with expected ram pressure of the CD in the lab frame
+in spherical define starting radius
+maybe test for highest Lorentz
+start with few hundreds cells and then test for convergence
+check if algo detectes very small rarefaction wave on the front/back of the shells
+-> move the box depending on that
+--> and now in spherical symmetry
+2. electron distribution in the flow
+-> shock detection
+-> cooling regimes
+3. lightcurves production
+-> be careful of relativistic effects (highly relativistic shells)
+-> good test case: BM profile
+
+
 Todolist:
 1. Cell resolution, numerics, and plotting
 - find a way to fuse cells in the shocked nebula but not too much
@@ -34,10 +58,15 @@ Todolist:
 - choice of x, y normalization on plot function
 
 2. Shocks and self-similarity
-- shock detection in post-processing 
+- debug .apply() method
 -> will be useful in lots of cases: especially analyzing sims ran without it -> update zone id
 - change shock strength to Mach number (of shock front in unshocked medium)
-- PREPARE TALK ON SELF-SIMILARITY -> send references to Minu
+- if shocks not resolved, we may have 2 identified shock cells close to each other
+-> important to take in account for the e- distribution
+-> choose where to renew e- population where compression ratio is met?
+-> rego over NS06, check the values for q (page 4 before section 5.) and related shock strength
+--> maybe let's go over the more general case, compare with BM76
+--> Gamma43 as function of "q" (downstream to shock ratio)
 
 3. Emitted radiation
 - write post-processing of sim
@@ -63,3 +92,4 @@ equal width in the lab frame is a good starting assumption
 
 Done (clear and update between meetings):
 - add dr/r plots to check
+- shock detection in post-processing 

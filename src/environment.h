@@ -56,7 +56,7 @@ enum{skip_,merge_,split_};
 #define GAMMA_ (4./3.)
 #define EOS_   RYU_EOS_      // carefull, GAMMA_ needs to be set to 5/3 when using SYNGE
 #define CFL_   0.2
-//#define C2P_   NH14_          // cons2prim method
+#define C2P_   NH14_          // cons2prim method (M06_, NH14_)
 
 #define MPI_ ENABLED_
 #define OMP_ ENABLED_
