@@ -37,7 +37,8 @@ znorms = {#scale all variables
   "u": 1,
   "ekin":1,
   "eint":1.,
-  "erest":1.}
+  "erest":1.,
+  "zone":1.}
 legends = {
   "rho":"$\\rho$",
   "D":"$\\gamma\\rho$",
@@ -50,7 +51,8 @@ legends = {
   "ref":"ref. crit.",
   "ekin":"$e_k$",
   "eint":"$e$",
-  "erest":"$\\rho c^2$"}
+  "erest":"$\\rho c^2$",
+  "zone":"zone"}
 labels = {
   "dx":"$dr$ (cm)",
   "ref":"ref. crit.",
@@ -63,7 +65,8 @@ labels = {
   "p":"$p$ (Ba)",
   "tau":"$\\tau$",
   "h":"$h$ ($c^2$)",
-  "T":"$\\Theta = p/\\rho c^2$"}
+  "T":"$\\Theta = p/\\rho c^2$",
+  "zone":""}
 
 # IO
 def openData_withtime(it, key='Last'):

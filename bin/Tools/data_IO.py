@@ -17,6 +17,10 @@ import scipy.signal as sps
 import scipy.ndimage as spi
 from phys_functions import *
 from phys_constants import c_, pi_
+# matplotlib for tests
+import matplotlib
+matplotlib.use('tkagg')
+import matplotlib.pyplot as plt
 
 # subscripts
 interfaces_names = {
@@ -27,6 +31,69 @@ zone_names = {
   'PWN':['w', 'b', '{sh}', '{ej}', '{sh.ej}', '{sh.csm}', '{csm}'],
   'shells':['4', '3', '2', '1']
 }
+
+# Useful for testing
+def df_get_primvar(df):
+  rho = df['rho'].to_numpy()
+  u   = df_get_u(df)
+  p   = df['p'].to_numpy()
+  return rho, u, p
+
+def df_get_primsteps(df, h=0.02):
+  rho, u, p = df_get_primvar(df)
+  steps_rho = get_steps(rho, h)
+  steps_u   = get_steps(u, h)
+  steps_p   = get_steps(p, h)
+  return steps_rho, steps_u, steps_p
+
+def df_plot_primvar(df):
+  rho, u, p = df_get_primvar(df)
+  plt.plot(rho/rho.max(), label='$\\rho/\\rho_{max}$')
+  plt.plot(u/u.max(), label='$u/u_{max}$')
+  plt.plot(p/p.max(), label='$p/p_{max}$')
+  plt.legend()
+  plt.show()
+
+def df_test_ilist(df):
+  steps_rho, steps_u, steps_p = df_get_primsteps(df)
+  steps = np.sort(np.concatenate((steps_rho, steps_u, steps_p)))
+  ilist = []
+  shlist = []
+  wlist = []
+  isteps = iter(steps)
+  i = 0
+  while i in range(len(steps)):
+    s = steps[i]
+    try:
+      if ((s==steps[i+1]) and (s==steps[i+2])):
+        shlist.append(s)
+        ilist.append(s)
+        i += 2
+      elif (steps[i+2]<=s+10):
+        wlist.append(s)
+        ilist.append(s)
+        i += 2
+      else:
+        ilist.append(s)
+    except IndexError:
+      ilist.append(s) 
+    i += 1
+
+  # identify end of wave
+  dGp = step_gaussfilter(df['p'].to_numpy())
+  for iw in wlist:
+    if wlist.index(iw) > len(ilist)/2.:
+      arr = - np.flip(dGp[iw:])
+      print('flipped')
+    else:
+      arr = dGp[iw:]
+    iint  = np.where(arr<=0)[0].min() + iw - 1  
+    print(f"Wave at {iw}, shell at {iint}")
+    ilist = [iint if i==iw else i for i in ilist]
+    #wlist[wlist.index(iw)] = (iw, iint)
+ 
+  return ilist, shlist, wlist
+
 
 # Read data
 # --------------------------------------------------------------------------------------------------
@@ -42,8 +109,9 @@ def openData(key, it=None, sequence=True):
   else:
     filename = GAMMA_dir + '/results/%s%d.out' % (key, it)
   data = pd.read_csv(filename, sep=" ")
-  mode = get_runmode(key)
+  mode, external = get_runatts(key)
   data.attrs['mode'] = mode
+  data.attrs['external'] = external
   return(data)
 
 def openData_withtime(key, it):
@@ -59,16 +127,19 @@ def openData_withZone(key, it=None, sequence=True):
   data_z = zoneID(data)
   return data_z
 
-def get_runmode(key):
-  physpath = get_physfile(key)
+def get_runatts(key):
+  physpath  = get_physfile(key)
+  attrs = ('mode', 'external')
   with open(physpath, 'r') as f:
     lines = f.read().splitlines()
-    lines = filter(lambda x: x.startswith('mode') , lines)
+    lines = filter(lambda x: x.startswith(attrs) , lines)
     for line in lines:
       name, value = line.split()[:2]
       if name == 'mode':
         mode = value
-  return mode
+      elif name == 'external':
+        external = value
+  return mode, external
 
 def open_rundata(key):
 
@@ -76,10 +147,11 @@ def open_rundata(key):
   returns a pandas dataframe with the extracted data
   '''
   dfile_path, dfile_bool = get_runfile(key)
-  mode = get_runmode(key)
+  mode, external = get_runatts(key)
   if dfile_bool:
     df = pd.read_csv(dfile_path, index_col=0)
     df.attrs['mode'] = mode
+    df.attrs['external'] = external
     return df
   else:
     return dfile_bool
@@ -173,7 +245,7 @@ def prep_header(key):
   '''
   vars = ['Nc', 'R', 'V', 'ShSt', 'Emass', 'Ekin', 'Eint']
   Nz  = get_Nzones(key)
-  mode = get_runmode(key)
+  mode = get_runatts(key)[0]
   l = [get_varlist(var, Nz, mode) for var in vars]
   varlist = [item for sublist in l for item in sublist]
 
@@ -206,7 +278,11 @@ def df_get_all(df):
   Nz = int(zone.max())
   Nint = Nz-1
   mode = df.attrs['mode']
-  if mode == 'shells':
+  external = df.attrs['external']
+  noext = True    # if simulation has zones at the edges we don't want to analyze
+  if mode == 'MWN' or (mode == 'shells' and external):
+    noext = False
+  if noext:
     Nint = Nz+1
   res_rad = np.zeros(Nz)
   res_Nc  = np.zeros(Nz+1)
@@ -221,14 +297,14 @@ def df_get_all(df):
     res_rad[n] = get_radius_zone(df, n+1)*c_
   for n in range(Nz+1):
     res_Nc[n]  = zone[zone==n].count()
-  if mode == 'MWN':
-    for n in range(1, Nz):
+  if noext:
+    for n in range(Nz+1):
       res_V[n-1]   = zone_get_zoneIntegrated(df, 'V', n)
       res_Em[n-1]  = zone_get_zoneIntegrated(df, 'Emass', n)
       res_Ek[n-1]  = zone_get_zoneIntegrated(df, 'Ekin', n)
       res_Ei[n-1]  = zone_get_zoneIntegrated(df, 'Eint', n)
-  elif mode =='shells':
-    for n in range(Nz+1):
+  else:
+    for n in range(1, Nz):
       res_V[n-1]   = zone_get_zoneIntegrated(df, 'V', n)
       res_Em[n-1]  = zone_get_zoneIntegrated(df, 'Emass', n)
       res_Ek[n-1]  = zone_get_zoneIntegrated(df, 'Ekin', n)
@@ -245,6 +321,10 @@ def get_shocksStrength(df):
   zone = df['zone'].to_numpy()
   Nz = int(zone.max())+1
   mode = df.attrs['mode']
+  external = df.attrs['external']
+  noext = True    # if simulation has zones at the edges we don't want to analyze
+  if mode == 'MWN' or (mode == 'shells' and external):
+    noext = False
   shlist = get_varlist('ShSt', Nz, mode)
   Ns = len(shlist)
   shstr_list = np.array([])
@@ -252,8 +332,16 @@ def get_shocksStrength(df):
   if df['Sd'].sum() == 0.:
     if len(np.unique(zone)) < Ns + 2:
       return np.zeros(Ns)
-    if mode == 'shells':
-      Sd_list = [np.argwhere(zone==z).min() for z in [1., 3.]]
+    if noext:
+      try:
+        Sd_list = [np.argwhere(zone==z).min() for z in [1., 3.]]
+      except ValueError:
+        return np.zeros(Ns)
+    elif mode == 'shells':
+      try:
+        Sd_list = [np.argwhere(zone==z).min() for z in [2., 4.]]
+      except ValueError:
+        return np.zeros(Ns)
     elif mode == 'MWN':
       Sd_list = [np.argwhere(zone==z).min() for z in [1., 3., 4., 6.]]
     for i in Sd_list:
@@ -361,6 +449,56 @@ def get_variable(df, var):
 # Zone identification
 # --------------------------------------------------------------------------------------------------
 def zoneID(df):
+  p      = df['p'].to_numpy()
+  zone   = np.zeros(p.shape)
+  shocks = np.zeros(p.shape)
+  steps_rho, steps_u, steps_p = df_get_primsteps(df)
+  steps = np.sort(np.concatenate((steps_rho, steps_u, steps_p)))
+  ilist = []
+  shlist = []
+  wlist = []
+  isteps = iter(steps)
+  i = 0
+  while i in range(len(steps)):
+    s = steps[i]
+    try:
+      if ((s==steps[i+1]) and (s==steps[i+2])):
+        shlist.append(s)
+        ilist.append(s)
+        i += 2
+      elif (steps[i+2]<=s+10):
+        wlist.append(s)
+        ilist.append(s)
+        i += 2
+      else:
+        ilist.append(s)
+    except IndexError:
+      ilist.append(s) 
+    i += 1
+
+  # identify end of wave
+  dGp = step_gaussfilter(p)
+  for iw in wlist:
+    if wlist.index(iw) > len(ilist)/2.:
+      arr = - np.flip(dGp[iw:])
+      print('flipped')
+    else:
+      arr = dGp[iw:]
+    iint  = np.where(arr<=0)[0].min() + iw - 1  
+    ilist = [iint if i==iw else i for i in ilist]
+  
+  shocks[shlist] = 1.
+  l = 0
+  for k in range(len(zone)):
+    if k in ilist: l+=1
+    zone[k] = l
+
+  df2 = df.assign(zone=zone)
+  if df['Sd'].sum() == 0.:
+    df2 = df2.assign(Sd=shocks)
+  return df2
+
+def zoneID_old(df):
 
   '''
   Takes a panda dataframe as input and adds a zone marker column to it
@@ -374,7 +512,7 @@ def zoneID(df):
     5: shocked CSM, d rho / rho changes sign at CD
     6: unshocked CSM
   For shells:
-    0 to 3 -> shells 4 to 1
+    0 to 5 -> external medium, shells 4 to 1, external medium
   '''
 
   if 'zone' in df.columns:
@@ -392,19 +530,17 @@ def zoneID(df):
       if k in i_list: l+=1
       zone[k] = l
     if df['t'].mean() == 0.: # ad hoc, need to correct this
-      zone = np.where(zone==0., 0., 3.)
+      zone = np.where(zone>=2., zone+2., zone)
     df2 = df.assign(zone=zone)
     return df2
 
-def get_steps(arr, h=0.01):
+def get_steps(arr, h=0.02):
 
   '''
   Get step up in data by convoluting with step function
   '''
 
-  arr /= arr.max()
-  smth_arr = spi.gaussian_filter1d(arr, sigma=1, order=0)
-  d = np.gradient(smth_arr)
+  d = step_gaussfilter(arr)
   
   # get peaks
   steps_up   = sps.find_peaks(d, height=h)[0]
@@ -412,6 +548,15 @@ def get_steps(arr, h=0.01):
   steps = np.concatenate((steps_up, steps_down))
 
   return np.sort(steps)
+
+def step_gaussfilter(arr, sigma=1):
+  '''
+  Gaussian filtering part of the steps detection
+  '''
+  arr /= arr.max()
+  smth_arr = spi.gaussian_filter1d(arr, sigma, order=0)
+  d = np.gradient(smth_arr)
+  return d
 
 def step_convolve(arr):
   '''

@@ -41,7 +41,7 @@ static double rmax0   = R_0+1.1*D01 ;
 static double Ncells  = 1000 ;
 
 // normalisation constants:
-static double rhoNorm = rho1;                 // density normalised to CBM density
+static double rhoNorm = rho1 ;                // density normalised to CBM density
 static double lNorm = c_;                     // distance normalised to c
 static double vNorm = c_;                     // velocity normalised to c
 static double pNorm = rhoNorm*vNorm*vNorm;    // pressure normalised to rho_CMB/c^2
@@ -185,7 +185,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if (it > 15000){ stop = true; }
+  if ( it > 15000 ){ stop = true; }
   //if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
 
 }

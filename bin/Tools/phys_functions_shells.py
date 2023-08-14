@@ -11,53 +11,79 @@ from phys_functions import *
 from phys_constants import *
 
 # basic parameters (will be modified later/read from file/function inputs)
-# to be read from input file :
-# L1, L4        source power when generating shells 1 and 4
-# t1, t4        source activity time (...)
-# u1, u4        proper velocity of shells 1 and 4
-# toff          time between ejection of shells 1 and 4 at the source
+# start from phys params : (L, u, ton) pairs + toff OR num params (rho, u, D0) pairs + R0
 
-# from physical parameters to hydro quantities, sim start and grid
-# we need: rho1, beta1, D01, rho4, beta4, D04, t0, R0
+def shells_complete_setup(env):
+  '''
+  Completes environment class with missing information
+  '''
+  vars2add  = []
+  names2add = []
 
-def shells_phys2num(L1, t1, u1, L4, t4, u4, toff, Theta0):
+  # add physical set if setup contains numerical set or vice-versa
+  if 'L1' in env.__dict__.keys():
+    vars2add  = shells_phys2num(env.L1, env.u1, env.t1, env.L4, env.u4, env.t4, env.toff)
+    names2add = ['rho1', 'beta1', 'D01', 'rho4', 'beta4', 'D04', 't0']
+  elif 'rho1' in env.__dict__.keys():
+    vars2add  = shells_num2phys(env.rho1, env.u1, env.D01, env.rho4, env.u4, env.D04, env.R0)
+    names2add = ['L1', 'beta1', 't1', 'L4', 'beta4', 't4', 'toff']
+  for name, value in zip(names2add, vars2add):
+    setattr(env, name, value)
+  
+  # complete with pressure
+  p0 = min(env.rho1, env.rho4)*env.Theta0*c_**2
+  env.p1 = p0
+  env.p4 = p0
+
+  # add t0 if R0 and vice-versa
+  if 't0' in env.__dict__.keys():
+    env.R0 = env.t0*c_
+  elif 'R0' in env.__dict__.keys():
+    env.t0 = env.R0/c_
+
+def shells_add_analytics(env):
+  '''
+  Add analytical estimates from data in the env class
+  '''
+  vars2add  = shells_phys2analytics(env.L1, env.u1, env.t1, env.D01, env.L4, env.u4, env.t4, env.D04, env.toff)
+  names2add = ['u', 'betaFS', 'tFS', 'Df2', 'Eint2', 'Ek2', 'betaRS', 'tRS', 'Df3', 'Eint3', 'Ek3']
+  for name, value in zip(names2add, vars2add):
+    setattr(env, name, value)
+
+
+def shells_num2phys(rho1, u1, D01, rho4, u4, D04, R0):
+  '''
+  Derives physical quantities from a numerical setup
+  '''
+  beta1   = derive_velocity_from_proper(u1)
+  beta4   = derive_velocity_from_proper(u4)
+  t0   = R0/c_
+  toff = (beta4-beta1)*t0/beta1
+  t1   = D01/beta1
+  t4   = D04/beta4
+  L1   = rho1 * (4.*pi_*R0**2*D01*c_**2) / t1
+  L4   = rho4 * (4.*pi_*R0**2*D04*c_**2) / t4
+  return L1, beta1, t1, L4, beta4, t4, toff
+
+def shells_phys2num(L1, u1, t1, L4, u4, t4, toff):
   '''
   Derives quantities for the numerical setup from the physical inputs
   '''
   beta1 = derive_velocity_from_proper(u1)
   beta4 = derive_velocity_from_proper(u4)
   t0    = (beta1*toff)/(beta4-beta1)
-  R0    = t0*c_
   D01   = beta1*t1
   D04   = beta4*t4
   rho1  = L1*t1 / (4.*pi_*R0**2*D01*c_**2)
   rho4  = L4*t4 / (4.*pi_*R0**2*D04*c_**2)
-  p0    = min(rho1, rho4)*Theta0*c_**2
-  p1    = p0
-  p4    = p0
-  rmin0 = R0 - D04
-  rmax0 = R0 + D01
-  varlist = ['rho1', 'u1', 'p1', 'D01',
-    'rho4', 'u4', 'p4', 'D04', 
-    't_0', 'R_0', 'rmin0', 'rmax0']
-  vallist = [rho1, u1, p1, D01, rho4, u4, p4, D04, t0, R0, rmin0, rmax0]
-  return varlist, vallist
+  return rho1, beta1, D01, rho4, beta4, D04, t0
 
-def shells_completenum(rho1, u1, D01, rho4, u4, R0):
-  '''
-  Complete the numerical setup with pressure
-  '''
-  pass
-
-def shells_phys2analytics(L1, t1, u1, L4, t4, u4, toff, Theta0):
+def shells_phys2analytics(L1, u1, t1, D1, L4, u4, t4, D4, toff):
   '''
   Derives all relevant analytical estimates to compare to sim results
   Returns velocity of FS and RS, respective crossing times, and
   final state of the shells (2 and 3) at respective crossing times
   '''
-  # all variables
-  names, vals = shells_phys2num(L1, t1, u1, L4, t4, u4, toff, Theta0)
-  rho1, u1, p1, D1, rho4, u4, p4, D4, t0, R0, rmin0, rmax0 = vals
 
   # intermediate values
   f      = derive_proper_density_ratio(L1, L4, t1, t4, u1, u4)
@@ -69,8 +95,8 @@ def shells_phys2analytics(L1, t1, u1, L4, t4, u4, toff, Theta0):
   lfac4  = derive_Lorentz_from_proper(u4)
   beta1  = u1/lfac1
   beta4  = u4/lfac4
-  M1     = L1*t1/((lfac1-1)*c_2)
-  M4     = L4*t4/((lfac4-1)*c_2)
+  M1     = L1*t1/((lfac1-1)*c_**2)
+  M4     = L4*t4/((lfac4-1)*c_**2)
 
   # Analytical estimates
   u      = derive_u_lab(u1, u21)
@@ -89,19 +115,6 @@ def shells_phys2analytics(L1, t1, u1, L4, t4, u4, toff, Theta0):
   Ek3    = derive_Ek_crosstime(M4, lfac)
 
   return u, betaFS, tFS, D2, Eint2, Ek2, betaRS, tRS, D3, Eint3, Ek3
-
-
-def shells_num2phys(rho1, beta1, D01, rho4, beta4, D04, R0):
-  '''
-  Derives physical quantities from a numerical setup
-  '''
-  u1   = derive_proper(beta1)
-  u4   = derive_proper(beta4)
-  t0   = R0/c_
-  toff = (beta4-beta1)*t0/beta1
-  t1   = D01/beta1
-  t4   = D04/beta4
-  pass
 
 # Individual functions
 # -----------------------------------------------------
