@@ -11,11 +11,6 @@
 #include "../../constants.h"
 #include "../../simu.h"
 
-// Boundaries type
-// 0 : default behavior
-// 1 : "vacuum"
-static int BOUNDARY_  = 0 ;       
-
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
 static double rho0    = n0*mp_;       // g.cm-3:  comoving CBM mass density
@@ -36,8 +31,8 @@ static double beta4= u4/sqrt(1+u4*u4);
 
 // box size
 static double R_0     = 1.0000e+10 ;
-static double rmin0   = R_0-1.1*D04 ; 
-static double rmax0   = R_0+1.1*D01 ;
+static double rmin0   = 9.9890e+09 ; 
+static double rmax0   = 1.0011e+10 ;
 static double Ncells  = 1000 ;
 
 // normalisation constants:
@@ -51,7 +46,7 @@ void loadParams(s_par *par){
 
   par->tini      = 0.;
   par->ncell[x_] = Ncells;
-  par->nmax      = Ncells+50;    // max number of cells in MV direction
+  par->nmax      = Ncells+500;    // max number of cells in MV direction
   par->ngst      = 2;
 
 }
@@ -111,6 +106,58 @@ void Grid::userKinematics(int it, double t){
   UNUSED(it);
   UNUSED(t);
 
+  // DEFAULT VALUES
+  //double vIn  = 1.;
+  //double vOut = 1.;
+  //double vb = vOut;
+
+  // check if rarefaction wave(s) too close to boundary
+  int iout = iRbnd-1;
+  int iin  = iLbnd+1;
+  double rout = Ctot[iout].G.x[r_];
+  double rin  = Ctot[iin].G.x[r_];
+  double rlimL = rin + 0.1 * (rout-rin);
+  double rlimR = rin + 0.9 * (rout-rin);
+
+  // left boundary
+  int ia = iin;
+  double rcand = rin;
+  Cell c = Ctot[ia];
+  double pcand = c.S.prim[PPP];
+  double ptemp;
+  while (rcand < rlimL){
+    ia++;
+    c = Ctot[ia];
+    rcand = c.G.x[r_];
+    ptemp = std::max(c.S.prim[PPP], pcand);
+    pcand = ptemp;
+  }
+  if (pcand >= 10.*p4/pNorm){
+    for (int n = 0; n < ngst; ++n){
+      int    iL = n;
+      Itot[iL].v = 0.9;
+  }
+  }
+  
+  // right boundary
+  ia = iout;
+  rcand = rout;
+  c = Ctot[ia];
+  pcand = c.S.prim[PPP];
+  while (rcand > rlimR){
+    ia--;
+    c = Ctot[ia];
+    rcand = c.G.x[r_];
+    ptemp = std::max(c.S.prim[PPP], pcand);
+    pcand = ptemp;
+  }
+  if (pcand >= 10.*p1/pNorm){
+    //std::cout << "Shell edge too close to sim edge";
+    for (int n = 0; n < ngst; ++n){
+      int    iR = ntrack-2-n;
+      Itot[iR].v = 1.1;
+    }
+  }
 }
 
 void Cell::userSourceTerms(double dt){
@@ -124,32 +171,26 @@ void Grid::userBoundaries(int it, double t){
   UNUSED(it);
   UNUSED(t);
 
-  if (BOUNDARY_ == 1){ // "vacuum"
-    for (int i = 0; i <= iLbnd; ++i){
-      Cell *c = &Ctot[i];
-
-      c->S.prim[RHO] = rho0/rhoNorm;
-      c->S.prim[UU1] = beta4;
-      c->S.prim[UU2] = 0;
-      c->S.prim[PPP] = p4/pNorm;
-    }
-
-    for (int i = iRbnd+1; i < ntrack; ++i){
-      Cell *c = &Ctot[i];
-
-      c->S.prim[RHO] = rho0/rhoNorm;
-      c->S.prim[UU1] = beta1;
-      c->S.prim[UU2] = 0;
-      c->S.prim[PPP] = p1/pNorm;
-    }
-  }
-
 }
 
 int Grid::checkCellForRegrid(int j, int i){
 
   UNUSED(j);
-  UNUSED(i);
+  // UNUSED(i);
+
+  int iin  = iLbnd+1;
+  int iout = iRbnd-1;
+  Cell c  = Ctot[i];
+  double r   = c.G.x[r_];
+  double dr  = c.G.dx[r_]*lNorm;
+  double dr0 = (rmax0-rmin0)/Ncells;
+  double ar  = dr/dr0;
+
+  if ((i <= iin + 2) or (i >= iout - 10)){
+    if (ar > 2.){return(split_);}
+    
+  }
+
   return(skip_);
   
 }
@@ -185,7 +226,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if ( it > 15000 ){ stop = true; }
+  if ( it > 25000 ){ stop = true; }
   //if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
 
 }

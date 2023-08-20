@@ -169,7 +169,7 @@ def plot_snapshot_1D(var, it, key, scaletype='default', ax=None, col='Zone', slo
     ax.plot(x, z, 'k', zorder=1)
   if col == 'Zone' or var == 'zone':
     if env.mode == 'shells':
-      n = 6-n
+      n = 6 - n
     scatter = ax.scatter(x, z, c=n, lw=1, zorder=2, cmap='Paired', **kwargs)
   else:
     scatter = ax.scatter(x, z, lw=1, zorder=2, **kwargs)

@@ -65,7 +65,7 @@ class MyEnv:
 
     if type:
       if self.mode == 'shells':
-        t_scale, r_scale, rho_scale = self.t_0, self.R_0, self.rho1
+        t_scale, r_scale, rho_scale = self.t0, self.R0, self.rho1
         t_scale_str, r_scale_str = ('t_0', 'R_0')
       elif self.mode == 'PWN':
         pass

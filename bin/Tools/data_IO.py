@@ -39,10 +39,17 @@ def df_get_primvar(df):
   p   = df['p'].to_numpy()
   return rho, u, p
 
+def df_get_gaussfprim(df):
+  rho, u, p = df_get_primvar(df)
+  dGrho = step_gaussfilter(rho)
+  dGu   = step_gaussfilter(u)
+  dGp   = step_gaussfilter(p)
+  return dGrho, dGu, dGp
+
 def df_get_primsteps(df, h=0.02):
   rho, u, p = df_get_primvar(df)
   steps_rho = get_steps(rho, h)
-  steps_u   = get_steps(u, h)
+  steps_u   = get_steps(u, False, h)
   steps_p   = get_steps(p, h)
   return steps_rho, steps_u, steps_p
 
@@ -52,7 +59,14 @@ def df_plot_primvar(df):
   plt.plot(u/u.max(), label='$u/u_{max}$')
   plt.plot(p/p.max(), label='$p/p_{max}$')
   plt.legend()
-  plt.show()
+
+def df_plot_filt(df):
+  dGrho, dGu, dGp = df_get_gaussfprim(df)
+  plt.plot(dGrho/dGrho.max(), label='$\\nabla \\tilde{\\rho}$')
+  plt.plot(dGu/dGu.max(), label='$\\nabla \\tilde{u}$')
+  plt.plot(dGp/dGp.max(), label='$\\nabla \\tilde{p}$')
+  plt.legend()
+
 
 def df_test_ilist(df):
   steps_rho, steps_u, steps_p = df_get_primsteps(df)
@@ -65,7 +79,7 @@ def df_test_ilist(df):
   while i in range(len(steps)):
     s = steps[i]
     try:
-      if ((s==steps[i+1]) and (s==steps[i+2])):
+      if (steps[i+2]<=s+2):
         shlist.append(s)
         ilist.append(s)
         i += 2
@@ -73,6 +87,10 @@ def df_test_ilist(df):
         wlist.append(s)
         ilist.append(s)
         i += 2
+      elif (steps[i+1]<=s+10):
+        wlist.append(s)
+        ilist.append(s)
+        i += 1
       else:
         ilist.append(s)
     except IndexError:
@@ -448,10 +466,11 @@ def get_variable(df, var):
 
 # Zone identification
 # --------------------------------------------------------------------------------------------------
-def zoneID(df):
-  p      = df['p'].to_numpy()
-  zone   = np.zeros(p.shape)
-  shocks = np.zeros(p.shape)
+def id_interfaces(df):
+  '''
+  Returns list of interfaces index, also one for shocks
+  '''
+  p = df['p']
   steps_rho, steps_u, steps_p = df_get_primsteps(df)
   steps = np.sort(np.concatenate((steps_rho, steps_u, steps_p)))
   ilist = []
@@ -462,7 +481,7 @@ def zoneID(df):
   while i in range(len(steps)):
     s = steps[i]
     try:
-      if ((s==steps[i+1]) and (s==steps[i+2])):
+      if (steps[i+2]<=s+2):
         shlist.append(s)
         ilist.append(s)
         i += 2
@@ -470,6 +489,10 @@ def zoneID(df):
         wlist.append(s)
         ilist.append(s)
         i += 2
+      elif (steps[i+1]<=s+10):
+        wlist.append(s)
+        ilist.append(s)
+        i += 1
       else:
         ilist.append(s)
     except IndexError:
@@ -486,6 +509,14 @@ def zoneID(df):
       arr = dGp[iw:]
     iint  = np.where(arr<=0)[0].min() + iw - 1  
     ilist = [iint if i==iw else i for i in ilist]
+  
+  return ilist, shlist
+
+def zoneID(df):
+  p      = df['p'].to_numpy()
+  zone   = np.zeros(p.shape)
+  shocks = np.zeros(p.shape)
+  ilist, shlist = id_interfaces(df)
   
   shocks[shlist] = 1.
   l = 0
@@ -534,12 +565,16 @@ def zoneID_old(df):
     df2 = df.assign(zone=zone)
     return df2
 
-def get_steps(arr, h=0.02):
+def get_steps(arr, takelog=True, h=0.02):
 
   '''
   Get step up in data by convoluting with step function
   '''
-
+  if takelog:
+    # takes log for easier jump detection on low values
+    # makes sure only positive values before applying filter
+    arr = np.log10(arr)
+    arr = arr - min(0., arr.min()) + 0.1
   d = step_gaussfilter(arr)
   
   # get peaks

@@ -19,8 +19,7 @@ Initial_path = str(Path().absolute() / 'src/Initial/')
 def main():
   # update .cpp file and copies phys_input.ini in the results folder
   # to come: add file check and automatic moving results in new folder
-  env = MyEnv()
-  env.setupEnv('./phys_input.ini')
+  env = MyEnv('./phys_input.ini')
   if env.mode == 'shells':
     simFile = Initial_path + '/Shells/Shells_v1.cpp'
   elif mode == 'MWN':
@@ -42,11 +41,11 @@ def update_simFile(filepath, env):
     }
   elif env.mode =='shells':
     physvars = {
-      'R_0':env.R_0, 't_start':env.t_0, #'rho0':env.rho0
+      'R0':env.R0, 't_start':env.t0, #'rho0':env.rho0
       'rho1':env.rho1, 'u1':env.u1, 'p1':env.p1, 'D01':env.D01,
       'rho4':env.rho4, 'u4':env.u4, 'p4':env.p4, 'D04':env.D04,
-      'rmin0':(env.R_0 - 1.1*env.D04) if env.external else (env.R_0 - env.D04),
-      'rmax0':(env.R_0 + 1.1*env.D01) if env.external else (env.R_0 + env.D01)
+      'rmin0':(env.R0 - 1.1*env.D04) if env.external else (env.R0 - env.D04),
+      'rmax0':(env.R0 + 1.1*env.D01) if env.external else (env.R0 + env.D01)
     }
   vars2update = {**gridvars, **physvars}
   out_lines = []
