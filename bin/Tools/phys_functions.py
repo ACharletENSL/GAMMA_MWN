@@ -34,6 +34,11 @@ def derive_adiab_fromT_Ryu(T):
   a = 3*T + 1
   return (4*a+1)/(3*a)
 
+def derive_adiab_from_T_Synge(T):
+  '''
+  Adiabatic index from temperature, following Ryu et al 2006 EoS
+  '''
+
 def derive_cs(rho, p):
   '''
   Sound speed

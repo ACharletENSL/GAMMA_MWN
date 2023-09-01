@@ -18,13 +18,13 @@ static double Theta0  = 1.0000e-4 ;  //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 1.0000e-10 ;     // lab frame density of front shell
+static double rho1 = 8.9427e-09 ;     // comoving density of front shell
 static double u1   = 1e+02 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 2.2469e+05 ;
+static double p1   = 1.9994e+07 ;
 static double D01  = 1.0000e+07 ;     // spatial extension of front shell
-static double rho4 = 2.5000e-11 ;     // lab frame density of back shell
+static double rho4 = 2.2246e-09 ;     // comoving density of back shell
 static double u4   = 2e+02 ;          // proper velocity of back shell
-static double p4   = 2.2469e+05 ;
+static double p4   = 1.9994e+07 ;
 static double D04  = 1.0000e+07 ;        // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
@@ -46,7 +46,7 @@ void loadParams(s_par *par){
 
   par->tini      = 0.;
   par->ncell[x_] = Ncells;
-  par->nmax      = Ncells+500;    // max number of cells in MV direction
+  par->nmax      = 2*Ncells;    // max number of cells in MV direction
   par->ngst      = 2;
 
 }

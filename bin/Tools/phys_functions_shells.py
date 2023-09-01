@@ -19,34 +19,72 @@ def shells_complete_setup(env):
   '''
   vars2add  = []
   names2add = []
+  def Ain_keys_butnotB(A, B):
+    return A in env.__dict__.keys() and not B in env.__dict__.keys()
 
-  # add physical set if setup contains numerical set or vice-versa
-  if 'L1' in env.__dict__.keys():
-    vars2add  = shells_phys2num(env.L1, env.u1, env.t1, env.L4, env.u4, env.t4, env.toff)
-    names2add = ['rho1', 'beta1', 'D01', 'rho4', 'beta4', 'D04', 't0']
-  elif 'rho1' in env.__dict__.keys():
-    vars2add  = shells_num2phys(env.rho1, env.u1, env.D01, env.rho4, env.u4, env.D04, env.R0)
-    names2add = ['L1', 'beta1', 't1', 'L4', 'beta4', 't4', 'toff']
-  for name, value in zip(names2add, vars2add):
-    setattr(env, name, value)
+  # add t0 if R0 and vice-versa
+  if Ain_keys_butnotB('t0', 'R0'):
+    env.R0 = env.t0*c_
+  elif Ain_keys_butnotB('R0', 't0'):
+    env.t0 = env.R0/c_
+  
+  # add D0 if ton and vice-versa
+  if Ain_keys_butnotB('D01', 't1'):
+    beta1  = derive_velocity_from_proper(env.u1)
+    env.t1 = env.D01/(beta1*c_)
+  elif Ain_keys_butnotB('t1', 'D01'):
+    beta1   = derive_velocity_from_proper(env.u1)
+    env.D01 = env.t1*beta1*c_
+  if Ain_keys_butnotB('D04', 't4'):
+    beta4  = derive_velocity_from_proper(env.u4)
+    env.t4 = env.D04/(beta4*c_)
+  elif Ain_keys_butnotB('t4', 'D04'):
+    beta4   = derive_velocity_from_proper(env.u1)
+    env.D04 = env.t4*beta4*c_
+
+  # add rho if Ek and vice-versa
+  if Ain_keys_butnotB('Ek1', 'rho1'):
+    lfac1     = derive_Lorentz_from_proper(env.u1)
+    V1c2      = 4.*pi_*env.R0**2*env.D01*c_**2
+    env.rho1  = (env.Ek1/(lfac1-1))/(V1c2*lfac1)
+  elif Ain_keys_butnotB('rho1', 'Ek1'):
+    lfac1     = derive_Lorentz_from_proper(env.u1)
+    V1c2      = 4.*pi_*env.R0**2*env.D01*c_**2
+    env.Ek1   = (lfac1-1)*env.rho1*V1c2*lfac1
+  if Ain_keys_butnotB('Ek4', 'rho4'):
+    lfac4     = derive_Lorentz_from_proper(env.u4)
+    V4c2      = 4.*pi_*env.R0**2*env.D04*c_**2
+    env.rho4  = (env.Ek4/(lfac4-1))/(V4c2*lfac4)
+  elif Ain_keys_butnotB('rho4', 'Ek4'):
+    lfac4     = derive_Lorentz_from_proper(env.u4)
+    V4c2      = 4.*pi_*env.R0**2*env.D04*c_**2
+    env.Ek4   = (lfac4-1)*env.rho4*V4c2*lfac4
   
   # complete with pressure
   p0 = min(env.rho1, env.rho4)*env.Theta0*c_**2
   env.p1 = p0
   env.p4 = p0
 
-  # add t0 if R0 and vice-versa
-  if 't0' in env.__dict__.keys():
-    env.R0 = env.t0*c_
-  elif 'R0' in env.__dict__.keys():
-    env.t0 = env.R0/c_
+
+  #if 'L1' in env.__dict__.keys():
+  #  vars2add  = shells_phys2num(env.L1, env.u1, env.t1, env.L4, env.u4, env.t4, env.toff)
+  #  names2add = ['rho1', 'beta1', 'D01', 'rho4', 'beta4', 'D04', 't0']
+  #elif 'rho1' in env.__dict__.keys():
+  #  vars2add  = shells_num2phys(env.rho1, env.u1, env.D01, env.rho4, env.u4, env.D04, env.R0)
+  #  names2add = ['L1', 'beta1', 't1', 'L4', 'beta4', 't4', 'toff']
+  #for name, value in zip(names2add, vars2add):
+  #  setattr(env, name, value)
+  
+  
+
+  
 
 def shells_add_analytics(env):
   '''
   Add analytical estimates from data in the env class
   '''
-  vars2add  = shells_phys2analytics(env.L1, env.u1, env.t1, env.D01, env.L4, env.u4, env.t4, env.D04, env.toff)
-  names2add = ['u', 'betaFS', 'tFS', 'Df2', 'Eint2', 'Ek2', 'betaRS', 'tRS', 'Df3', 'Eint3', 'Ek3']
+  vars2add  = shells_phys2analytics(env.Ek1, env.u1, env.D01, env.Ek4, env.u4, env.D04)
+  names2add = ['u', 'f', 'betaFS', 'tFS', 'Df2', 'Eintf2', 'Ekf2', 'betaRS', 'tRS', 'Df3', 'Eintf3', 'Ekf3']
   for name, value in zip(names2add, vars2add):
     setattr(env, name, value)
 
@@ -65,20 +103,22 @@ def shells_num2phys(rho1, u1, D01, rho4, u4, D04, R0):
   L4   = rho4 * (4.*pi_*R0**2*D04*c_**2) / t4
   return L1, beta1, t1, L4, beta4, t4, toff
 
-def shells_phys2num(L1, u1, t1, L4, u4, t4, toff):
+def shells_phys2num(Ek1, u1, t1, Ek4, u4, t4, toff):
   '''
   Derives quantities for the numerical setup from the physical inputs
   '''
   beta1 = derive_velocity_from_proper(u1)
+  lfac1 = u1/beta1
   beta4 = derive_velocity_from_proper(u4)
+  lfac4 = u4/beta4
   t0    = (beta1*toff)/(beta4-beta1)
   D01   = beta1*t1
   D04   = beta4*t4
-  rho1  = L1*t1 / (4.*pi_*R0**2*D01*c_**2)
-  rho4  = L4*t4 / (4.*pi_*R0**2*D04*c_**2)
+  rho1  = (Ek1/(lfac1-1))*1/(4.*pi_*R0**2*D01*c_**2)
+  rho4  = (Ek4/(lfac4-1))*1/(4.*pi_*R0**2*D04*c_**2)
   return rho1, beta1, D01, rho4, beta4, D04, t0
 
-def shells_phys2analytics(L1, u1, t1, D1, L4, u4, t4, D4, toff):
+def shells_phys2analytics(Ek1, u1, D1, Ek4, u4, D4):
   '''
   Derives all relevant analytical estimates to compare to sim results
   Returns velocity of FS and RS, respective crossing times, and
@@ -86,7 +126,7 @@ def shells_phys2analytics(L1, u1, t1, D1, L4, u4, t4, D4, toff):
   '''
 
   # intermediate values
-  f      = derive_proper_density_ratio(L1, L4, t1, t4, u1, u4)
+  f      = derive_proper_density_ratio(Ek1, Ek4, D1, D4, u1, u4)
   u21    = derive_u_in1(u1, u4, f)
   u34    = u21/np.sqrt(f)
   lfac21 = derive_Lorentz_from_proper(u21)
@@ -95,8 +135,8 @@ def shells_phys2analytics(L1, u1, t1, D1, L4, u4, t4, D4, toff):
   lfac4  = derive_Lorentz_from_proper(u4)
   beta1  = u1/lfac1
   beta4  = u4/lfac4
-  M1     = L1*t1/((lfac1-1)*c_**2)
-  M4     = L4*t4/((lfac4-1)*c_**2)
+  M1     = Ek1/((lfac1-1)*c_**2)
+  M4     = Ek4/((lfac4-1)*c_**2)
 
   # Analytical estimates
   u      = derive_u_lab(u1, u21)
@@ -106,15 +146,15 @@ def shells_phys2analytics(L1, u1, t1, D1, L4, u4, t4, D4, toff):
   tFS    = derive_FS_crosstime(beta1, D1, betaFS)
   D2     = derive_shellwidth_crosstime(D1, lfac1, lfac, lfac21)
   Eint2  = derive_Eint_crosstime(M1, u, lfac21)
-  Ek2    = derive_Ek_crosstime(M1, lfac)
+  Ekf2   = derive_Ek_crosstime(M1, lfac)
 
   betaRS = derive_betaRS(u4, u34, u)
   tRS    = derive_RS_crosstime(beta4, D4, betaRS)
   D3     = derive_shellwidth_crosstime(D4, lfac4, lfac, lfac34)
   Eint3  = derive_Eint_crosstime(M4, u, lfac34)
-  Ek3    = derive_Ek_crosstime(M4, lfac)
+  Ekf3   = derive_Ek_crosstime(M4, lfac)
 
-  return u, betaFS, tFS, D2, Eint2, Ek2, betaRS, tRS, D3, Eint3, Ek3
+  return u, f, betaFS, tFS, D2, Eint2, Ekf2, betaRS, tRS, D3, Eint3, Ekf3
 
 # Individual functions
 # -----------------------------------------------------
@@ -132,7 +172,7 @@ def derive_shell_density(L, ton, D0, R0):
   return L*t / (4.*pi_*R0**2*D0*c_**2)
 
 # from hydro quantities to analytical estimates
-def derive_proper_density_ratio(L1, L4, t1, t4, u1, u4):
+def derive_proper_density_ratio(Ek1, Ek4, D01, D04, u1, u4):
   '''
   Derives proper density ratio between shells from the parameters
   '''
@@ -140,9 +180,7 @@ def derive_proper_density_ratio(L1, L4, t1, t4, u1, u4):
   beta1 = u1/lfac1
   lfac4 = derive_Lorentz_from_proper(u4)
   beta4 = u4/lfac4
-  chi   = (beta1*t1)/(beta4*t4)
-  Ek1   = L1*t1
-  Ek4   = L4*t4
+  chi   = D01/D04
   return chi * (Ek4/Ek1) * ((lfac1*(lfac1-1))/(lfac4*(lfac4-1)))
 
 def derive_u_in1(u1, u4, f):

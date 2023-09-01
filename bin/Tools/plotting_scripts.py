@@ -24,6 +24,10 @@ plt.rc('ytick', labelsize=12)
 plt.rc('legend', fontsize=12) 
 plt.rcParams['savefig.dpi'] = 200
 
+formatter = ticker.ScalarFormatter(useMathText=True)
+formatter.set_scientific(True) 
+formatter.set_powerlimits((-1,1)) 
+
 nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
 
 # Create figure 
@@ -97,7 +101,7 @@ def plot_multi(varlist, it, key='Last', scaletype=None):
   f.add_artist(legend)
   plt.tight_layout()
 
-def plot_timeseries(var_keys, key, titletype='E', slope=False, fig=False):
+def plot_timeseries(var_keys, key, tscaling='t0', slope=False, fig=False):
   '''
   Create plot of time series data
   '''
@@ -112,9 +116,9 @@ def plot_timeseries(var_keys, key, titletype='E', slope=False, fig=False):
     energies = ['Emass', 'Ekin', 'Eint']
     linestyles = [':', '--', '-.']
     for i, var in enumerate(energies):
-      title = plot_time(var, key, slope, ax, ls=linestyles[i])
+      title = plot_time(var, key, tscaling, slope, ax, ls=linestyles[i])
   else:
-    title = plot_time(var_keys, key, slope, ax)
+    title = plot_time(var_keys, key, tscaling, slope, ax)
 
   plt.legend()
   fig.suptitle(title)
@@ -128,7 +132,7 @@ def plot_snapshot_1D(var, it, key, scaletype='default', ax=None, col='Zone', slo
   physpath = get_physfile(key)
   env = MyEnv(physpath)
   df, t, dt = openData_withtime(key, it)
-  n = df["zone"] + 1
+  n = df["zone"]
   x, z, xlabel, zlabel = get_scaledvar_snapshot(var, df, env, scaletype, slope)
   
   if env.mode == 'shells':
@@ -147,7 +151,7 @@ def plot_snapshot_1D(var, it, key, scaletype='default', ax=None, col='Zone', slo
   tsim = t/t_scale
   t_str = reformat_scientific(f"{dt:.2e}")
   rc_str= reformat_scientific(f"{rc:.2e}")
-  title = f"it {it}" #, $\\Delta t/{t_scale_str} = {t_str}$, $\\Delta R_{{CD}}/{r_scale_str} = {rc_str}$"
+  title = f"it {it}, dt = {dt:.3f} s" #$\\Delta t/{t_scale_str} = {t_str}$" #, $\\Delta R_{{CD}}/{r_scale_str} = {rc_str}$"
   
   if ax is None:
     plt.figure()
@@ -168,8 +172,8 @@ def plot_snapshot_1D(var, it, key, scaletype='default', ax=None, col='Zone', slo
   if line:
     ax.plot(x, z, 'k', zorder=1)
   if col == 'Zone' or var == 'zone':
-    if env.mode == 'shells':
-      n = 6 - n
+    if env.mode == 'PWN':
+      n += 1
     scatter = ax.scatter(x, z, c=n, lw=1, zorder=2, cmap='Paired', **kwargs)
   else:
     scatter = ax.scatter(x, z, lw=1, zorder=2, **kwargs)
@@ -178,14 +182,10 @@ def plot_snapshot_1D(var, it, key, scaletype='default', ax=None, col='Zone', slo
 
   return title, legend1
 
-def plot_time(var, key, slope, ax=None, **kwargs):
+def plot_time(var, key, tscaling='t0', slope=False, ax=None, crosstimes=True, **kwargs):
   '''
   Create time series plot to be inserted into a figure
   '''
-
-  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'posvel':'$\\beta$',
-    'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
-    'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}'}
   
   if ax is None:
     plt.figure()
@@ -195,20 +195,32 @@ def plot_time(var, key, slope, ax=None, **kwargs):
   env = MyEnv(physpath)
   title = ""
 
-  time, vars, var_legends = get_scaledvar_timeseries(var, key, env.mode, env.t_0, slope)
+  time, vars, tlabel, ylabel, tscale, var_legends = get_scaledvar_timeseries(var, key, env, tscaling, slope)
+  if crosstimes:
+    tscaleRS = env.tRS/tscale
+    ax.axvline(tscaleRS, color='r')
+    ax.text(tscaleRS, 1.05, '$t_{RS}$', color='r', transform=ax.get_xaxis_transform(),
+      ha='center', va='top')
+    tscaleFS = env.tFS/tscale
+    ax.axvline(tscaleFS, color='r')
+    ax.text(tscaleFS, 1.05, '$t_{FS}$', color='r', transform=ax.get_xaxis_transform(),
+      ha='center', va='top')
+  if var == 'u':
+    ax.axhline(env.u, color='k', ls='--', lw=.6)
+    ax.text(1.02, env.u, '$u_{th}$', color='k', transform=ax.get_yaxis_transform(),
+      ha='left', va='center')
   Nv = vars.shape[0]
   for n in range(Nv):
     if slope:
       ax.plot(time, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
     else:
-      ax.semilogy(time, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
-  if var in ['Nc', 'v']:
-    ax.set_yscale('linear')
-  elif var=='R':
+      ax.plot(time, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
+  if var not in ['Nc', 'v', 'R', 'Rcd', 'Rct', 'u']:
     ax.set_yscale('log')
+    ax.yaxis.set_major_formatter(formatter)
 
-  ax.set_xlabel('$t/t_0$ (s)')
-  ax.set_ylabel(var_label[var])
+  ax.set_xlabel(tlabel)
+  ax.set_ylabel(ylabel)
 
   return title
   
@@ -282,24 +294,35 @@ def get_scaledvar_snapshot(var, df, env, scaletype='default', slope=None):
 
   return x, z, xlabel, zlabel
 
-def get_scaledvar_timeseries(var, key, mode, tscale=1., slope=False):
+def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
   '''
   Return time and values for chosen variable, as well as their labels
   '''
-  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'posvel':'$\\beta$',
+  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'u':'$\\gamma\\beta$',
     'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
-    'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}'}
+    'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
+    'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)'}
 
+  if tscaling == 't0':
+    tscale = env.t0
+    tscaling = '/t_0'
+  else:
+    tscale = 1.
+    tscaling = ''
   df_res = get_timeseries(var, key)
-  time = df_res['time']/tscale
+  time = df_res['time'].to_numpy()/tscale
   Nz = get_Nzones(key)
-  varlist = get_varlist(var, Nz, mode)
+  tlabel = '$t' + tscaling + '$' if tscaling else '$t$ (s)'
+  ylabel = var_label[var]
+  if var in ['Rct', 'Rcd']:
+    varlist = get_varlist('R', Nz, env.mode)
+  else:
+    varlist = get_varlist(var, Nz, env.mode)
+  if var == 'Rcd':
+    varlist.remove('R_{cd}')
     
   var_legends = ['$' + var_leg + '$' for var_leg in varlist]
   vars = df_res[varlist].to_numpy().transpose()
-  if mode == 'shells' and var == 'R':
-    vars /= c_
-  
   Nv = vars.shape[0]
   if slope:
     logt = np.log10(time)
@@ -308,7 +331,7 @@ def get_scaledvar_timeseries(var, key, mode, tscale=1., slope=False):
     new_legends = ["d$\\log(" + var_leg.replace('$', '') + ")/$d$\\log r$" for var_leg in var_legends]
     var_legends = new_legends
 
-  return time, vars, var_legends
+  return time, vars, tlabel, ylabel, tscale, var_legends
 
 # useful formatting functions
 # --------------------------------------------------------------------------------------------------

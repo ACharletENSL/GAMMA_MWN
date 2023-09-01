@@ -22,16 +22,40 @@ def get_timeseries(var, key):
   run_data = open_clean_rundata(key)
   mode = run_data.attrs['mode']
   Nz = get_Nzones(key)
+
   if var == 'v':
-    varlist = get_varlist('R', Nz, mode)
+    radlist = get_varlist('R', Nz, mode)
+    vellist = get_varlist('v', Nz, mode)
     time = run_data['time'].to_numpy()
     out = run_data['time'].copy(deep=True)
-    vlist = get_varlist('v', Nz, mode)
-    for rad, vel in zip(varlist, vlist):
-      r = run_data[rad].to_numpy()
+    for rad, vel in zip(radlist, vellist):
+      r  = run_data[rad].to_numpy()
       v = np.gradient(r, time)
       vcol = pd.DataFrame({vel: v}, index=out.index)
       out = pd.concat([out, vcol], axis='columns')
+  
+  elif var == 'Rcd' and mode == 'shells':
+    radlist = get_varlist('R', Nz, mode)
+    time  = run_data['time'].to_numpy()
+    out   = run_data['time'].copy(deep=True)
+    radii = run_data[radlist].to_numpy()
+    rrs   = radii[:,1] - radii[:,0]
+    rfs   = radii[:,2] - radii[:,1]
+    radii = np.array([rrs, rfs]).transpose()
+    radlist.remove('R_{cd}')
+    rads  = pd.DataFrame(data=radii, columns=radlist, index=out.index)
+    out   = pd.concat([out, rads], axis='columns')
+
+  elif var == 'Rct':
+    radlist = get_varlist('R', Nz, mode)
+    time  = run_data['time'].to_numpy()
+    out   = run_data['time'].copy(deep=True)
+    radii = run_data[radlist].to_numpy()
+    for n in range(radii.shape[1]):
+      radii[:,n] = radii[:,n] - c_*time
+    rads  = pd.DataFrame(data=radii, columns=radlist, index=out.index)
+    out   = pd.concat([out, rads], axis='columns')
+
   else:
     varlist = get_varlist(var, Nz, mode)
     varlist.insert(0, 'time')
@@ -94,13 +118,14 @@ def analyze_run(key, itmin=0, itmax=None):
   /!\ if itmin != 0, starts at first iteration AFTER itmin
   '''
   dfile_path, dfile_bool = get_runfile(key)
-  varlist = prep_header(key)
+  varlist = vars_header(key)
   varlist.insert(0, 'time')
   data = pd.DataFrame(columns=varlist)
   its = np.array(dataList(key, itmin, itmax))
   if itmin:
     its = [it for it in its if i>itmin]
   for i, it in enumerate(its):
+    print(f"Analyzing file of it = {it}")
     df, t, dt = openData_withtime(key, it)
     tup = df_get_all(df)
     results = [item for arr in tup for item in arr]
@@ -110,30 +135,43 @@ def analyze_run(key, itmin=0, itmax=None):
     #entry = pd.DataFrame.from_dict(dict)
     #data = pd.concat([data, entry], ignore_index=True)
   
-  data.index
+  data.index = its
   data.to_csv(dfile_path)
 
+
+def vars_header(key, dfile_path=None):
+  if not dfile_path:
+    dfile_path, dfile_bool = get_runfile(key)
+
+  allvars = ['Nc', 'R', 'u', 'ShSt', 'V', 'Emass', 'Ekin', 'Eint']
+  Nz  = get_Nzones(key)
+  mode, external = get_runatts(key)
+  varlist = []
+  for var in allvars:
+    varlist.extend(get_varlist(var, Nz, mode))
+  
+  return varlist
+
+def prep_header(key, dfile_path=None):
+  '''
+  Prepare header for results file
+  '''
+  varlist = vars_header(key, dfile_path)
+    
+  header = "it\ttime"
+  for var in varlist:
+    header += "\t" + var
+  header += "\n"
+
+  return header
+
 # olds
-
-
-def prep_fileheader(key, dfile_path):
+def prep_fileheader(key, dfile_path=None):
 
   '''
   Create header for results file
   '''
-  its = np.array(dataList(key, 0, None))
-  df  = openData_withZone(key, its[-1])
-  Nz  = int(df['zone'].max())
-  radList  = ['R_' + sub for sub in intList[:Nz]]
-  zoneList = zsubList[:Nz]
-  varList  = [var + '_' + sub for var in zvarsList for sub in zoneList]
-    
-  header = "it\ttime"
-  for rad in radList:
-    header += "\t" + rad 
-  for var in varList:
-    header += "\t" + var
-  header += "\n"
+  header = prep_header(key, dfile_path)
 
   with open(dfile_path, 'w') as f:
     f.write(header)
