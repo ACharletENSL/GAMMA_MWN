@@ -101,7 +101,7 @@ def plot_multi(varlist, it, key='Last', scaletype=None):
   f.add_artist(legend)
   plt.tight_layout()
 
-def plot_timeseries(var_keys, key, tscaling='t0', slope=False, fig=False):
+def plot_timeseries(var_keys, key='Last', tscaling=None, slope=False, fig=False):
   '''
   Create plot of time series data
   '''
@@ -121,6 +121,16 @@ def plot_timeseries(var_keys, key, tscaling='t0', slope=False, fig=False):
     title = plot_time(var_keys, key, tscaling, slope, ax)
 
   plt.legend()
+  fig.suptitle(title)
+
+def plot_itseries(var, key='Last', fig=False):
+  if fig:
+    ax = fig.gca()
+  else:
+    fig = plt.figure()
+    ax = plt.gca()
+
+  title = plot_it(var, key, ax)
   fig.suptitle(title)
 
 # Create plot in ax to insert in figure and generate title
@@ -181,6 +191,34 @@ def plot_snapshot_1D(var, it, key, scaletype='default', ax=None, col='Zone', slo
   ax.legend('', frameon=False)
 
   return title, legend1
+
+def plot_it(var, key, ax=None, **kwargs):
+  '''
+  Plot according to run iterations
+  '''
+
+  if ax is None:
+    plt.figure()
+    ax = plt.gca()
+
+  physpath = get_physfile(key)
+  env = MyEnv(physpath)
+  title = ""
+
+  it, vars, xlabel, ylabel, var_legends = get_scaledvar_it(var, key, env)
+  Nv = vars.shape[0]
+  for n in range(Nv):
+    ax.plot(it, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
+  if var not in ['Nc', 'v', 'R', 'Rcd', 'Rct', 'u']:
+    ax.set_yscale('log')
+    ax.yaxis.set_major_formatter(formatter)
+
+  ax.set_xlabel(xlabel)
+  ax.set_ylabel(ylabel)
+
+  return title
+
+
 
 def plot_time(var, key, tscaling='t0', slope=False, ax=None, crosstimes=True, **kwargs):
   '''
@@ -332,6 +370,30 @@ def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
     var_legends = new_legends
 
   return time, vars, tlabel, ylabel, tscale, var_legends
+
+def get_scaledvar_it(var, key, env):
+  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'u':'$\\gamma\\beta$',
+    'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
+    'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
+    'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)'}
+
+  df_res = get_timeseries(var, key)
+  it = df_res.index
+  Nz = get_Nzones(key)
+  xlabel = 'it'
+  ylabel = var_label[var]
+  if var in ['Rct', 'Rcd']:
+    varlist = get_varlist('R', Nz, env.mode)
+  else:
+    varlist = get_varlist(var, Nz, env.mode)
+  if var == 'Rcd':
+    varlist.remove('R_{cd}')
+    
+  var_legends = ['$' + var_leg + '$' for var_leg in varlist]
+  vars = df_res[varlist].to_numpy().transpose()
+  Nv = vars.shape[0]
+
+  return it, vars, xlabel, ylabel, var_legends
 
 # useful formatting functions
 # --------------------------------------------------------------------------------------------------

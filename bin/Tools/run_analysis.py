@@ -110,6 +110,21 @@ def open_clean_rundata(key):
   run_data = open_rundata(key)
   return run_data
 
+def get_crosstimes(key):
+  '''
+  Outputs crossing time for a given run
+  Find them by selecting when corresponding Ncells = 0
+  '''
+  run_data = open_clean_rundata(key)
+  Nc4 = run_data['Nc_4'].to_numpy()
+  Nc1 = run_data['Nc_1'].to_numpy()
+  t   = run_data['time'].to_numpy()
+  tRS = t[Nc4==0.].max()
+  tFS = t[Nc1==0.].max()
+  
+  return tRS, tFS
+
+
 def analyze_run(key, itmin=0, itmax=None):
 
   '''
