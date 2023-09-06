@@ -22,10 +22,8 @@
   static double compute_Sd(FluidState S1, FluidState S2, int dim, 
                            bool reverse=false){
 
-    #if NUM_D == 2
-      int uux = UU1+dim;
-      int uut = UU2-dim;
-    #endif
+    int uux = UU1+dim;
+    int uut = UU2-dim;
 
     // 1S1R Rezzolla&Zanotti2013 eq. 4.211 (p238)
     // ------------------------------------------

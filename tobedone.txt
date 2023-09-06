@@ -3,10 +3,12 @@ Electron distribution & radiation work
 - postprocessing
 
 TODO
-Time plots with it instead of t
-Clean py scripts (data_IO, run_analysis...)
+add density profile of shells in spherical case:
+  n'_i(r, t0) = n'_i(R0)(r/R0)^{-2}
+  f defined at CD (R0)
+  check if pressure modifies in the shell lifetime, if it does add the profile (cf PWN wind)
 Add shock strength = Mach number of shock in upstream
-Some noise in rFS and rRS to adress
+Add switch for zoneID if check detection was used or not?
 
 
 FOCUS:

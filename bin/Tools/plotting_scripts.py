@@ -15,6 +15,7 @@ from matplotlib import ticker
 from environment import *
 from run_analysis import *
 from data_IO import *
+from phys_functions_shells import *
 
 # matplotlib options
 # --------------------------------------------------------------------------------------------------
@@ -30,29 +31,89 @@ formatter.set_powerlimits((-1,1))
 
 nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
 
+# Compare theory with models
+def compare_snapwiththeory(it, key='Last'):
+  '''
+  Returns the relative difference of the variables in the shocked regions
+  '''
+  physpath  = get_physfile(key)
+  env = MyEnv(physpath)
+  df, t, dt = openData_withtime(key, it)
+  rho2, rho3, u_sh, p_sh, lfac21, lfac34 = shells_shockedvars(env.Ek1, env.u1, env.D01, env.Ek4, env.u4, env.D04, env.R0)
+  rho0      = getattr(env, env.rhoNorm)
+  rho2     /= rho0
+  rho3     /= rho0
+  p_sh     /= rho0*c_**2
+  rho2_num  = df_get_mean(df, 'rho', 2)
+  rho3_num  = df_get_mean(df, 'rho', 3)
+  u_num     = df_get_shocked_u(df)
+  p_num     = df_get_shocked_p(df)
+
+  lfac_num  = derive_Lorentz_from_proper(u_num)
+  lfac1     = derive_Lorentz_from_proper(env.u1)
+  lfac4     = derive_Lorentz_from_proper(env.u4)
+  lfac21_num= lfac1*lfac_num - env.u1*u_num
+  lfac34_num= lfac4*lfac_num - env.u4*u_num
+
+  diffrho2 = reldiff(rho2_num, rho2)
+  diffrho3 = reldiff(rho3_num, rho3)
+  diffu    = reldiff(u_num, u_sh)
+  diffp    = reldiff(p_num, p_sh)
+  diffL21  = reldiff(lfac21_num, lfac21)
+  diffL34  = reldiff(lfac34_num, lfac34)
+
+  return diffrho2, diffrho3, diffu, diffp, diffL21, diffL34
+
 # Create figure 
 # --------------------------------------------------------------------------------------------------
+def snapshot_withtheory(it, key='Last'):
+  '''
+  Plots the primitive variables (with lfac*v instead of v)
+  at chosen iteration in a single figure, compared to the theoretical values
+  '''
+  physpath = get_physfile(key)
+  env = MyEnv(physpath)
+  df, t, dt = openData_withtime(key, it)
+  varlist = ['rho', 'u', 'p']
+  f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6))
+
+  for var, k, ax in zip(varlist, range(3), axes):
+    title, legend = plot_snapshot_1D(var, it, key, 'CGS', ax)
+    if k!=2: #only have xlabel on plot at bottom
+      ax.set_xlabel('')
+
+  r = axes[-1].get_lines()[-1].get_xdata()
+  rho, u, p = shells_snapshot(env.Ek1, env.u1, env.D01, env.Ek4, env.u4, env.D04, env.R0, t, r)
+  varsth = [rho, u, p]
+  for var, ax in zip(varsth, axes):
+    ax.plot(r, var, 'k')
+
+  f.suptitle(title)
+  f.add_artist(legend)
+  plt.tight_layout()
+
+
 def plot_mono(var, it, key='Last', scaletype='default', slope=False, fig=None):
   '''
   Plots a single var in a single figure with title, labels, etc.
   '''
-  
+
   if fig:
     ax = fig.gca()
   else:
     fig = plt.figure()
     ax = plt.gca()
-  title, legend = plot_snapshot_1D(var, it, key, scaletype, slope=None, ax=None, col='Zone')
+  title, legend = plot_snapshot_1D(var, it, key, scaletype, ax=None, col='Zone', slope=None)
   fig.suptitle(title)
   fig.legend(legend)
   fig.tight_layout()
 
 # Several lines in one figure
 def plot_primvar(it, key='Last', scaletype=None):
-
   '''
   Plots the primitive variables - with lfac*v instead of v - at chosen iteration in a single figure
   '''
+
   plot_multi(["rho", "u", "p"], it, key, scaletype)
 
 def plot_consvar(it, key='Last', scaletype=None):
@@ -218,8 +279,6 @@ def plot_it(var, key, ax=None, **kwargs):
 
   return title
 
-
-
 def plot_time(var, key, tscaling='t0', slope=False, ax=None, crosstimes=True, **kwargs):
   '''
   Create time series plot to be inserted into a figure
@@ -243,17 +302,43 @@ def plot_time(var, key, tscaling='t0', slope=False, ax=None, crosstimes=True, **
     ax.axvline(tscaleFS, color='r')
     ax.text(tscaleFS, 1.05, '$t_{FS}$', color='r', transform=ax.get_xaxis_transform(),
       ha='center', va='top')
+
+  # add theoretical values
   if var == 'u':
     ax.axhline(env.u, color='k', ls='--', lw=.6)
     ax.text(1.02, env.u, '$u_{th}$', color='k', transform=ax.get_yaxis_transform(),
       ha='left', va='center')
+  elif var == 'ShSt':
+    ax.axhline(env.lfac34-1., color='k', ls='--', lw=.6)
+    ax.axhline(env.lfac21-1., color='k', ls='--', lw=.6)
+    ax.text(1.02, env.lfac34-1., '$\\Gamma_{34}-1$', color='k', transform=ax.get_yaxis_transform(),
+      ha='left', va='center')
+    ax.text(1.02, env.lfac21-1., '$\\Gamma_{21}-1$', color='k', transform=ax.get_yaxis_transform(),
+      ha='left', va='center')
+  elif var == 'v':
+    ax.axhline(env.betaRS, color='k', ls='--', lw=.6)
+    ax.axhline(env.betaFS, color='k', ls='--', lw=.6)
+    ax.text(1.02, env.betaRS, '$\\beta_{RS}$', color='k', transform=ax.get_yaxis_transform(),
+      ha='left', va='center')
+    ax.text(1.02, env.betaFS, '$\\beta_{FS}$', color='k', transform=ax.get_yaxis_transform(),
+      ha='left', va='center')
+  elif var == 'vcd':
+    betacd = derive_velocity_from_proper(env.u)
+    ax.axhline(betacd - env.betaRS, color='k', ls='--', lw=.6)
+    ax.axhline(env.betaFS - betacd, color='k', ls='--', lw=.6)
+    ax.text(1.02, betacd - env.betaRS, '$\\beta_{CD}-\\beta_{RS}$', color='k', transform=ax.get_yaxis_transform(),
+      ha='left', va='center')
+    ax.text(1.02, env.betaFS - betacd, '$\\beta_{FS}-\\beta_{CD}$', color='k', transform=ax.get_yaxis_transform(),
+      ha='left', va='center')
+
+
   Nv = vars.shape[0]
   for n in range(Nv):
     if slope:
-      ax.plot(time, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
+      ax.plot(time[1:], vars[n][1:], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
     else:
-      ax.plot(time, vars[n], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
-  if var not in ['Nc', 'v', 'R', 'Rcd', 'Rct', 'u']:
+      ax.plot(time[1:], vars[n][1:], c=plt.cm.Paired(n), label=var_legends[n], **kwargs)
+  if var not in ['Nc', 'R', 'Rcd', 'Rct', 'u']:
     ax.set_yscale('log')
     ax.yaxis.set_major_formatter(formatter)
 
@@ -275,7 +360,7 @@ def get_scaledvar_snapshot(var, df, env, scaletype='default', slope=None):
   var_exp = {
   "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$",
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
-  "trac":"", "Sd":"", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
+  "trac":"tracer", "Sd":"", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
   "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r"
   }
@@ -322,8 +407,8 @@ def get_scaledvar_snapshot(var, df, env, scaletype='default', slope=None):
   x, z   = get_variable(df, var)
   x = x.to_numpy()*r_scale
   z = z*get_varscaling(var, rho_scale)
-  xlabel = var_exp['x'][:-1] + units['x'][1:]
-  zlabel = (var_exp[var][:-1] + units[var][1:]) if units[var] else var_exp[var]
+  xlabel = var_exp['x'] + units['x']
+  zlabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
   if slope:
     logx = np.log10(x)
     logz = np.log10(denoise_data(z))
@@ -336,10 +421,11 @@ def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
   '''
   Return time and values for chosen variable, as well as their labels
   '''
-  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'u':'$\\gamma\\beta$',
+  var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
     'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
     'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
-    'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)'}
+    'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
+    'vcd':"$\\beta - \\beta_{cd}$"}
 
   if tscaling == 't0':
     tscale = env.t0
@@ -354,13 +440,20 @@ def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
   ylabel = var_label[var]
   if var in ['Rct', 'Rcd']:
     varlist = get_varlist('R', Nz, env.mode)
+  elif var == 'vcd':
+    varlist = get_varlist('v', Nz, env.mode)
   else:
     varlist = get_varlist(var, Nz, env.mode)
   if var == 'Rcd':
     varlist.remove('R_{cd}')
+  elif var == 'vcd':
+    varlist.remove('v_{cd}')
+  
     
   var_legends = ['$' + var_leg + '$' for var_leg in varlist]
   vars = df_res[varlist].to_numpy().transpose()
+  if var == 'v':
+    vars /= c_
   Nv = vars.shape[0]
   if slope:
     logt = np.log10(time)
@@ -372,10 +465,11 @@ def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
   return time, vars, tlabel, ylabel, tscale, var_legends
 
 def get_scaledvar_it(var, key, env):
-  var_label = {'R':'$r$ (cm)', 'v':'$\\dot{R}$', 'u':'$\\gamma\\beta$',
+  var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
     'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
     'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
-    'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)'}
+    'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
+    'vcd':"$\\beta - \\beta_{cd}$"}
 
   df_res = get_timeseries(var, key)
   it = df_res.index
@@ -388,6 +482,8 @@ def get_scaledvar_it(var, key, env):
     varlist = get_varlist(var, Nz, env.mode)
   if var == 'Rcd':
     varlist.remove('R_{cd}')
+  elif var == 'vcd':
+    varlist.remove('v_{cd}')
     
   var_legends = ['$' + var_leg + '$' for var_leg in varlist]
   vars = df_res[varlist].to_numpy().transpose()

@@ -14,7 +14,7 @@
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
 static double rho0    = n0*mp_;       // g.cm-3:  comoving CBM mass density
-static double Theta0  = 1.0000e-4 ;  //          Theta0 = p/(rho*c^2)
+static double Theta0  = 1.0000e-4 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
@@ -25,13 +25,14 @@ static double D01  = 1.0000e+07 ;     // spatial extension of front shell
 static double rho4 = 2.2246e-09 ;     // comoving density of back shell
 static double u4   = 2e+02 ;          // proper velocity of back shell
 static double p4   = 1.9994e+07 ;
-static double D04  = 1.0000e+07 ;        // spatial extension of back shell
+static double D04  = 1.0000e+07 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
+static double cont = 1e-3;            // density contrast between shell and ext medium
 
 // box size
 static double R_0     = 1.0000e+10 ;
-static double rmin0   = 9.9890e+09 ; 
+static double rmin0   = 9.9895e+09 ; 
 static double rmax0   = 1.0011e+10 ;
 static double Ncells  = 1000 ;
 
@@ -72,28 +73,28 @@ int Grid::initialValues(){
     double r = x*lNorm;
 
     if (r <= R_0-D01){
-      c->S.prim[RHO] = 1e-3*rho4/rhoNorm;
+      c->S.prim[RHO] = cont*rho4/rhoNorm;
       c->S.prim[VV1] = beta4;
       c->S.prim[PPP] = p4/pNorm;
-      c->S.cons[TR1] = 0.;
+      c->S.prim[TR1] = 0.;
     }
     if ((r >= R_0-D04) and (r <= R_0)){
       c->S.prim[RHO] = rho4/rhoNorm;
       c->S.prim[VV1] = beta4;
       c->S.prim[PPP] = p4/pNorm;
-      c->S.cons[TR1] = 1.;
+      c->S.prim[TR1] = 1.;
     }
     if ((r > R_0) and (r <= R_0+D01)){
       c->S.prim[RHO] = rho1/rhoNorm;
       c->S.prim[VV1] = beta1;
       c->S.prim[PPP] = p1/pNorm;
-      c->S.cons[TR1] = 2.;
+      c->S.prim[TR1] = 2.;
     }
     if (r > R_0+D01){
-      c->S.prim[RHO] = 1e-3*rho1/rhoNorm;
+      c->S.prim[RHO] = cont*rho1/rhoNorm;
       c->S.prim[VV1] = beta1;
       c->S.prim[PPP] = p1/pNorm;
-      c->S.cons[TR1] = 0.;
+      c->S.prim[TR1] = 0.;
     }
   }
 
@@ -116,8 +117,8 @@ void Grid::userKinematics(int it, double t){
   int iin  = iLbnd+1;
   double rout = Ctot[iout].G.x[r_];
   double rin  = Ctot[iin].G.x[r_];
-  double rlimL = rin + 0.1 * (rout-rin);
-  double rlimR = rin + 0.9 * (rout-rin);
+  double rlimL = rin + 0.05 * (rout-rin);
+  double rlimR = rin + 0.95 * (rout-rin);
 
   // left boundary
   int ia = iin;

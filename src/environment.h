@@ -31,8 +31,6 @@
 #define SYNGE_EOS_      1
 #define RYU_EOS_        2
 #define TAUB_EOS_       3
-//#define M06_            0
-//#define NH14_           1     
 
 enum{RHO,PPP,UU1,UU2,UU3};  // 3rd dimension optional so must be last
 enum{TP1,TP2,VV1,VV2,VV3};
@@ -57,7 +55,6 @@ enum{skip_,merge_,split_};
 #define GAMMA_ (5./3.)
 #define EOS_   TAUB_EOS_      // carefull, GAMMA_ needs to be set to 5/3 when using SYNGE
 #define CFL_   0.2
-#define C2P_   NH14_          // cons2prim method (M06_, NH14_)
 
 #define MPI_ ENABLED_
 #define OMP_ ENABLED_
@@ -65,7 +62,7 @@ enum{skip_,merge_,split_};
 #define SPATIAL_RECONSTRUCTION_ PIECEWISE_LINEAR_
 #define CIRC_REGRID_            DISABLED_
 #define SHOCK_DETECTION_        ENABLED_
-#define DETECT_SHOCK_THRESHOLD_ 0.01
+#define DETECT_SHOCK_THRESHOLD_ 0.1
 #define LOCAL_SYNCHROTRON_      DISABLED_
 #define GAMMA_MAX_INIT_         (1.e8)
 #define VARIABLE_PSPEC_         DISABLED_

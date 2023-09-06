@@ -12,6 +12,12 @@ import numpy as np
 
 # Functions
 # --------------------------------------------------------------------------------------------------
+def reldiff(a, b):
+  '''
+  Relative difference
+  '''
+  return np.abs((a-b)/b)
+
 # EoS and related
 def derive_temperature(rho, p):
   '''

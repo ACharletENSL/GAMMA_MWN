@@ -22,101 +22,168 @@ def shells_complete_setup(env):
   def Ain_keys_butnotB(A, B):
     return A in env.__dict__.keys() and not B in env.__dict__.keys()
 
-  # add t0 if R0 and vice-versa
-  if Ain_keys_butnotB('t0', 'R0'):
-    env.R0 = env.t0*c_
-  elif Ain_keys_butnotB('R0', 't0'):
-    env.t0 = env.R0/c_
+
   
   # add D0 if ton and vice-versa
   if Ain_keys_butnotB('D01', 't1'):
-    beta1  = derive_velocity_from_proper(env.u1)
-    env.t1 = env.D01/(beta1*c_)
+    env.beta1 = derive_velocity_from_proper(env.u1)
+    env.t1    = env.D01/(env.beta1*c_)
   elif Ain_keys_butnotB('t1', 'D01'):
-    beta1   = derive_velocity_from_proper(env.u1)
-    env.D01 = env.t1*beta1*c_
+    env.beta1 = derive_velocity_from_proper(env.u1)
+    env.D01   = env.t1*env.beta1*c_
   if Ain_keys_butnotB('D04', 't4'):
-    beta4  = derive_velocity_from_proper(env.u4)
-    env.t4 = env.D04/(beta4*c_)
+    env.beta4 = derive_velocity_from_proper(env.u4)
+    env.t4    = env.D04/(env.beta4*c_)
   elif Ain_keys_butnotB('t4', 'D04'):
-    beta4   = derive_velocity_from_proper(env.u1)
-    env.D04 = env.t4*beta4*c_
+    env.beta4 = derive_velocity_from_proper(env.u1)
+    env.D04   = env.t4*env.beta4*c_
+
+  # t0 and R0
+  if 'toff' in env.__dict__.keys():
+    env.t0 = env.beta1*env.toff/(env.beta4 - env.beta1)
+  if Ain_keys_butnotB('t0', 'R0'):
+    env.R0 = env.beta4*c_*env.t0
+  elif Ain_keys_butnotB('R0', 't0'):
+    env.t0 = env.R0/(env.beta4*c_)
 
   # add rho if Ek and vice-versa
   if Ain_keys_butnotB('Ek1', 'rho1'):
-    lfac1     = derive_Lorentz_from_proper(env.u1)
-    V1c2      = 4.*pi_*env.R0**2*env.D01*c_**2
-    env.rho1  = (env.Ek1/(lfac1-1))/(V1c2*lfac1)
+    lfac1    = derive_Lorentz_from_proper(env.u1)
+    V1c2     = 4.*pi_*env.R0**2*env.D01*c_**2
+    env.rho1 = (env.Ek1/(lfac1-1))/(V1c2*lfac1)
   elif Ain_keys_butnotB('rho1', 'Ek1'):
-    lfac1     = derive_Lorentz_from_proper(env.u1)
-    V1c2      = 4.*pi_*env.R0**2*env.D01*c_**2
-    env.Ek1   = (lfac1-1)*env.rho1*V1c2*lfac1
+    lfac1    = derive_Lorentz_from_proper(env.u1)
+    V1c2     = 4.*pi_*env.R0**2*env.D01*c_**2
+    env.Ek1  = (lfac1-1)*env.rho1*V1c2*lfac1
   if Ain_keys_butnotB('Ek4', 'rho4'):
-    lfac4     = derive_Lorentz_from_proper(env.u4)
-    V4c2      = 4.*pi_*env.R0**2*env.D04*c_**2
-    env.rho4  = (env.Ek4/(lfac4-1))/(V4c2*lfac4)
+    lfac4    = derive_Lorentz_from_proper(env.u4)
+    V4c2     = 4.*pi_*env.R0**2*env.D04*c_**2
+    env.rho4 = (env.Ek4/(lfac4-1))/(V4c2*lfac4)
   elif Ain_keys_butnotB('rho4', 'Ek4'):
-    lfac4     = derive_Lorentz_from_proper(env.u4)
-    V4c2      = 4.*pi_*env.R0**2*env.D04*c_**2
-    env.Ek4   = (lfac4-1)*env.rho4*V4c2*lfac4
+    lfac4    = derive_Lorentz_from_proper(env.u4)
+    V4c2     = 4.*pi_*env.R0**2*env.D04*c_**2
+    env.Ek4  = (lfac4-1)*env.rho4*V4c2*lfac4
   
   # complete with pressure
   p0 = min(env.rho1, env.rho4)*env.Theta0*c_**2
   env.p1 = p0
   env.p4 = p0
 
+def shells_shockedvars(Ek1, u1, D01, Ek4, u4, D04, R0):
+  '''
+  Returns comoving density, proper velocity and pressure in shocked regions
+  '''
+  # unshocked shells
+  lfac1 = derive_Lorentz_from_proper(u1)
+  beta1 = u1/lfac1
+  lfac4 = derive_Lorentz_from_proper(u4)
+  beta4 = u4/lfac4
+  V1c2  = 4.*pi_*R0**2*D01*c_**2
+  rho1  = (Ek1/(lfac1-1))/(V1c2*lfac1)
+  V4c2  = 4.*pi_*R0**2*D04*c_**2
+  rho4  = (Ek4/(lfac4-1))/(V4c2*lfac4)
 
-  #if 'L1' in env.__dict__.keys():
-  #  vars2add  = shells_phys2num(env.L1, env.u1, env.t1, env.L4, env.u4, env.t4, env.toff)
-  #  names2add = ['rho1', 'beta1', 'D01', 'rho4', 'beta4', 'D04', 't0']
-  #elif 'rho1' in env.__dict__.keys():
-  #  vars2add  = shells_num2phys(env.rho1, env.u1, env.D01, env.rho4, env.u4, env.D04, env.R0)
-  #  names2add = ['L1', 'beta1', 't1', 'L4', 'beta4', 't4', 'toff']
-  #for name, value in zip(names2add, vars2add):
-  #  setattr(env, name, value)
-  
-  
+  # shocked shells
+  f      = derive_proper_density_ratio(Ek1, Ek4, D01, D04, u1, u4)
+  u21    = derive_u_in1(u1, u4, f)
+  lfac21 = derive_Lorentz_from_proper(u21)
+  u      = derive_u_lab(u1, u21)
+  lfac   = derive_Lorentz_from_proper(u)
+  rho2   = 4.*lfac21*rho1
+  p      = (4./3.) * u21**2 * rho1 * c_**2
+  u34    = u21/np.sqrt(f)
+  lfac34 = derive_Lorentz_from_proper(u34)
+  rho3   = 4.*lfac34*rho4
 
+  return rho2, rho3, u, p, lfac21, lfac34
   
+def shells_snapshot(Ek1, u1, D01, Ek4, u4, D04, R0, t, r):
+  '''
+  Creates maps of rho, u, p from shell params and t over radii r
+  '''
+
+  # unshocked shells
+  lfac1 = derive_Lorentz_from_proper(u1)
+  beta1 = u1/lfac1
+  lfac4 = derive_Lorentz_from_proper(u4)
+  beta4 = u4/lfac4
+  V1c2  = 4.*pi_*R0**2*D01*c_**2
+  rho1  = (Ek1/(lfac1-1))/(V1c2*lfac1)
+  V4c2  = 4.*pi_*R0**2*D04*c_**2
+  rho4  = (Ek4/(lfac4-1))/(V4c2*lfac4)
+
+  # shocked shells
+  f      = derive_proper_density_ratio(Ek1, Ek4, D01, D04, u1, u4)
+  u21    = derive_u_in1(u1, u4, f)
+  lfac21 = derive_Lorentz_from_proper(u21)
+  u2     = derive_u_lab(u1, u21)
+  lfac   = derive_Lorentz_from_proper(u2)
+  rho2   = 4.*lfac21*rho1
+  p2     = (4./3.) * u21**2 * rho1 * c_**2
+  u34    = u21/np.sqrt(f)
+  lfac34 = derive_Lorentz_from_proper(u34)
+  rho3   = 4.*lfac34*rho4
+  
+  # radii
+  beta   = derive_velocity_from_proper(u2)
+  betaFS = derive_betaFS(u1, u21, u2)
+  betaRS = derive_betaRS(u4, u34, u2)
+  Rcd  = R0 + beta*c_*t
+  R4   = R0 - D04 + beta4*c_*t
+  R1   = R0 + D01 + beta1*c_*t
+  Rfs  = R0 + betaFS*c_*t
+  Rrs  = R0 + betaRS*c_*t
+
+  rho = np.zeros(r.shape)
+  u   = np.zeros(r.shape)
+  p   = np.zeros(r.shape)
+
+  #print(f"{R4}, {Rrs}, {Rcd}, {Rfs}, {R1}")
+  if R4 < Rrs:
+    i_4 = np.argwhere((r>=R4) & (r<Rrs))[:,0]
+    rho[i_4] = rho4
+    u[i_4]   = u4
+    i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
+    rho[i_3] = rho3
+    u[i_3]   = u2
+    p[i_3]   = p2
+  else:
+    D3f = derive_shellwidth_crosstime(D04, lfac4, lfac, lfac34)
+    Rrs = Rcd - D3f
+    i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
+    rho[i_3] = rho3
+    u[i_3]   = u2
+    p[i_3]   = p2
+    print("RS crossing time passed, need to implement rarefaction wave")
+  
+  if R1 > Rfs:
+    i_1 = np.argwhere((r>Rfs) & (r<=R1))[:,0]
+    rho[i_1] = rho1
+    u[i_1]   = u1
+    i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
+    rho[i_2] = rho2
+    u[i_2]   = u2
+    p[i_2]  = p2
+  else:
+    D2f = derive_shellwidth_crosstime(D01, lfac1, lfac, lfac21)
+    Rfs = Rcd + D2f
+    i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
+    rho[i_2] = rho2
+    u[i_2]   = u2
+    p[i_2]  = p2
+    print("FS crossing time passed, need to implement rarefaction wave")
+  
+  return rho, u, p
 
 def shells_add_analytics(env):
   '''
   Add analytical estimates from data in the env class
   '''
   vars2add  = shells_phys2analytics(env.Ek1, env.u1, env.D01, env.Ek4, env.u4, env.D04)
-  names2add = ['u', 'f', 'betaFS', 'tFS', 'Df2', 'Eintf2', 'Ekf2', 'betaRS', 'tRS', 'Df3', 'Eintf3', 'Ekf3']
+  names2add = ['u', 'f', 'lfac21', 'betaFS', 'tFS', 'Df2', 'Eintf2', 'Ekf2',
+    'lfac34', 'betaRS', 'tRS', 'Df3', 'Eintf3', 'Ekf3']
   for name, value in zip(names2add, vars2add):
     setattr(env, name, value)
-
-
-def shells_num2phys(rho1, u1, D01, rho4, u4, D04, R0):
-  '''
-  Derives physical quantities from a numerical setup
-  '''
-  beta1   = derive_velocity_from_proper(u1)
-  beta4   = derive_velocity_from_proper(u4)
-  t0   = R0/c_
-  toff = (beta4-beta1)*t0/beta1
-  t1   = D01/beta1
-  t4   = D04/beta4
-  L1   = rho1 * (4.*pi_*R0**2*D01*c_**2) / t1
-  L4   = rho4 * (4.*pi_*R0**2*D04*c_**2) / t4
-  return L1, beta1, t1, L4, beta4, t4, toff
-
-def shells_phys2num(Ek1, u1, t1, Ek4, u4, t4, toff):
-  '''
-  Derives quantities for the numerical setup from the physical inputs
-  '''
-  beta1 = derive_velocity_from_proper(u1)
-  lfac1 = u1/beta1
-  beta4 = derive_velocity_from_proper(u4)
-  lfac4 = u4/beta4
-  t0    = (beta1*toff)/(beta4-beta1)
-  D01   = beta1*t1
-  D04   = beta4*t4
-  rho1  = (Ek1/(lfac1-1))*1/(4.*pi_*R0**2*D01*c_**2)
-  rho4  = (Ek4/(lfac4-1))*1/(4.*pi_*R0**2*D04*c_**2)
-  return rho1, beta1, D01, rho4, beta4, D04, t0
 
 def shells_phys2analytics(Ek1, u1, D1, Ek4, u4, D4):
   '''
@@ -154,7 +221,7 @@ def shells_phys2analytics(Ek1, u1, D1, Ek4, u4, D4):
   Eint3  = derive_Eint_crosstime(M4, u, lfac34)
   Ekf3   = derive_Ek_crosstime(M4, lfac)
 
-  return u, f, betaFS, tFS, D2, Eint2, Ekf2, betaRS, tRS, D3, Eint3, Ekf3
+  return u, f, lfac21, betaFS, tFS, D2, Eint2, Ekf2, lfac34, betaRS, tRS, D3, Eint3, Ekf3
 
 # Individual functions
 # -----------------------------------------------------
@@ -192,8 +259,9 @@ def derive_u_in1(u1, u4, f):
   lfac4  = derive_Lorentz_from_proper(u4)
   beta4  = u4/lfac4
   lfac41 = lfac1*lfac4 - u1*u4
-  u41    = derive_proper_from_Lorentz(lfac41) 
-  return u41 * np.sqrt( (2*f**(3/2)*lfac41 - f*(1+f)) / (2*f*(u41**2+lfac41**2) - (1+f**2)))
+  u41    = derive_proper_from_Lorentz(lfac41)
+  fac    = np.sqrt((2*f**(3/2)*lfac41 - f*(1+f))/(2*f*(u41**2+lfac41**2) - (1+f**2)))
+  return u41 * fac
 
 def derive_u_lab(u1, u21):
   '''

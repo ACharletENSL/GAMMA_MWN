@@ -61,8 +61,8 @@ double FluidState::gamma(){
     double rho = prim[RHO];
     double p = prim[PPP];
     double T = p/rho;
-    double h = 2.5 * T + sqrt(2.25 * T * T + 1.);
-    double gamma_eff = (h - 1.) / (h - 1. - T);
+    //double h = 2.5 * T + sqrt(2.25 * T * T + 1.);
+    double gamma_eff = (1./6.)*(8. - 3.*T + sqrt(4. + 9.*T*T));
     return(gamma_eff);
     
   #endif
@@ -227,6 +227,7 @@ static double f(double p, void *params){
 
 }
 
+/*
 bool cons2primNormal(double D, double mm, double E,
   double gma, double pgas_old,
   double *rho, double *uu, double *p){
@@ -469,9 +470,9 @@ void FluidState::cons2prim(double r, double pin){
   prim2cons(r); // for consistency
  
 }
+*/
 
 
-/*
 void FluidState::cons2prim(double r, double pin){
 
   int     status;
@@ -580,7 +581,6 @@ void FluidState::cons2prim(double r, double pin){
   prim2cons(r); // for consistency
   
 }
-*/
 
 
 void Interface::wavespeedEstimates(){

@@ -44,8 +44,8 @@ def update_simFile(filepath, env):
       'R0':env.R0, 't_start':env.t0, #'rho0':env.rho0
       'rho1':env.rho1, 'u1':env.u1, 'p1':env.p1, 'D01':env.D01,
       'rho4':env.rho4, 'u4':env.u4, 'p4':env.p4, 'D04':env.D04,
-      'rmin0':(env.R0 - 1.1*env.D04) if env.external else (env.R0 - env.D04),
-      'rmax0':(env.R0 + 1.1*env.D01) if env.external else (env.R0 + env.D01)
+      'rmin0':(env.R0 - 1.05*env.D04),
+      'rmax0':(env.R0 + 1.1*env.D01)
     }
   vars2update = {**gridvars, **physvars}
   out_lines = []

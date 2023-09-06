@@ -9,7 +9,7 @@ This file analyze opened data
 # --------------------------------------------------------------------------------------------------
 import numpy as np
 from data_IO import *
-
+from environment import MyEnv
 
 # Analysis functions
 # --------------------------------------------------------------------------------------------------
@@ -29,8 +29,25 @@ def get_timeseries(var, key):
     time = run_data['time'].to_numpy()
     out = run_data['time'].copy(deep=True)
     for rad, vel in zip(radlist, vellist):
-      r  = run_data[rad].to_numpy()
+      r = run_data[rad].to_numpy()
+      r = gaussian_filter1d(r, sigma=2, order=0)
       v = np.gradient(r, time)
+      vcol = pd.DataFrame({vel: v}, index=out.index)
+      out = pd.concat([out, vcol], axis='columns')
+  
+  elif var == 'vcd' and mode == 'shells':
+    radlist = get_varlist('R', Nz, mode)
+    vellist = get_varlist('v', Nz, mode)
+    vellist.remove('v_{cd}')
+    time  = run_data['time'].to_numpy()
+    out   = run_data['time'].copy(deep=True)
+    radii = run_data[radlist].to_numpy()
+    rrs   = radii[:,1] - radii[:,0]
+    rfs   = radii[:,2] - radii[:,1]
+    radii = np.array([rrs, rfs])
+    for rad, vel in zip(radii, vellist):
+      rad = gaussian_filter1d(rad, sigma=1, order=0)
+      v = np.gradient(rad, time)/c_
       vcol = pd.DataFrame({vel: v}, index=out.index)
       out = pd.concat([out, vcol], axis='columns')
   
@@ -110,17 +127,28 @@ def open_clean_rundata(key):
   run_data = open_rundata(key)
   return run_data
 
+def compare_crosstimes(key):
+  '''
+  Compare crossing times found numerically with the analytical values
+  '''
+
+  env = MyEnv(get_physfile(key))
+  tRS_num, tFS_num = get_crosstimes(key)
+  reldiff_tRS = reldiff(tRS_num, env.tRS)
+  reldiff_tFS = reldiff(tFS_num, env.tFS)
+  return reldiff_tRS, reldiff_tFS
+
 def get_crosstimes(key):
   '''
   Outputs crossing time for a given run
   Find them by selecting when corresponding Ncells = 0
   '''
   run_data = open_clean_rundata(key)
-  Nc4 = run_data['Nc_4'].to_numpy()
-  Nc1 = run_data['Nc_1'].to_numpy()
-  t   = run_data['time'].to_numpy()
-  tRS = t[Nc4==0.].max()
-  tFS = t[Nc1==0.].max()
+  StRS = run_data['ShSt_{rs}'].to_numpy()[1:]
+  StFS = run_data['ShSt_{fs}'].to_numpy()[1:]
+  t   = run_data['time'].to_numpy()[1:]
+  tRS = t[StRS==0.].min()
+  tFS = t[StFS==0.].min()
   
   return tRS, tFS
 
@@ -160,7 +188,7 @@ def vars_header(key, dfile_path=None):
 
   allvars = ['Nc', 'R', 'u', 'ShSt', 'V', 'Emass', 'Ekin', 'Eint']
   Nz  = get_Nzones(key)
-  mode, external = get_runatts(key)
+  mode = get_runatts(key)[0]
   varlist = []
   for var in allvars:
     varlist.extend(get_varlist(var, Nz, mode))
