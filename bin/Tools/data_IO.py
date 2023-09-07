@@ -31,10 +31,11 @@ def openData(key, it=None, sequence=True):
   else:
     filename = GAMMA_dir + '/results/%s%d.out' % (key, it)
   data = pd.read_csv(filename, sep=" ")
-  mode, runname, rhoNorm = get_runatts(key)
+  mode, runname, rhoNorm, geometry = get_runatts(key)
   data.attrs['mode'] = mode
   data.attrs['runname'] = runname
   data.attrs['rhoNorm'] = rhoNorm
+  data.attrs['geometry']= geometry
   return(data)
 
 def openData_withtime(key, it):
@@ -57,7 +58,7 @@ def get_runatts(key):
   '''
 
   physpath  = get_physfile(key)
-  attrs = ('mode', 'runname', 'rhoNorm')
+  attrs = ('mode', 'runname', 'rhoNorm', 'geometry')
   with open(physpath, 'r') as f:
     lines = f.read().splitlines()
     lines = filter(lambda x: x.startswith(attrs) , lines)
@@ -69,7 +70,9 @@ def get_runatts(key):
         runname = value
       elif name == 'rhoNorm':
         rhoNorm = value
-  return mode, runname, rhoNorm
+      elif name == 'geometry':
+        geometry = value
+  return mode, runname, rhoNorm, geometry
 
 def open_rundata(key):
 
@@ -77,7 +80,7 @@ def open_rundata(key):
   returns a pandas dataframe with the extracted data
   '''
   dfile_path, dfile_bool = get_runfile(key)
-  mode, runname, rhoNorm = get_runatts(key)
+  mode, runname, rhoNorm, geometry = get_runatts(key)
   if dfile_bool:
     df = pd.read_csv(dfile_path, index_col=0)
     df.attrs['mode']    = mode

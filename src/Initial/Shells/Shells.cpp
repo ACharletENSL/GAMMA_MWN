@@ -11,6 +11,9 @@
 #include "../../constants.h"
 #include "../../simu.h"
 
+// geometry: cartesian or spherical
+static int GEOMETRY_  = 0 ;           // 0 for cartesian, 1 for spherical
+
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
 static double rho0    = n0*mp_;       // g.cm-3:  comoving CBM mass density
@@ -72,30 +75,60 @@ int Grid::initialValues(){
     double x = c->G.x[x_];
     double r = x*lNorm;
 
-    if (r <= R_0-D01){
-      c->S.prim[RHO] = cont*rho4/rhoNorm;
-      c->S.prim[VV1] = beta4;
-      c->S.prim[PPP] = p4/pNorm;
-      c->S.prim[TR1] = 0.;
+    if (GEOMETRY_ == 0){ // cartesian geometry
+      if (r <= R_0-D04){
+        c->S.prim[RHO] = cont*rho4/rhoNorm;
+        c->S.prim[VV1] = beta4;
+        c->S.prim[PPP] = p4/pNorm;
+        c->S.prim[TR1] = 0.;
+      }
+      if ((r >= R_0-D04) and (r <= R_0)){
+        c->S.prim[RHO] = rho4/rhoNorm;
+        c->S.prim[VV1] = beta4;
+        c->S.prim[PPP] = p4/pNorm;
+        c->S.prim[TR1] = 1.;
+      }
+      if ((r > R_0) and (r <= R_0+D01)){
+        c->S.prim[RHO] = rho1/rhoNorm;
+        c->S.prim[VV1] = beta1;
+        c->S.prim[PPP] = p1/pNorm;
+        c->S.prim[TR1] = 2.;
+      }
+      if (r > R_0+D01){
+        c->S.prim[RHO] = cont*rho1/rhoNorm;
+        c->S.prim[VV1] = beta1;
+        c->S.prim[PPP] = p1/pNorm;
+        c->S.prim[TR1] = 0.;
+      }
     }
-    if ((r >= R_0-D04) and (r <= R_0)){
-      c->S.prim[RHO] = rho4/rhoNorm;
-      c->S.prim[VV1] = beta4;
-      c->S.prim[PPP] = p4/pNorm;
-      c->S.prim[TR1] = 1.;
-    }
-    if ((r > R_0) and (r <= R_0+D01)){
-      c->S.prim[RHO] = rho1/rhoNorm;
-      c->S.prim[VV1] = beta1;
-      c->S.prim[PPP] = p1/pNorm;
-      c->S.prim[TR1] = 2.;
-    }
-    if (r > R_0+D01){
-      c->S.prim[RHO] = cont*rho1/rhoNorm;
-      c->S.prim[VV1] = beta1;
-      c->S.prim[PPP] = p1/pNorm;
-      c->S.prim[TR1] = 0.;
-    }
+  else if (GEOMETRY_ == 1){
+    double R4 = R_0 - D04;
+    double R1 = R_0 + D01;
+    if (r <= R4){
+        c->S.prim[RHO] = cont*rho4*pow(R4/R_0,-2)/rhoNorm;
+        c->S.prim[VV1] = beta4;
+        c->S.prim[PPP] = p4/pNorm;
+        c->S.prim[TR1] = 0.;
+      }
+      if ((r >= R4) and (r <= R_0)){
+        c->S.prim[RHO] = rho4*pow(r/R_0,-2)/rhoNorm;
+        c->S.prim[VV1] = beta4;
+        c->S.prim[PPP] = p4/pNorm;
+        c->S.prim[TR1] = 1.;
+      }
+      if ((r > R_0) and (r <= R1)){
+        c->S.prim[RHO] = rho1*pow(r/R_0,-2)/rhoNorm;
+        c->S.prim[VV1] = beta1;
+        c->S.prim[PPP] = p1/pNorm;
+        c->S.prim[TR1] = 2.;
+      }
+      if (r > R_0+D01){
+        c->S.prim[RHO] = cont*rho1*pow(R1/R_0,-2)/rhoNorm;
+        c->S.prim[VV1] = beta1;
+        c->S.prim[PPP] = p1/pNorm;
+        c->S.prim[TR1] = 0.;
+      }
+  }
   }
 
   return 0;

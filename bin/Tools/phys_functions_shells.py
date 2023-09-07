@@ -22,8 +22,6 @@ def shells_complete_setup(env):
   def Ain_keys_butnotB(A, B):
     return A in env.__dict__.keys() and not B in env.__dict__.keys()
 
-
-  
   # add D0 if ton and vice-versa
   if Ain_keys_butnotB('D01', 't1'):
     env.beta1 = derive_velocity_from_proper(env.u1)
@@ -68,6 +66,102 @@ def shells_complete_setup(env):
   p0 = min(env.rho1, env.rho4)*env.Theta0*c_**2
   env.p1 = p0
   env.p4 = p0
+
+def shells_add_analytics(env):
+  '''
+  Completes environment class with analytical values
+  '''
+
+  env.f      = env.rho4/env.rho1
+  u21        = derive_u_in1(env.u1, env.u4, env.f)
+  u34        = u21/np.sqrt(env.f)
+  env.lfac21 = derive_Lorentz_from_proper(u21)
+  env.lfac34 = derive_Lorentz_from_proper(u34)
+  lfac1  = derive_Lorentz_from_proper(u1)
+  lfac4  = derive_Lorentz_from_proper(u4)
+  beta1  = u1/lfac1
+  beta4  = u4/lfac4
+  M1     = Ek1/((lfac1-1)*c_**2)
+  M4     = Ek4/((lfac4-1)*c_**2)
+
+  # Analytical estimates
+  env.u_sh = derive_u_lab(env.u1, u21)
+  lfac     = derive_Lorentz_from_proper(env.u)
+  env.beta = env.u/lfac
+  env.rho2 = 4.*env.lfac21*env.rho1
+  env.p_sh = (4./3.) * u21**2 * env.rho1 * c_**2
+  env.rho3 = 4.*env.lfac34*env.rho4
+
+  # shocks
+  env.betaFS = derive_betaFS(u1, u21, env.u)
+  env.tFS    = derive_FS_crosstime(beta1, env.D01, env.betaFS)
+  env.D2f    = derive_shellwidth_crosstime(env.D01, lfac1, lfac, env.lfac21)
+  env.Ei2f   = derive_Eint_crosstime(M1, env.u, env.lfac21)
+  env.Ek2f   = derive_Ek_crosstime(M1, lfac)
+
+  env.betaRS = derive_betaRS(env.u4, u34, env.u)
+  env.tRS    = derive_RS_crosstime(beta4, env.D04, env.betaRS)
+  env.D3f    = derive_shellwidth_crosstime(env.D04, lfac4, lfac, env.lfac34)
+  env.Ei3f   = derive_Eint_crosstime(M4, env.u, env.lfac34)
+  env.Ek3f   = derive_Ek_crosstime(M4, lfac)
+
+  # rarefaction waves
+  T2     = env.p/(env.rho2*c_**2)
+  num    = (3*T2**2 + 5.*T2*np.sqrt(T2**2+(4./9.)))
+  denom  = (2. + 12*T2**2 + 12*T2*np.sqrt(T2**2+(4./9.)))
+  betas2 = np.sqrt(num/denom)
+  T3     = env.p/(env.rho3*c_**2)
+  num    = (3*T3**2 + 5.*T3*np.sqrt(T3**2+(4./9.)))
+  denom  = (2. + 12*T3**2 + 12*T3*np.sqrt(T3**2+(4./9.)))
+  betas3 = np.sqrt(num/denom)
+  env.betaRFm2 = (env.beta-betas2)/(1-env.beta*betas2)
+  env.betaRFp2 = (env.beta+betas2)/(1+env.beta*betas2)
+  env.betaRFm3 = (env.beta-betas3)/(1-env.beta*betas3)
+  env.betaRFp3 = (env.beta+betas3)/(1+env.beta*betas3)
+
+  env.tRFp3 = env.D3f / (c_*(env.betaRFp3-env.beta))
+  env.tRFp2 = (env.betaFS-env.beta)*(env.tRS+env.tRFp3)/(env.betaRFp2-env.betaFS)
+  env.tRFm2 = env.D2f / (c_*(env.beta-env.betaRFm2))
+  env.tRFm3 = (env.beta-env.betaRS)*(env.tFS+env.tRFm2)/(env.betaRS-env.betaRFm3)
+
+def shells_snapshot_fromenv(env, r, t):
+  '''
+  Given a array of radii and a time, returns values of rho, u and p
+  to plot a theoretical snapshot
+  '''
+  rho = np.zeros(r.shape)
+  u   = np.zeros(r.shape)
+  p   = np.zeros(r.shape)
+
+  beta1 = derive_velocity_from_proper(env.u1)
+  beta4 = derive_velocity_from_proper(env.u4)
+  Rcd = env.R0 + env.beta*c_*t
+
+  if t<env.tRS:
+    # RS propagates through the unshocked shell 4
+    Rrs = env.R0 + env.betaRS*c_*t
+    R4b = env.R0 - env.D04 + beta4*c_*t
+    i_4 = np.argwhere((r>=R4b) & (r<Rrs))[:,0]
+    i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
+    rho[i_4] = env.rho4
+    u[i_4]   = env.u4
+    rho[i_3] = env.rho3
+    u[i_3]   = env.u_sh
+    p[i_3]   = env.p_sh
+  elif (t>=env.tRS) and (t<env.tRFp3):
+    # rarefaction wave + propagates in the shocked shell 3
+    print("RS has crossed the shell, implement rarefaction wave")
+    Rrfp = Rcd - env.D3f + env.betaRFp3*c_*(t-env.tRS)
+    i_3  = np.argwhere((r>=Rrfp) & (r<=Rcd))[:,0]
+    rho[i_3] = env.rho3
+    u[i_3]   = env.u_sh
+    p[i_3]   = env.p_sh
+  elif (t>=env.tRFp3):
+    print("Rarefaction wave + has crossed the CD")
+
+
+  R1f = env.R0 + env.D01 + beta1*c_*t
+
 
 def shells_shockedvars(Ek1, u1, D01, Ek4, u4, D04, R0):
   '''
@@ -175,7 +269,7 @@ def shells_snapshot(Ek1, u1, D01, Ek4, u4, D04, R0, t, r):
   
   return rho, u, p
 
-def shells_add_analytics(env):
+def shells_add_analytics_old(env):
   '''
   Add analytical estimates from data in the env class
   '''

@@ -1,4 +1,4 @@
-INITIAL    = Shells/Shells_v1
+INITIAL    = Shells/Shells_cart
 TIMESTEP   = rk3
 GEOMETRY   = cartesian
 HYDRO      = rel_cart

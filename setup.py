@@ -21,7 +21,7 @@ def main():
   # to come: add file check and automatic moving results in new folder
   env = MyEnv('./phys_input.ini')
   if env.mode == 'shells':
-    simFile = Initial_path + '/Shells/Shells_v1.cpp'
+    simFile = Initial_path + '/Shells/Shells.cpp'
   elif mode == 'MWN':
     simFile = Initial_path + '/MWN/MWN1D_tests.cpp'
   update_simFile(simFile, env)
@@ -30,7 +30,8 @@ def main():
 
 def update_simFile(filepath, env):
   gridvars = {
-    'Ncells':env.Ncells, 'rhoNorm':env.rhoNorm, 'itmax':env.itmax
+    'Ncells':env.Ncells, 'rhoNorm':env.rhoNorm,
+    'itmax':env.itmax, 'geometry':env.geometry
   }
   physvars = {}
   if env.mode == 'MWN':
@@ -53,7 +54,7 @@ def update_simFile(filepath, env):
     inFile = inf.read().splitlines()
     # copy file line by line with updated values where needed
     for line in inFile:
-      if line.startswith('static double'):
+      if line.startswith('static'):
         l = line.split()
         var = l[2]
         if var in vars2update:
@@ -65,6 +66,8 @@ def update_simFile(filepath, env):
             line = line.replace(l[4], f'{int(vars2update[l[2]]):d}')
           elif var == 'rhoNorm':
             line = line.replace(l[4], env.rhoNorm)
+          elif var == 'geometry':
+            line = line.replace(l[4], 1 if env.geometry=='spherical' else 0)
           else:
             line = line.replace(l[4], f'{vars2update[l[2]]:.4e}')
       if 'if ( it >' in line:

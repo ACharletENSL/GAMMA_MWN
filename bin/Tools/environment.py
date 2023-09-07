@@ -27,7 +27,7 @@ class MyEnv:
     '''
     Reads GAMMA/phys_input.ini file and puts value in the MyEnv class
     '''
-    strinputs = ['mode', 'runname', 'boundaries', 'rhoNorm', 'external']
+    strinputs = ['mode', 'runname', 'rhoNorm', 'geometry']
     intinputs = ['Ncells', 'itmax']
     with open(path, 'r') as f:
       lines = f.read().splitlines()
