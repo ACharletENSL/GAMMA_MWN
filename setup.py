@@ -20,13 +20,47 @@ def main():
   # update .cpp file and copies phys_input.ini in the results folder
   # to come: add file check and automatic moving results in new folder
   env = MyEnv('./phys_input.ini')
+  makefile  = './Makefile'
   if env.mode == 'shells':
     simFile = Initial_path + '/Shells/Shells.cpp'
   elif mode == 'MWN':
     simFile = Initial_path + '/MWN/MWN1D_tests.cpp'
   update_simFile(simFile, env)
+  update_Makefile(makefile, env)
   subprocess.call("cp -f ./phys_input.ini ./results/Last/", shell=True)
   #run_name = get_runName("./phys_input.ini")
+
+def update_Makefile(filepath, env):
+  '''
+  Update Makefile with given parameters (especially geometry)
+  '''
+  geometry = env.geometry
+  mode = env.mode
+  compile_cart = {
+    'GEOMETRY':'cartesian', 'HYDRO':'rel_cart', 'RADIATION':'radiation_cart'
+  }
+  compile_sph = {
+    'GEOMETRY':'spherical1D', 'HYDRO':'rel_sph', 'RADIATION':'radiation_sph'
+  }
+  compile_options = {'cartesian':compile_cart, 'spherical':compile_sph}
+  out_lines = []
+
+  with open(filepath, 'r') as inf:
+    inFile = inf.read().splitlines()
+    # copy file line by line with updated values where needed
+    comp_geom = compile_options[geometry]
+    for line in inFile:
+      if line:
+        l = line.split()
+        if l[0] == 'INITIAL':
+          name = 'Shells/Shells' if mode == 'shells' else 'MWN/MWN1D_tests'
+          line = line.replace(l[2], name)
+        elif l[0] in comp_geom.keys():
+          line = line.replace(l[2], comp_geom[l[0]])
+      out_lines.append(line)
+  
+  with open(filepath, 'w') as outf:
+    outf.writelines(f'{s}\n' for s in out_lines)
 
 def update_simFile(filepath, env):
   gridvars = {

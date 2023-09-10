@@ -417,15 +417,16 @@ def get_scaledvar_snapshot(var, df, env, scaletype='default', slope=None):
 
   return x, z, xlabel, zlabel
 
+
+var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
+  'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
+  'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
+  'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
+  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$'}
 def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
   '''
   Return time and values for chosen variable, as well as their labels
   '''
-  var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
-    'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
-    'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
-    'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
-    'vcd':"$\\beta - \\beta_{cd}$"}
 
   if tscaling == 't0':
     tscale = env.t0
@@ -448,6 +449,10 @@ def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
     varlist.remove('R_{cd}')
   elif var == 'vcd':
     varlist.remove('v_{cd}')
+  elif var == 'epsth':
+    varlist = ['$\\epsilon_{th,3}$', '$\\epsilon_{th,2}$']
+    df_res[:,1] /= env.Ek4
+    df_res[:,2] /= env.Ek2
   
     
   var_legends = ['$' + var_leg + '$' for var_leg in varlist]
@@ -465,11 +470,7 @@ def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
   return time, vars, tlabel, ylabel, tscale, var_legends
 
 def get_scaledvar_it(var, key, env):
-  var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
-    'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
-    'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
-    'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
-    'vcd':"$\\beta - \\beta_{cd}$"}
+  
 
   df_res = get_timeseries(var, key)
   it = df_res.index
@@ -484,6 +485,11 @@ def get_scaledvar_it(var, key, env):
     varlist.remove('R_{cd}')
   elif var == 'vcd':
     varlist.remove('v_{cd}')
+  elif var == 'epsth':
+    varlist = ['$\\epsilon_{th,3}$', '$\\epsilon_{th,2}$']
+    df_res[:,1] /= env.Ek4
+    df_res[:,2] /= env.Ek2
+  
     
   var_legends = ['$' + var_leg + '$' for var_leg in varlist]
   vars = df_res[varlist].to_numpy().transpose()

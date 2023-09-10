@@ -72,6 +72,18 @@ def get_timeseries(var, key):
       radii[:,n] = radii[:,n] - c_*time
     rads  = pd.DataFrame(data=radii, columns=radlist, index=out.index)
     out   = pd.concat([out, rads], axis='columns')
+  
+  elif var == 'epsth':
+    varlist = get_varlist('Eint', Nz, mode)[1:-1]
+    time  = run_data['time'].to_numpy()
+    out   = run_data['time'].copy(deep=True)
+    eints = run_data[varlist].to_numpy()
+    epsth3= eints[:,0]
+    epsth2= eints[:,1]
+    epsth = np.array([epsth3, epsth2]).transpose()
+    varlist = ['$\\epsilon_{th,3}$', '$\\epsilon_{th,2}$']
+    eps   = pd.DataFrame(data=epsth, columns=varlist, index=out.index)
+    out   = pd.concat([out, eps], axis='columns')
 
   else:
     varlist = get_varlist(var, Nz, mode)

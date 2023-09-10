@@ -77,33 +77,34 @@ def shells_add_analytics(env):
   u34        = u21/np.sqrt(env.f)
   env.lfac21 = derive_Lorentz_from_proper(u21)
   env.lfac34 = derive_Lorentz_from_proper(u34)
-  lfac1  = derive_Lorentz_from_proper(u1)
-  lfac4  = derive_Lorentz_from_proper(u4)
-  beta1  = u1/lfac1
-  beta4  = u4/lfac4
-  M1     = Ek1/((lfac1-1)*c_**2)
-  M4     = Ek4/((lfac4-1)*c_**2)
+  env.lfac1  = derive_Lorentz_from_proper(env.u1)
+  env.lfac4  = derive_Lorentz_from_proper(env.u4)
+  env.beta1  = env.u1/env.lfac1
+  env.beta4  = env.u4/env.lfac4
+  M1     = env.Ek1/((env.lfac1-1)*c_**2)
+  M4     = env.Ek4/((env.lfac4-1)*c_**2)
 
   # Analytical estimates
-  env.u_sh = derive_u_lab(env.u1, u21)
-  lfac     = derive_Lorentz_from_proper(env.u)
-  env.beta = env.u/lfac
+  env.u    = derive_u_lab(env.u1, u21)
+  env.lfac = derive_Lorentz_from_proper(env.u)
+  env.beta = env.u/env.lfac
   env.rho2 = 4.*env.lfac21*env.rho1
-  env.p_sh = (4./3.) * u21**2 * env.rho1 * c_**2
+  env.p    = (4./3.) * u21**2 * env.rho1 * c_**2
   env.rho3 = 4.*env.lfac34*env.rho4
 
   # shocks
-  env.betaFS = derive_betaFS(u1, u21, env.u)
-  env.tFS    = derive_FS_crosstime(beta1, env.D01, env.betaFS)
-  env.D2f    = derive_shellwidth_crosstime(env.D01, lfac1, lfac, env.lfac21)
+  env.betaFS = derive_betaFS(env.u1, u21, env.u)
+  env.tFS    = derive_FS_crosstime(env.beta1, env.D01, env.betaFS)
+  env.D2f    = derive_shellwidth_crosstime(env.D01, env.lfac1, env.lfac, env.lfac21)
   env.Ei2f   = derive_Eint_crosstime(M1, env.u, env.lfac21)
-  env.Ek2f   = derive_Ek_crosstime(M1, lfac)
+  env.Ek2f   = derive_Ek_crosstime(M1, env.lfac)
 
   env.betaRS = derive_betaRS(env.u4, u34, env.u)
-  env.tRS    = derive_RS_crosstime(beta4, env.D04, env.betaRS)
-  env.D3f    = derive_shellwidth_crosstime(env.D04, lfac4, lfac, env.lfac34)
+  env.tRS    = derive_RS_crosstime(env.beta4, env.D04, env.betaRS)
+  env.D3f    = derive_shellwidth_crosstime(env.D04, env.lfac4, env.lfac, env.lfac34)
   env.Ei3f   = derive_Eint_crosstime(M4, env.u, env.lfac34)
-  env.Ek3f   = derive_Ek_crosstime(M4, lfac)
+  env.Ek3f   = derive_Ek_crosstime(M4, env.lfac)
+
 
   # rarefaction waves
   T2     = env.p/(env.rho2*c_**2)
@@ -124,6 +125,10 @@ def shells_add_analytics(env):
   env.tRFm2 = env.D2f / (c_*(env.beta-env.betaRFm2))
   env.tRFm3 = (env.beta-env.betaRS)*(env.tFS+env.tRFm2)/(env.betaRS-env.betaRFm3)
 
+  # thermal efficiencies
+  add_weightfactors(env)
+  
+
 def shells_snapshot_fromenv(env, r, t):
   '''
   Given a array of radii and a time, returns values of rho, u and p
@@ -133,14 +138,13 @@ def shells_snapshot_fromenv(env, r, t):
   u   = np.zeros(r.shape)
   p   = np.zeros(r.shape)
 
-  beta1 = derive_velocity_from_proper(env.u1)
-  beta4 = derive_velocity_from_proper(env.u4)
+  chi   = env.D01/env.D04
   Rcd = env.R0 + env.beta*c_*t
 
   if t<env.tRS:
     # RS propagates through the unshocked shell 4
     Rrs = env.R0 + env.betaRS*c_*t
-    R4b = env.R0 - env.D04 + beta4*c_*t
+    R4b = env.R0 - env.D04 + env.beta4*c_*t
     i_4 = np.argwhere((r>=R4b) & (r<Rrs))[:,0]
     i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
     rho[i_4] = env.rho4
@@ -160,7 +164,54 @@ def shells_snapshot_fromenv(env, r, t):
     print("Rarefaction wave + has crossed the CD")
 
 
-  R1f = env.R0 + env.D01 + beta1*c_*t
+  R1f = env.R0 + env.D01 + env.beta1*c_*t
+
+def add_weightfactors(env):
+  '''
+  Add the weighting factors (defined as the final mass ratios 
+  of shocked shell vs initial shell) depending on the case
+  for rarefaction wave propagation
+  '''
+  case = get_rfscenario(env)
+  env.alpha2 = 1.
+  env.alpha3 = 1.
+  if case == 1:
+    env.alpha2 = (env.tRS+env.tRFp3+env.tRFp2)/env.tFS
+  elif case == 6:
+    env.alpha3 = (env.tFS + env.tRFm2 + env.tRFm3)/env.tRS
+
+
+def get_rfscenario(env):
+  '''
+  Returns the expected case for the rarefaction wave propagation
+  '''
+  # derive the various velocity differences and lfac ratios
+  FSms1   = env.betaFS - env.beta1
+  FSmsh   = env.betaFS - env.beta
+  RFp2mFS = env.betaRFp2 - env.betaFS
+  s4mRS   = env.beta4 - env.betaRS
+  RFp3msh = env.betaRFp3 - env.beta
+  shmRS   = env.beta - env.betaRS
+  shmRFm2 = env.beta - env.betaRFm2
+  RSmRFm3 = env.betaRS - env.betaRFm3
+  lfacratio34 = (env.lfac4/env.lfac)/(4.*env.lfac34)
+  lfacratio21 = (env.lfac1/env.lfac)/(4.*env.lfac21)
+
+  # derive the critical lines
+  chi1 = FSms1*(1.+ FSmsh/RFp2mFS)*((1./s4mRS)+lfacratio34/RFp3msh)
+  chi2 = FSms1*((1./s4mRS)+lfacratio34/RFp3msh)
+  chi3 = FSms1/s4mRS
+  chi4 = 1./(s4mRS*((1./FSms1) + lfacratio21/shmRFm2))
+  chi5 = 1./(s4mRS*(1. + shmRS/RSmRFm3)*((1./FSms1) + lfacratio21/shmRFm2))
+
+  # which case?
+  chi = env.D01 / env.D04
+  critlines = [chi1, chi2, chi3, chi4, chi5]
+  case = np.searchsorted(critlines, chi) + 1
+
+  return case
+
+
 
 
 def shells_shockedvars(Ek1, u1, D01, Ek4, u4, D04, R0):
