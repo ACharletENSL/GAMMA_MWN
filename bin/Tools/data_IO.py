@@ -270,7 +270,11 @@ def df_get_shocked_u(df):
   u    = df_get_u(df)
   u2   = u[zone==2.]
   u3   = u[zone==3.]
-  u_sh = np.concatenate((u3[3:], u2[:-3]))
+  if df.attrs['geometry'] == 'spherical':
+    # get value at CD in spherical case
+    u_sh = np.concatenate((u3[-3:], u2[:3]))
+  else:
+    u_sh = np.concatenate((u3[3:], u2[:-3]))
   if u_sh.size > 0:
     res = u_sh.mean()
   else:
@@ -375,6 +379,7 @@ def zone_get_zoneIntegrated(df, var, n):
   
   return res
 
+
 def get_variable(df, var):
   '''
   Returns coordinate and chosen variable, in code units
@@ -393,12 +398,12 @@ def get_variable(df, var):
     "res":df_get_res
   }
 
-  r = df["x"]
+  r = df["x"].to_numpy()
   if var in calc_vars:
     out = calc_vars[var](df)
     return r, out
   elif var in df.columns:
-    out = df[var]
+    out = df[var].to_numpy()
     return r, out
   else:
     print("Required variable doesn't exist.")

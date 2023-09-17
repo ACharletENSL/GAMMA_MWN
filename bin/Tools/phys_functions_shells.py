@@ -23,17 +23,16 @@ def shells_complete_setup(env):
     return A in env.__dict__.keys() and not B in env.__dict__.keys()
 
   # add D0 if ton and vice-versa
+  env.beta1 = derive_velocity_from_proper(env.u1)
+  env.beta4 = derive_velocity_from_proper(env.u4)
+
   if Ain_keys_butnotB('D01', 't1'):
-    env.beta1 = derive_velocity_from_proper(env.u1)
     env.t1    = env.D01/(env.beta1*c_)
   elif Ain_keys_butnotB('t1', 'D01'):
-    env.beta1 = derive_velocity_from_proper(env.u1)
     env.D01   = env.t1*env.beta1*c_
   if Ain_keys_butnotB('D04', 't4'):
-    env.beta4 = derive_velocity_from_proper(env.u4)
     env.t4    = env.D04/(env.beta4*c_)
   elif Ain_keys_butnotB('t4', 'D04'):
-    env.beta4 = derive_velocity_from_proper(env.u1)
     env.D04   = env.t4*env.beta4*c_
 
   # t0 and R0
@@ -133,38 +132,63 @@ def shells_snapshot_fromenv(env, r, t):
   '''
   Given a array of radii and a time, returns values of rho, u and p
   to plot a theoretical snapshot
+  Vars in code units (units of c and chosen rho), r in cgs
   '''
   rho = np.zeros(r.shape)
-  u   = np.zeros(r.shape)
-  p   = np.zeros(r.shape)
+  vel = np.zeros(r.shape)
+  prs = np.zeros(r.shape)
 
-  chi   = env.D01/env.D04
+  rho0 = getattr(env, env.rhoNorm)
+  p0   = rho0*c_**2
+
   Rcd = env.R0 + env.beta*c_*t
+  R4  = env.R0 - env.D04 + env.beta4*c_*t
+  R1  = env.R0 + env.D01 + env.beta1*c_*t
+  Rfs = env.R0 + env.betaFS*c_*t
+  Rrs = env.R0 + env.betaRS*c_*t
 
-  if t<env.tRS:
-    # RS propagates through the unshocked shell 4
-    Rrs = env.R0 + env.betaRS*c_*t
-    R4b = env.R0 - env.D04 + env.beta4*c_*t
-    i_4 = np.argwhere((r>=R4b) & (r<Rrs))[:,0]
-    i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
+  if R4 < Rrs:
+    i_4 = np.argwhere((r>=R4) & (r<Rrs))[:,0]
     rho[i_4] = env.rho4
-    u[i_4]   = env.u4
+    vel[i_4] = env.u4
+    i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
     rho[i_3] = env.rho3
-    u[i_3]   = env.u_sh
-    p[i_3]   = env.p_sh
-  elif (t>=env.tRS) and (t<env.tRFp3):
-    # rarefaction wave + propagates in the shocked shell 3
-    print("RS has crossed the shell, implement rarefaction wave")
-    Rrfp = Rcd - env.D3f + env.betaRFp3*c_*(t-env.tRS)
-    i_3  = np.argwhere((r>=Rrfp) & (r<=Rcd))[:,0]
+    vel[i_3] = env.u
+    prs[i_3] = env.p
+  else:
+    D3f = derive_shellwidth_crosstime(env.D04, env.lfac4, env.lfac, env.lfac34)
+    Rrs = Rcd - D3f
+    i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
     rho[i_3] = env.rho3
-    u[i_3]   = env.u_sh
-    p[i_3]   = env.p_sh
-  elif (t>=env.tRFp3):
-    print("Rarefaction wave + has crossed the CD")
+    vel[i_3] = env.u
+    prs[i_3] = env.p
+    print("RS crossing time passed, need to implement rarefaction wave")
+  
+  if R1 > Rfs:
+    i_1 = np.argwhere((r>Rfs) & (r<=R1))[:,0]
+    rho[i_1] = env.rho1
+    vel[i_1] = env.u1
+    i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
+    rho[i_2] = env.rho2
+    vel[i_2] = env.u
+    prs[i_2] = env.p
+  else:
+    D2f = derive_shellwidth_crosstime(env.D01, env.lfac1, env.lfac, env.lfac21)
+    Rfs = Rcd + D2f
+    i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
+    rho[i_2] = env.rho2
+    vel[i_2] = env.u
+    prs[i_2] = env.p
+    print("FS crossing time passed, need to implement rarefaction wave")
+  
+  # renormalize to code units
+  rho /= rho0
+  prs /= p0
 
-
-  R1f = env.R0 + env.D01 + env.beta1*c_*t
+  if env.geometry == 'spherical':
+    rho *= (r/env.R0)**-2
+    prs *= (r/env.R0)**-2
+  return rho, vel, prs
 
 def add_weightfactors(env):
   '''
@@ -242,7 +266,7 @@ def shells_shockedvars(Ek1, u1, D01, Ek4, u4, D04, R0):
 
   return rho2, rho3, u, p, lfac21, lfac34
   
-def shells_snapshot(Ek1, u1, D01, Ek4, u4, D04, R0, t, r):
+def shells_snapshot(Ek1, u1, D01, Ek4, u4, D04, R0, t, r, geometry='cartesian'):
   '''
   Creates maps of rho, u, p from shell params and t over radii r
   '''
@@ -318,55 +342,48 @@ def shells_snapshot(Ek1, u1, D01, Ek4, u4, D04, R0, t, r):
     p[i_2]  = p2
     print("FS crossing time passed, need to implement rarefaction wave")
   
+  if geometry == 'spherical':
+    rho *= (r/R0)**-2
+    p *= (r/R0)**-2
+  
   return rho, u, p
 
-def shells_add_analytics_old(env):
+# Theoretical expectations with time
+# -----------------------------------------------------
+def get_analytical(var, t, r, env):
   '''
-  Add analytical estimates from data in the env class
+  Returns array of theoretical values
   '''
-  vars2add  = shells_phys2analytics(env.Ek1, env.u1, env.D01, env.Ek4, env.u4, env.D04)
-  names2add = ['u', 'f', 'lfac21', 'betaFS', 'tFS', 'Df2', 'Eintf2', 'Ekf2',
-    'lfac34', 'betaRS', 'tRS', 'Df3', 'Eintf3', 'Ekf3']
-  for name, value in zip(names2add, vars2add):
-    setattr(env, name, value)
-
-def shells_phys2analytics(Ek1, u1, D1, Ek4, u4, D4):
-  '''
-  Derives all relevant analytical estimates to compare to sim results
-  Returns velocity of FS and RS, respective crossing times, and
-  final state of the shells (2 and 3) at respective crossing times
-  '''
-
-  # intermediate values
-  f      = derive_proper_density_ratio(Ek1, Ek4, D1, D4, u1, u4)
-  u21    = derive_u_in1(u1, u4, f)
-  u34    = u21/np.sqrt(f)
-  lfac21 = derive_Lorentz_from_proper(u21)
-  lfac34 = derive_Lorentz_from_proper(u34)
-  lfac1  = derive_Lorentz_from_proper(u1)
-  lfac4  = derive_Lorentz_from_proper(u4)
-  beta1  = u1/lfac1
-  beta4  = u4/lfac4
-  M1     = Ek1/((lfac1-1)*c_**2)
-  M4     = Ek4/((lfac4-1)*c_**2)
-
-  # Analytical estimates
-  u      = derive_u_lab(u1, u21)
-  lfac   = derive_Lorentz_from_proper(u)
-
-  betaFS = derive_betaFS(u1, u21, u)
-  tFS    = derive_FS_crosstime(beta1, D1, betaFS)
-  D2     = derive_shellwidth_crosstime(D1, lfac1, lfac, lfac21)
-  Eint2  = derive_Eint_crosstime(M1, u, lfac21)
-  Ekf2   = derive_Ek_crosstime(M1, lfac)
-
-  betaRS = derive_betaRS(u4, u34, u)
-  tRS    = derive_RS_crosstime(beta4, D4, betaRS)
-  D3     = derive_shellwidth_crosstime(D4, lfac4, lfac, lfac34)
-  Eint3  = derive_Eint_crosstime(M4, u, lfac34)
-  Ekf3   = derive_Ek_crosstime(M4, lfac)
-
-  return u, f, lfac21, betaFS, tFS, D2, Eint2, Ekf2, lfac34, betaRS, tRS, D3, Eint3, Ekf3
+  rho, u, p = shells_snapshot_fromenv(env, r, t)
+  if var in ["rho", "u", "p"]:
+    if var == "rho": return rho
+    elif var == "u": return u
+    elif var == "p": return p
+  elif var == "vx":
+    v = derive_velocity_from_proper(u)
+    return v
+  elif var == "lfac":
+    lfac = derive_Lorentz_from_proper(u)
+    return lfac
+  elif var in ["D", "sx", "tau"]:
+    D, s, tau = prim2cons(rho, u, p)
+    if var == "D": return D
+    elif var == "sx": return s
+    elif var == "tau": return tau
+  elif var == "T":
+    T = derive_temperature(rho, p)
+    return T
+  elif var == "h":
+    h = derive_enthalpy(rho, p)
+    return h
+  elif var == "Eint":
+    eint = derive_Eint(rho, p)
+    return eint
+  elif var == "Ekin":
+    ek = derive_Ekin(rho, u)
+    return ek
+  elif var == "Emass":
+    return rho
 
 # Individual functions
 # -----------------------------------------------------

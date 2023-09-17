@@ -12,7 +12,7 @@
 #include "../../simu.h"
 
 // geometry: cartesian or spherical
-static int GEOMETRY_  = 0 ;           // 0 for cartesian, 1 for spherical
+static int GEOMETRY_  = 1 ;           // 1 for cartesian, 1 for spherical
 
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
@@ -21,22 +21,22 @@ static double Theta0  = 1.0000e-4 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 8.9427e-09 ;     // comoving density of front shell
+static double rho1 = 4.667291079080063e-15 ;     // comoving density of front shell
 static double u1   = 1e+02 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 1.9994e+07 ;
-static double D01  = 1.0000e+07 ;     // spatial extension of front shell
-static double rho4 = 2.2246e-09 ;     // comoving density of back shell
+static double p1   = 10.434578059068858 ;
+static double D01  = 29977746950.122807 ;     // spatial extension of front shell
+static double rho4 = 1.1610033862318821e-15 ;     // comoving density of back shell
 static double u4   = 2e+02 ;          // proper velocity of back shell
-static double p4   = 1.9994e+07 ;
-static double D04  = 1.0000e+07 ;     // spatial extension of back shell
+static double p4   = 10.434578059068858 ;
+static double D04  = 29978871066.45374 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 1e-3;            // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 1.0000e+10 ;
-static double rmin0   = 9.9895e+09 ; 
-static double rmax0   = 1.0011e+10 ;
+static double R_0     = 799471536841663.8 ;
+static double rmin0   = 799440059027044.0 ; 
+static double rmax0   = 799504512363308.9 ;
 static double Ncells  = 1000 ;
 
 // normalisation constants:
@@ -101,34 +101,40 @@ int Grid::initialValues(){
         c->S.prim[TR1] = 0.;
       }
     }
-  else if (GEOMETRY_ == 1){
-    double R4 = R_0 - D04;
-    double R1 = R_0 + D01;
-    if (r <= R4){
-        c->S.prim[RHO] = cont*rho4*pow(R4/R_0,-2)/rhoNorm;
+    else if (GEOMETRY_ == 1){ // spherical geometry
+      double R4 = R_0 - D04;
+      double R1 = R_0 + D01;
+      
+      if (r <= R4){
+        double rho = cont*rho4*pow(R4/R_0, -2.);
+        c->S.prim[RHO] = rho/rhoNorm;
         c->S.prim[VV1] = beta4;
         c->S.prim[PPP] = p4/pNorm;
         c->S.prim[TR1] = 0.;
       }
       if ((r >= R4) and (r <= R_0)){
-        c->S.prim[RHO] = rho4*pow(r/R_0,-2)/rhoNorm;
+        double rho = rho4*pow(r/R_0, -2.);
+        //std::cout << rho << "\n";
+        c->S.prim[RHO] = rho/rhoNorm;
         c->S.prim[VV1] = beta4;
         c->S.prim[PPP] = p4/pNorm;
         c->S.prim[TR1] = 1.;
       }
       if ((r > R_0) and (r <= R1)){
-        c->S.prim[RHO] = rho1*pow(r/R_0,-2)/rhoNorm;
+        double rho = rho1*pow(r/R_0, -2.);
+        c->S.prim[RHO] = rho/rhoNorm;
         c->S.prim[VV1] = beta1;
         c->S.prim[PPP] = p1/pNorm;
         c->S.prim[TR1] = 2.;
       }
       if (r > R_0+D01){
-        c->S.prim[RHO] = cont*rho1*pow(R1/R_0,-2)/rhoNorm;
+        double rho = cont*rho1*pow(R1/R_0, -2.);
+        c->S.prim[RHO] = rho/rhoNorm;
         c->S.prim[VV1] = beta1;
         c->S.prim[PPP] = p1/pNorm;
         c->S.prim[TR1] = 0.;
       }
-  }
+    }
   }
 
   return 0;
@@ -260,7 +266,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if ( it > 30000 ){ stop = true; }
+  if ( it > 20000 ){ stop = true; }
   //if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
 
 }

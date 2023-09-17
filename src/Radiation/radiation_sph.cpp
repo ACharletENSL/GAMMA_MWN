@@ -167,7 +167,7 @@
     if (pspec > cL->pspec) cL->pspec = pspec;
 
     // Reverse shocks
-    if (dim==MV){ return; } // turning of radial reverse shocks in boxfit setup (toggle)
+    //if (dim==MV){ return; } // turning of radial reverse shocks in boxfit setup (toggle)
     Sd = compute_Sd(SR, SL, dim, &pspec, true);
     cR->Sd = fmax(cR->Sd, Sd);
     if (pspec > cR->pspec) cR->pspec = pspec;

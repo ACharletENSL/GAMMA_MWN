@@ -18,6 +18,20 @@ def reldiff(a, b):
   '''
   return np.abs((a-b)/b)
 
+def prim2cons(rho, u, p):
+  '''
+  Primitive to conservative
+  /!\ in code units, and u is proper velocity
+  '''
+  lfac = derive_Lorentz_from_proper(u)
+  D = lfac*rho
+  h = derive_enthalpy(rho, p)
+  tau = D*h*lfac-p-D
+  s = D*h*u
+
+  return D, s, tau
+
+
 # EoS and related
 def derive_temperature(rho, p):
   '''
@@ -25,12 +39,20 @@ def derive_temperature(rho, p):
   '''
   return p/rho
 
-def derive_enthalpy(rho, p):
+def derive_enthalpy(rho, p, EoS='TM'):
   '''
   Enthalpy from density and pressure
   '''
   T = derive_temperature(rho, p)
-  gma = derive_adiab_fromT_Ryu(T)
+
+  if EoS == 'TM':
+    gma = derive_adiab_fromT_TM(T)
+  elif EoS == 'Ryu':
+    gma = derive_adiab_fromT_Ryu(T)
+  elif EoS == 'Synge':
+    gma = derive_adiab_fromT_Synge(T)
+  else:
+    gma = 4./3.
   return 1. + T*gma/(gma-1.)
 
 def derive_adiab_fromT_Ryu(T):
@@ -40,10 +62,23 @@ def derive_adiab_fromT_Ryu(T):
   a = 3*T + 1
   return (4*a+1)/(3*a)
 
-def derive_adiab_from_T_Synge(T):
+def derive_adiab_fromT_TM(T):
+  '''
+  Adiabatic index from temperature, following Taub Matthews EoS
+  '''
+  gamma_eff = (1./6.)*(8. - 3.*T + np.sqrt(4. + 9.*T*T))
+  return gamma_eff
+
+def derive_adiab_fromT_Synge(T):
   '''
   Adiabatic index from temperature, following Ryu et al 2006 EoS
   '''
+  gma = 5./3.
+  a = T/(gma-1.)
+  e_ratio = a + np.sqrt(a*a+1.)
+  gma_eff = gma - (gma-1.)/2. * (1.-1./(e_ratio**2))
+  return gma_eff
+
 
 def derive_cs(rho, p):
   '''
@@ -56,7 +91,7 @@ def derive_cs(rho, p):
 
 def derive_Eint(rho, p):
   '''
-  Internal energy from density and pressure
+  Internal energy density from density and pressure
   '''
   T = derive_temperature(rho, p)
   gma = derive_adiab_fromT_Ryu(T)
@@ -104,6 +139,13 @@ def derive_Ekin(rho, v):
   Kinetic energy from density and velocity
   '''
   lfac = derive_Lorentz(v)
+  return rho*(lfac-1)
+
+def derive_Ekin_fromproper(rho, u):
+  '''
+  Kinetic energy from density and proper velocity
+  '''
+  lfac = derive_Lorentz_from_proper(u)
   return rho*(lfac-1)
 
 # wave speed at interfaces

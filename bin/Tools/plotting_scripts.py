@@ -30,6 +30,11 @@ formatter.set_scientific(True)
 formatter.set_powerlimits((-1,1)) 
 
 nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
+var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
+  'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
+  'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
+  'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
+  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$'}
 
 # Compare theory with models
 def compare_snapwiththeory(it, key='Last'):
@@ -75,15 +80,16 @@ def snapshot_withtheory(it, key='Last'):
   env = MyEnv(physpath)
   df, t, dt = openData_withtime(key, it)
   varlist = ['rho', 'u', 'p']
-  f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6))
+  f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
 
   for var, k, ax in zip(varlist, range(3), axes):
-    title, legend = plot_snapshot_1D(var, it, key, 'CGS', ax)
+    title, legend = plot_snapshot_1D(var, it, key, 'CGS', 'CGS', ax)
     if k!=2: #only have xlabel on plot at bottom
       ax.set_xlabel('')
 
   r = axes[-1].get_lines()[-1].get_xdata()
-  rho, u, p = shells_snapshot(env.Ek1, env.u1, env.D01, env.Ek4, env.u4, env.D04, env.R0, t, r)
+  rho, u, p = shells_snapshot(env.Ek1, env.u1, env.D01, env.Ek4, env.u4, env.D04, env.R0, t, r, env.geometry)
+  #D, s, tau = prim2cons(rho, u, p)
   varsth = [rho, u, p]
   for var, ax in zip(varsth, axes):
     ax.plot(r, var, 'k')
@@ -93,7 +99,7 @@ def snapshot_withtheory(it, key='Last'):
   plt.tight_layout()
 
 
-def plot_mono(var, it, key='Last', scaletype='default', slope=False, fig=None):
+def plot_mono(var, it, key='Last', xscale='CGS', yscale='code', slope=False, fig=None):
   '''
   Plots a single var in a single figure with title, labels, etc.
   '''
@@ -103,24 +109,24 @@ def plot_mono(var, it, key='Last', scaletype='default', slope=False, fig=None):
   else:
     fig = plt.figure()
     ax = plt.gca()
-  title, legend = plot_snapshot_1D(var, it, key, scaletype, ax=None, col='Zone', slope=None)
+  title, legend = plot_snapshot_1D(var, it, key, xscale, yscale, ax, col='Zone', slope=None)
   fig.suptitle(title)
   fig.legend(legend)
   fig.tight_layout()
 
 # Several lines in one figure
-def plot_primvar(it, key='Last', scaletype=None):
+def plot_primvar(it, key='Last', xscale='CGS', yscale='code'):
   '''
   Plots the primitive variables - with lfac*v instead of v - at chosen iteration in a single figure
   '''
 
-  plot_multi(["rho", "u", "p"], it, key, scaletype)
+  plot_multi(["rho", "u", "p"], it, key, yscale)
 
-def plot_consvar(it, key='Last', scaletype=None):
+def plot_consvar(it, key='Last', xscale='CGS', yscale='code'):
   '''
   Plots the conservative variables at chosen iteration in a single figure
   '''
-  plot_multi(["D", "sx", "tau"], it, key, scaletype)
+  plot_multi(["D", "sx", "tau"], it, key, xscale, yscale)
 
 def plot_energy(it, key='Last'):
   '''
@@ -129,7 +135,7 @@ def plot_energy(it, key='Last'):
   varlist = ["Eint", "Ekin", "Emass"]
   plot_comparison(varlist, it, key, col=None)
 
-def plot_comparison(varlist, it, key='Last', scaletype=None, col=None):
+def plot_comparison(varlist, it, key='Last', xscale='CGS', yscale='code', col=None):
   '''
   Plots variables among a list in a single figure
   '''
@@ -138,14 +144,14 @@ def plot_comparison(varlist, it, key='Last', scaletype=None, col=None):
   ax = plt.gca()
 
   for var in varlist:
-    title, legend = plot_snapshot_1D(var, it, key, scaletype, ax, col, slope=None)
+    title, legend = plot_snapshot_1D(var, it, key, xscale, yscale, ax, col, slope=None)
   
   plt.suptitle(title)
   plt.legend(ax.scatter.legend_elements())
   plt.tight_layout()
 
 
-def plot_multi(varlist, it, key='Last', scaletype=None):
+def plot_multi(varlist, it, key='Last', xscale='CGS', yscale='code'):
   '''
   Plots variables among a list in a single figure with subplots
   '''
@@ -154,13 +160,14 @@ def plot_multi(varlist, it, key='Last', scaletype=None):
   f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6,2*Nk))
 
   for var, k, ax in zip(varlist, range(Nk), axes):
-    title, legend = plot_snapshot_1D(var, it, key, scaletype, ax)
+    title, legend = plot_snapshot_1D(var, it, key, xscale, yscale, ax)
     if k!=Nk-1: #only have xlabel on plot at bottom
       ax.set_xlabel('')
   
   f.suptitle(title)
   f.add_artist(legend)
   plt.tight_layout()
+
 
 def plot_timeseries(var_keys, key='Last', tscaling=None, slope=False, fig=False):
   '''
@@ -196,7 +203,7 @@ def plot_itseries(var, key='Last', fig=False):
 
 # Create plot in ax to insert in figure and generate title
 # --------------------------------------------------------------------------------------------------
-def plot_snapshot_1D(var, it, key, scaletype='default', ax=None, col='Zone', slope=None, line=True, **kwargs):
+def plot_snapshot_1D(var, it, key, xscale='CGS', yscale='code', ax=None, col='Zone', slope=None, line=True, **kwargs):
   '''
   Creates ax object to be insered in plot. Scales data
   '''
@@ -204,7 +211,7 @@ def plot_snapshot_1D(var, it, key, scaletype='default', ax=None, col='Zone', slo
   env = MyEnv(physpath)
   df, t, dt = openData_withtime(key, it)
   n = df["zone"]
-  x, z, xlabel, zlabel = get_scaledvar_snapshot(var, df, env, scaletype, slope)
+  x, z, xlabel, zlabel = get_scaledvar_snapshot(var, df, env, xscale, yscale, slope)
   
   if env.mode == 'shells':
     rc0 = env.R0
@@ -350,9 +357,9 @@ def plot_time(var, key, tscaling='t0', slope=False, ax=None, crosstimes=True, **
 
 # Get values with scaling and labels for axes
 # --------------------------------------------------------------------------------------------------
-def get_scaledvar_snapshot(var, df, env, scaletype='default', slope=None):
+def get_scaledvar_snapshot(var, df, env, xscale='CGS', yscale='code', slope=None):
   '''
-  Return x, y values and relevant labels according to chosen scaletype
+  Return x, y values and relevant labels according to chosen yscale
   Includes: code, CGS, shells
   to add: MWN_sd, MWN_SNR
   '''
@@ -390,12 +397,27 @@ def get_scaledvar_snapshot(var, df, env, scaletype='default', slope=None):
     return var_scale
 
   units = {}
-  if scaletype == 'code':
+  if xscale == 'code':
+    xlabel = '$r$ (ls)'
+    r_scale = 1.
+  elif xscale == 'CGS':
+    xlabel = '$r$ (cm)'
+    r_scale = c_
+  elif xscale == 'R0':
+    xlabel = '$r/R_0$'
+    r_scale = c_/env.R0
+  elif xscale == 'Rcd':
+    xlabel = '$r/R_{cd}$'
+    r_scale = 1./get_radius_zone(df, 2)
+  else:
+    xlabel = '$r$'
+    r_scale = 1.
+  if yscale == 'code':
     units = get_normunits('c', 'Norm')
-    r_scale, rho_scale = 1., 1.
-  elif scaletype == 'CGS':
+    rho_scale = 1.
+  elif yscale == 'CGS':
     units = units_CGS
-    r_scale, rho_scale = c_, getattr(env, env.rhoNorm)
+    rho_scale = getattr(env, env.rhoNorm)
   else:
     if env.mode == 'shells':
       sub = env.rhoNorm[3:]
@@ -404,10 +426,10 @@ def get_scaledvar_snapshot(var, df, env, scaletype='default', slope=None):
     elif env.mode == 'PWN':
       print("Implement PWN cases")
 
-  x, z   = get_variable(df, var)
-  x = x.to_numpy()*r_scale
+  x, z  = get_variable(df, var)
+  x = x*r_scale
   z = z*get_varscaling(var, rho_scale)
-  xlabel = var_exp['x'] + units['x']
+  #xlabel = var_exp['x'] + units['x']
   zlabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
   if slope:
     logx = np.log10(x)
@@ -418,11 +440,7 @@ def get_scaledvar_snapshot(var, df, env, scaletype='default', slope=None):
   return x, z, xlabel, zlabel
 
 
-var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
-  'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
-  'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
-  'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
-  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$'}
+
 def get_scaledvar_timeseries(var, key, env, tscaling='t0', slope=False):
   '''
   Return time and values for chosen variable, as well as their labels

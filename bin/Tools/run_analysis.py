@@ -16,85 +16,33 @@ from environment import MyEnv
 def get_timeseries(var, key):
 
   '''
-  Return asked variable as a function of time and generate legend handle accordingly
-  return time, var, var_legends
+  Returns dataframe with selected variables only
   '''
   run_data = open_clean_rundata(key)
   mode = run_data.attrs['mode']
   Nz = get_Nzones(key)
+  extr_vars = ['Nc', 'R', 'u', 'ShSt', 'V', 'Emass', 'Ekin', 'Eint']
+  calc_vars = {
+    "Rcd":run_get_Rcd,
+    "Rct":run_get_Rct,
+    "v":run_get_v,
+    "vcd":run_get_vcd,
+    "epsth":run_get_epsth
+  }
 
-  if var == 'v':
-    radlist = get_varlist('R', Nz, mode)
-    vellist = get_varlist('v', Nz, mode)
-    time = run_data['time'].to_numpy()
-    out = run_data['time'].copy(deep=True)
-    for rad, vel in zip(radlist, vellist):
-      r = run_data[rad].to_numpy()
-      r = gaussian_filter1d(r, sigma=2, order=0)
-      v = np.gradient(r, time)
-      vcol = pd.DataFrame({vel: v}, index=out.index)
-      out = pd.concat([out, vcol], axis='columns')
-  
-  elif var == 'vcd' and mode == 'shells':
-    radlist = get_varlist('R', Nz, mode)
-    vellist = get_varlist('v', Nz, mode)
-    vellist.remove('v_{cd}')
-    time  = run_data['time'].to_numpy()
-    out   = run_data['time'].copy(deep=True)
-    radii = run_data[radlist].to_numpy()
-    rrs   = radii[:,1] - radii[:,0]
-    rfs   = radii[:,2] - radii[:,1]
-    radii = np.array([rrs, rfs])
-    for rad, vel in zip(radii, vellist):
-      rad = gaussian_filter1d(rad, sigma=1, order=0)
-      v = np.gradient(rad, time)/c_
-      vcol = pd.DataFrame({vel: v}, index=out.index)
-      out = pd.concat([out, vcol], axis='columns')
-  
-  elif var == 'Rcd' and mode == 'shells':
-    radlist = get_varlist('R', Nz, mode)
-    time  = run_data['time'].to_numpy()
-    out   = run_data['time'].copy(deep=True)
-    radii = run_data[radlist].to_numpy()
-    rrs   = radii[:,1] - radii[:,0]
-    rfs   = radii[:,2] - radii[:,1]
-    radii = np.array([rrs, rfs]).transpose()
-    radlist.remove('R_{cd}')
-    rads  = pd.DataFrame(data=radii, columns=radlist, index=out.index)
-    out   = pd.concat([out, rads], axis='columns')
-
-  elif var == 'Rct':
-    radlist = get_varlist('R', Nz, mode)
-    time  = run_data['time'].to_numpy()
-    out   = run_data['time'].copy(deep=True)
-    radii = run_data[radlist].to_numpy()
-    for n in range(radii.shape[1]):
-      radii[:,n] = radii[:,n] - c_*time
-    rads  = pd.DataFrame(data=radii, columns=radlist, index=out.index)
-    out   = pd.concat([out, rads], axis='columns')
-  
-  elif var == 'epsth':
-    varlist = get_varlist('Eint', Nz, mode)[1:-1]
-    time  = run_data['time'].to_numpy()
-    out   = run_data['time'].copy(deep=True)
-    eints = run_data[varlist].to_numpy()
-    epsth3= eints[:,0]
-    epsth2= eints[:,1]
-    epsth = np.array([epsth3, epsth2]).transpose()
-    varlist = ['$\\epsilon_{th,3}$', '$\\epsilon_{th,2}$']
-    eps   = pd.DataFrame(data=epsth, columns=varlist, index=out.index)
-    out   = pd.concat([out, eps], axis='columns')
-
-  else:
+  if var in extr_vars:
     varlist = get_varlist(var, Nz, mode)
     varlist.insert(0, 'time')
     out = run_data[varlist].copy(deep=True)
+  elif var in calc_vars:
+    out = calc_vars[var](run_data)
+  else:
+    print("Implement function for requested variable")
+    out = run_data
   
   return out
 
-    
-  # get variable(s) asked
-  # create plot legend and return everything
+
 
 def open_clean_rundata(key):
 
@@ -207,214 +155,74 @@ def vars_header(key, dfile_path=None):
   
   return varlist
 
-def prep_header(key, dfile_path=None):
+# functions for derived variables
+def run_get_Rcd(run_data):
   '''
-  Prepare header for results file
+  Returns dataframe with distance of shock to interface
+  (shocked shells width)
   '''
-  varlist = vars_header(key, dfile_path)
-    
-  header = "it\ttime"
-  for var in varlist:
-    header += "\t" + var
-  header += "\n"
+  time = run_data['time'].to_numpy()
+  Rrs  = run_data['R_{rs}'].to_numpy()
+  Rcd  = run_data['R_{cd}'].to_numpy()
+  Rfs  = run_data['R_{fs}'].to_numpy()
+  D3   = Rcd - Rrs
+  D2   = Rfs - Rcd
+  out  = pd.DataFrame(np.array([time, D3, D2]).transpose(), columns=['time', 'D3', 'D2'], index=run_data.index)
+  return out
 
-  return header
-
-# olds
-def prep_fileheader(key, dfile_path=None):
-
+def run_get_Rct(run_data):
   '''
-  Create header for results file
+  Returns dataframe with distance of interfaces - c*t
   '''
-  header = prep_header(key, dfile_path)
+  time = run_data['time'].to_numpy()
+  Rrs  = run_data['R_{rs}'].to_numpy() - c_*time
+  Rcd  = run_data['R_{cd}'].to_numpy() - c_*time
+  Rfs  = run_data['R_{fs}'].to_numpy() - c_*time
+  out  = pd.DataFrame(np.array([time, Rrs, Rcd, Rfs]).transpose(),
+    columns=['time', 'R_{rs}', 'R_{cd}', 'R_{fs}'], index=run_data.index)
+  return out
 
-  with open(dfile_path, 'w') as f:
-    f.write(header)
-
-def resultsFile_lastit(dfile_path):
-
+def run_get_v(run_data):
   '''
-  Get the last iteration written in the results file
+  Returns dataframe of interface velocities
   '''
-  with open(dfile_path, 'rb') as f:
-    try:    # catch OSError in case of one line file
-      f.seek(-2, os.SEEK_END)
-      while f.read(1) != b'\n':
-        f.seek(-2, os.SEEK_CUR)
-      last_line = f.readline().decode()
-      last_it = int(last_line.split('\t')[0])
-    except OSError:
-      f.seek(0)
-      last_it = -1.
-  
-  return last_it
+  time = run_data['time'].to_numpy()
+  Rrs  = run_data['R_{rs}'].to_numpy()
+  Rcd  = run_data['R_{cd}'].to_numpy()
+  Rfs  = run_data['R_{fs}'].to_numpy()
+  outarr = [time]
+  for r in [Rrs, Rcd, Rfs]:
+    v = np.gradient(r, time)/c_
+    outarr.append(v)
+  out = pd.DataFrame(np.array(outarr).transpose(),
+    columns=['time', 'v_{rs}', 'v_{cd}', 'v_{fs}'], index=run_data.index)
+  return out
 
-
-def get_timeseries_old(var, key, slope=False, positive=False, itmin=0, itmax=None):
-
+def run_get_vcd(run_data):
   '''
-  Return the asked variable as function of time
+  Returns dataframe of interfaces velocities compared to the CD
+  (shocked shells growth rate)
   '''
-  plot_legend = []
-  intVars  = ['R', 'vel']
-  if var in intVars:
-    varname = {'R':'R', 'vel':'\\beta'}
-    time, res = get_radii(key, itmin, itmax)
-    Nr = res.shape[0]
-    if var != 'R':
-      res = np.gradient(res, time, axis=1)
-      if positive:
-        time, vars = return_posvalues(time, res)
-        res = np.log10(vars)
-    plot_legend = ['$' + varname[var] + '_' + sub + '$' for sub in intList[:Nr]]
-  else:
-    time, res = get_zoneIntegrated(var, key, itmin, itmax)
-    Nr = res.shape[0]
-    plot_legend = ['$' + var + '_' + sub + '$' for sub in zsubList[:Nr]]
-  
-  if slope:
-    logt = np.log10(time)
-    logvars = np.log10(res)
-    res = np.gradient(logvars, logt, axis=1)
-    new_legends = ["d$\\log(" + var_leg.replace('$', '') + ")/$d$\\log r$" for var_leg in var_legends]
-    plot_legend = new_legends
+  shellw = run_get_Rcd(run_data)
+  time   = shellw['time'].to_numpy()
+  D3     = shellw['D3'].to_numpy()
+  D2     = shellw['D2'].to_numpy()
+  outarr = [time]
+  for w in [D3, D2]:
+    dw = np.gradient(w, time)
+    outarr.append(dw)
+  out = pd.DataFrame(np.array(outarr).transpose(),
+    columns=['time', 'dD3', 'dD2'], index=run_data.index)
+  return out
 
-  return time, res, plot_legend
-
-
-def get_radii(key='Last', itmin=0, itmax=None):
-
+def run_get_epsth(run_data):
   '''
-  Returns various R(t) of z given results folder, writes them in a file
-  3 cases: no file, file but incomplete, full file
-  TBD: change incomplete case for real data comparison later
+  Returns dataframe of thermal efficiencies in the shells
+  (energy converted from kinetic to thermal)
   '''
-  dfile_path, dfile_bool = get_runfile(key)
-  its = np.array(dataList(key, itmin, itmax))
-  df  = openData_withZone(key, its[-1])
-  zone = df['zone']
-  Nz = int(zone.max())
-  fullData = True
-
-  if dfile_bool:  # if file exists, compare nb. of data lines vs data files
-    with open(dfile_path, 'r') as f:
-      nd = len(f.readlines()) - 1
-      if nd < len(its):
-        fullData = False
-  else:           # if not, create it and write the header
-    prep_fileheader(key, dfile_path)
-    dfile_bool = True
-    fullData = False
-
-  if not fullData:
-    last_it = resultsFile_lastit(dfile_path)
-    its_miss = its[its>last_it]
-    readwrite_datas(key, its_miss, dfile_path)
-    fullData = True
-
-  if dfile_bool and fullData:
-    data = np.loadtxt(dfile_path, skiprows=1).transpose()
-    time = data[1]
-    imin = its.tolist().index(itmin)
-    if itmax:
-      imax = its.tolist().index(itmax)
-    else:
-      imax = len(its)
-    run_radii = data[2:Nz+2][imin:imax]
-  
-  return time, run_radii
-
-def get_zoneIntegrated(var, key='Last', itmin=0, itmax=None):
-
-  '''
-  Returns various var as function of timegiven results folder, writes them in a file
-  3 cases: no file, file but incomplete, full file
-  TBD: change incomplete case for real data comparison later
-  '''
-
-  dfile_path, dfile_bool = get_runfile(key)
-  its = np.array(dataList(key, 0, None))
-  df  = openData_withZone(key, its[-1])
-  zone = df['zone']
-  Nz = int(zone.max())
-  its = np.array(dataList(key, itmin, itmax))
-  fullData = True
-
-  if dfile_bool:  # if file exists, compare nb. of data lines vs data files
-    with open(dfile_path, 'r') as f:
-      nd = len(f.readlines()) - 1
-      if nd < len(its):
-        fullData = False
-  else:           # if not, create it and write the header
-    prep_fileheader(key,dfile_path)
-    dfile_bool = True
-    fullData = False
-
-  if not fullData:
-    last_it = resultsFile_lastit(dfile_path)
-    its_miss = its[its>last_it]
-    readwrite_datas(key, its_miss, dfile_path)
-    fullData = True
-
-  if dfile_bool and fullData:
-    data = np.loadtxt(dfile_path, skiprows=1).transpose()
-    time = data[1]
-    imin = its.tolist().index(itmin)
-    if itmax:
-      imax = its.tolist().index(itmax)
-    else:
-      imax = len(its)
-    try:
-      Nvar = Nz*(zvarsList.index(var) +1) + 2
-    except ValueError:
-      print("Requested var doesn't exist.")
-      pass
-
-    run_var = data[Nvar:Nvar+Nz][imin:imax]
-  
-  return time, run_var
-
-def readwrite_datas(key, its, filename):
-  '''
-  Read datafiles in key, its and write results in filename, without header
-  '''
-
-  for i, it in enumerate(its):
-    df, t, dt = openData_withtime(key, it)
-    line = f"{it}\t{dt}\t"
-    radii  = df_get_radii(df)
-    Nz = len(radii)
-    Nvar = len(zvarsList)
-    zoneData = np.zeros(Nz*Nvar)
-    for n, var in enumerate(zvarsList):
-      res = df_get_zoneIntegrated(df, var)
-      zoneData[Nz*n:Nz*(n+1)] = res
-    for r_n in radii:
-      line += f"{r_n}\t"
-    for val in zoneData:
-      line += f"{val}\t"
-    line += "\n"
-    with open(filename, 'a') as f:
-      f.write(line)
-
-def return_posvalues(time, vars):
-  '''
-  Return the time and variables where all are > 0
-  Useful for interface velocity plots
-  '''
-  l = time.shape[0]
-  Nv = vars.shape[0]
-  i = 100
-  for n in range(Nv): # find which array is the most stringent on v>0 condition
-    v = vars[n][vars[n]>0.]
-    if l >= len(v):
-      i = n
-      l = len(v)
-    
-  time = time[vars[i]>0.]
-  res = np.zeros((Nv, time.shape[0]))
-  for n in range(Nv):
-    v = vars[n][vars[i]>0.]
-    res[n] = v
-  
-  return time, res
+  time = run_data['time'].to_numpy()
+  eth3 = run_data['Eint_3'].to_numpy()/run_data['Ekin_4'][0]
+  eth2 = run_data['Eint_2'].to_numpy()/run_data['Ekin_1'][0]
+  out  = pd.DataFrame(np.array(time, eth3, eth2).transpose(),
+    columns=['time', 'eth3', 'eth2'], index=run_data.index())
+  return out

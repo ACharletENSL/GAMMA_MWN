@@ -29,6 +29,15 @@ check if algo detectes very small rarefaction wave on the front/back of the shel
 -> be careful of relativistic effects (highly relativistic shells)
 -> good test case: BM profile
 
+add plots:
+- energy conservation (sum of energies) with time
+- compare time plots of energy with minu fig 5 and 9 (fig 9 especially)
+- normalize properly energy plots
+- plot energy fraction with time
+- check on how I do zone integration
+- can I take cells compression into account for analytical estimates to compare snapshots to
+- add spherical to cartesian comparison (diff linestyles)
+
 
 Todolist:
 1. Cell resolution, numerics, and plotting

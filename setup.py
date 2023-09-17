@@ -76,7 +76,7 @@ def update_simFile(filepath, env):
     }
   elif env.mode =='shells':
     physvars = {
-      'R0':env.R0, 't_start':env.t0, #'rho0':env.rho0
+      'R_0':env.R0, 't_start':env.t0, #'rho0':env.rho0
       'rho1':env.rho1, 'u1':env.u1, 'p1':env.p1, 'D01':env.D01,
       'rho4':env.rho4, 'u4':env.u4, 'p4':env.p4, 'D04':env.D04,
       'rmin0':(env.R0 - 1.05*env.D04),
@@ -91,6 +91,8 @@ def update_simFile(filepath, env):
       if line.startswith('static'):
         l = line.split()
         var = l[2]
+        if var == 'GEOMETRY_':
+          line = line.replace(l[4], '1' if env.geometry=='spherical' else '0')
         if var in vars2update:
           if var in ['lfacwind', 'u1', 'u4']:
             line = line.replace(l[4], f'{vars2update[l[2]]:.0e}')
@@ -100,10 +102,8 @@ def update_simFile(filepath, env):
             line = line.replace(l[4], f'{int(vars2update[l[2]]):d}')
           elif var == 'rhoNorm':
             line = line.replace(l[4], env.rhoNorm)
-          elif var == 'geometry':
-            line = line.replace(l[4], 1 if env.geometry=='spherical' else 0)
           else:
-            line = line.replace(l[4], f'{vars2update[l[2]]:.4e}')
+            line = line.replace(l[4], f'{vars2update[l[2]]}')
       if 'if ( it >' in line:
         l = line.split()
         line = line.replace(l[4], f'{int(env.itmax):d}')
