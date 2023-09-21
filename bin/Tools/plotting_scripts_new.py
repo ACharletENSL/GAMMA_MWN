@@ -31,37 +31,87 @@ formatter.set_powerlimits((-1,1))
 
 nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
 var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
+  'f':"$n'_3/n'_2$", 'rho':"n'",
   'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
-  'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
-  'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
+  'ShSt ratio':'$(\\Gamma_{34}-1)/(\\Gamma_{21}-1)$',
+  'M':'$M$ (g)', 'Msh':'$M$ (g)', 'Ek':'$E_k$ (erg)', 'Ei':'$E_{int}$ (erg)',
+  'E':'$E$ (erg)', 'Etot':'$E$ (erg)', 'Esh':'$E$ (erg)',
+  'Rct':'$(r - ct)/R_0$ (cm)', 'D':'$\\Delta$ (cm)', 'u_i':'$\\gamma\\beta$',
   'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$'}
 #var_legends = {}
 
 # Time plots
 # --------------------------------------------------------------------------------------------------
-def plot_timeseries(var, key='Last',
-  tscaling='t0', analytics=True, crosstimes=True,
-  logt=False, logy=True, **kwargs):
+
+def compare_runs(var, keylist, tscaling='t0',
+    logt=False, logy=False, **kwargs):
+  '''
+  Compare time plots for different runs
+  '''
+  lslist  = ['-', '--', '-.', ':']
+  names   = []
+  leglist = []
+  dummy_lst = []
+  fig = plt.figure()
+  ax = plt.gca()
+  
+  for k, key in enumerate(keylist):
+    name, legend = ax_timeseries(var, key, ax, tscaling=tscaling, 
+      yscaling=False, analytics=False, crosstimes=False,
+      logt=logt, logy=logy, ls=lslist[k]) 
+    names.append(name)
+    leglist.append(legend)
+    dummy_lst.append(plt.plot([],[],c='k',ls=lslist[k])[0])
+  leg = leglist[0]
+  legend1 = plt.legend(leg[0], leg[1])
+  plt.legend(dummy_lst, names, bbox_to_anchor=(1.0, 1.02),
+    loc='lower right', borderaxespad=0., ncol=len(names))
+  ax.add_artist(legend1)
+
+def ax_timeseries(var, key='Last', ax_in=None,
+  tscaling='t0', yscaling=False,
+  analytics=True, crosstimes=True, reldiff=False,
+  logt=False, logy=False, **kwargs):
   '''
   Creates time series plot. time scaling options: None (s), t0, it
   No theoretical values in it plotting mode
+  Add scaling to y values for better runs comparison -> which scalings?
   '''
+  
+  if ax_in is None:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+  
   env  = MyEnv(get_physfile(key))
+  if env.geometry != 'cartesian':
+    crosstimes = False
   theoretical = {
     "u":[[env.u],['$u_{th}$']],
     "ShSt":[[env.lfac34-1., env.lfac21-1.],
       ['$\\Gamma_{34}-1$', '$\\Gamma_{21}-1$']],
+    "ShSt ratio":[[(env.lfac34-1.)/(env.lfac21-1.)], [""]],
     "v":[[env.betaRS, env.betaFS],
       ['$\\beta_{RS}$', '$\\beta_{FS}$']],
     "vcd":[[env.beta-env.betaRS, env.betaFS-env.beta],
-      ['$\\beta_{CD}-\\beta_{RS}$', '$\\beta_{FS}-\\beta_{CD}$']]
+      ['$\\beta_{CD}-\\beta_{RS}$', '$\\beta_{FS}-\\beta_{CD}$']],
+    "rho":[[env.rho3, env.rho2], ["$n'_3$", "$n'_2$"]],
+    "f":[[env.rho3/env.rho2], [""]]
   }
-
+  if var not in theoretical:
+    reldiff = False
+  if reldiff:
+    analytics = False
+    #logy = True
   
   data = get_timeseries(var, key)
+  if var == 'Nc':
+    analytics = False
+  if analytics and (var not in theoretical):
+    expec_vals = time_analytical(var, data['time'].to_numpy(), env)
+    dummy_lst = [plt.plot([],[],c='k',ls='-')[0], plt.plot([],[],c='k',ls=':')[0]]
   title = env.runname
-  fig = plt.figure()
-  ax = plt.gca()
 
   if tscaling == 'it':
     t = data.index
@@ -78,29 +128,43 @@ def plot_timeseries(var, key='Last',
     tlabel = '$t_{sim}$ (s)'
     tRS = env.tRS
     tFS = env.tFS
-
   ax.set_xlabel(tlabel)
+
   ylabel = var_label[var]
-  ax.set_ylabel(ylabel)
   varlist = data.keys()[1:]
+  yscale = 1.
+  if var.startswith('E'):
+    yscaling = True
+    yscale = (env.Ek4 + env.Ek1)/2.
+    ylabel = '$E/E_0$'
+  if reldiff:
+    ylabel = '$(X - X_{th})/X_{th}$'
+  ax.set_ylabel(ylabel)
   for n, varname in enumerate(varlist):
-    legend = '$' + varname + '$'
-    ax.plot(t[1:], data[varname][1:], c=plt.cm.Paired(n), label=legend, **kwargs)
+    varlabel = "$" + varname + "$"
+    y = data[varname].multiply(1./yscale)
+    if reldiff:
+      expected = theoretical[var][0][n]
+      y = derive_reldiff(y, expected)
+    ax.plot(t[1:], y[1:], c=plt.cm.Paired(n), label=varlabel, **kwargs)
     if analytics:
-      if var in []:
-        exp_val = get_analytical(varname, t, env)
-        ax.plot(t[1:], exp_val[1:], c=plt.cm.Paired(n), ls=':', lw=.8)
-      elif var in theoretical:
+      if var in theoretical:
         expec = theoretical[var]
         for val, name in zip(expec[0], expec[1]):
           ax.axhline(val, color='k', ls='--', lw=.6)
           ax.text(1.02, val, name, color='k', transform=ax.get_yaxis_transform(),
             ha='left', va='center')
+      else:
+        ax.plot(t[1:], expec_vals[n][1:]/yscale, c='k', ls=':', lw=.8)
+        th_legend = ax.legend(dummy_lst, ['data', 'analytical'], fontsize=11)
 
   if logt:
     ax.set_xscaling('log')
   if logy:
-    ax.set_yscale('log')
+    if reldiff:
+      ax.set_yscale('symlog')
+    else:
+      ax.set_yscale('log')
 
   if crosstimes:
     ax.axvline(tRS, color='r')
@@ -110,50 +174,68 @@ def plot_timeseries(var, key='Last',
     ax.text(tFS, 1.05, '$t_{FS}$', color='r', transform=ax.get_xaxis_transform(),
       ha='center', va='top')
   
-  plt.legend()
-  fig.suptitle(title)
+  if ax_in is None:
+    if len(varlist)>1:
+      ax.legend(bbox_to_anchor=(1.02, 1.0), loc='upper left', borderaxespad=0.)
+    elif reldiff:
+      ax.legend(bbox_to_anchor=(0., 1.01), loc='lower left', borderaxespad=0.)
+    if analytics and (var not in theoretical):
+      ax.add_artist(th_legend)
+    plt.title(title)
+    plt.tight_layout()
+  else:
+    ax.legend()
+    legend = ax.get_legend_handles_labels()
+    ax.legend('', frameon=False)
+    return title, legend
   
   
 
 
 # Snapshot plots
 # --------------------------------------------------------------------------------------------------
-def default_comparison(it, key='Last'):
+def prim_snapshot(it, key='Last', theory=False):
   f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
   varlist = ['rho', 'u', 'p']
+  #scatlist= []
   for var, k, ax in zip(varlist, range(3), axes):
-    title, scatter = ax_snapshot(var, it, key, theory=True, ax=ax)
+    title, scatter = ax_snapshot(var, it, key, theory, ax_in=ax)
+    #scatlist.append(scatter)
     if k != 2: ax.set_xlabel('')
   
   f.suptitle(title)
+  #scatter = scatlist[1]
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
 
 
-def ax_snapshot(var, it, key='Last', theory=False, ax=None,
+def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
     logx=False, logy=True, xscaling='R0', yscaling='code', **kwargs):
   '''
   Create line plot on given ax of a matplotlib figure
   /!\ find an updated way to normalize all variables properly with units
   '''
-  if ax is None:
+  if ax_in is None:
     plt.figure()
     ax = plt.gca()
+    plt.suptitle(f'it {it}')
+  else:
+    ax=ax_in
   
   # Legends and labels
   var_exp = {
   "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$",
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
-  "trac":"tracer", "Sd":"", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
+  "trac":"tracer", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
-  "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r"
+  "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r"
   }
   units_CGS  = {
   "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
   "D":"", "sx":"", "tau":"", "trac":"", "Sd":"", "gmin":"", "gmax":"",
   "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)", "res":"",
-  "Eint":" (erg cm$^{-3}$)", "Ekin":" (erg cm$^{-3}$)", "Emass":" (erg cm$^{-3}$)"
+  "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "M":" (g)"
   }
-  auth_theory = ["rho", "vx", "u", "p", "D", "sx", "tau", "T", "h", "lfac", "Ekin", "Eint", "Emass"]
+  auth_theory = ["rho", "vx", "u", "p", "D", "sx", "tau", "T", "h", "lfac", "Ek", "Ei", "M"]
   nonlog_var = ['u', 'trac', 'Sd', 'gmin', 'gmax', 'zone']
   if var not in auth_theory:
     theory = False
@@ -161,7 +243,7 @@ def ax_snapshot(var, it, key='Last', theory=False, ax=None,
     logy = False
   def get_normunits(xnormstr, rhonormsub):
     rhonormsub  = '{' + rhonormsub +'}'
-    CGS2norm = {" (s)":" (s)",
+    CGS2norm = {" (s)":" (s)", " (g)":" (g)",
     " (cm)":" (ls)" if xnormstr == 'c' else "$/"+xnormstr+"$", " (g cm$^{-3}$)":f"$/\\rho_{rhonormsub}$",
     " (Ba)":f"$/\\rho_{rhonormsub}c^2$", " (erg cm$^{-3}$)":f"$/\\rho_{rhonormsub}c^2$"}
     return {key:(CGS2norm[value] if value else "") for (key,value) in units_CGS.items()}
@@ -229,9 +311,53 @@ def ax_snapshot(var, it, key='Last', theory=False, ax=None,
     ax.set_xscale('log')
   if logy:
     ax.set_yscale('log')
+  
 
   return title, scatter
 
+# basic testing functions
+# --------------------------------------------------------------------------------------------------
+def test_primvar(it, key='Last'):
+  df = openData(key, it)
+  df_plot_primvar(df)
+  df_plot_filt(df)
+
+def df_plot_primvar(df):
+  rho, u, p = df_get_primvar(df)
+  plt.figure()
+  plt.plot(rho/rho.max(), label='$\\rho/\\rho_{max}$')
+  plt.plot(u/u.max(), label='$u/u_{max}$')
+  plt.plot(p/p.max(), label='$p/p_{max}$')
+  plt.legend()
+
+def df_plot_filt(df, sigma=3):
+  dGrho, dGu, dGp = df_get_gaussfprim(df, sigma)
+  plt.plot(dGrho/np.abs(dGrho).max(), label='$\\nabla \\tilde{\\rho}$')
+  plt.plot(dGu/np.abs(dGu).max(), label='$\\nabla \\tilde{u}$')
+  plt.plot(dGp/np.abs(dGp).max(), label='$\\nabla \\tilde{p}$')
+  plt.legend()
+
+def df_get_primvar(df):
+  rho = df['rho'].to_numpy()
+  u   = df_get_u(df)
+  p   = df['p'].to_numpy()
+  return rho, u, p
+
+def df_get_gaussfprim(df, sigma=3):
+  rho, u, p = df_get_primvar(df)
+  dGrho = step_gaussfilter(rho, sigma)
+  dGu   = step_gaussfilter(u, sigma)
+  dGp   = step_gaussfilter(p, sigma)
+  return dGrho, dGu, dGp
+
+def step_gaussfilter(arr, sigma=3):
+  '''
+  Gaussian filtering part of the steps detection
+  '''
+  arr /= arr.max()
+  smth_arr = gaussian_filter1d(arr, sigma, order=0)
+  d = np.gradient(smth_arr)
+  return d
 
 # useful formatting functions
 # --------------------------------------------------------------------------------------------------

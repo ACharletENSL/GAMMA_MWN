@@ -9,6 +9,7 @@ Update the setup in the relevant Initial/ file by reading the phys_inputs file
 # --------------------------------------------------------------------------------------------------
 import subprocess
 from pathlib import Path
+import os
 import numpy as np
 import sys
 sys.path.insert(1, 'bin/Tools/')
@@ -20,20 +21,48 @@ def main():
   # update .cpp file and copies phys_input.ini in the results folder
   # to come: add file check and automatic moving results in new folder
   env = MyEnv('./phys_input.ini')
-  makefile  = './Makefile'
+  
   if env.mode == 'shells':
-    simFile = Initial_path + '/Shells/Shells.cpp'
+    simfile = Initial_path + '/Shells/Shells.cpp'
   elif mode == 'MWN':
-    simFile = Initial_path + '/MWN/MWN1D_tests.cpp'
-  update_simFile(simFile, env)
-  update_Makefile(makefile, env)
+    simfile = Initial_path + '/MWN/MWN1D_tests.cpp'
+  update_simFile(simfile, env)
+  update_Makefile(env)
+  update_envFile(env)
   subprocess.call("cp -f ./phys_input.ini ./results/Last/", shell=True)
   #run_name = get_runName("./phys_input.ini")
 
-def update_Makefile(filepath, env):
+def update_envFile(env):
+  '''
+  Update environment file to go with geometry
+  we found shock strength threshold was to be changed between cartesian and spherical
+  '''
+  filepath = os.getcwd() + '/src/environment.h'
+  ch_sh = 0.05
+  if env.geometry == 'cartesian':
+    chi_sh = 0.1
+  elif env.geometry == 'spherical':
+    chi_sh = 0.05
+  
+  out_lines = []
+  with open(filepath, 'r') as f:
+    inFile = f.read().splitlines()
+    # copy file line by line with updated values where needed
+    for line in inFile:
+      if line.startswith('#define'):
+        l = line.split()
+        if l[1] == 'DETECT_SHOCK_THRESHOLD_':
+          line = line.replace(l[2], str(chi_sh))
+      out_lines.append(line)
+  
+  with open(filepath, 'w') as outf:
+    outf.writelines(f'{s}\n' for s in out_lines)
+
+def update_Makefile(env):
   '''
   Update Makefile with given parameters (especially geometry)
   '''
+  filepath = './Makefile'
   geometry = env.geometry
   mode = env.mode
   compile_cart = {
@@ -43,8 +72,8 @@ def update_Makefile(filepath, env):
     'GEOMETRY':'spherical1D', 'HYDRO':'rel_sph', 'RADIATION':'radiation_sph'
   }
   compile_options = {'cartesian':compile_cart, 'spherical':compile_sph}
-  out_lines = []
 
+  out_lines = []
   with open(filepath, 'r') as inf:
     inFile = inf.read().splitlines()
     # copy file line by line with updated values where needed

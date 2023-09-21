@@ -12,11 +12,11 @@ import numpy as np
 
 # Functions
 # --------------------------------------------------------------------------------------------------
-def reldiff(a, b):
+def derive_reldiff(a, b):
   '''
   Relative difference
   '''
-  return np.abs((a-b)/b)
+  return (a-b)/b
 
 def prim2cons(rho, u, p):
   '''
@@ -79,8 +79,7 @@ def derive_adiab_fromT_Synge(T):
   gma_eff = gma - (gma-1.)/2. * (1.-1./(e_ratio**2))
   return gma_eff
 
-
-def derive_cs(rho, p):
+def derive_cs(rho, p, EoS='TM'):
   '''
   Sound speed
   '''
@@ -88,14 +87,29 @@ def derive_cs(rho, p):
   c2 = T*(3*T+2)*(18*T**2+24*T+5) / (3*(6*T**2+4*T+1)*(9*T**2+12*T+2))
   return np.sqrt(c2)
 
-
-def derive_Eint(rho, p):
+def derive_cs_fromT(T, EoS='TM'):
   '''
-  Internal energy density from density and pressure
+  Sound speed from relativistic temperature
+  '''
+  if EoS=='TM':
+    a = np.sqrt(9*T**2+4)
+    num = 18*T**2 + 10*a
+    denom = (15*T+3*a)*(3*T+a)
+    cs2 = num/denom
+  else:
+    print('Implement this EoS')
+    cs2 = 1./3.
+  return np.sqrt(cs2)
+
+def derive_Eint(rho, v, p):
+  '''
+  Internal energy density in lab frame
   '''
   T = derive_temperature(rho, p)
-  gma = derive_adiab_fromT_Ryu(T)
-  return p/(gma-1.)
+  lfac = derive_Lorentz(v)
+  gma  = derive_adiab_fromT_TM(T)
+  eint = p/(gma-1.)  # in comoving frame
+  return eint*lfac**2*(1+v**2*(gma-1.))
 
 # Velocity and related
 def derive_Lorentz(v):
@@ -136,17 +150,17 @@ def derive_velocity_from_proper(u):
 
 def derive_Ekin(rho, v):
   '''
-  Kinetic energy from density and velocity
+  Kinetic energy in lab frame from density and velocity
   '''
   lfac = derive_Lorentz(v)
-  return rho*(lfac-1)
+  return (lfac-1)*lfac*rho
 
 def derive_Ekin_fromproper(rho, u):
   '''
-  Kinetic energy from density and proper velocity
+  Kinetic energy in lab frame from density and proper velocity
   '''
   lfac = derive_Lorentz_from_proper(u)
-  return rho*(lfac-1)
+  return rho*(lfac-1)*lfac
 
 # wave speed at interfaces
 def waveSpeedEstimates(SL, SR):

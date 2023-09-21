@@ -80,8 +80,8 @@ def shells_add_analytics(env):
   env.lfac4  = derive_Lorentz_from_proper(env.u4)
   env.beta1  = env.u1/env.lfac1
   env.beta4  = env.u4/env.lfac4
-  M1     = env.Ek1/((env.lfac1-1)*c_**2)
-  M4     = env.Ek4/((env.lfac4-1)*c_**2)
+  env.M1     = env.Ek1/((env.lfac1-1)*c_**2)
+  env.M4     = env.Ek4/((env.lfac4-1)*c_**2)
 
   # Analytical estimates
   env.u    = derive_u_lab(env.u1, u21)
@@ -95,25 +95,21 @@ def shells_add_analytics(env):
   env.betaFS = derive_betaFS(env.u1, u21, env.u)
   env.tFS    = derive_FS_crosstime(env.beta1, env.D01, env.betaFS)
   env.D2f    = derive_shellwidth_crosstime(env.D01, env.lfac1, env.lfac, env.lfac21)
-  env.Ei2f   = derive_Eint_crosstime(M1, env.u, env.lfac21)
-  env.Ek2f   = derive_Ek_crosstime(M1, env.lfac)
+  env.Ei2f   = derive_Eint_crosstime(env.M1, env.u, env.lfac21)
+  env.Ek2f   = derive_Ek_crosstime(env.M1, env.lfac)
 
   env.betaRS = derive_betaRS(env.u4, u34, env.u)
   env.tRS    = derive_RS_crosstime(env.beta4, env.D04, env.betaRS)
   env.D3f    = derive_shellwidth_crosstime(env.D04, env.lfac4, env.lfac, env.lfac34)
-  env.Ei3f   = derive_Eint_crosstime(M4, env.u, env.lfac34)
-  env.Ek3f   = derive_Ek_crosstime(M4, env.lfac)
+  env.Ei3f   = derive_Eint_crosstime(env.M4, env.u, env.lfac34)
+  env.Ek3f   = derive_Ek_crosstime(env.M4, env.lfac)
 
 
   # rarefaction waves
   T2     = env.p/(env.rho2*c_**2)
-  num    = (3*T2**2 + 5.*T2*np.sqrt(T2**2+(4./9.)))
-  denom  = (2. + 12*T2**2 + 12*T2*np.sqrt(T2**2+(4./9.)))
-  betas2 = np.sqrt(num/denom)
+  betas2 = derive_cs_fromT(T2)
   T3     = env.p/(env.rho3*c_**2)
-  num    = (3*T3**2 + 5.*T3*np.sqrt(T3**2+(4./9.)))
-  denom  = (2. + 12*T3**2 + 12*T3*np.sqrt(T3**2+(4./9.)))
-  betas3 = np.sqrt(num/denom)
+  betas3 = derive_cs_fromT(T3)
   env.betaRFm2 = (env.beta-betas2)/(1-env.beta*betas2)
   env.betaRFp2 = (env.beta+betas2)/(1+env.beta*betas2)
   env.betaRFm3 = (env.beta-betas3)/(1-env.beta*betas3)
@@ -126,7 +122,7 @@ def shells_add_analytics(env):
 
   # thermal efficiencies
   add_weightfactors(env)
-  
+ 
 
 def shells_snapshot_fromenv(env, r, t):
   '''
@@ -141,11 +137,7 @@ def shells_snapshot_fromenv(env, r, t):
   rho0 = getattr(env, env.rhoNorm)
   p0   = rho0*c_**2
 
-  Rcd = env.R0 + env.beta*c_*t
-  R4  = env.R0 - env.D04 + env.beta4*c_*t
-  R1  = env.R0 + env.D01 + env.beta1*c_*t
-  Rfs = env.R0 + env.betaFS*c_*t
-  Rrs = env.R0 + env.betaRS*c_*t
+  R4, Rrs, Rcd, Rfs, R1 = derive_radii_withtime(env, t)
 
   if R4 < Rrs:
     i_4 = np.argwhere((r>=R4) & (r<Rrs))[:,0]
@@ -156,8 +148,7 @@ def shells_snapshot_fromenv(env, r, t):
     vel[i_3] = env.u
     prs[i_3] = env.p
   else:
-    D3f = derive_shellwidth_crosstime(env.D04, env.lfac4, env.lfac, env.lfac34)
-    Rrs = Rcd - D3f
+    Rrs = Rcd - env.D3f
     i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
     rho[i_3] = env.rho3
     vel[i_3] = env.u
@@ -173,8 +164,7 @@ def shells_snapshot_fromenv(env, r, t):
     vel[i_2] = env.u
     prs[i_2] = env.p
   else:
-    D2f = derive_shellwidth_crosstime(env.D01, env.lfac1, env.lfac, env.lfac21)
-    Rfs = Rcd + D2f
+    Rfs = Rcd + env.D2f
     i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
     rho[i_2] = env.rho2
     vel[i_2] = env.u
@@ -235,121 +225,115 @@ def get_rfscenario(env):
 
   return case
 
-
-
-
-def shells_shockedvars(Ek1, u1, D01, Ek4, u4, D04, R0):
+# time estimates
+def derive_masses_withtime(env, t):
   '''
-  Returns comoving density, proper velocity and pressure in shocked regions
+  Return the masses for each shell with time
   '''
-  # unshocked shells
-  lfac1 = derive_Lorentz_from_proper(u1)
-  beta1 = u1/lfac1
-  lfac4 = derive_Lorentz_from_proper(u4)
-  beta4 = u4/lfac4
-  V1c2  = 4.*pi_*R0**2*D01*c_**2
-  rho1  = (Ek1/(lfac1-1))/(V1c2*lfac1)
-  V4c2  = 4.*pi_*R0**2*D04*c_**2
-  rho4  = (Ek4/(lfac4-1))/(V4c2*lfac4)
+  M1 = np.where(t<=env.tFS, env.M1 * (1. - t/env.tFS), 0.)
+  M2 = np.where(t<=env.tFS, env.M1 * (t/env.tFS), env.M1)
+  M3 = np.where(t<=env.tRS, env.M4 * (t/env.tRS), env.M4)
+  M4 = np.where(t<=env.tRS, env.M4 * (1. - t/env.tRS), 0.)
+  return M4, M3, M2, M1
 
-  # shocked shells
-  f      = derive_proper_density_ratio(Ek1, Ek4, D01, D04, u1, u4)
-  u21    = derive_u_in1(u1, u4, f)
-  lfac21 = derive_Lorentz_from_proper(u21)
-  u      = derive_u_lab(u1, u21)
-  lfac   = derive_Lorentz_from_proper(u)
-  rho2   = 4.*lfac21*rho1
-  p      = (4./3.) * u21**2 * rho1 * c_**2
-  u34    = u21/np.sqrt(f)
-  lfac34 = derive_Lorentz_from_proper(u34)
-  rho3   = 4.*lfac34*rho4
-
-  return rho2, rho3, u, p, lfac21, lfac34
-  
-def shells_snapshot(Ek1, u1, D01, Ek4, u4, D04, R0, t, r, geometry='cartesian'):
+def derive_Eint_withtime(env, t):
   '''
-  Creates maps of rho, u, p from shell params and t over radii r
+  Return internal energy for each shell with time
   '''
+  E1 = 0. * t
+  E2 = np.where(t<=env.tFS, env.Ei2f * (t/env.tFS), env.Ei2f)
+  E3 = np.where(t<=env.tRS, env.Ei3f * (t/env.tRS), env.Ei3f)
+  E4 = 0. * t
+  return E4, E3, E2, E1
 
-  # unshocked shells
-  lfac1 = derive_Lorentz_from_proper(u1)
-  beta1 = u1/lfac1
-  lfac4 = derive_Lorentz_from_proper(u4)
-  beta4 = u4/lfac4
-  V1c2  = 4.*pi_*R0**2*D01*c_**2
-  rho1  = (Ek1/(lfac1-1))/(V1c2*lfac1)
-  V4c2  = 4.*pi_*R0**2*D04*c_**2
-  rho4  = (Ek4/(lfac4-1))/(V4c2*lfac4)
+def derive_Ekin_withtime(env, t):
+  '''
+  Return kinetic energy for each shell with time
+  '''
+  E1 = np.where(t<=env.tFS, env.Ek1 * (1. - t/env.tFS), 0.)
+  E2 = np.where(t<=env.tFS, env.Ek2f * (t/env.tFS), env.Ek2f)
+  E3 = np.where(t<=env.tRS, env.Ek3f * (t/env.tRS), env.Ek3f)
+  E4 = np.where(t<=env.tRS, env.Ek4 * (1. - t/env.tRS), 0.)
+  return E4, E3, E2, E1
 
-  # shocked shells
-  f      = derive_proper_density_ratio(Ek1, Ek4, D01, D04, u1, u4)
-  u21    = derive_u_in1(u1, u4, f)
-  lfac21 = derive_Lorentz_from_proper(u21)
-  u2     = derive_u_lab(u1, u21)
-  lfac   = derive_Lorentz_from_proper(u2)
-  rho2   = 4.*lfac21*rho1
-  p2     = (4./3.) * u21**2 * rho1 * c_**2
-  u34    = u21/np.sqrt(f)
-  lfac34 = derive_Lorentz_from_proper(u34)
-  rho3   = 4.*lfac34*rho4
-  
-  # radii
-  beta   = derive_velocity_from_proper(u2)
-  betaFS = derive_betaFS(u1, u21, u2)
-  betaRS = derive_betaRS(u4, u34, u2)
-  Rcd  = R0 + beta*c_*t
-  R4   = R0 - D04 + beta4*c_*t
-  R1   = R0 + D01 + beta1*c_*t
-  Rfs  = R0 + betaFS*c_*t
-  Rrs  = R0 + betaRS*c_*t
+def derive_shellwidth_withtime(env, t):
+  '''
+  Return shell width for each shell with time
+  '''
+  D1 = np.where(t<=env.tFS, env.D01 * (1. - t/env.tFS), 0.)
+  D2 = np.where(t<=env.tFS, env.D2f * (t/env.tFS), env.D2f)
+  D3 = np.where(t<=env.tRS, env.D3f * (t/env.tRS), env.D3f)
+  D4 = np.where(t<=env.tRS, env.D04 * (1. - t/env.tRS), 0.)
+  return D4, D3, D2, D1
 
-  rho = np.zeros(r.shape)
-  u   = np.zeros(r.shape)
-  p   = np.zeros(r.shape)
+def derive_radii_withtime(env, t):
+  '''
+  Returns expected radii for each interface with time
+  '''
+  Rcd = env.R0 + env.beta*c_*t
+  R4  = env.R0 - env.D04 + env.beta4*c_*t
+  R1  = env.R0 + env.D01 + env.beta1*c_*t
+  Rfs = env.R0 + env.betaFS*c_*t
+  Rrs = env.R0 + env.betaRS*c_*t
+  return R4, Rrs, Rcd, Rfs, R1
 
-  #print(f"{R4}, {Rrs}, {Rcd}, {Rfs}, {R1}")
-  if R4 < Rrs:
-    i_4 = np.argwhere((r>=R4) & (r<Rrs))[:,0]
-    rho[i_4] = rho4
-    u[i_4]   = u4
-    i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
-    rho[i_3] = rho3
-    u[i_3]   = u2
-    p[i_3]   = p2
-  else:
-    D3f = derive_shellwidth_crosstime(D04, lfac4, lfac, lfac34)
-    Rrs = Rcd - D3f
-    i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
-    rho[i_3] = rho3
-    u[i_3]   = u2
-    p[i_3]   = p2
-    print("RS crossing time passed, need to implement rarefaction wave")
-  
-  if R1 > Rfs:
-    i_1 = np.argwhere((r>Rfs) & (r<=R1))[:,0]
-    rho[i_1] = rho1
-    u[i_1]   = u1
-    i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
-    rho[i_2] = rho2
-    u[i_2]   = u2
-    p[i_2]  = p2
-  else:
-    D2f = derive_shellwidth_crosstime(D01, lfac1, lfac, lfac21)
-    Rfs = Rcd + D2f
-    i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
-    rho[i_2] = rho2
-    u[i_2]   = u2
-    p[i_2]  = p2
-    print("FS crossing time passed, need to implement rarefaction wave")
-  
-  if geometry == 'spherical':
-    rho *= (r/R0)**-2
-    p *= (r/R0)**-2
-  
-  return rho, u, p
 
 # Theoretical expectations with time
 # -----------------------------------------------------
+def time_analytical(varkey, t, env):
+  '''
+  Returns time series of asked variable
+  follows same rules as run_analysis:get_timeseries
+  '''
+  if varkey == 'R':
+    return derive_radii_withtime(env, t)
+  elif varkey == 'Rct':
+    return np.array(derive_radii_withtime(env, t))-c_*t
+  elif varkey == 'D':
+    return derive_shellwidth_withtime(env, t)
+  elif varkey == 'v':
+    radii = derive_radii_withtime(env, t)
+    vel = np.gradient(radii, t, axis=1)
+    return vel
+  elif varkey == 'u_i':
+    radii = derive_radii_withtime(env, t)
+    vel = np.gradient(radii, t, axis=1)
+    u = derive_proper(vel)
+    return u
+  elif varkey == 'V':
+    if env.geometry == 'spherical':
+      R4, Rrs, Rcd, Rfs, R1 = derive_radii_withtime(env, t)
+      V4 = (4./3.)*pi_*(Rrs**3 - R4**3)
+      V3 = (4./3.)*pi_*(Rcd**3 - Rrs**3)
+      V2 = (4./3.)*pi_*(Rfs**3 - Rcd**3)
+      V1 = (4./3.)*pi_*(R1**3 - Rfs**3)
+      return V4, V3, V2, V1
+    elif env.geometry == 'cartesian':
+      D4, D3, D2, D1 = np.array(derive_shellwidth_withtime(env, t))*(4.*pi_*env.R0**2)
+      return V4, V3, V2, V1
+  elif varkey == 'M':
+    return derive_masses_withtime(env, t)
+  elif varkey == 'Msh':
+    M4, M3, M2, M1 = derive_masses_withtime(env, t)
+    return M4+M3, M1+M2
+  elif varkey == 'Ek':
+    return derive_Ekin_withtime(env, t)
+  elif varkey == 'Ei':
+    return derive_Eint_withtime(env, t)
+  elif varkey == 'E':
+    E4, E3, E2, E1 = np.array(derive_Ekin_withtime(env, t)) + np.array(derive_Eint_withtime(env, t))
+    return E4, E3, E2, E1
+  elif varkey == 'Esh':
+    E4, E3, E2, E1 = np.array(derive_Ekin_withtime(env, t)) + np.array(derive_Eint_withtime(env, t))
+    return E4+E3, E1+E2
+  elif varkey == 'Etot':
+    E4, E3, E2, E1 = np.array(derive_Ekin_withtime(env, t)) + np.array(derive_Eint_withtime(env, t))
+    return E4+E3+E2+E1
+  elif varkey == 'epsth':
+    Ei4, Ei3, Ei2, Ei1 = derive_Eint_withtime(env, t)
+    return Ei3/env.Ek4, Ei2/env.Ek1
+
+
 def get_analytical(var, t, r, env):
   '''
   Returns array of theoretical values
@@ -497,26 +481,5 @@ def derive_shellwidth_crosstime(D0, lfac0, lfac, lfacrel):
   '''
   return (D0/(4*lfacrel))*(lfac0/lfac)
 
-# a_u = u4/u1 = 2                         # proper velocity contrast
-# eta = t_on1/t_on4 = 1                   # activity timescale ratio
-# chi = D1_0/D4_0 = eta*beta1/beta4       # initial widths ratio
-# f = np4/np1 = u1*(G1-1) / (u4*(G4-1))   # proper density contrast
-# G41 = G1*G4-u1*u4                       # relative Lorentz factor between 1 and 4
-# u21 = u31 = u41 * np.sqrt( (2*f**(3/2)*G41 - f*(1+f)) / (2*f*(u41**2+G41**2) - (1+f**2)))
-## proper speed of the shocked fluid relative to frame 1
-# u = G21*G1*(beta1+beta21)               # proper speed of shocked fluid in the lab frame
-# u34 = f**(-1/2) * u21                   # proper speed of shocked fluid relative to frame 4
-# betaFS = ( ((1/(4.*G21))*(u1/G) - beta) / ( (1/(4*G21))*(G1/G) - 1)) 
-# betaRS = ( (beta4 - 4*G34*(u/G4)) / (1-4*G34*(G/G4)) )    
-# tFS = D1_0 / (c_*(betaFS-beta1))        # time for the FS to cross shell 1
-# tRS = D4_0 / (c_*(beta4-betaRS))        # time for the RS to cross shell 4
-# E2_int = G*M1_0*c_**2*(1+beta**2*((G21+1)/(3*G21)))*(G21-1)
-## internal energy accumulated in zone 2 at FS crossing time
-# E3_int = G*M4_0*c_**2*(1+beta**2*((G34+1)/(3*G34)))*(G34-1)
-## internal energy accumulated in zone 3 at RS crossing time
-# E2_k = (G-1)*M1_0*c_**2                 # max bulk kinetic energy at FS crossing time
-# E3_k = (G-1)*M4_0*c_**2                 # max bulk kinetic energy at RS crossing time
-# D2_f = D1_0*(1/(4*G21))*(G1/G)          # final radial width of region 2 at FS crossing time
-# D3_f = D4_0*(1/(4*G34))*(G4/G)          # final radial width of region 3 at RS crossing time
 # W_RS = E4_k0 * (4/3) * ((G34**2-1)/(G4*(G4-1)) * (beta/(beta4-beta)) * (1-(1/(4*G34))*(G4/G)))
 ## pdV work done by region 3 on region 2 at RS crossing time

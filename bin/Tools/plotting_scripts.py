@@ -32,7 +32,7 @@ formatter.set_powerlimits((-1,1))
 nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
 var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
   'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
-  'Emass':'$E_{r.m.}$', 'Ekin':'$E_k$', 'Eint':'E_{int}',
+  'M':'$M$', 'Ek':'$E_k$', 'Ei':'E_{int}',
   'Rct':'$(r - ct)/R_0$ (cm)', 'Rcd':'$r - r_{cd}$ (cm)',
   'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$'}
 
@@ -88,11 +88,9 @@ def snapshot_withtheory(it, key='Last'):
       ax.set_xlabel('')
 
   r = axes[-1].get_lines()[-1].get_xdata()
-  rho, u, p = shells_snapshot(env.Ek1, env.u1, env.D01, env.Ek4, env.u4, env.D04, env.R0, t, r, env.geometry)
-  #D, s, tau = prim2cons(rho, u, p)
-  varsth = [rho, u, p]
-  for var, ax in zip(varsth, axes):
-    ax.plot(r, var, 'k')
+  for var, ax in zip(varlist, axes):
+    z = get_analytical(var, t, r, env)
+    ax.plot(r, z, 'k')
 
   f.suptitle(title)
   f.add_artist(legend)
@@ -132,7 +130,7 @@ def plot_energy(it, key='Last'):
   '''
   Plot energy content
   '''
-  varlist = ["Eint", "Ekin", "Emass"]
+  varlist = ["Ei", "Ek"]
   plot_comparison(varlist, it, key, col=None)
 
 def plot_comparison(varlist, it, key='Last', xscale='CGS', yscale='code', col=None):
@@ -181,8 +179,8 @@ def plot_timeseries(var_keys, key='Last', tscaling=None, slope=False, fig=False)
     ax = plt.gca()
   
   if var_keys == 'E':
-    energies = ['Emass', 'Ekin', 'Eint']
-    linestyles = [':', '--', '-.']
+    energies = ['Ek', 'Ei']
+    linestyles = ['--', '-.']
     for i, var in enumerate(energies):
       title = plot_time(var, key, tscaling, slope, ax, ls=linestyles[i])
   else:
@@ -369,13 +367,13 @@ def get_scaledvar_snapshot(var, df, env, xscale='CGS', yscale='code', slope=None
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
   "trac":"tracer", "Sd":"", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
-  "Eint":"$e$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r"
+  "Ei":"$e$", "Ek":"$e_k$", "dt":"dt", "res":"dr/r"
   }
   units_CGS  = {
   "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
   "D":"", "sx":"", "tau":"", "trac":"", "Sd":"", "gmin":"", "gmax":"",
   "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)", "res":"",
-  "Eint":" (erg cm$^{-3}$)", "Ekin":" (erg cm$^{-3}$)", "Emass":" (erg cm$^{-3}$)"
+  "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "Emass":" (erg cm$^{-3}$)"
   }
   def get_normunits(xnormstr, rhonormsub):
     rhonormsub  = '{' + rhonormsub +'}'

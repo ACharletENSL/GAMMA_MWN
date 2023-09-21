@@ -21,13 +21,20 @@ def get_timeseries(var, key):
   run_data = open_clean_rundata(key)
   mode = run_data.attrs['mode']
   Nz = get_Nzones(key)
-  extr_vars = ['Nc', 'R', 'u', 'ShSt', 'V', 'Emass', 'Ekin', 'Eint']
+  extr_vars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei']
   calc_vars = {
-    "Rcd":run_get_Rcd,
+    "D":run_get_shellswidth,
     "Rct":run_get_Rct,
     "v":run_get_v,
+    "u_i":run_get_u,
+    "f":run_get_compressionratio,
     "vcd":run_get_vcd,
-    "epsth":run_get_epsth
+    "epsth":run_get_epsth,
+    "Msh":run_get_Mshell,
+    "E":run_get_E,
+    "Etot":run_get_Etot,
+    "Esh":run_get_Eshell,
+    "ShSt ratio":run_get_ShStratio
   }
 
   if var in extr_vars:
@@ -139,6 +146,23 @@ def analyze_run(key, itmin=0, itmax=None):
     #data = pd.concat([data, entry], ignore_index=True)
   
   data.index = its
+  #scale properly
+  env      = MyEnv(get_physfile(key))
+  rhoscale = getattr(env, env.rhoNorm)
+  Escale   = rhoscale*c_**2
+  Vscale   = 1.
+  if env.geometry != 'spherical':
+    Vscale = 4.*pi_*env.R0**2
+    for var in [f'V_{i}' for i in range(1,5)]:
+      data[var] = data[var].multiply(Vscale)
+  for var in ['rho_3', 'rho_2']:
+    data[var] = data[var].multiply(rhoscale)
+  for var in [f'M_{i}' for i in range(1,5)]:
+    data[var] = data[var].multiply(rhoscale*Vscale)
+  for var in [f'Ek_{i}' for i in range(1,5)]:
+    data[var] = data[var].multiply(Escale*Vscale)
+  for var in [f'Ei_{i}' for i in range(1,5)]:
+    data[var] = data[var].multiply(Escale*Vscale)
   data.to_csv(dfile_path)
 
 
@@ -146,7 +170,7 @@ def vars_header(key, dfile_path=None):
   if not dfile_path:
     dfile_path, dfile_bool = get_runfile(key)
 
-  allvars = ['Nc', 'R', 'u', 'ShSt', 'V', 'Emass', 'Ekin', 'Eint']
+  allvars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei']
   Nz  = get_Nzones(key)
   mode = get_runatts(key)[0]
   varlist = []
@@ -156,18 +180,22 @@ def vars_header(key, dfile_path=None):
   return varlist
 
 # functions for derived variables
-def run_get_Rcd(run_data):
+def run_get_shellswidth(run_data):
   '''
   Returns dataframe with distance of shock to interface
   (shocked shells width)
   '''
   time = run_data['time'].to_numpy()
+  R4b  = run_data['R_{4b}'].to_numpy()
   Rrs  = run_data['R_{rs}'].to_numpy()
   Rcd  = run_data['R_{cd}'].to_numpy()
   Rfs  = run_data['R_{fs}'].to_numpy()
+  R1f  = run_data['R_{1f}'].to_numpy()
+  D4   = Rrs - R4b
   D3   = Rcd - Rrs
   D2   = Rfs - Rcd
-  out  = pd.DataFrame(np.array([time, D3, D2]).transpose(), columns=['time', 'D3', 'D2'], index=run_data.index)
+  D1   = R1f - Rfs
+  out  = pd.DataFrame(np.array([time, D4, D3, D2, D1]).transpose(), columns=['time', 'D_4', 'D_3', 'D_2', 'D_1'], index=run_data.index)
   return out
 
 def run_get_Rct(run_data):
@@ -192,10 +220,29 @@ def run_get_v(run_data):
   Rfs  = run_data['R_{fs}'].to_numpy()
   outarr = [time]
   for r in [Rrs, Rcd, Rfs]:
+    r = gaussian_filter1d(r, sigma=3, order=0)
     v = np.gradient(r, time)/c_
     outarr.append(v)
   out = pd.DataFrame(np.array(outarr).transpose(),
     columns=['time', 'v_{rs}', 'v_{cd}', 'v_{fs}'], index=run_data.index)
+  return out
+
+def run_get_u(run_data):
+  '''
+  Returns dataframe of interface velocities
+  '''
+  time = run_data['time'].to_numpy()
+  Rrs  = run_data['R_{rs}'].to_numpy()
+  Rcd  = run_data['R_{cd}'].to_numpy()
+  Rfs  = run_data['R_{fs}'].to_numpy()
+  outarr = [time]
+  for r in [Rrs, Rcd, Rfs]:
+    r = gaussian_filter1d(r, sigma=3, order=0)
+    v = np.gradient(r, time)/c_
+    u = derive_proper(v)
+    outarr.append(u)
+  out = pd.DataFrame(np.array(outarr).transpose(),
+    columns=['time', 'u_{rs}', 'u_{cd}', 'u_{fs}'], index=run_data.index)
   return out
 
 def run_get_vcd(run_data):
@@ -209,6 +256,7 @@ def run_get_vcd(run_data):
   D2     = shellw['D2'].to_numpy()
   outarr = [time]
   for w in [D3, D2]:
+    w = gaussian_filter1d(r, sigma=3, order=0)
     dw = np.gradient(w, time)
     outarr.append(dw)
   out = pd.DataFrame(np.array(outarr).transpose(),
@@ -221,8 +269,85 @@ def run_get_epsth(run_data):
   (energy converted from kinetic to thermal)
   '''
   time = run_data['time'].to_numpy()
-  eth3 = run_data['Eint_3'].to_numpy()/run_data['Ekin_4'][0]
-  eth2 = run_data['Eint_2'].to_numpy()/run_data['Ekin_1'][0]
+  eth3 = run_data['Ei_3'].to_numpy()/run_data['Ek_4'][0]
+  eth2 = run_data['Ei_2'].to_numpy()/run_data['Ek_1'][0]
   out  = pd.DataFrame(np.array(time, eth3, eth2).transpose(),
-    columns=['time', 'eth3', 'eth2'], index=run_data.index())
+    columns=['time', 'eth3', 'eth2'], index=run_data.index)
+  return out
+
+def run_get_E(run_data):
+  '''
+  Returns dataframe of kinetic + internal energy for each zone
+  '''
+  time = run_data['time'].to_numpy()
+  E4   = run_data['Ei_4'].to_numpy() + run_data['Ek_4'].to_numpy()
+  E3   = run_data['Ei_3'].to_numpy() + run_data['Ek_3'].to_numpy()
+  E2   = run_data['Ei_2'].to_numpy() + run_data['Ek_2'].to_numpy()
+  E1   = run_data['Ei_1'].to_numpy() + run_data['Ek_1'].to_numpy()
+  out  = pd.DataFrame(np.array([time, E4, E3, E2, E1]).transpose(),
+    columns=['time', 'E_4', 'E_3', 'E_2', 'E_1'], index=run_data.index)
+  return out
+
+def run_get_Etot(run_data):
+  '''
+  Return dataframe of summed energy to check for energy conservation
+  '''
+  time = run_data['time'].to_numpy()
+  E4   = run_data['Ei_4'].to_numpy() + run_data['Ek_4'].to_numpy()
+  E3   = run_data['Ei_3'].to_numpy() + run_data['Ek_3'].to_numpy()
+  E2   = run_data['Ei_2'].to_numpy() + run_data['Ek_2'].to_numpy()
+  E1   = run_data['Ei_1'].to_numpy() + run_data['Ek_1'].to_numpy()
+  Etot = E1 + E2 + E3 + E4
+  out = pd.DataFrame(np.array([time, Etot]).transpose(),
+    columns=['time', 'E_{tot}'], index=run_data.index)
+  return out
+
+def run_get_Mshell(run_data):
+  '''
+  Return dataframe of summed mass to check for energy conservation
+  '''
+  time = run_data['time'].to_numpy()
+  Msh4 = run_data['M_4'].to_numpy() + run_data['M_3'].to_numpy()
+  Msh1 = run_data['M_1'].to_numpy() + run_data['M_2'].to_numpy()
+  out = pd.DataFrame(np.array([time, Msh4, Msh1]).transpose(),
+    columns=['time', 'M_4+M_3', 'M_1+M_2'], index=run_data.index)
+  return out
+
+def run_get_Eshell(run_data):
+  '''
+  Return dataframe of summed energy per shell 
+  '''
+  time = run_data['time'].to_numpy()
+  E4   = run_data['Ei_4'].to_numpy() + run_data['Ek_4'].to_numpy()
+  E3   = run_data['Ei_3'].to_numpy() + run_data['Ek_3'].to_numpy()
+  E2   = run_data['Ei_2'].to_numpy() + run_data['Ek_2'].to_numpy()
+  E1   = run_data['Ei_1'].to_numpy() + run_data['Ek_1'].to_numpy()
+  Esh4 = E3 + E4
+  Esh1 = E1 + E2
+  out = pd.DataFrame(np.array([time, Esh4, Esh1]).transpose(),
+    columns=['time', 'E_4+E_3', 'E_1+E_2'], index=run_data.index)
+  return out
+
+def run_get_ShStratio(run_data):
+  '''
+  Return dataframe of shocks strength ratio 
+  '''
+  time = run_data['time'].to_numpy()
+  shst_RS = run_data['ShSt_{rs}'].to_numpy()
+  shst_FS = run_data['ShSt_{fs}'].to_numpy()
+  ratio = shst_RS/shst_FS
+  out = pd.DataFrame(np.array([time, ratio]).transpose(),
+    columns=['time', 'ShSt_{rs}/ShSt_{fs}'], index=run_data.index)
+  return out
+
+def run_get_compressionratio(run_data):
+  '''
+  Return dataframe of compression ratio near CD
+  '''
+  time = run_data['time'].to_numpy()
+  n3   = run_data['rho_3'].to_numpy()
+  n2   = run_data['rho_2'].to_numpy()
+  ratio = n3/n2
+  out = pd.DataFrame(np.array([time, ratio]).transpose(),
+    columns=['time', 'f'], index=run_data.index)
   return out

@@ -16,6 +16,7 @@ import scipy.signal as sps
 from scipy.ndimage import gaussian_filter1d
 from phys_functions import *
 from phys_constants import c_, pi_
+from environment import MyEnv
 
 cwd = os.getcwd().split('/')
 iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
@@ -161,7 +162,7 @@ def get_varlist(var, Nz, mode):
   ''' 
   interfaces_names = {
     'PWN':['{ts}', 'b', '{sh}', '{rs}', '{cd}', '{fs}'],
-    'shells':['{rs}', '{cd}', '{fs}']
+    'shells':['{4b}', '{rs}', '{cd}', '{fs}', '{1f}']
     }
   zone_names = {
     'PWN':['w', 'b', '{sh}', '{ej}', '{sh.ej}', '{sh.csm}', '{csm}'],
@@ -169,13 +170,17 @@ def get_varlist(var, Nz, mode):
     }
 
   varlist = []
-  zvarsList = ['V', 'Emass', 'Ekin', 'Eint']
+  zvarsList = ['V', 'M', 'Ek', 'Ei']
   ivarsList = ['R', 'v']
   zsubList  = zone_names[mode]
   intList   = interfaces_names[mode]
 
+
   # construct shocks list
-  shList = [z for z in intList[:Nz-1] if z not in ['b', '{cd}']]
+  if mode == 'shells':
+    shList = ['{rs}', '{fs}']
+  else:
+    shList = [z for z in intList[:Nz-1] if z not in ['b', '{cd}']]
 
   if var == 'Nc':
     varlist = [var + '_' + str(n) for n in reversed(range(Nz))]
@@ -187,9 +192,17 @@ def get_varlist(var, Nz, mode):
   elif var == 'ShSt':
     varlist = [var + '_' + sub for sub in shList]
   elif var in ivarsList:
-    varlist = [var + '_' + sub for sub in intList[:Nz-1]]
+    if mode == 'shells':
+      if var == 'v':
+        varlist = [var + '_' + sub for sub in intList[1:Nz-1]]
+      elif var == 'R':
+        varlist = [var + '_' + sub for sub in intList]
+    else:
+      varlist = [var + '_' + sub for sub in intList[:Nz-1]]
   elif var == 'u':
     varlist = [var]
+  elif var == 'rho':
+    varlist = ['rho_3', 'rho_2']
   else:
     print("Asked variable does not exist")
   
@@ -207,7 +220,7 @@ def df_get_all(df):
   zone = df['zone']
   Nz = int(zone.max()) + 1
   mode = df.attrs['mode']
-  allvars = ['Nc', 'R', 'u', 'ShSt', 'V', 'Emass', 'Ekin', 'Eint']
+  allvars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei']
   allres  = []
   for var in allvars:
     Nvar = len(get_varlist(var, Nz, mode))
@@ -215,10 +228,12 @@ def df_get_all(df):
     if var == 'Nc':
       res = [zone[zone==n].count() for n in reversed(range(Nz))]
     elif var == 'R':
-      zones = [3., 2., 1.] if mode == 'shells' else [n+1 for n in range(Nz-1)]
+      zones = [4, 3, 2, 1, 0] if mode == 'shells' else [n+1 for n in range(Nz-1)]
       res = [get_radius_zone(df, n)*c_ for n in zones]
     elif var == 'u':
       res = [df_get_shocked_u(df)]
+    elif var == 'rho':
+      res = df_get_rhoCD(df)
     elif var == 'ShSt':
       res = get_shocksStrength(df)
     else:
@@ -230,14 +245,13 @@ def df_get_all(df):
 
 def get_shocksStrength(df):
   if df.attrs['mode'] == 'shells':
-    RS = df.loc[(df['Sd'] == 1.0) & (df['trac'] > 0.99) & (df['trac'] < 1.01)]
+    RS, FS = df_to_shocks(df)
     try:
       iu_RS = min(RS.index) - 1
       id_RS = max(RS.index) + 1
       shst_RS = df_get_shockStrength(df, iu_RS, id_RS)
     except ValueError:
       shst_RS = 0.
-    FS = df.loc[(df['Sd'] == 1.0) & (df['trac'] > 1.99) & (df['trac'] < 2.01)]
     try:
       iu_FS = max(FS.index) + 1
       id_FS = min(FS.index) - 1
@@ -249,16 +263,18 @@ def get_shocksStrength(df):
     print("Implement relative Mach number")
     return [0., 0.]
 
-def df_get_shockStrength(df, i_u, i_d):
+def df_get_shockStrength(df, i_u, i_d, n=5):
   '''
   Derives the shock strength by comparing hydrodynamical properties
-  upstream (at i_u) and downstream (at i_d)
+  upstream (at i_u) and downstream (at i_d), sampling of n points on each side
   '''
-  b_u = df['vx'].loc[i_u]
-  g_u = derive_Lorentz(b_u)
-  b_d = df['vx'].loc[i_d]
-  g_d = derive_Lorentz(b_d)
-  relg = g_u*g_d* (1. - b_u*b_d)
+  iL = min(i_u, i_d)
+  iR = max(i_u, i_d)
+  bL = df['vx'].iloc[iL-n:iL].mean()
+  gL = derive_Lorentz(bL)
+  bR = df['vx'].loc[iR:iR+n].mean()
+  gR = derive_Lorentz(bR)
+  relg = gL*gR* (1. - bL*bR)
   return relg - 1.
 
 def df_get_shocked_u(df):
@@ -281,9 +297,29 @@ def df_get_shocked_u(df):
     res = 0.
   return res
 
+def df_get_rhoCD(df, n=3, m=5):
+  '''
+  Get the proper density ratio at CD
+  mean over a sample size n, separated by m cells of the interface
+  '''
+  zone = df['zone'].to_numpy()
+  rho  = df['rho'].to_numpy()
+  
+  # choose cells near CD
+  rho3 = rho[zone==3.][-(n+m):-m]
+  rho2 = rho[zone==2.][m:m+n]
+
+  #check if exists
+  if rho2.size > 0 and rho3.size > 0:
+    return rho3.mean(), rho2.mean()
+  else:
+    rho4 = rho[zone==4.][-(n+m):-m]
+    rho1 = rho[zone==1.][m:m+n]
+    return rho4.mean(), rho1.mean()
+
 def df_get_shocked_p(df):
   '''
-  Get the proper velocity in the shocked regions
+  Get the average pressure in the shocked regions
   '''
 
   zone = df['zone'].to_numpy()
@@ -328,12 +364,16 @@ def get_radius_zone(df, n):
   if 'zone' not in df.columns:
     df = zoneID(df)
 
+  mode = df.attrs['mode']
   r = df['x']
   z = df['zone']
-  rz = r[z == n].min()
+  if mode=="shells" and n==0:
+    rz = r[z==1].max()
+  else:
+    rz = r[z == n].min()
   while(np.isnan(rz)):
     # if no cell of the zone, take max/min of previous one
-    if df.attrs['mode'] == 'shells':
+    if mode == 'shells':
       n -= 1
       rz = r[z==n].min()
     else:
@@ -357,23 +397,26 @@ def df_get_zoneIntegrated(df, var):
 def zone_get_zoneIntegrated(df, var, n):
   '''
   Zone integrated var for zone of index n
+  Possible vars: volume V, mass M, kinetic and internal energies Ekin, Eint
   '''
 
   zone = df['zone'].to_numpy()
   if np.argwhere(zone==n).any():
-    r = df['x']*c_
-    dr = df['dx']*c_
-    dV = 4.*pi_*r**2*dr
-    res = 0.
-    if var == 'Nc':
-      res = zone[zone==n].count()
+    r = df['x'].to_numpy()*c_
+    dr = df['dx'].to_numpy()*c_
+    if df.attrs['geometry'] == 'spherical':
+      dV = 4.*pi_*r**2*dr
     else:
-      if var=='V':
-        data = dV
-      else:
-        r, data = get_variable(df, var)
-        data *= dV
-      res = data[zone==n].sum()
+      dV = dr
+    res = 0.
+    if var == 'V':
+      data = dV
+    elif var == 'M':
+      data = df['D'].to_numpy() * dV
+    else:
+      r, data = get_variable(df, var)
+      data *= dV
+    res = data[zone==n].sum()
   else:
     res = 0.
   
@@ -391,9 +434,8 @@ def get_variable(df, var):
     "h":df_get_h,
     "lfac":df_get_lfac,
     "u":df_get_u,
-    "Ekin":df_get_Ekin,
-    "Eint":df_get_Eint,
-    "Emass":df_get_Emass,
+    "Ek":df_get_Ekin,
+    "Ei":df_get_Eint,
     "dt":df_get_dt,
     "res":df_get_res
   }
@@ -421,8 +463,9 @@ def df_get_h(df):
 
 def df_get_Eint(df):
   rho = df["rho"].to_numpy(copy=True)
+  v = df["vx"].to_numpy(copy=True)
   p = df["p"].to_numpy(copy=True)
-  return derive_Eint(rho, p)
+  return derive_Eint(rho, v, p)
 
 def df_get_lfac(df):
   v = df["vx"].to_numpy(copy=True)
@@ -494,6 +537,37 @@ def df_get_dt(df):
 
   return dt
 
+def df_to_shocks(df):
+  '''
+  Extract the shocked part of data
+  Cleans 'false' shock at wave onset when resolution is not high enough
+  '''
+  S4 = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
+  S1 = df.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
+  i4b = S4.index.min()
+  icd = S1.index.min()
+  i1f = S1.index.max()
+  shocks  = df.loc[(df['Sd'] == 1.0)]
+  sh_list = np.split(shocks, np.flatnonzero(np.diff(shocks.index) != 1) + 1)
+  if len(sh_list) == 2:
+    RS = sh_list[0]
+    FS = sh_list[1]
+    RS = RS.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
+    FS = FS.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
+    return RS, FS
+  elif len(sh_list) > 2:
+    left = [sh for sh in sh_list if sh.index.max() < icd]
+    right = [sh for sh in sh_list if sh.index.min() > icd]
+    RS = left[0]
+    FS = right[-1]
+    RS = RS.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
+    FS = FS.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
+    return RS, FS
+  else:
+    RS = shocks.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
+    FS = shocks.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
+    return RS, FS
+
 def zoneID(df):
   '''
   Detect zones from passive tracer and shocks
@@ -518,8 +592,7 @@ def zoneID(df):
   if shocks.empty:
     pass
   else:
-    RS = shocks.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
-    FS = shocks.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
+    RS, FS = df_to_shocks(df) 
     try:
       id_RS  = max(RS.index)
       rRS    = r[id_RS]
@@ -557,8 +630,8 @@ def zoneID(df):
   df2 = df.assign(zone=zone)
   return df2
 
-def get_fused_interf(df):
-  int_rho, int_u, int_p = get_allinterf(df)
+def get_fused_interf(df, h=.05, prom=.05, rel_h=.999):
+  int_rho, int_u, int_p = get_allinterf(df, h, prom, rel_h)
   ilist = []
 
   # loop on rho interfaces because they are more numerous
@@ -592,13 +665,19 @@ def get_fused_interf(df):
   
   return ilist
 
-def get_allinterf(df):
+def df_id_shocks(df):
+  '''
+  Returns indices of shock fronts
+  '''
+
+
+def get_allinterf(df, h=.05, prom=.05, rel_h=.99):
   rho, u, p = df_get_primvar(df)
   # filtering rho because data can be noisy
   rho       = gaussian_filter1d(rho, sigma=1, order=0)
-  int_rho   = get_varinterf(rho)
-  int_u     = get_varinterf(u, False)
-  int_p     = get_varinterf(p)
+  int_rho   = get_varinterf(rho, True, h, prom, rel_h)
+  int_u     = get_varinterf(u, False, h, prom, rel_h)
+  int_p     = get_varinterf(p, True, h, prom, rel_h)
   return int_rho, int_u, int_p
 
 def get_varinterf(arr, takelog=True, h=.05, prom=.05, rel_h=.99):
