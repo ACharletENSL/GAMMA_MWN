@@ -139,7 +139,7 @@ def shells_snapshot_fromenv(env, r, t):
 
   R4, Rrs, Rcd, Rfs, R1 = derive_radii_withtime(env, t)
 
-  if R4 < Rrs:
+  if t < env.tRS:
     i_4 = np.argwhere((r>=R4) & (r<Rrs))[:,0]
     rho[i_4] = env.rho4
     vel[i_4] = env.u4
@@ -148,14 +148,13 @@ def shells_snapshot_fromenv(env, r, t):
     vel[i_3] = env.u
     prs[i_3] = env.p
   else:
-    Rrs = Rcd - env.D3f
     i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
     rho[i_3] = env.rho3
     vel[i_3] = env.u
     prs[i_3] = env.p
     print("RS crossing time passed, need to implement rarefaction wave")
   
-  if R1 > Rfs:
+  if t < env.tFS:
     i_1 = np.argwhere((r>Rfs) & (r<=R1))[:,0]
     rho[i_1] = env.rho1
     vel[i_1] = env.u1
@@ -164,7 +163,6 @@ def shells_snapshot_fromenv(env, r, t):
     vel[i_2] = env.u
     prs[i_2] = env.p
   else:
-    Rfs = Rcd + env.D2f
     i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
     rho[i_2] = env.rho2
     vel[i_2] = env.u
@@ -269,12 +267,25 @@ def derive_shellwidth_withtime(env, t):
 def derive_radii_withtime(env, t):
   '''
   Returns expected radii for each interface with time
+  need to determine min velocity of the RF when interacting with ext medium
   '''
+
+  Rb0 = np.array([-env.D04, 0.]) + env.R0
+  Rf0 = np.array([0., env.D01]) + env.R0
+  vb0 = np.array([env.beta4, env.betaRS])*c_
+  vf0 = np.array([env.betaFS, env.beta1])*c_
+  vbc = np.array([0., env.betaRFp3])*c_
+  vfc = np.array([env.betaRFm2, 0.])*c_
+
+  R4  = np.where(t<env.tRS, ) 
   Rcd = env.R0 + env.beta*c_*t
-  R4  = env.R0 - env.D04 + env.beta4*c_*t
-  R1  = env.R0 + env.D01 + env.beta1*c_*t
-  Rfs = env.R0 + env.betaFS*c_*t
-  Rrs = env.R0 + env.betaRS*c_*t
+
+  Rb  = [np.where(t<env.tRS, Rb0[n]+vb0[n]*t, Rb0[n]+vb0[n]*env.tRS+vbc[n]*(t-env.tRS))
+    for n in [0, 1]]
+  Rf  = [np.where(t<env.tFS, Rf0[n]+vf0[n]*t, Rf0[n]+vf0[n]*env.tFS+vbc[n]*(t-env.tFS))
+    for n in [0, 1]]
+  R4, Rrs = Rb
+  Rfs, R1 = Rf
   return R4, Rrs, Rcd, Rfs, R1
 
 
