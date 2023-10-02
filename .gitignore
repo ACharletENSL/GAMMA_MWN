@@ -13,4 +13,4 @@ bin/GAMMA
 # outputs
 *.out
 results/*
-
+*.png

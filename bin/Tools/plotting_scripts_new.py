@@ -31,7 +31,7 @@ formatter.set_powerlimits((-1,1))
 
 nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
 var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
-  'f':"$n'_3/n'_2$", 'rho':"n'",
+  'f':"$n'_3/n'_2$", 'rho':"$n'$", 'rho3':"$n'_3$", 'rho2':"$n'_2$",
   'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
   'ShSt ratio':'$(\\Gamma_{34}-1)/(\\Gamma_{21}-1)$',
   'M':'$M$ (g)', 'Msh':'$M$ (g)', 'Ek':'$E_k$ (erg)', 'Ei':'$E_{int}$ (erg)',
@@ -42,13 +42,12 @@ var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
 
 # Time plots
 # --------------------------------------------------------------------------------------------------
-
+lslist  = ['-', '--', '-.', ':']
 def compare_runs(var, keylist, tscaling='t0',
     logt=False, logy=False, **kwargs):
   '''
   Compare time plots for different runs
   '''
-  lslist  = ['-', '--', '-.', ':']
   names   = []
   leglist = []
   dummy_lst = []
@@ -57,7 +56,7 @@ def compare_runs(var, keylist, tscaling='t0',
   
   for k, key in enumerate(keylist):
     name, legend = ax_timeseries(var, key, ax, tscaling=tscaling, 
-      yscaling=False, analytics=False, crosstimes=False,
+      yscaling=False, theory=False, crosstimes=False,
       logt=logt, logy=logy, ls=lslist[k]) 
     names.append(name)
     leglist.append(legend)
@@ -68,9 +67,22 @@ def compare_runs(var, keylist, tscaling='t0',
     loc='lower right', borderaxespad=0., ncol=len(names))
   ax.add_artist(legend1)
 
+def plot_conservation(var, key='Last'):
+  plt.figure()
+  ax = plt.gca()
+  if var == 'M':
+    varlist = ['M', 'Msh']
+  elif var == 'E':
+    varlist = ['E', 'Etot']
+  for name in varlist:
+    title, legend = ax_timeseries(name, key, ax_in=ax)
+  plt.title(title)
+  plt.legend(legend[0], legend[1])
+  plt.tight_layout()
+
 def ax_timeseries(var, key='Last', ax_in=None,
   tscaling='t0', yscaling=False,
-  analytics=True, crosstimes=True, reldiff=False,
+  theory=True, crosstimes=True, reldiff=False,
   logt=False, logy=False, **kwargs):
   '''
   Creates time series plot. time scaling options: None (s), t0, it
@@ -97,18 +109,24 @@ def ax_timeseries(var, key='Last', ax_in=None,
     "vcd":[[env.beta-env.betaRS, env.betaFS-env.beta],
       ['$\\beta_{CD}-\\beta_{RS}$', '$\\beta_{FS}-\\beta_{CD}$']],
     "rho":[[env.rho3, env.rho2], ["$n'_3$", "$n'_2$"]],
+    "rho3":[[env.rho3], ["$n'_3$"]],
+    "rho2":[[env.rho2], ["$n'_2$"]],
     "f":[[env.rho3/env.rho2], [""]]
+  }
+  correct_varlabels = {
+    "D":"\\Delta",
+    "rho":"\\rho"
   }
   if var not in theoretical:
     reldiff = False
   if reldiff:
-    analytics = False
+    theory = False
     #logy = True
   
   data = get_timeseries(var, key)
   if var == 'Nc':
-    analytics = False
-  if analytics and (var not in theoretical):
+    theory = False
+  if theory and (var not in theoretical):
     expec_vals = time_analytical(var, data['time'].to_numpy(), env)
     dummy_lst = [plt.plot([],[],c='k',ls='-')[0], plt.plot([],[],c='k',ls=':')[0]]
   title = env.runname
@@ -117,7 +135,7 @@ def ax_timeseries(var, key='Last', ax_in=None,
     t = data.index
     tlabel = 'it'
     crosstimes = False
-    analytics  = False
+    theory  = False
   elif tscaling == 't0':
     t = data['time'].to_numpy()/env.t0 + 1.
     tlabel = '$t/t_0$'
@@ -141,13 +159,17 @@ def ax_timeseries(var, key='Last', ax_in=None,
     ylabel = '$(X - X_{th})/X_{th}$'
   ax.set_ylabel(ylabel)
   for n, varname in enumerate(varlist):
-    varlabel = "$" + varname + "$"
     y = data[varname].multiply(1./yscale)
+    vsplit = varname.split('_')
+    if vsplit[0] in correct_varlabels:
+      varname = varname.replace(vsplit[0], correct_varlabels[vsplit[0]])
+    varlabel = "$" + varname + "$"
+    
     if reldiff:
       expected = theoretical[var][0][n]
       y = derive_reldiff(y, expected)
     ax.plot(t[1:], y[1:], c=plt.cm.Paired(n), label=varlabel, **kwargs)
-    if analytics:
+    if theory:
       if var in theoretical:
         expec = theoretical[var]
         for val, name in zip(expec[0], expec[1]):
@@ -179,7 +201,7 @@ def ax_timeseries(var, key='Last', ax_in=None,
       ax.legend(bbox_to_anchor=(1.02, 1.0), loc='upper left', borderaxespad=0.)
     elif reldiff:
       ax.legend(bbox_to_anchor=(0., 1.01), loc='lower left', borderaxespad=0.)
-    if analytics and (var not in theoretical):
+    if theory and (var not in theoretical):
       ax.add_artist(th_legend)
     plt.title(title)
     plt.tight_layout()
@@ -194,17 +216,39 @@ def ax_timeseries(var, key='Last', ax_in=None,
 
 # Snapshot plots
 # --------------------------------------------------------------------------------------------------
-def prim_snapshot(it, key='Last', theory=False):
+def article_series(name, its, key='cart_fid'):
+  '''
+  Series of snapshot constructed around 'name' prefix
+  '''
+
+def article_snap(name, it, key='cart_fid'):
+  prim_snapshot(it, key, theory=True, xscaling='Rcd')
+  figname = './figures/' + name + '_' + str(it) + 'png' 
+  plt.savefig(figname)
+  plt.close()
+
+def prim_snapshot(it, key='Last', theory=False, xscaling='R0'):
   f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
   varlist = ['rho', 'u', 'p']
   #scatlist= []
   for var, k, ax in zip(varlist, range(3), axes):
-    title, scatter = ax_snapshot(var, it, key, theory, ax_in=ax)
+    title, scatter = ax_snapshot(var, it, key, theory, ax_in=ax, xscaling=xscaling)
     #scatlist.append(scatter)
     if k != 2: ax.set_xlabel('')
   
   f.suptitle(title)
   #scatter = scatlist[1]
+  plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+
+def rad_snapshot(it, key='Last', xscaling='R0'):
+  Nk = 3
+  f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6, 2*Nk), layout='constrained')
+  varlist = ['Sd', 'gmax', 'gmin']
+  logs = [False, True, False]
+  for var, k, ax in zip(varlist, range(Nk), axes):
+    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, logy=logs[k])
+    if k != 1: ax.set_xlabel('')
+  f.suptitle(title)
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
 
 
@@ -262,7 +306,14 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
   
   physpath = get_physfile(key)
   env = MyEnv(physpath)
+  
+  df, t, dt = openData_withtime(key, it)
+  n = df["zone"]
+  Rcd = get_radius_zone(df, 2)*c_
+  dRcd = (Rcd - env.R0)/env.R0
 
+  rc_str= reformat_scientific(f"{dRcd:.3e}")
+  title = f"it {it}, $t_{{sim}}/t_0 = {dt/env.t0:.3f}$, $(R_{{cd}}-R_0)/R_0= {rc_str}$"
   units = {}
   xscale = 1.
   if xscaling == 'code':
@@ -287,13 +338,6 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
   ylabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
   ax.set_xlabel(xlabel)
   ax.set_ylabel(ylabel)
-  
-  df, t, dt = openData_withtime(key, it)
-  n = df["zone"]
-  Rcd = get_radius_zone(df, 2)*c_
-  dRcd = (Rcd - env.R0)/env.R0
-  rc_str= reformat_scientific(f"{dRcd:.3e}")
-  title = f"it {it}, dt = {dt:.3f} s, $(R_{{cd}}-R_0)/R_0= {rc_str}$"
 
   x, y = get_variable(df, var)
   if theory:
@@ -321,6 +365,13 @@ def test_primvar(it, key='Last'):
   df = openData(key, it)
   df_plot_primvar(df)
   df_plot_filt(df)
+
+def test_interf(it, key='Last'):
+  df = openData(key, it)
+  df_plot_primvar(df)
+  plt.plot(df['Sd'], c='k', label='Sd')
+  plt.plot(df['trac']/2., c='r', label='tracer')
+  plt.legend()
 
 def df_plot_primvar(df):
   rho, u, p = df_get_primvar(df)

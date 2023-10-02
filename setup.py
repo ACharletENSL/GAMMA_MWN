@@ -16,6 +16,9 @@ sys.path.insert(1, 'bin/Tools/')
 from environment import MyEnv
 
 Initial_path = str(Path().absolute() / 'src/Initial/')
+# default values for shock threshold
+chi_cart = 0.1
+chi_sph  = 0.05
 
 def main():
   # update .cpp file and copies phys_input.ini in the results folder
@@ -38,11 +41,11 @@ def update_envFile(env):
   we found shock strength threshold was to be changed between cartesian and spherical
   '''
   filepath = os.getcwd() + '/src/environment.h'
-  ch_sh = 0.05
+  ch_sh = chi_sph
   if env.geometry == 'cartesian':
-    chi_sh = 0.1
+    chi_sh = chi_cart
   elif env.geometry == 'spherical':
-    chi_sh = 0.05
+    chi_sh = chi_sph
   
   out_lines = []
   with open(filepath, 'r') as f:

@@ -231,6 +231,21 @@
 
   }
 
+  static double gammaMaxInit(FluidState S){
+
+    double rho = S.prim[RHO];
+    double p = S.prim[PPP];
+    double gma = S.gamma();
+    double h = 1 + p*gma/(gma-1.)/rho;
+    double eps = rho * (h-1.) / gma;
+    double eB = eps_B_ * eps;
+    double B = sqrt(8.*PI*eB);
+    double fac = 3. * alpha_ / (4.* PI * pow(qe_, 3) * B * sin(theta_));
+    double gammaMax = (me_ * c_ * c_) * sqrt(fac);
+
+    return(gammaMax);
+  }
+
   void Cell :: radiation_apply_trac2gammae(){
     // To apply only on Cdump cells in output!
 

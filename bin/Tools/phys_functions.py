@@ -79,6 +79,15 @@ def derive_adiab_fromT_Synge(T):
   gma_eff = gma - (gma-1.)/2. * (1.-1./(e_ratio**2))
   return gma_eff
 
+def derive_enthalpy_fromT_TM(T):
+  return 2.5*T + np.sqrt(1. + 2.25*T**2)
+
+def derive_cs2_fromT_TM(T):
+  h = derive_enthalpy_fromT_TM(T)
+  num = T*(5.*h-8.*T)
+  denom = 3.*h*(h-T)
+  return num/denom
+
 def derive_cs(rho, p, EoS='TM'):
   '''
   Sound speed
@@ -87,18 +96,25 @@ def derive_cs(rho, p, EoS='TM'):
   c2 = T*(3*T+2)*(18*T**2+24*T+5) / (3*(6*T**2+4*T+1)*(9*T**2+12*T+2))
   return np.sqrt(c2)
 
-def derive_cs_fromT(T, EoS='TM'):
+def derive_cs2_fromT(T, EoS='TM'):
   '''
   Sound speed from relativistic temperature
+  Expressions from Ryu et al. 2006 
   '''
-  if EoS=='TM':
-    a = np.sqrt(9*T**2+4)
-    num = 18*T**2 + 10*a
-    denom = (15*T+3*a)*(3*T+a)
+
+  if EoS == 'TM':
+    cs2 = derive_cs2_fromT_TM(T)
+  elif EoS == 'RC':
+    num = T*(3.*T+2)*(18.*T**2+24.*T+5)
+    denom = 3.*(6.*T**2+4.*T+1.)*(9.*T**2+12.*T+2.)
     cs2 = num/denom
   else:
     print('Implement this EoS')
     cs2 = 1./3.
+  return cs2
+
+def derive_cs_fromT(T, EoS='TM'):
+  cs2 = derive_cs2_fromT(T, EoS)
   return np.sqrt(cs2)
 
 def derive_Eint(rho, v, p):

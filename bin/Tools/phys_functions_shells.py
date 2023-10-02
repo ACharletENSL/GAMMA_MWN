@@ -228,20 +228,28 @@ def derive_masses_withtime(env, t):
   '''
   Return the masses for each shell with time
   '''
-  M1 = np.where(t<=env.tFS, env.M1 * (1. - t/env.tFS), 0.)
-  M2 = np.where(t<=env.tFS, env.M1 * (t/env.tFS), env.M1)
-  M3 = np.where(t<=env.tRS, env.M4 * (t/env.tRS), env.M4)
-  M4 = np.where(t<=env.tRS, env.M4 * (1. - t/env.tRS), 0.)
+  M1 = np.where(t<=env.tFS, env.M1 * (1. - t/env.tFS),
+    env.M1 * (t-env.tFS)/env.tRFm2)
+  M2 = np.where(t<=env.tFS, env.M1 * (t/env.tFS),
+    env.M1 * (1. - (t-env.tFS)/env.tRFm2))
+  M3 = np.where(t<=env.tRS, env.M4 * (t/env.tRS),
+    env.M4 * (1. - (t-env.tRS)/env.tRFp3))
+  M4 = np.where(t<=env.tRS, env.M4 * (1. - t/env.tRS),
+    env.M4 *(t-env.tRS)/env.tRFp3)
   return M4, M3, M2, M1
 
 def derive_Eint_withtime(env, t):
   '''
   Return internal energy for each shell with time
   '''
-  E1 = 0. * t
-  E2 = np.where(t<=env.tFS, env.Ei2f * (t/env.tFS), env.Ei2f)
-  E3 = np.where(t<=env.tRS, env.Ei3f * (t/env.tRS), env.Ei3f)
-  E4 = 0. * t
+  E1 = np.where(t<=env.tFS, 0., 0.)
+    #env.Ei2f * (t-env.tFS)/env.tRFm2)
+  E2 = np.where(t<=env.tFS, env.Ei2f * (t/env.tFS),
+    env.Ei2f * (1. - (t-env.tFS)/env.tRFm2))
+  E3 = np.where(t<=env.tRS, env.Ei3f * (t/env.tRS),
+    env.Ei3f * (1. - (t-env.tRS)/env.tRFp3))
+  E4 = np.where(t<=env.tRS, 0., 0.)
+    #env.Ei3f * (t-env.tRS)/env.tRFp3)
   return E4, E3, E2, E1
 
 def derive_Ekin_withtime(env, t):
@@ -249,9 +257,13 @@ def derive_Ekin_withtime(env, t):
   Return kinetic energy for each shell with time
   '''
   E1 = np.where(t<=env.tFS, env.Ek1 * (1. - t/env.tFS), 0.)
-  E2 = np.where(t<=env.tFS, env.Ek2f * (t/env.tFS), env.Ek2f)
-  E3 = np.where(t<=env.tRS, env.Ek3f * (t/env.tRS), env.Ek3f)
+    #env.Ek2f * (t-env.tFS)/env.tRFm2)
+  E2 = np.where(t<=env.tFS, env.Ek2f * (t/env.tFS),
+    env.Ek2f * (1. - (t-env.tFS)/env.tRFm2))
+  E3 = np.where(t<=env.tRS, env.Ek3f * (t/env.tRS),
+    env.Ek3f * (1. - (t-env.tRS)/env.tRFp3))
   E4 = np.where(t<=env.tRS, env.Ek4 * (1. - t/env.tRS), 0.)
+    #env.Ek3f * (t-env.tRS)/env.tRFp3)
   return E4, E3, E2, E1
 
 def derive_shellwidth_withtime(env, t):
@@ -259,8 +271,10 @@ def derive_shellwidth_withtime(env, t):
   Return shell width for each shell with time
   '''
   D1 = np.where(t<=env.tFS, env.D01 * (1. - t/env.tFS), 0.)
-  D2 = np.where(t<=env.tFS, env.D2f * (t/env.tFS), env.D2f)
-  D3 = np.where(t<=env.tRS, env.D3f * (t/env.tRS), env.D3f)
+  D2 = np.where(t<=env.tFS, env.D2f * (t/env.tFS),
+    env.D2f*(1. - (t-env.tFS)/env.tRFm2))
+  D3 = np.where(t<=env.tRS, env.D3f * (t/env.tRS),
+    env.D3f*(1. - (t-env.tRS)/env.tRFp3))
   D4 = np.where(t<=env.tRS, env.D04 * (1. - t/env.tRS), 0.)
   return D4, D3, D2, D1
 
@@ -339,7 +353,8 @@ def time_analytical(varkey, t, env):
     return E4+E3, E1+E2
   elif varkey == 'Etot':
     E4, E3, E2, E1 = np.array(derive_Ekin_withtime(env, t)) + np.array(derive_Eint_withtime(env, t))
-    return E4+E3+E2+E1
+    Etot = E4+E3+E2+E1
+    return [Etot]
   elif varkey == 'epsth':
     Ei4, Ei3, Ei2, Ei1 = derive_Eint_withtime(env, t)
     return Ei3/env.Ek4, Ei2/env.Ek1

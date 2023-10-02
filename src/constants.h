@@ -26,6 +26,8 @@
 #define eps_e_      0.1//0.038018   // 0.1     // constribution to electron acceleration
 #define eps_B_      0.01//0.000109   // 0.1     // contribution to magnetic field
 #define zeta_       1.//1. // 0.1    // fraction of accelerated electrons
+#define acc_eff_    1.               // acceleration efficiency
+#define theta_      M_PI/2.          // electron pitch angle 
 
 // Normalized constants:
 extern double Nmp_, Nme_, Nqe_, NsigmaT_, Nalpha_;

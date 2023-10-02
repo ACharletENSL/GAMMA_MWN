@@ -12,7 +12,7 @@
 #include "../../simu.h"
 
 // geometry: cartesian or spherical
-static int GEOMETRY_  = 1 ;           // 1 for cartesian, 1 for spherical
+static int GEOMETRY_  = 0 ;           // 0 for cartesian, 0 for spherical
 
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
@@ -266,7 +266,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if ( it > 5000 ){ stop = true; }
+  if ( it > 15000 ){ stop = true; }
   //if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
 
 }

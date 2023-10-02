@@ -162,6 +162,38 @@
 
   }
 
+  static double gammaMinInit(FluidState S){
+
+    double rho = S.prim[RHO];
+    double p   = S.prim[PPP];
+    double psyn = S.prim[PSN];
+    double gma = S.gamma();
+    double h   = 1.+p*gma/(gma-1.)/rho; // ideal gas EOS (TBC)
+    double eps = rho*(h-1.)/gma;
+    double ee = eps_e_ * eps;
+    double ne = zeta_ * rho / Nmp_;
+    double lfac_av = ee / (ne * Nme_);
+    double gammaMin = (psyn-2.) / (psyn-1.) *lfac_av;
+
+    return(gammaMin);
+  }
+
+  static double gammaMaxInit(FluidState S){
+
+    double rho = S.prim[RHO];
+    double p = S.prim[PPP];
+    double gma = S.gamma();
+    double h = 1 + p*gma/(gma-1.)/rho;
+    double eps = rho * (h-1.) / gma;
+    double eB = eps_B_ * eps;
+    double B = sqrt(8.*PI*eB);
+    double fac = 3. * acc_eff_ / (4.* PI * pow(qe_, 3) * B * sin(theta_));
+    double gammaMax = (me_ * c_ * c_) * sqrt(fac);
+
+    return(gammaMax);
+  }
+
+
   void Cell :: radiation_apply_trac2gammae(){
     // To apply only on Cdump cells in output!
 

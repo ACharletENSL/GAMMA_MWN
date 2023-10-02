@@ -1,12 +1,19 @@
 To do:
+- check higher resolution run, differences in rarefaction wave detection?
 - begin draft with hydro results
     reproduce Minu's plots to compare cart with analytics
     spherical to cartesian comparisons
     compare relfdiff of variables for diff a_u
-- check again sound speed, rf wave analytical position should match sims
+- organize Tools folder (one plotting script, and sources in a subfolder, organize them more)
 - take cells compression into account for analytical estimates to compare snapshots to?
 - find out the pdV work of the shocked external medium on the shell after crossing time
-- begin to think about e- distrib evolution
+- begin to think about e- distrib evolution:
+exactly how GAMMA handles gma_min - gma_max ?
+-> gamma_max at shock crossing: calculation with synchrotron cooling time
+-> gamma_min at shock crossing: from normalization of energy by integrating
+add \xi_e? -> already in GAMMA as zeta_ in constants.h
+- start trying out the default electron distribution in GAMMA and how to plot it
+- how do we create lightcurves/spectras
 
 Electron distribution & radiation work
 - better rules for e- distribution inside GAMMA (gmin, gmax)

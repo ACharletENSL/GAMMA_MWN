@@ -537,27 +537,52 @@ def df_get_dt(df):
 
   return dt
 
+def intersect(a, b):
+  '''
+  check if segments [aL, aR] and [bL, bR] intersect
+  '''
+  aL, aR = a
+  bL, bR = b
+  return bool(aL in range(bL, bR+1) or aR in range(bL, bR+1))
+
+def df_to_shocklist(df):
+  '''
+  Returns indices of shock-identified regions in data
+  '''
+  ilist = get_fused_interf(df)
+  shocks = df.loc[(df['Sd'] == 1.0)]
+  shlist = np.split(shocks, np.flatnonzero(np.diff(shocks.index) != 1) + 1)
+  clnsh  = [sh for inter in ilist for sh in shlist 
+      if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]])]
+      # need to clean better to account for overlaps in peaks
+  idlist = [[sh.index.min(), sh.index.max()] for sh in clnsh]
+  return idlist
+
+
 def df_to_shocks(df):
   '''
   Extract the shocked part of data
   Cleans 'false' shock at wave onset when resolution is not high enough
   '''
-  S4 = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
-  S1 = df.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
-  i4b = S4.index.min()
-  icd = S1.index.min()
-  i1f = S1.index.max()
-  shocks  = df.loc[(df['Sd'] == 1.0)]
-  sh_list = np.split(shocks, np.flatnonzero(np.diff(shocks.index) != 1) + 1)
-  if len(sh_list) == 2:
-    RS = sh_list[0]
-    FS = sh_list[1]
+
+  ilist = get_fused_interf(df)
+  shocks = df.loc[(df['Sd'] == 1.0)]
+  shlist = np.split(shocks, np.flatnonzero(np.diff(shocks.index) != 1) + 1)
+  clnsh  = [sh for inter in ilist for sh in shlist 
+      if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]])]
+
+  if len(clnsh) == 2:
+    RS = clnsh[0]
+    FS = clnsh[1]
     RS = RS.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
     FS = FS.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
     return RS, FS
-  elif len(sh_list) > 2:
-    left = [sh for sh in sh_list if sh.index.max() < icd]
-    right = [sh for sh in sh_list if sh.index.min() > icd]
+  elif len(clnsh) > 2:
+    S4 = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
+    S1 = df.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
+    icd = S1.index.min()
+    left = [sh for sh in clnsh if sh.index.max() < icd]
+    right = [sh for sh in clnsh if sh.index.min() > icd]
     RS = left[0]
     FS = right[-1]
     RS = RS.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
@@ -669,6 +694,13 @@ def df_id_shocks(df):
   '''
   Returns indices of shock fronts
   '''
+  idlist = []
+  shocks = df.loc[(df['Sd'] == 1.0)]
+  shlist = np.split(shocks, np.flatnonzero(np.diff(shocks.index) != 1) + 1)
+  for sh in shlist:
+    idlist.append([sh.index.min(), sh.index.max()])
+  return idlist
+
 
 
 def get_allinterf(df, h=.05, prom=.05, rel_h=.99):
