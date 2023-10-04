@@ -37,7 +37,7 @@ var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
   'M':'$M$ (g)', 'Msh':'$M$ (g)', 'Ek':'$E_k$ (erg)', 'Ei':'$E_{int}$ (erg)',
   'E':'$E$ (erg)', 'Etot':'$E$ (erg)', 'Esh':'$E$ (erg)',
   'Rct':'$(r - ct)/R_0$ (cm)', 'D':'$\\Delta$ (cm)', 'u_i':'$\\gamma\\beta$',
-  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$'}
+  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$', 'pdV':'$pdV$'}
 #var_legends = {}
 
 # Time plots
@@ -247,7 +247,7 @@ def rad_snapshot(it, key='Last', xscaling='R0'):
   logs = [False, True, False]
   for var, k, ax in zip(varlist, range(Nk), axes):
     title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, logy=logs[k])
-    if k != 1: ax.set_xlabel('')
+    if k != 2: ax.set_xlabel('')
   f.suptitle(title)
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
 

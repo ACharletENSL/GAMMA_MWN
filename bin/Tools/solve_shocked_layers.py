@@ -132,3 +132,29 @@ def selfSimilar_shell(a, delta):
     sol = solve_ivp(selfSim_ODE, (1, 0.5), y0, dense_output=True, events=u_boundary, atol=1e-3)
     return sol
 
+
+# Exact solution of Riemann problem
+# -------------------------------------------------------------------------------------------
+# following Giacomazzo 2006, appendix B
+# The variables are now a function of pressure p
+#   the ODE is to be integrated from head to tail of the rarefaction wave
+
+def rarefaction_right(state):
+    '''
+    Obtain the expression for the variables in the rarefaction wave traveling to the right
+    state = [rho, v, p] ahead of the wave
+    '''
+
+    rhoL, vL, pL = state
+
+
+def rarefaction_left(state):
+    '''
+    Obtain the expression for the variables in the rarefaction wave traveling to the left
+    state = [rho, v, p] ahead of the wave
+    '''
+
+    rhoR, vR, pR = state
+    TR = pR/rhoR
+    
+    cR = derive_cs_fromT(TR)

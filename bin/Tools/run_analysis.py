@@ -21,7 +21,7 @@ def get_timeseries(var, key):
   run_data = open_clean_rundata(key)
   mode = run_data.attrs['mode']
   Nz = get_Nzones(key)
-  extr_vars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei']
+  extr_vars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei', 'pdV']
   calc_vars = {
     "D":run_get_shellswidth,
     "Rct":run_get_Rct,
@@ -150,13 +150,17 @@ def analyze_run(key, itmin=0, itmax=None):
   env      = MyEnv(get_physfile(key))
   rhoscale = getattr(env, env.rhoNorm)
   Escale   = rhoscale*c_**2
+  Sscale   = 4.*pi_*c_**2
   Vscale   = 1.
   if env.geometry != 'spherical':
     Vscale = 4.*pi_*env.R0**2
-    for var in [f'V_{i}' for i in range(1,5)]:
-      data[var] = data[var].multiply(Vscale)
+    Sscale = Vscale
+  for var in [f'V_{i}' for i in range(1,5)]:
+    data[var] = data[var].multiply(Vscale)
   for var in ['rho_3', 'rho_2']:
     data[var] = data[var].multiply(rhoscale)
+  for var in ['pdV_4', 'pdV_1']:
+    data[var] = data[var].multiply(Escale*c_*Sscale)
   for var in [f'M_{i}' for i in range(1,5)]:
     data[var] = data[var].multiply(rhoscale*Vscale)
   for var in [f'Ek_{i}' for i in range(1,5)]:
@@ -170,7 +174,7 @@ def vars_header(key, dfile_path=None):
   if not dfile_path:
     dfile_path, dfile_bool = get_runfile(key)
 
-  allvars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei']
+  allvars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei', 'pdV']
   Nz  = get_Nzones(key)
   mode = get_runatts(key)[0]
   varlist = []
@@ -318,15 +322,18 @@ def run_get_Eshell(run_data):
   Return dataframe of summed energy per shell 
   '''
   time = run_data['time'].to_numpy()
+  W4   = run_data['pdV_4'].to_numpy()*time
   E4   = run_data['Ei_4'].to_numpy() + run_data['Ek_4'].to_numpy()
   E3   = run_data['Ei_3'].to_numpy() + run_data['Ek_3'].to_numpy()
   E2   = run_data['Ei_2'].to_numpy() + run_data['Ek_2'].to_numpy()
   E1   = run_data['Ei_1'].to_numpy() + run_data['Ek_1'].to_numpy()
-  Esh4 = E3 + E4
-  Esh1 = E1 + E2
+  W1   = run_data['pdV_1'].to_numpy()*time
+  Esh4 = E3 + E4 - W4
+  Esh1 = E1 + E2 - W1
   out = pd.DataFrame(np.array([time, Esh4, Esh1]).transpose(),
-    columns=['time', 'E_4+E_3', 'E_1+E_2'], index=run_data.index)
+    columns=['time', 'E_4+E_3+W_4', 'E_1+E_2+W_1'], index=run_data.index)
   return out
+
 
 def run_get_ShStratio(run_data):
   '''

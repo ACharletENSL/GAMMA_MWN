@@ -203,6 +203,8 @@ def get_varlist(var, Nz, mode):
     varlist = [var]
   elif var == 'rho':
     varlist = ['rho_3', 'rho_2']
+  elif var == 'pdV':
+    varlist = ['pdV_4', 'pdV_1']
   else:
     print("Asked variable does not exist")
   
@@ -220,7 +222,7 @@ def df_get_all(df):
   zone = df['zone']
   Nz = int(zone.max()) + 1
   mode = df.attrs['mode']
-  allvars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei']
+  allvars = ['Nc', 'R', 'u', 'rho', 'ShSt', 'V', 'M', 'Ek', 'Ei', 'pdV']
   allres  = []
   for var in allvars:
     Nvar = len(get_varlist(var, Nz, mode))
@@ -236,6 +238,8 @@ def df_get_all(df):
       res = df_get_rhoCD(df)
     elif var == 'ShSt':
       res = get_shocksStrength(df)
+    elif var == 'pdV':
+      res = [df_get_pdV(df, 4, False), df_get_pdV(df, 1, True)]
     else:
       zones = [4., 3., 2., 1.] if mode == 'shells' else [n for n in range(1, Nvar+1)]
       res = [zone_get_zoneIntegrated(df, var, n) for n in zones]
@@ -332,6 +336,37 @@ def df_get_shocked_p(df):
   else:
     res = 0.
   return res
+
+def df_get_pdV(df, n, front=True):
+  '''
+  Returns pdV work rate across shell n external surface, divided by surface area
+  '''
+
+  r, rho, v, p = df_get_var_ext(df, n, front)
+  A = 1.
+  if df.attrs['geometry'] == 'spherical':
+    A = r**2
+  return pdV_rate(v, p, A)
+
+
+def df_get_var_ext(df, n, front=True, varlist=['rho', 'vx', 'p'], ns=5):
+  '''
+  Return value of hydro variables right outside (front or back) a given shell
+  '''
+  S = df.loc[df['zone']==n]
+  res = np.zeros(len(varlist)+1)
+  if front:
+    iF = S.index.max() + 1
+    res[0] = df['x'].iloc[iF]
+    for k, var in enumerate(varlist):
+      res[k+1] = df[var].iloc[iF+ns].mean()
+    return res
+  else:
+    iB = S.index.min() - 1
+    res[0] = df['x'].iloc[iB]
+    for k, var in enumerate(varlist):
+      res[k+1] = df[var].iloc[iB-ns:iB].mean()
+    return res
 
 
 def df_get_mean(df, var, n):

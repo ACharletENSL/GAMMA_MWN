@@ -31,6 +31,12 @@ def prim2cons(rho, u, p):
 
   return D, s, tau
 
+# pdV work
+def pdV_rate(v, p, A):
+  '''
+  Rate of pdV work across a surface A
+  '''
+  return p*A*v
 
 # EoS and related
 def derive_temperature(rho, p):
@@ -326,4 +332,5 @@ def detect_shocks(fs1, fs2, reverse=False):
   Sd = v12 - vlim
 
   return Sd
+
 

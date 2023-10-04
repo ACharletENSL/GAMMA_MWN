@@ -16,9 +16,6 @@ sys.path.insert(1, 'bin/Tools/')
 from environment import MyEnv
 
 Initial_path = str(Path().absolute() / 'src/Initial/')
-# default values for shock threshold
-chi_cart = 0.1
-chi_sph  = 0.05
 
 def main():
   # update .cpp file and copies phys_input.ini in the results folder
@@ -41,21 +38,22 @@ def update_envFile(env):
   we found shock strength threshold was to be changed between cartesian and spherical
   '''
   filepath = os.getcwd() + '/src/environment.h'
-  ch_sh = chi_sph
-  if env.geometry == 'cartesian':
-    chi_sh = chi_cart
-  elif env.geometry == 'spherical':
-    chi_sh = chi_sph
-  
   out_lines = []
+  envVars = {
+    'DETECT_SHOCK_THRESHOLD_':env.chi_sh,
+    'eps_e_':env.eps_e,
+    'eps_B_':env.epsB,
+    'zeta_':env.xi_e,
+    'acc_eff_':env.alpha
+  }
   with open(filepath, 'r') as f:
     inFile = f.read().splitlines()
     # copy file line by line with updated values where needed
     for line in inFile:
       if line.startswith('#define'):
         l = line.split()
-        if l[1] == 'DETECT_SHOCK_THRESHOLD_':
-          line = line.replace(l[2], str(chi_sh))
+        if l[1] in envVars:
+          line = line.replace(l[2], str(envVars[l[1]]))
       out_lines.append(line)
   
   with open(filepath, 'w') as outf:
@@ -69,7 +67,7 @@ def update_Makefile(env):
   geometry = env.geometry
   mode = env.mode
   compile_cart = {
-    'GEOMETRY':'cartesian', 'HYDRO':'rel_cart', 'RADIATION':'radiation_cart'
+    'GEOMETRY':'cartesian', 'HYDRO':'rel_cart', 'RADIATION':'radiation_sph'
   }
   compile_sph = {
     'GEOMETRY':'spherical1D', 'HYDRO':'rel_sph', 'RADIATION':'radiation_sph'
