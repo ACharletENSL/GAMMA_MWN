@@ -325,7 +325,7 @@ def time_analytical(varkey, t, env):
     vel = np.gradient(radii, t, axis=1)
     u = derive_proper(vel)
     return u
-  elif varkey == 'pdV':
+  elif varkey in ['W', 'pdV']:
     p4, p1 = 0., 0.
     v4, v1 = 0., 0.
     A4, A1 = [4.*pi_*env.R0**2 for i in [0,1]]
@@ -333,9 +333,14 @@ def time_analytical(varkey, t, env):
       R4, Rrs, Rcd, Rfs, R1 = derive_radii_withtime(env, t)
       A4 = 4.*pi_*R4**2
       A1 = 4.*pi_*R1**2
-    W4 = pdV_rate(v4, p4, A4)*c_*t
-    W1 = pdV_rate(v1, p1, A1)*c_*t
-    return W4, W1
+    pdV4 = pdV_rate(v4, p4, A4)*c_*np.ones(len(t))
+    pdV1 = pdV_rate(v1, p1, A1)*c_*np.ones(len(t))
+    if varkey == 'pdV':
+      return pdV4, pdV1
+    elif varkey == 'W':
+      W4 = pdV4*t
+      W1 = pdV1*t
+      return W4, W1
   elif varkey == 'V':
     if env.geometry == 'spherical':
       R4, Rrs, Rcd, Rfs, R1 = derive_radii_withtime(env, t)

@@ -1,4 +1,9 @@
 To do:
+- calculate cooling timescales to verify transition between rad cooling and adiab
+- why is our gammas cooling only adiabatically??
+- compare B energy density with others
+- pdV: difference between each side of interface, + integrate with time not pdV*t
+
 - check higher resolution run, differences in rarefaction wave detection?
 - begin draft with hydro results
     reproduce Minu's plots to compare cart with analytics

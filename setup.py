@@ -41,10 +41,10 @@ def update_envFile(env):
   out_lines = []
   envVars = {
     'DETECT_SHOCK_THRESHOLD_':env.chi_sh,
-    'eps_e_':env.eps_e,
-    'eps_B_':env.epsB,
-    'zeta_':env.xi_e,
-    'acc_eff_':env.alpha
+    # 'eps_e_':env.eps_e,
+    # 'eps_B_':env.epsB,
+    # 'zeta_':env.xi_e,
+    # 'acc_eff_':env.alpha
   }
   with open(filepath, 'r') as f:
     inFile = f.read().splitlines()

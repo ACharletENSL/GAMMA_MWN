@@ -239,7 +239,7 @@ def df_get_all(df):
     elif var == 'ShSt':
       res = get_shocksStrength(df)
     elif var == 'pdV':
-      res = [df_get_pdV(df, 4, False), df_get_pdV(df, 1, True)]
+      res = [df_get_crosspdV(df, 4, False), df_get_crosspdV(df, 1, True)]
     else:
       zones = [4., 3., 2., 1.] if mode == 'shells' else [n for n in range(1, Nvar+1)]
       res = [zone_get_zoneIntegrated(df, var, n) for n in zones]
@@ -337,9 +337,46 @@ def df_get_shocked_p(df):
     res = 0.
   return res
 
+def df_get_crosspdV(df, n, front=True):
+  '''
+  Returns total pdV work rate across shell n external surface, scaled
+  '''
+  r, v1, p1, v2, p2 = df_get_var_interface(df, n, ['vx', 'p'], front)
+  A = 1.
+  if df.attrs['geometry'] == 'spherical':
+    A = r**2
+  rate_in = pdV_rate(v2, p2, A) - pdV_rate(v1, p1, A)
+  return rate_in
+
+
+def df_get_var_interface(df, n, varlist=['rho', 'vx', 'p'], front=True, ns=3):
+  '''
+  Return value of hydro variables right inside and outside (front or back) a given shell n
+  time, vars inside, vars outside
+  '''
+  S = df.loc[df['zone']==n]
+  l = len(varlist)
+  res = np.zeros(1+2*l)
+
+  if front:
+    iF = S.index.max() + 1
+    res[0] = df['x'].iloc[iF]
+    for k, var in enumerate(varlist):
+      res[k+1]   = df[var].iloc[iF-ns:iF].mean()
+      res[k+1+l] = df[var].iloc[iF:iF+ns].mean()
+    return res
+  else:
+    iB = S.index.min()
+    res[0] = df['x'].iloc[iB-1]
+    for k, var in enumerate(varlist):
+      res[k+1] = df[var].iloc[iB-ns:iB].mean()
+      res[k+1+l] = df[var].iloc[iB:iB+ns].mean()
+    return res
+
+
 def df_get_pdV(df, n, front=True):
   '''
-  Returns pdV work rate across shell n external surface, divided by surface area
+  Returns pdV work rate given to shell n external surface, scaled
   '''
 
   r, rho, v, p = df_get_var_ext(df, n, front)
@@ -347,7 +384,6 @@ def df_get_pdV(df, n, front=True):
   if df.attrs['geometry'] == 'spherical':
     A = r**2
   return pdV_rate(v, p, A)
-
 
 def df_get_var_ext(df, n, front=True, varlist=['rho', 'vx', 'p'], ns=5):
   '''

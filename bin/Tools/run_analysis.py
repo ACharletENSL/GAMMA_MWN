@@ -34,6 +34,7 @@ def get_timeseries(var, key):
     "E":run_get_E,
     "Etot":run_get_Etot,
     "Esh":run_get_Eshell,
+    "W":run_get_W,
     "ShSt ratio":run_get_ShStratio
   }
 
@@ -322,18 +323,28 @@ def run_get_Eshell(run_data):
   Return dataframe of summed energy per shell 
   '''
   time = run_data['time'].to_numpy()
-  W4   = run_data['pdV_4'].to_numpy()*time
   E4   = run_data['Ei_4'].to_numpy() + run_data['Ek_4'].to_numpy()
   E3   = run_data['Ei_3'].to_numpy() + run_data['Ek_3'].to_numpy()
   E2   = run_data['Ei_2'].to_numpy() + run_data['Ek_2'].to_numpy()
   E1   = run_data['Ei_1'].to_numpy() + run_data['Ek_1'].to_numpy()
-  W1   = run_data['pdV_1'].to_numpy()*time
-  Esh4 = E3 + E4 - W4
-  Esh1 = E1 + E2 - W1
+  W4   = np.cumsum(run_data['pdV_4'].to_numpy()*time)
+  W1   = np.cumsum(run_data['pdV_1'].to_numpy()*time)
+  Esh4 = E3 + E4 + W4
+  Esh1 = E1 + E2 + W1
   out = pd.DataFrame(np.array([time, Esh4, Esh1]).transpose(),
     columns=['time', 'E_4+E_3+W_4', 'E_1+E_2+W_1'], index=run_data.index)
   return out
 
+def run_get_W(run_data):
+  '''
+  Return dataframe of work performed on outside interfaces
+  '''
+  time = run_data['time'].to_numpy()
+  W4   = np.cumsum(run_data['pdV_4'].to_numpy()*time)
+  W1   = np.cumsum(run_data['pdV_1'].to_numpy()*time)
+  out  = pd.DataFrame(np.array([time, W4, W1]).transpose(),
+    columns=['time', 'W_4', 'W_1'], index=run_data.index)
+  return out
 
 def run_get_ShStratio(run_data):
   '''
