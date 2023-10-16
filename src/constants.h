@@ -21,13 +21,13 @@
 // Radiation related:
 #define alpha_      1.29251816e-09  // alpha in gammaMax calculation (Van Eerten+2010)
 
-// emissivity parameters:
-#define p_          2.22    // slope of electron population (Kirk2000)
-#define eps_e_      0.1//0.038018   // 0.1     // constribution to electron acceleration
-#define eps_B_      0.01//0.000109   // 0.1     // contribution to magnetic field
-#define zeta_       1.//1. // 0.1    // fraction of accelerated electrons
-#define acc_eff_    1.               // acceleration efficiency
-#define theta_      M_PI/2.          // electron pitch angle 
+// emissivity parameters: (values from Rahaman et al. 2023)
+#define p_          2.5         // slope of electron population
+#define eps_e_      0.338844    // constribution to electron acceleration
+#define eps_B_      0.338844    // contribution to magnetic field
+#define zeta_       0.01        // fraction of accelerated electrons
+#define acc_eff_    1.          // acceleration efficiency
+#define theta_      M_PI/2.     // electron pitch angle 
 
 // Normalized constants:
 extern double Nmp_, Nme_, Nqe_, NsigmaT_, Nalpha_;

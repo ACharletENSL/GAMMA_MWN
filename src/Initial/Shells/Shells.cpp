@@ -17,27 +17,29 @@ static int GEOMETRY_  = 0 ;           // 0 for cartesian, 0 for spherical
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
 static double rho0    = n0*mp_;       // g.cm-3:  comoving CBM mass density
-static double Theta0  = 1.0000e-4 ;   //          Theta0 = p/(rho*c^2)
+static double Theta0  = 0.0001 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 4.667291079080063e-15 ;     // comoving density of front shell
+static double rho1 = 4.667291079080062e-12 ;     // comoving density of front shell
 static double u1   = 1e+02 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 10.434578059068858 ;
-static double D01  = 29977746950.122807 ;     // spatial extension of front shell
-static double rho4 = 1.1610033862318821e-15 ;     // comoving density of back shell
+static double p1   = 104345.78059068859 ;
+static double D01  = 2997774695.012281 ;     // spatial extension of front shell
+static double rho4 = 1.1610033862318822e-12 ;     // comoving density of back shell
 static double u4   = 2e+02 ;          // proper velocity of back shell
-static double p4   = 10.434578059068858 ;
-static double D04  = 29978871066.45374 ;     // spatial extension of back shell
+static double p4   = 104345.78059068859 ;
+static double D04  = 2997887106.645374 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 1e-3;            // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 799471536841663.8 ;
-static double rmin0   = 799440059027044.0 ; 
-static double rmax0   = 799504512363308.9 ;
-static double Ncells  = 1000 ;
+static double R_0     = 79947153684166.38 ;
+static int Nsh1   = 900 ;
+static int Ntot1  = 1000 ;
+static int Nsh4   = 900 ;
+static int Ntot4  = 1000 ;
+static int Ncells = Ntot4 + Ntot1;
 
 // normalisation constants:
 static double rhoNorm = rho1 ;                // density normalised to CBM density
@@ -53,8 +55,18 @@ void loadParams(s_par *par){
   par->nmax      = 2*Ncells;    // max number of cells in MV direction
   par->ngst      = 2;
 
+  normalizeConstants(rhoNorm, vNorm, lNorm);
+
 }
 
+/*
+We want shell edge to coincide perfectly with cell edge,
+but also keep resolution as constant as possible across the zones
+-> do this linear grid over 4+external medium then 1+external medium
+Nsh4 = ceil(Nsh1*D04/D01)
+don't forget to set ext medium in a way it won't have to create cells immediately
+*/
+/*
 int Grid::initialGeometry(){
 
   double x = (rmax0 - rmin0)/lNorm;
@@ -64,6 +76,27 @@ int Grid::initialGeometry(){
     c->G.dx[x_] =          x/ncell[x_];
     c->computeAllGeom();
   }
+  return 0;
+
+}*/
+
+int Grid::initialGeometry(){
+
+  double x1 = D01/lNorm;
+  double x4 = D04/lNorm;
+  for (int i = 0; i < Ncells; ++i){
+    Cell *c = &Cinit[i];
+    if (i <= Ntot4){
+      c->G.x[x_]  = (double) x4*(i-Ntot4+0.5)/Nsh4 + R_0/lNorm;
+      c->G.dx[x_] =          x4/Nsh4;
+    }
+    else {
+      c->G.x[x_]  = (double) x1*(i-Ntot4+0.5)/Nsh1 + R_0/lNorm;
+      c->G.dx[x_] =          x1/Nsh1;
+    }
+    c->computeAllGeom();
+  }
+  
   return 0;
 
 }
@@ -156,8 +189,8 @@ void Grid::userKinematics(int it, double t){
   int iin  = iLbnd+1;
   double rout = Ctot[iout].G.x[r_];
   double rin  = Ctot[iin].G.x[r_];
-  double rlimL = rin + 0.05 * (rout-rin);
-  double rlimR = rin + 0.95 * (rout-rin);
+  double rlimL = rin + 0.02 * (rout-rin);
+  double rlimR = rin + 0.98 * (rout-rin);
 
   // left boundary
   int ia = iin;
@@ -223,7 +256,7 @@ int Grid::checkCellForRegrid(int j, int i){
   Cell c  = Ctot[i];
   double r   = c.G.x[r_];
   double dr  = c.G.dx[r_]*lNorm;
-  double dr0 = (rmax0-rmin0)/Ncells;
+  double dr0 = (D01+D04)/(Nsh1+Nsh4);
   double ar  = dr/dr0;
 
   if ((i <= iin + 2) or (i >= iout - 10)){
@@ -252,14 +285,12 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
 void Simu::dataDump(){
 
-  // if (it%1 == 0){ grid.printCols(it, t); }
-  if (it%10 == 0){ grid.printCols(it, t); }
+  if (it % 10 == 0){ grid.printCols(it, t); }
 
 }
 
 void Simu::runInfo(){
 
-  // if ((worldrank == 0) and (it%1 == 0)){ printf("it: %ld time: %le\n", it, t);}
   if ((worldrank == 0) and (it%100 == 0)){ printf("it: %ld time: %le\n", it, t);}
 
 }

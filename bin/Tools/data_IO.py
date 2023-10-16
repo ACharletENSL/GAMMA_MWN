@@ -15,7 +15,8 @@ import pandas as pd
 import scipy.signal as sps
 from scipy.ndimage import gaussian_filter1d
 from phys_functions import *
-from phys_constants import c_, pi_
+from phys_radiation import *
+from phys_constants import *
 from environment import MyEnv
 
 cwd = os.getcwd().split('/')
@@ -508,7 +509,9 @@ def get_variable(df, var):
     "Ek":df_get_Ekin,
     "Ei":df_get_Eint,
     "dt":df_get_dt,
-    "res":df_get_res
+    "res":df_get_res,
+    "numax":df_get_numax,
+    "numin":df_get_numin
   }
 
   r = df["x"].to_numpy()
@@ -560,6 +563,19 @@ def df_get_res(df):
   r = df["x"].to_numpy(copy=True)
   dr = df["dx"].to_numpy(copy=True)
   return dr/r
+
+def df_get_numax(df):
+  gmax = df["gmax"].to_numpy(copy=True)
+  e = df_get_Eint(df)
+  B = np.sqrt(8*pi_*e*eps_B_)
+  return lfac2nu(gmax, B)
+
+def df_get_numin(df):
+  gmin = df["gmin"].to_numpy(copy=True)
+  e = df_get_Eint(df)
+  B = np.sqrt(8*pi_*e*eps_B_)
+  return lfac2nu(gmin, B)
+
 
 def df_get_dt(df):
   '''
@@ -639,8 +655,13 @@ def df_to_shocks(df):
   ilist = get_fused_interf(df)
   shocks = df.loc[(df['Sd'] == 1.0)]
   shlist = np.split(shocks, np.flatnonzero(np.diff(shocks.index) != 1) + 1)
-  clnsh  = [sh for inter in ilist for sh in shlist 
-      if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]])]
+  clnsh = []
+  for sh in shlist:
+    for inter in ilist:
+      if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]]):
+        clnsh.append(sh)
+        break
+  
 
   if len(clnsh) == 2:
     RS = clnsh[0]
@@ -652,8 +673,8 @@ def df_to_shocks(df):
     S4 = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
     S1 = df.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
     icd = S1.index.min()
-    left = [sh for sh in clnsh if sh.index.max() < icd]
-    right = [sh for sh in clnsh if sh.index.min() > icd]
+    left = [sh for sh in clnsh if sh.index.max() <= icd]
+    right = [sh for sh in clnsh if sh.index.min() >= icd]
     RS = left[0]
     FS = right[-1]
     RS = RS.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]

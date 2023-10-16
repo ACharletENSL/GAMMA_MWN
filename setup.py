@@ -93,8 +93,10 @@ def update_Makefile(env):
     outf.writelines(f'{s}\n' for s in out_lines)
 
 def update_simFile(filepath, env):
+  Nsh4 = int(np.floor(env.Nsh1*env.D04/env.D01))
   gridvars = {
-    'Ncells':env.Ncells, 'rhoNorm':env.rhoNorm,
+    'rhoNorm':env.rhoNorm, 'Nsh1':env.Nsh1, 'Ntot1':env.Nsh1+env.Next,
+    'Nsh4':Nsh4, 'Ntot4':Nsh4+env.Next,
     'itmax':env.itmax, 'geometry':env.geometry
   }
   physvars = {}
@@ -106,11 +108,9 @@ def update_simFile(filepath, env):
     }
   elif env.mode =='shells':
     physvars = {
-      'R_0':env.R0, 't_start':env.t0, #'rho0':env.rho0
+      'R_0':env.R0, 't_start':env.t0, 'Theta0':env.Theta0,
       'rho1':env.rho1, 'u1':env.u1, 'p1':env.p1, 'D01':env.D01,
-      'rho4':env.rho4, 'u4':env.u4, 'p4':env.p4, 'D04':env.D04,
-      'rmin0':(env.R0 - 1.05*env.D04),
-      'rmax0':(env.R0 + 1.1*env.D01)
+      'rho4':env.rho4, 'u4':env.u4, 'p4':env.p4, 'D04':env.D04
     }
   vars2update = {**gridvars, **physvars}
   out_lines = []
@@ -128,7 +128,7 @@ def update_simFile(filepath, env):
             line = line.replace(l[4], f'{vars2update[l[2]]:.0e}')
           elif var == 'm_fade':
             line = line.replace(l[4], f'{vars2update[l[2]]:.1f}')
-          elif var == 'Ncells':
+          elif var.startswith('N'):
             line = line.replace(l[4], f'{int(vars2update[l[2]]):d}')
           elif var == 'rhoNorm':
             line = line.replace(l[4], env.rhoNorm)
@@ -137,6 +137,9 @@ def update_simFile(filepath, env):
       if 'if ( it >' in line:
         l = line.split()
         line = line.replace(l[4], f'{int(env.itmax):d}')
+      elif 'grid.printCols' in line:
+        l = line.split()
+        line = line.replace(l[3], f'{int(env.itdump):d}')
       out_lines.append(line)
   
   with open(filepath, 'w') as outf:

@@ -285,7 +285,7 @@
 
     if (isShocked){
       if (pspec>*psyn or std::isnan(*psyn)) *psyn = pspec;
-      *gmax = radiation_gammae2trac(GAMMA_MAX_INIT_, S) / (lfac*rho);
+      *gmax = radiation_gammae2trac(gammaMaxInit(S), S) / (lfac*rho);
       *gmin = radiation_gammae2trac(gammaMinInit(S), S) / (lfac*rho);
     }
     // if (*gmax <= 0. or ::isnan(*gmax)) *gmax = lim;
@@ -308,7 +308,7 @@
     double B = sqrt(8.*PI*eB);
 
     double dgma = Nalpha_ * pow(rho, 4./3.) * B*B * G.dV * dt;
-    // printf("%le\n", dgmax);
+    // printf("%le\n", dgma);
     S.cons[GMX] += dgma;
     S.cons[GMN] += dgma;
 

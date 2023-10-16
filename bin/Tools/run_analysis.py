@@ -8,6 +8,7 @@ This file analyze opened data
 # Imports
 # --------------------------------------------------------------------------------------------------
 import numpy as np
+import scipy.integrate as spi
 from data_IO import *
 from environment import MyEnv
 
@@ -302,7 +303,9 @@ def run_get_Etot(run_data):
   E3   = run_data['Ei_3'].to_numpy() + run_data['Ek_3'].to_numpy()
   E2   = run_data['Ei_2'].to_numpy() + run_data['Ek_2'].to_numpy()
   E1   = run_data['Ei_1'].to_numpy() + run_data['Ek_1'].to_numpy()
-  Etot = E1 + E2 + E3 + E4
+  #W4   = spi.cumulative_trapezoid(run_data['pdV_4'].to_numpy(), x=time, initial=0.)
+  #W1   = spi.cumulative_trapezoid(run_data['pdV_1'].to_numpy(), x=time, initial=0.)
+  Etot = E1 + E2 + E3 + E4 #+ W1 + W4
   out = pd.DataFrame(np.array([time, Etot]).transpose(),
     columns=['time', 'E_{tot}'], index=run_data.index)
   return out
@@ -327,12 +330,12 @@ def run_get_Eshell(run_data):
   E3   = run_data['Ei_3'].to_numpy() + run_data['Ek_3'].to_numpy()
   E2   = run_data['Ei_2'].to_numpy() + run_data['Ek_2'].to_numpy()
   E1   = run_data['Ei_1'].to_numpy() + run_data['Ek_1'].to_numpy()
-  W4   = np.cumsum(run_data['pdV_4'].to_numpy()*time)
-  W1   = np.cumsum(run_data['pdV_1'].to_numpy()*time)
-  Esh4 = E3 + E4 + W4
-  Esh1 = E1 + E2 + W1
+  #W4   = spi.cumulative_trapezoid(run_data['pdV_4'].to_numpy(), x=time, initial=0.)
+  #W1   = spi.cumulative_trapezoid(run_data['pdV_1'].to_numpy(), x=time, initial=0.)
+  Esh4 = E3 + E4 #+ W4
+  Esh1 = E1 + E2 #+ W1
   out = pd.DataFrame(np.array([time, Esh4, Esh1]).transpose(),
-    columns=['time', 'E_4+E_3+W_4', 'E_1+E_2+W_1'], index=run_data.index)
+    columns=['time', 'E_4+E_3', 'E_1+E_2'], index=run_data.index)
   return out
 
 def run_get_W(run_data):
@@ -340,8 +343,8 @@ def run_get_W(run_data):
   Return dataframe of work performed on outside interfaces
   '''
   time = run_data['time'].to_numpy()
-  W4   = np.cumsum(run_data['pdV_4'].to_numpy()*time)
-  W1   = np.cumsum(run_data['pdV_1'].to_numpy()*time)
+  W4   = spi.cumulative_trapezoid(run_data['pdV_4'].to_numpy(), x=time, initial=0.)
+  W1   = spi.cumulative_trapezoid(run_data['pdV_1'].to_numpy(), x=time, initial=0.)
   out  = pd.DataFrame(np.array([time, W4, W1]).transpose(),
     columns=['time', 'W_4', 'W_1'], index=run_data.index)
   return out

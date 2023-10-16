@@ -1,22 +1,43 @@
-To do:
-- calculate cooling timescales to verify transition between rad cooling and adiab
-- why is our gammas cooling only adiabatically??
-- compare B energy density with others
-- pdV: difference between each side of interface, + integrate with time not pdV*t
+Todo (detailed):
+- Grid::initialGeometry: rework for shell edges (CD also!) <=> cell edge
+Ncells phys_input.ini -> Ncells / shell
+  -> try keep resolution roughly constant
+  -> prepare for different shells relative size 
+    -> Ncells4/Ncells1 follows ratio
+    -> have same resolution in external medium
+-> once it's cleared, properly check pdV work
+- Minu emission paper eqn G18-19-20 for the parameter space, play with parameters keeping those X_0 constants
+/!\ we also have observational constraints (u1 : 100-1000, L and t_off quite constraint)
+for example: higher u1 to have less fast cooling (cause eB depends on R0)
+we want to see the different regimes (very fast, fast, marginally fast..), a few representative sims
+- don't forget small corrections to gamma_min
+- variable gamma_max too low 
+  -> check if each variable along the way is reasonable (Beniamini & Piran 2013 for typical range of values)
+- plot nu in eV
 
+Tasks:
+FOCUS pdV
+- why is some energy missing at the start?
+- calculate cooling timescales to verify transition between rad cooling and adiab
+- in Ayache paper -> eq 19 is y_min - 1, also in equation 17 it's gamma'_e^2-1
 - check higher resolution run, differences in rarefaction wave detection?
 - begin draft with hydro results
     reproduce Minu's plots to compare cart with analytics
     spherical to cartesian comparisons
     compare relfdiff of variables for diff a_u
-- organize Tools folder (one plotting script, and sources in a subfolder, organize them more)
 - take cells compression into account for analytical estimates to compare snapshots to?
 - find out the pdV work of the shocked external medium on the shell after crossing time
 - how do we create lightcurves/spectras
+- note: in very strong cooling case, we will have to do some analytical estimates for the 
 
 Electron distribution & radiation work
 - better rules for e- distribution inside GAMMA (gmin, gmax)
 - postprocessing
+
+python code
+- microphysics params are in phys_constants, add to environment
+- organize Tools folder (one plotting script, and sources in a subfolder, organize them more)
+- object programming for variables to plot? (allow for easier implementation of new ones)
 
 later stuff
 Add shock strength = Mach number of shock in upstream

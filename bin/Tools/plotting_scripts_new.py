@@ -151,7 +151,7 @@ def ax_timeseries(var, key='Last', ax_in=None,
   ylabel = var_label[var]
   varlist = data.keys()[1:]
   yscale = 1.
-  if var.startswith('E'):
+  if var.startswith('E') or var=='W':
     yscaling = True
     yscale = (env.Ek4 + env.Ek1)/2.
     ylabel = '$E/E_0$'
@@ -168,7 +168,7 @@ def ax_timeseries(var, key='Last', ax_in=None,
     if reldiff:
       expected = theoretical[var][0][n]
       y = derive_reldiff(y, expected)
-    ax.plot(t[1:], y[1:], c=plt.cm.Paired(n), label=varlabel, **kwargs)
+    ax.plot(t, y, c=plt.cm.Paired(n), label=varlabel, **kwargs)
     if theory:
       if var in theoretical:
         expec = theoretical[var]
@@ -177,7 +177,7 @@ def ax_timeseries(var, key='Last', ax_in=None,
           ax.text(1.02, val, name, color='k', transform=ax.get_yaxis_transform(),
             ha='left', va='center')
       else:
-        ax.plot(t[1:], expec_vals[n][1:]/yscale, c='k', ls=':', lw=.8)
+        ax.plot(t, expec_vals[n]/yscale, c='k', ls=':', lw=.8)
         th_legend = ax.legend(dummy_lst, ['data', 'analytical'], fontsize=11)
 
   if logt:
@@ -240,11 +240,13 @@ def prim_snapshot(it, key='Last', theory=False, xscaling='R0'):
   #scatter = scatlist[1]
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
 
-def rad_snapshot(it, key='Last', xscaling='R0'):
+def rad_snapshot(it, key='Last', xscaling='R0', distr='gamma'):
   Nk = 3
   f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6, 2*Nk), layout='constrained')
   varlist = ['Sd', 'gmax', 'gmin']
-  logs = [False, True, False]
+  if distr == 'nu':
+    varlist = ['Sd', 'numax', 'numin']
+  logs = [False, True, True]
   for var, k, ax in zip(varlist, range(Nk), axes):
     title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, logy=logs[k])
     if k != 2: ax.set_xlabel('')
@@ -271,23 +273,25 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
   "trac":"tracer", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
-  "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r"
+  "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r",
+  "numax":"$\\nu_{max}$", "numin":"$\\nu_{min}$"
   }
   units_CGS  = {
   "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
   "D":"", "sx":"", "tau":"", "trac":"", "Sd":"", "gmin":"", "gmax":"",
   "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)", "res":"",
-  "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "M":" (g)"
+  "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "M":" (g)",
+  "numax":" (Hz)", "numin":" (Hz)"
   }
   auth_theory = ["rho", "vx", "u", "p", "D", "sx", "tau", "T", "h", "lfac", "Ek", "Ei", "M"]
-  nonlog_var = ['u', 'trac', 'Sd', 'gmin', 'gmax', 'zone']
+  nonlog_var = ['u', 'trac', 'Sd', 'zone']
   if var not in auth_theory:
     theory = False
   if var in nonlog_var:
     logy = False
   def get_normunits(xnormstr, rhonormsub):
     rhonormsub  = '{' + rhonormsub +'}'
-    CGS2norm = {" (s)":" (s)", " (g)":" (g)",
+    CGS2norm = {" (s)":" (s)", " (g)":" (g)", " (Hz)":" (Hz)",
     " (cm)":" (ls)" if xnormstr == 'c' else "$/"+xnormstr+"$", " (g cm$^{-3}$)":f"$/\\rho_{rhonormsub}$",
     " (Ba)":f"$/\\rho_{rhonormsub}c^2$", " (erg cm$^{-3}$)":f"$/\\rho_{rhonormsub}c^2$"}
     return {key:(CGS2norm[value] if value else "") for (key,value) in units_CGS.items()}
