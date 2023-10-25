@@ -15,6 +15,8 @@ def lfac2nu(lfac, B):
   fac = 3*e_/(4.*pi_*me_*c_)
   return fac * lfac**2 * B
 
+def Hz2eV(nu):
+  return h_eV_*nu
 
 def derive_normPnu_GS99(nu, nu_m, nu_c, nu_sa, nu_ac):
   '''

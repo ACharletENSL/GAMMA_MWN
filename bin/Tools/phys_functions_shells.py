@@ -121,8 +121,24 @@ def shells_add_analytics(env):
   env.tRFm3 = (env.beta-env.betaRS)*(env.tFS+env.tRFm2)/(env.betaRS-env.betaRFm3)
 
   # thermal efficiencies
-  add_weightfactors(env)
- 
+  #add_weightfactors(env)
+
+def shells_add_radNorm(env, z=0., dL=28.3):
+  '''
+  Add the normalization values for emission curves
+  Minu paper equations G11, 15, 17
+  ''' 
+  a_u = env.u4/env.u1
+  L = ((env.Ek1/env.t1)+(env.Ek4/env.t4))/2
+  beta34 = derive_velocity(env.lfac34)
+  env.nu0 = (1./(1+z)) * ((2.*mp_)/(pi_*me_**3*c_**2.5)) * ((env.p-2)/(env.p-1))**2 * \
+    env.xi_e**-2 * env.eps_e**2 * env.eps_B**0.5 * env.u1**-2 * L**0.5 * env.toff**-1 * \
+    (env.lfac34**0.5 * (env.lfac34-1.)**2.5 * (1-a_u**-2) / np.sqrt(1+a_u**2))
+  env.F0 = ((1+z)/(12*pi_*dL**2)) * ((8*pi_*me_**3*c**2.5)/(3*e_*mp_**2)) * ((env.p-1)/(env.p-2)) * \
+    env.eps_B**-0.5 * env.eps_e**-1 * env.xi_e**-2 *env.u1**2 * L**0.5 * env.toff * \
+    (beta34 * env.lfac34**0.5 * (env.lfac34-1)**-1.5 * a_u*(a_u**-1 - a_u**-3)**-1 / np.sqrt(1+a_u**2))
+  env.T0 = (1+z) * (env.R0/c_) * ((1-env.betaRS)/env.betaRS)
+  
 
 def shells_snapshot_fromenv(env, r, t):
   '''

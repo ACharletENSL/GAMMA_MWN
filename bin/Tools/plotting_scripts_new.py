@@ -29,11 +29,11 @@ formatter = ticker.ScalarFormatter(useMathText=True)
 formatter.set_scientific(True) 
 formatter.set_powerlimits((-1,1)) 
 
-nolog_vars = ['trac', 'Sd', 'gmin', 'gmax', 'zone']
+nolog_vars = ['trac', 'trac2', 'Sd', 'gmin', 'gmax', 'zone']
 var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
   'f':"$n'_3/n'_2$", 'rho':"$n'$", 'rho3':"$n'_3$", 'rho2':"$n'_2$",
-  'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$',
-  'ShSt ratio':'$(\\Gamma_{34}-1)/(\\Gamma_{21}-1)$',
+  'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$', "Econs":"E",
+  'ShSt ratio':'$(\\Gamma_{34}-1)/(\\Gamma_{21}-1)$', "Wtot":"$W_4 - W_1$",
   'M':'$M$ (g)', 'Msh':'$M$ (g)', 'Ek':'$E_k$ (erg)', 'Ei':'$E_{int}$ (erg)',
   'E':'$E$ (erg)', 'Etot':'$E$ (erg)', 'Esh':'$E$ (erg)', 'W':'$W_{pdV}$ (erg)',
   'Rct':'$(r - ct)/R_0$ (cm)', 'D':'$\\Delta$ (cm)', 'u_i':'$\\gamma\\beta$',
@@ -66,6 +66,7 @@ def compare_runs(var, keylist, tscaling='t0',
   plt.legend(dummy_lst, names, bbox_to_anchor=(1.0, 1.02),
     loc='lower right', borderaxespad=0., ncol=len(names))
   ax.add_artist(legend1)
+  plt.tight_layout()
 
 def plot_conservation(var, key='Last'):
   plt.figure()
@@ -151,10 +152,10 @@ def ax_timeseries(var, key='Last', ax_in=None,
   ylabel = var_label[var]
   varlist = data.keys()[1:]
   yscale = 1.
-  if var.startswith('E') or var=='W':
+  if var.startswith('E') or var.startswith('W'):
     yscaling = True
     yscale = (env.Ek4 + env.Ek1)/2.
-    ylabel = '$E/E_0$'
+    ylabel = '$W/E_0$' if var.startswith("W") else "$E/E_0$"
   if reldiff:
     ylabel = '$(X - X_{th})/X_{th}$'
   ax.set_ylabel(ylabel)
@@ -248,7 +249,7 @@ def rad_snapshot(it, key='Last', xscaling='R0', distr='gamma'):
     varlist = ['Sd', 'numax', 'numin']
   logs = [False, True, True]
   for var, k, ax in zip(varlist, range(Nk), axes):
-    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, logy=logs[k])
+    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, yscaling='CGS', logy=logs[k])
     if k != 2: ax.set_xlabel('')
   f.suptitle(title)
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
@@ -271,17 +272,17 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
   var_exp = {
   "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$",
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
-  "trac":"tracer", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
+  "trac":"tracer", "trac2":"wasSh", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
   "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r",
-  "numax":"$\\nu_{max}$", "numin":"$\\nu_{min}$"
+  "numax":"$\\nu_{max}$", "numin":"$\\nu_{min}$", "B":"$B"
   }
   units_CGS  = {
   "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
-  "D":"", "sx":"", "tau":"", "trac":"", "Sd":"", "gmin":"", "gmax":"",
+  "D":"", "sx":"", "tau":"", "trac":"", "trac2":"", "Sd":"", "gmin":"", "gmax":"",
   "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)", "res":"",
   "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "M":" (g)",
-  "numax":" (Hz)", "numin":" (Hz)"
+  "numax":" (eV)", "numin":" (eV)", "B":" (G)"
   }
   auth_theory = ["rho", "vx", "u", "p", "D", "sx", "tau", "T", "h", "lfac", "Ek", "Ei", "M"]
   nonlog_var = ['u', 'trac', 'Sd', 'zone']
@@ -291,7 +292,7 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
     logy = False
   def get_normunits(xnormstr, rhonormsub):
     rhonormsub  = '{' + rhonormsub +'}'
-    CGS2norm = {" (s)":" (s)", " (g)":" (g)", " (Hz)":" (Hz)",
+    CGS2norm = {" (s)":" (s)", " (g)":" (g)", " (Hz)":" (Hz)", " (eV)":" (eV)", " (G)":" (G)",
     " (cm)":" (ls)" if xnormstr == 'c' else "$/"+xnormstr+"$", " (g cm$^{-3}$)":f"$/\\rho_{rhonormsub}$",
     " (Ba)":f"$/\\rho_{rhonormsub}c^2$", " (erg cm$^{-3}$)":f"$/\\rho_{rhonormsub}c^2$"}
     return {key:(CGS2norm[value] if value else "") for (key,value) in units_CGS.items()}
@@ -304,6 +305,8 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
       var_scale = rhoNorm
     elif unit == " (Ba)" or unit == " (erg cm$^{-3}$)":
       var_scale = pNorm
+    elif unit == " (G)":
+      var_scale = np.sqrt(pNorm)
     else:
       var_scale = 1.
     return var_scale

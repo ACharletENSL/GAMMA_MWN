@@ -225,7 +225,7 @@
     double ee = eps_e_ * eps;
     double ne = zeta_ * rho / Nmp_;
     double lfac_av = ee / (ne * Nme_);
-    double gammaMin = (psyn-2.) / (psyn-1.) *lfac_av;
+    double gammaMin = 1. + ((psyn-2.) / (psyn-1.) *lfac_av);
 
     return(gammaMin);
 
@@ -237,11 +237,11 @@
     double p = S.prim[PPP];
     double gma = S.gamma();
     double h = 1 + p*gma/(gma-1.)/rho;
-    double eps = rho * (h-1.) / gma;
+    double eps = rho*(h-1.)/ gma;
     double eB = eps_B_ * eps;
     double B = sqrt(8.*PI*eB);
-    double fac = 3. * alpha_ / (4.* PI * pow(qe_, 3) * B * sin(theta_));
-    double gammaMax = (me_ * c_ * c_) * sqrt(fac);
+    double gammaMax2 = 3. * qe_ / (sigmaT_ * B);
+    double gammaMax = 1. + sqrt(gammaMax2);
 
     return(gammaMax);
   }

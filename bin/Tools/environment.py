@@ -13,7 +13,7 @@ import os
 import numpy as np
 from scipy.optimize import fsolve
 from phys_constants import *
-from phys_functions_shells import shells_complete_setup, shells_add_analytics
+from phys_functions_shells import shells_complete_setup, shells_add_analytics, shells_add_radNorm
 
 default_path = str(Path().absolute().parents[1] / 'phys_input.ini')
 Initial_path = str(Path().absolute().parents[1] / 'src/Initial/')
@@ -38,7 +38,7 @@ class MyEnv:
         if name in intinputs:
           value = int(value)
         elif name not in strinputs:
-          value = float(value)
+          value = eval(value)
         setattr(self, name, value)
   
   def create_setup(self):
@@ -50,6 +50,7 @@ class MyEnv:
     if self.mode == 'shells':
       shells_complete_setup(self)
       shells_add_analytics(self)
+      #shells_add_radNorm(self)
     elif self.mode == 'MWN':
       # varlist, vallist = MWN_phys2num()
       pass

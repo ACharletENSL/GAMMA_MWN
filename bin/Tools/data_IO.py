@@ -240,7 +240,7 @@ def df_get_all(df):
     elif var == 'ShSt':
       res = get_shocksStrength(df)
     elif var == 'pdV':
-      res = [df_get_crosspdV(df, 4, False), df_get_crosspdV(df, 1, True)]
+      res = [df_get_pdV(df, 4, False), df_get_pdV(df, 1, True)]
     else:
       zones = [4., 3., 2., 1.] if mode == 'shells' else [n for n in range(1, Nvar+1)]
       res = [zone_get_zoneIntegrated(df, var, n) for n in zones]
@@ -380,7 +380,7 @@ def df_get_pdV(df, n, front=True):
   Returns pdV work rate given to shell n external surface, scaled
   '''
 
-  r, rho, v, p = df_get_var_ext(df, n, front)
+  r, v, p = df_get_var_ext(df, n, front, ["vx", "p"])
   A = 1.
   if df.attrs['geometry'] == 'spherical':
     A = r**2
@@ -508,6 +508,8 @@ def get_variable(df, var):
     "u":df_get_u,
     "Ek":df_get_Ekin,
     "Ei":df_get_Eint,
+    "ei":df_get_Eint_comoving,
+    "B":df_get_B,
     "dt":df_get_dt,
     "res":df_get_res,
     "numax":df_get_numax,
@@ -534,6 +536,11 @@ def df_get_h(df):
   rho = df["rho"].to_numpy(copy=True)
   p = df["p"].to_numpy(copy=True)
   return derive_enthalpy(rho, p)
+
+def df_get_Eint_comoving(df):
+  rho = df["rho"].to_numpy(copy=True)
+  p = df["p"].to_numpy(copy=True)
+  return derive_Eint_comoving(rho, p)
 
 def df_get_Eint(df):
   rho = df["rho"].to_numpy(copy=True)
@@ -564,17 +571,23 @@ def df_get_res(df):
   dr = df["dx"].to_numpy(copy=True)
   return dr/r
 
+def df_get_B(df):
+  e = df_get_Eint_comoving(df)
+  return np.sqrt(8*pi_*e*eps_B_)
+
 def df_get_numax(df):
   gmax = df["gmax"].to_numpy(copy=True)
-  e = df_get_Eint(df)
+  e = df_get_Eint_comoving(df)
   B = np.sqrt(8*pi_*e*eps_B_)
-  return lfac2nu(gmax, B)
+  numax = lfac2nu(gmax, B)
+  return Hz2eV(numax)
 
 def df_get_numin(df):
   gmin = df["gmin"].to_numpy(copy=True)
-  e = df_get_Eint(df)
+  e = df_get_Eint_comoving(df)
   B = np.sqrt(8*pi_*e*eps_B_)
-  return lfac2nu(gmin, B)
+  numin = lfac2nu(gmin, B)
+  return Hz2eV(numin)
 
 
 def df_get_dt(df):

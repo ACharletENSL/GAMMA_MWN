@@ -19,7 +19,7 @@
 #define min_rho_    1.e-10      // minimum value allowed for rho
 
 // Radiation related:
-#define alpha_      1.29251816e-09  // alpha in gammaMax calculation (Van Eerten+2010)
+#define alpha_      1.29251816e-09  // sigmaT_/6 pi_me_c_ (Van Eerten+2010)
 
 // emissivity parameters: (values from Rahaman et al. 2023)
 #define p_          2.5         // slope of electron population

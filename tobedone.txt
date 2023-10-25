@@ -1,32 +1,30 @@
+Add microphysics variation in env
+
 Todo (detailed):
-- Grid::initialGeometry: rework for shell edges (CD also!) <=> cell edge
-Ncells phys_input.ini -> Ncells / shell
-  -> try keep resolution roughly constant
-  -> prepare for different shells relative size 
-    -> Ncells4/Ncells1 follows ratio
-    -> have same resolution in external medium
--> once it's cleared, properly check pdV work
+- we want only ONCE gamma max & min injection
+  -> tracer "hasBeenShocked" that stops particle injection for the next N time steps
 - Minu emission paper eqn G18-19-20 for the parameter space, play with parameters keeping those X_0 constants
 /!\ we also have observational constraints (u1 : 100-1000, L and t_off quite constraint)
 for example: higher u1 to have less fast cooling (cause eB depends on R0)
 we want to see the different regimes (very fast, fast, marginally fast..), a few representative sims
-- don't forget small corrections to gamma_min
-- variable gamma_max too low 
-  -> check if each variable along the way is reasonable (Beniamini & Piran 2013 for typical range of values)
-- plot nu in eV
+
+Calculating radiations:
+1. construct "timestep" electron distribution taking into account coolign from previous timestep
+(see whiteboard picture)
+-> when gmax1 < gmin0 -> "instantaneous" e distrib is delta function
+-> add broken power-law from integrating over timestep
+2. local emissivity. Take care of electron number, time elapsed. Which scheme do we use?
+
 
 Tasks:
 FOCUS pdV
-- why is some energy missing at the start?
 - calculate cooling timescales to verify transition between rad cooling and adiab
 - in Ayache paper -> eq 19 is y_min - 1, also in equation 17 it's gamma'_e^2-1
-- check higher resolution run, differences in rarefaction wave detection?
 - begin draft with hydro results
     reproduce Minu's plots to compare cart with analytics
     spherical to cartesian comparisons
     compare relfdiff of variables for diff a_u
 - take cells compression into account for analytical estimates to compare snapshots to?
-- find out the pdV work of the shocked external medium on the shell after crossing time
 - how do we create lightcurves/spectras
 - note: in very strong cooling case, we will have to do some analytical estimates for the 
 

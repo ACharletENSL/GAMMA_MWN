@@ -133,6 +133,14 @@ def derive_Eint(rho, v, p):
   eint = p/(gma-1.)  # in comoving frame
   return eint*lfac**2*(1+v**2*(gma-1.))
 
+def derive_Eint_comoving(rho, p):
+  '''
+  Internal energy density in comoving frame
+  '''
+  T = derive_temperature(rho, p)
+  gma  = derive_adiab_fromT_TM(T)
+  return p/(gma-1.) 
+
 # Velocity and related
 def derive_Lorentz(v):
   '''

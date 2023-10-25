@@ -35,7 +35,9 @@ def get_timeseries(var, key):
     "E":run_get_E,
     "Etot":run_get_Etot,
     "Esh":run_get_Eshell,
+    "Econs":run_get_Econs,
     "W":run_get_W,
+    "Wtot":run_get_Wtot,
     "ShSt ratio":run_get_ShStratio
   }
 
@@ -347,6 +349,34 @@ def run_get_W(run_data):
   W1   = spi.cumulative_trapezoid(run_data['pdV_1'].to_numpy(), x=time, initial=0.)
   out  = pd.DataFrame(np.array([time, W4, W1]).transpose(),
     columns=['time', 'W_4', 'W_1'], index=run_data.index)
+  return out
+
+def run_get_Wtot(run_data):
+  '''
+  Return dataframe of work performed on outside interfaces
+  '''
+  time = run_data['time'].to_numpy()
+  W4   = spi.cumulative_trapezoid(run_data['pdV_4'].to_numpy(), x=time, initial=0.)
+  W1   = spi.cumulative_trapezoid(run_data['pdV_1'].to_numpy(), x=time, initial=0.)
+  W    = W4 - W1
+  out  = pd.DataFrame(np.array([time, W]).transpose(),
+    columns=['time', 'W'], index=run_data.index)
+  return out
+
+def run_get_Econs(run_data):
+  '''
+  Return dataframe of summed energy to check for energy conservation
+  '''
+  time = run_data['time'].to_numpy()
+  E4   = run_data['Ei_4'].to_numpy() + run_data['Ek_4'].to_numpy()
+  E3   = run_data['Ei_3'].to_numpy() + run_data['Ek_3'].to_numpy()
+  E2   = run_data['Ei_2'].to_numpy() + run_data['Ek_2'].to_numpy()
+  E1   = run_data['Ei_1'].to_numpy() + run_data['Ek_1'].to_numpy()
+  W4   = spi.cumulative_trapezoid(run_data['pdV_4'].to_numpy(), x=time, initial=0.)
+  W1   = spi.cumulative_trapezoid(run_data['pdV_1'].to_numpy(), x=time, initial=0.)
+  Etot = E1 + E2 + E3 + E4 + W1 - W4
+  out = pd.DataFrame(np.array([time, Etot]).transpose(),
+    columns=['time', 'E_{tot}'], index=run_data.index)
   return out
 
 def run_get_ShStratio(run_data):

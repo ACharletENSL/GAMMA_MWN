@@ -62,7 +62,7 @@ enum{skip_,merge_,split_};
 #define SPATIAL_RECONSTRUCTION_ PIECEWISE_LINEAR_
 #define CIRC_REGRID_            DISABLED_
 #define SHOCK_DETECTION_        ENABLED_
-#define DETECT_SHOCK_THRESHOLD_ 0.1
+#define DETECT_SHOCK_THRESHOLD_ 0.15
 #define LOCAL_SYNCHROTRON_      ENABLED_
 #define GAMMA_MAX_INIT_         (1.e8)
 #define VARIABLE_GAMMA_MAX_     DISABLED_
@@ -80,7 +80,7 @@ enum{skip_,merge_,split_};
   #define NUM_S 0
 #endif 
 
-#define TR1   NUM_C                 // index of first tracer 
+#define TR1   NUM_C                 // index of first tracer
 #define NUM_T (NUM_TR+NUM_S)        // total num of tracers
 #define NUM_Q (NUM_C+NUM_T)   // advected variables (tracers are placed at end of list)
 
