@@ -282,25 +282,30 @@
     double *gmax = &S.prim[GMX];
     double *gmin = &S.prim[GMN];
     double *psyn = &S.prim[PSN];
+    double *trac = &S.prim[TR1+1];
 
-    if (isShocked){
-      if (pspec>*psyn or std::isnan(*psyn)) *psyn = pspec;
-      *gmax = radiation_gammae2trac(gammaMaxInit(S), S) / (lfac*rho);
-      *gmin = radiation_gammae2trac(gammaMinInit(S), S) / (lfac*rho);
+    if (S.prim[TR1+1] <= 0.){
+      if (isShocked){
+        if (pspec>*psyn or std::isnan(*psyn)) *psyn = pspec;
+        *gmax = radiation_gammae2trac(gammaMaxInit(S), S) / (lfac*rho);
+        *gmin = radiation_gammae2trac(gammaMinInit(S), S) / (lfac*rho);
+        *trac = 1.;
+      }
+      // if (*gmax <= 0. or ::isnan(*gmax)) *gmax = lim;
+      // if (*gmin <= 0. or ::isnan(*gmin)) *gmin = lim;
+      if (::isnan(*gmax)) *gmax = lim;
+      if (::isnan(*gmin)) *gmin = lim;
+      // if (*gmax > lim or *gmax <= 0. or ::isnan(*gmax)) *gmax = lim;
+      // if (*gmin > lim or *gmin <= 0. or ::isnan(*gmin)) *gmin = lim;
     }
-    // if (*gmax <= 0. or ::isnan(*gmax)) *gmax = lim;
-    // if (*gmin <= 0. or ::isnan(*gmin)) *gmin = lim;
-    if (::isnan(*gmax)) *gmax = lim;
-    if (::isnan(*gmin)) *gmin = lim;
-    // if (*gmax > lim or *gmax <= 0. or ::isnan(*gmax)) *gmax = lim;
-    // if (*gmin > lim or *gmin <= 0. or ::isnan(*gmin)) *gmin = lim;
-
   }
 
   void Cell :: radiativeSourceTerms(double dt){
 
     double rho = S.prim[RHO];
     double p = S.prim[PPP];
+    double trac = S.prim[TR1+1];
+    double lfac = S.lfac();
     double gma = S.gamma();
     double h = 1 + p*gma/(gma-1.)/rho;
     double eps = rho * (h-1.) / gma;
@@ -311,7 +316,9 @@
     // printf("%le\n", dgma);
     S.cons[GMX] += dgma;
     S.cons[GMN] += dgma;
-
+    if (trac > 0.){
+      S.cons[TR1+1] -= 0.1 * rho * lfac * G.dV;
+      } 
   }
 
 #endif

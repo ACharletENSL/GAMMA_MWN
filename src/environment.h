@@ -46,7 +46,7 @@ enum{skip_,merge_,split_};
 // ---------------------------------------------------------------------------------------
 // ENVIRONMENT OPTIONS
 #define NUM_C  4             // conserved (always set to 4, even in 1D)
-#define NUM_TR 2             // user-specified tracers
+#define NUM_TR 3             // user-specified tracers
 #define NUM_D  1             // number of dimensions
 #define MV     x_            // moving dimension
 #define F1     y_            // fixed dimension 1
@@ -81,6 +81,7 @@ enum{skip_,merge_,split_};
 #endif 
 
 #define TR1   NUM_C                 // index of first tracer
+#define SD    (NUM_C+NUM_TR-1)      // shock detected
 #define NUM_T (NUM_TR+NUM_S)        // total num of tracers
 #define NUM_Q (NUM_C+NUM_T)   // advected variables (tracers are placed at end of list)
 

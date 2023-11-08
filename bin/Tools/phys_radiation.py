@@ -23,7 +23,6 @@ def derive_normPnu_GS99(nu, nu_m, nu_c, nu_sa, nu_ac):
   Returns emissivity normalized at its max following Granot & Sari 1999
   '''
 
-
 def derive_normPnu_Colle12(nu, nu_m, nu_c, p):
   '''
   Returns emissivity normalized at its max following Colle et al 2012

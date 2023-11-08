@@ -168,6 +168,7 @@ int Grid::initialValues(){
         c->S.prim[TR1] = 0.;
       }
     }
+    c->S.prim[TR1+1] = 0.;
   }
 
   return 0;

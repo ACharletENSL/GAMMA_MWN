@@ -32,6 +32,7 @@ def get_timeseries(var, key):
     "vcd":run_get_vcd,
     "epsth":run_get_epsth,
     "Msh":run_get_Mshell,
+    "Nsh":run_get_Nshell,
     "E":run_get_E,
     "Etot":run_get_Etot,
     "Esh":run_get_Eshell,
@@ -52,8 +53,6 @@ def get_timeseries(var, key):
     out = run_data
   
   return out
-
-
 
 def open_clean_rundata(key):
 
@@ -310,6 +309,17 @@ def run_get_Etot(run_data):
   Etot = E1 + E2 + E3 + E4 #+ W1 + W4
   out = pd.DataFrame(np.array([time, Etot]).transpose(),
     columns=['time', 'E_{tot}'], index=run_data.index)
+  return out
+
+def run_get_Nshell(run_data):
+  '''
+  Return number of cells per shell
+  '''
+  time = run_data['time'].to_numpy()
+  Nsh1 = run_data['Nc_1'].to_numpy() + run_data['Nc_2'].to_numpy()
+  Nsh4 = run_data['Nc_4'].to_numpy() + run_data['Nc_3'].to_numpy()
+  out = pd.DataFrame(np.array([time, Nsh4, Nsh1]).transpose(),
+    columns=['time', 'N_4+N_3', 'N_1+N_2'], index=run_data.index)
   return out
 
 def run_get_Mshell(run_data):

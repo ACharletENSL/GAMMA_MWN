@@ -17,6 +17,7 @@ from scipy.ndimage import gaussian_filter1d
 from phys_functions import *
 from phys_radiation import *
 from phys_constants import *
+from phys_edistrib import *
 from environment import MyEnv
 
 cwd = os.getcwd().split('/')
@@ -53,8 +54,25 @@ def openData_withZone(key, it=None, sequence=True):
   data_z = zoneID(data)
   return data_z
 
-def get_runatts(key):
+def openData_withDistrib(key, it):
+  if it == 0.:
+    print("Open later data")
+    df = openData_withZone(key, it)
+    df = df.assign(g1=0., g2=0., g3=0.)
+  else:
+    its = dataList(key)
+    it0 = its[its.index(it)-1]
+    df0 = openData_withZone(key, it0)
+    df  = openData_withZone(key, it)
+    gmin0 = df0['gmin'].to_numpy()
+    gmax0 = df0['gmax'].to_numpy()
+    gmin1 = df['gmin'].to_numpy()
+    gmax1 = df['gmax'].to_numpy()
+    g1, g2, g3 = edistrib_plaw_vec(gmin0, gmax0, gmin1, gmax1)
+    df = df.assign(g1=g1, g2=g2, g3=g3)
+  return df
 
+def get_runatts(key):
   '''
   Returns attributes of the selected run
   '''

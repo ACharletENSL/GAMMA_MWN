@@ -136,7 +136,7 @@ void Grid::printCols(int it, double t){
 
   #if SHOCK_DETECTION_ == ENABLED_
       for (int i = 0; i < ntrack; ++i){
-        Ctot[i].S.prim[TR1+1] = (double) Ctot[i].isShocked;
+        Ctot[i].S.prim[SD] = (double) Ctot[i].isShocked;
       }
   #endif
 
@@ -171,7 +171,7 @@ void Grid::printCols(int it, double t){
   FILE* fout = fopen(strfout, "w");
 
   #if LOCAL_SYNCHROTRON_ == ENABLED_
-  fprintf(fout, "t nact i x dx dlx rho vx p D sx tau trac Sd gmin gmax\n");
+  fprintf(fout, "t nact i x dx dlx rho vx p D sx tau trac trac2 Sd gmin gmax\n");
   #else
   fprintf(fout, "t nact i x dx dlx rho vx p D sx tau trac Sd\n");
   #endif
@@ -181,7 +181,7 @@ void Grid::printCols(int it, double t){
     int nactd = ntrack-2*ngst;
     #if LOCAL_SYNCHROTRON_ == ENABLED_
       Cdump[i].radiation_apply_trac2gammae();
-      fprintf(fout, "%1.15le %d %d %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le\n", 
+      fprintf(fout, "%1.15le %d %d %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le\n", 
         t,
         nactd,
         i-ngst,
@@ -196,6 +196,7 @@ void Grid::printCols(int it, double t){
         Cdump[i].S.cons[TAU],
         Cdump[i].S.prim[TR1],
         Cdump[i].S.prim[TR1+1],
+        Cdump[i].S.prim[SD],
         Cdump[i].S.prim[GMN],
         Cdump[i].S.prim[GMX]);
     #else
@@ -213,7 +214,7 @@ void Grid::printCols(int it, double t){
         Cdump[i].S.cons[SS1],
         Cdump[i].S.cons[TAU],
         Cdump[i].S.prim[TR1],
-        Cdump[i].S.prim[TR1+1]);
+        Cdump[i].S.prim[SD]);
     #endif
   }
   fclose(fout);
