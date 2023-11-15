@@ -152,7 +152,7 @@ def derive_velocity(lfac):
   '''
   Velocity (beta) from Lorentz factor
   '''
-  return 1. - lfac**-2
+  return np.sqrt(1. - lfac**-2)
 
 def derive_proper(v):
   '''

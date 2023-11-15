@@ -4,15 +4,31 @@ Done:
   -> tracer "hasBeenShocked" that stops particle injection for the next N time steps
 - add normalisations values for radiation
 - checked N cells constant in each shell
+- checked carefully Minu's emission paper, corrected typos
+  -> normalization values now good
+- implemented Band function spectras
+  PROBLEM: RS goes over 1 -> because I used Minu normalization with G&G model? 
+  QUESTION: time to use for plotting compared to sim? (for now I set tilde{T} to 1 to see the spectras)
+
+Ongoing task:
+- Band function emission from simulation (ultra thin emitting shell)
 
 Todo (detailed):
+- rewrite eqn (4) in draft properly (with divergence, independant of coordinate system)
+- paper figures Hydro:
+  Fig 5 and Fig 9 of Minu
+  values in shocked region (taken near the CD) in cart vs sph
+  snapshots in spherical
+  shock strength with time
+- explicit what I do in a document (article draft?)
 - plots with time from a single cell viewpoint:
-
   -> how many timesteps does it take for a cell to go from first shock passage to having cooled below gamma_min = 1.
 - basic model: Genet & Granot 2009 section 3.1 (Band functions, use spherical symmetry)
   -> /!\ definition of \tilde{T} /!\
   -> start with that, then replace with distrib
+  -> check Beniamini & Granot 2016, section 4.2, with beta' = 0 (gamma' = 1)
 - next step: spectrum from "real" electron distribution
+  -> cf picture, left fast cooling, right normal cooling
 - Colle et al 2012 method for SRHD -> emission
 - Minu emission paper eqn G18-19-20 for the parameter space, play with parameters keeping those X_0 constants
 /!\ we also have observational constraints (u1 : 100-1000, L and t_off quite constraint)

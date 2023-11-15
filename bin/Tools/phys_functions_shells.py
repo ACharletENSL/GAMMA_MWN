@@ -63,8 +63,8 @@ def shells_complete_setup(env):
   
   # complete with pressure
   p0 = min(env.rho1, env.rho4)*env.Theta0*c_**2
-  env.p1 = p0
-  env.p4 = p0
+  env.p_sh1 = p0
+  env.p_sh4 = p0
 
 def shells_add_analytics(env):
   '''
@@ -88,7 +88,7 @@ def shells_add_analytics(env):
   env.lfac = derive_Lorentz_from_proper(env.u)
   env.beta = env.u/env.lfac
   env.rho2 = 4.*env.lfac21*env.rho1
-  env.p    = (4./3.) * u21**2 * env.rho1 * c_**2
+  env.p_sh = (4./3.) * u21**2 * env.rho1 * c_**2
   env.rho3 = 4.*env.lfac34*env.rho4
 
   # shocks
@@ -106,9 +106,9 @@ def shells_add_analytics(env):
 
 
   # rarefaction waves
-  T2     = env.p/(env.rho2*c_**2)
+  T2     = env.p_sh/(env.rho2*c_**2)
   betas2 = derive_cs_fromT(T2)
-  T3     = env.p/(env.rho3*c_**2)
+  T3     = env.p_sh/(env.rho3*c_**2)
   betas3 = derive_cs_fromT(T3)
   env.betaRFm2 = (env.beta-betas2)/(1-env.beta*betas2)
   env.betaRFp2 = (env.beta+betas2)/(1+env.beta*betas2)
@@ -123,22 +123,46 @@ def shells_add_analytics(env):
   # thermal efficiencies
   #add_weightfactors(env)
 
-def shells_add_radNorm(env, z=0., dL=28.3):
+def shells_add_radNorm(env, z=1., dL=2e28):
   '''
   Add the normalization values for emission curves
   Minu paper equations G11, 15, 17
   ''' 
   a_u = env.u4/env.u1
-  L = ((env.Ek1/env.t1)+(env.Ek4/env.t4))/2
+  u34 = derive_proper_from_Lorentz(env.lfac34)
   beta34 = derive_velocity(env.lfac34)
-  env.nu0 = (1./(1+z)) * ((2.*mp_)/(pi_*me_**3*c_**2.5)) * ((env.p-2)/(env.p-1))**2 * \
-    env.xi_e**-2 * env.eps_e**2 * env.eps_B**0.5 * env.u1**-2 * L**0.5 * env.toff**-1 * \
-    (env.lfac34**0.5 * (env.lfac34-1.)**2.5 * (1-a_u**-2) / np.sqrt(1+a_u**2))
-  env.F0 = ((1+z)/(12*pi_*dL**2)) * ((8*pi_*me_**3*c**2.5)/(3*e_*mp_**2)) * ((env.p-1)/(env.p-2)) * \
-    env.eps_B**-0.5 * env.eps_e**-1 * env.xi_e**-2 *env.u1**2 * L**0.5 * env.toff * \
-    (beta34 * env.lfac34**0.5 * (env.lfac34-1)**-1.5 * a_u*(a_u**-1 - a_u**-3)**-1 / np.sqrt(1+a_u**2))
+  Hau = (env.lfac34-1) * u34 / (1+a_u**2)
+  L = ((env.Ek1/env.t1)+(env.Ek4/env.t4))/2
+  Gp = (env.p-2)/(env.p-1)
+  eint3p = 4.*env.lfac34*(env.lfac34-1)*env.rho4*c_**2
+  Bp = np.sqrt(8.*pi_*env.eps_B*eint3p)
+  gma_m = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac34-1)
+  nuBp = e_*Bp/(2.*pi_*me_*c_)
+  nu0p = gma_m**2 * nuBp
+  eps_rad = 1. # normalization to values at RS, assumed fast cooling
+
+  env.nu0 = 2.*env.lfac*nu0p/(1+z)
+  env.nu0F0 = (4./(9*pi_*dL**2)) * Gp * Hau * env.eps_e * eps_rad * L
+  env.F0 = env.nu0F0 / env.nu0
   env.T0 = (1+z) * (env.R0/c_) * ((1-env.betaRS)/env.betaRS)
+
+  # for the FS
+  fac_nu = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**2
+  fac_F  = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**-2 * \
+      (derive_velocity(env.lfac34)/derive_velocity(env.lfac21)) * 2.
+  env.nu0FS = env.nu0 / fac_nu
+  env.F0FS  = env.F0 / fac_F
+  env.T0FS  = (1+z) * (env.R0/c_) * ((1-env.betaFS)/env.betaFS)
   
+  # normalized times (eqn F38)
+  lfacRS = derive_Lorentz(env.betaRS)
+  lfacFS = derive_Lorentz(env.betaFS)
+  env.nTfRS = env.betaRS * c_ * env.tRS / env.R0
+  env.nTfFS = ((env.betaRS*(1+env.betaRS))/(env.betaFS*(1+env.betaFS))) * (lfacRS/lfacFS)**2 * env.betaFS * c_ * env.tFS / env.R0
+
+  # effective ejection timescales (eqn E3, E4)
+  env.teffejRS = env.t0 - env.R0/(env.betaRS*c_)
+  env.teffejFS = env.t0 - env.R0/(env.betaFS*c_)
 
 def shells_snapshot_fromenv(env, r, t):
   '''
@@ -162,12 +186,12 @@ def shells_snapshot_fromenv(env, r, t):
     i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
     rho[i_3] = env.rho3
     vel[i_3] = env.u
-    prs[i_3] = env.p
+    prs[i_3] = env.p_sh
   else:
     i_3 = np.argwhere((r>=Rrs) & (r<=Rcd))[:,0]
     rho[i_3] = env.rho3
     vel[i_3] = env.u
-    prs[i_3] = env.p
+    prs[i_3] = env.p_sh
     print("RS crossing time passed, need to implement rarefaction wave")
   
   if t < env.tFS:
@@ -177,12 +201,12 @@ def shells_snapshot_fromenv(env, r, t):
     i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
     rho[i_2] = env.rho2
     vel[i_2] = env.u
-    prs[i_2] = env.p
+    prs[i_2] = env.p_sh
   else:
     i_2 = np.argwhere((r>Rcd) & (r<=Rfs))[:,0]
     rho[i_2] = env.rho2
     vel[i_2] = env.u
-    prs[i_2] = env.p
+    prs[i_2] = env.p_sh
     print("FS crossing time passed, need to implement rarefaction wave")
   
   # renormalize to code units

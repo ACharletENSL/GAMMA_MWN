@@ -365,8 +365,32 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
   if logy:
     ax.set_yscale('log')
   
-
   return title, scatter
+
+
+# spectras and lightcurves
+# --------------------------------------------------------------------------------------------------
+def plot_flux_instant(it, key='Last'):
+  '''
+  Plots instantaneous spectrum
+  as of now: thin radiating shell, Genet & Granot 09
+  '''
+  physpath = get_physfile(key)
+  env = MyEnv(physpath)
+  df, t, dt = openData_withtime(key, it)
+
+  x = np.logspace(-3, 1, 200)
+  nu = x*env.nu0
+  spec_RS = thinshell_spectra(nu, env, t, True)/env.nu0F0
+  spec_FS = thinshell_spectra(nu, env, t, False)/env.nu0F0
+
+  plt.loglog(x, spec_RS, c='r', ls='-.', label='RS')
+  plt.loglog(x, spec_FS, c='b', ls='-.', label='FS')
+  plt.loglog(x, spec_RS+spec_FS, c='k', ls='-.', label='RS + FS')
+  plt.xlabel('$\\nu/\\nu_0$')
+  plt.ylabel('$\\nu F_\\nu / \\nu_0 F_0$')
+  plt.title(f"$t_{{sim}}/t_0$ = {t/env.t0:.4f} (it = {it})")
+  plt.legend()
 
 # basic testing functions
 # --------------------------------------------------------------------------------------------------

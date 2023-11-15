@@ -7,6 +7,27 @@ This file contains the functions necessary to compute emitted radiation
 import numpy as np
 from phys_constants import *
 
+
+def thinshell_spectra(nu, env, t, RS=True):
+  '''
+  Instantaneous, normalized spectrum of a thin radiating shell
+  cf Genet & Granot 2009
+  '''
+  if RS:
+    F0  = env.F0
+    nu0 = env.nu0
+    T0  = env.T0
+  else:
+    F0  = env.F0FS
+    nu0 = env.nu0FS
+    T0  = env.T0FS
+  Fs  = 3. * F0
+  #tT  = t/T0    # \tilde{T}
+  tT = 1.
+  x   = nu/nu0 
+  return nu * Fs * tT**(-2) * Band_func(x*tT)
+
+
 def lfac2nu(lfac, B):
   '''
   Synchrotron frequency of an electron with Lorentz factor lfac in magn field B (comoving)
@@ -89,3 +110,20 @@ def derive_nuc(t, lfac, eint, epsB):
   fac = (27.*np.sqrt(2*pi_)/128.) * e_*me_*c_ / sigT_**2
   eM  = epsB*eint
   return fac * eM**(-3/2.) * (lfac/t)**2
+
+
+# Maths functions
+# --------------------------------------------------------------------------------------------------
+def Band_func(x, b1=-0.25, b2=-1.25, Bnorm=1.):
+  '''
+  Band function
+  '''
+  b  = (b1 - b2)
+  xb = b/(1+b1)
+  try:
+    return Bnorm * np.exp(1+b1) * np.where(x<=xb, x**b1 * np.exp(-x*(1+b1)), x**b2 * xb**b * np.exp(-b))
+  except TypeError:
+    if x <= xb:
+      return Bnorm * np.exp(1+b1) * x**b1 * np.exp(-x*(1+b1))
+    else:
+      return Bnorm * np.exp(1+b1) * x**b2 * xb**b * np.exp(-b)

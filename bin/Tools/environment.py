@@ -50,7 +50,7 @@ class MyEnv:
     if self.mode == 'shells':
       shells_complete_setup(self)
       shells_add_analytics(self)
-      #shells_add_radNorm(self)
+      shells_add_radNorm(self)
     elif self.mode == 'MWN':
       # varlist, vallist = MWN_phys2num()
       pass
