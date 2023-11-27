@@ -63,8 +63,8 @@ def shells_complete_setup(env):
   
   # complete with pressure
   p0 = min(env.rho1, env.rho4)*env.Theta0*c_**2
-  env.p_sh1 = p0
-  env.p_sh4 = p0
+  env.p1 = p0
+  env.p4 = p0
 
 def shells_add_analytics(env):
   '''
@@ -93,12 +93,14 @@ def shells_add_analytics(env):
 
   # shocks
   env.betaFS = derive_betaFS(env.u1, u21, env.u)
+  env.lfacFS = derive_Lorentz(env.betaFS)
   env.tFS    = derive_FS_crosstime(env.beta1, env.D01, env.betaFS)
   env.D2f    = derive_shellwidth_crosstime(env.D01, env.lfac1, env.lfac, env.lfac21)
   env.Ei2f   = derive_Eint_crosstime(env.M1, env.u, env.lfac21)
   env.Ek2f   = derive_Ek_crosstime(env.M1, env.lfac)
 
   env.betaRS = derive_betaRS(env.u4, u34, env.u)
+  env.lfacRS = derive_Lorentz(env.betaRS)
   env.tRS    = derive_RS_crosstime(env.beta4, env.D04, env.betaRS)
   env.D3f    = derive_shellwidth_crosstime(env.D04, env.lfac4, env.lfac, env.lfac34)
   env.Ei3f   = derive_Eint_crosstime(env.M4, env.u, env.lfac34)

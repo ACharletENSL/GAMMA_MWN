@@ -10,6 +10,7 @@ This file analyze opened data
 import numpy as np
 import scipy.integrate as spi
 from data_IO import *
+from phys_radiation import thinshell_spectra
 from environment import MyEnv
 
 # Analysis functions
@@ -61,7 +62,6 @@ def open_clean_rundata(key):
   '''  
   # open file as pandas dataframe (if doesn't exists, returns False)
   dfile_path, dfile_bool = get_runfile(key)
-  
   run_data = open_rundata(key)
   its = np.array(dataList(key))
 
@@ -116,12 +116,75 @@ def get_crosstimes(key):
   run_data = open_clean_rundata(key)
   StRS = run_data['ShSt_{rs}'].to_numpy()[1:]
   StFS = run_data['ShSt_{fs}'].to_numpy()[1:]
-  t   = run_data['time'].to_numpy()[1:]
-  tRS = t[StRS==0.].min()
-  tFS = t[StFS==0.].min()
+  t    = run_data['time'].to_numpy()[1:]
+  try:
+    tRS = t[StRS==0.].min()
+  except ValueError:
+    print('Run didnt reach RS crossing time')
+    tRS = t[-1]
+  try:
+    tFS = t[StFS==0.].min()
+  except ValueError:
+    print('Run didnt reach FS crossing time')
+    tFS = t[-1]
   
   return tRS, tFS
 
+def get_spectrum_run(key, mode='r'):
+  '''
+  Read data files from a run, returns data file with time and freq bins
+  '''
+
+  rfile_path, rfile_bool = get_radfile(key)
+  if (not rfile_bool) or (mode == 'w'): 
+    derive_spectrum_run(key)
+  
+  out = pd.read_csv(rfile_path, index_col=0)
+  return out
+
+def derive_spectrum_run(key, NTbins=50, Tmax=5., nubins=np.logspace(-3, 1, 100)):
+  '''
+  Creates data file for spectrum
+  algorithm (v0, simple Band function):
+  - open data file
+  - compute spectras from each shock with corresponding observer times
+  - add those to corresponding observer time bins
+  - write a file
+  '''
+
+  its = np.array(dataList(key))
+  env = MyEnv(get_physfile(key))
+  nubins *= env.nu0
+  spec_tot = np.zeros((NTbins-1, len(nubins)))
+  dT = Tmax/NTbins
+  Tbins = np.arange(NTbins)*dT
+  cTbins = 0.5 * (Tbins[1:] + Tbins[:-1])
+  
+  tRS, tFS = get_crosstimes(key)
+  rads = get_timeseries('R', key)
+  dtime = np.diff(rads['time'].to_numpy())
+  radsRS = rads['R_{rs}'].to_numpy()
+  radsFS = rads['R_{fs}'].to_numpy()
+
+  for it, rRS, rFS, dt in zip(its, radsRS, radsFS, dtime):
+    print(f"Analyzing file of it = {it}")
+    df, t, tsim = openData_withtime(key, it)
+    # emissivity can vary
+
+    if tsim <= tRS:
+      Ton = env.t0 + t - rRS/c_
+      Tth = rRS/(2*env.lfacRS**2*c_)
+      tTbin = 1. + (cTbins - Ton)/Tth
+      spec_tot += (dt/dT) * thinshell_spectra(nubins, tTbin, rRS, env, True)
+    if tsim <= tFS:
+      Ton = env.t0 + t - rFS/c_
+      Tth = rFS/(2*env.lfacFS**2*c_)
+      tTbin = 1. + (cTbins - Ton)/Tth
+      spec_tot += (dt/dT) *  thinshell_spectra(nubins, tTbin, rFS, env, False)
+
+  # time as column or index?
+  out = pd.DataFrame(spec_tot, columns=np.arange(len(nubins)), index=cTbins)
+  out.to_csv(rfile_path)
 
 def analyze_run(key, itmin=0, itmax=None):
 
@@ -137,7 +200,7 @@ def analyze_run(key, itmin=0, itmax=None):
   its = np.array(dataList(key, itmin, itmax))
   if itmin:
     its = [it for it in its if i>itmin]
-  for i, it in enumerate(its):
+  for it in its:
     print(f"Analyzing file of it = {it}")
     df, t, dt = openData_withtime(key, it)
     tup = df_get_all(df)

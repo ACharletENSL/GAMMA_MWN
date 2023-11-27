@@ -9,11 +9,23 @@ Done:
 - implemented Band function spectras
   PROBLEM: RS goes over 1 -> because I used Minu normalization with G&G model? 
   QUESTION: time to use for plotting compared to sim? (for now I set tilde{T} to 1 to see the spectras)
+- Band function emission from simulation (shocks as ultra thin emitting shell)
+- zone detection in spherical at high times  
 
 Ongoing task:
-- Band function emission from simulation (ultra thin emitting shell)
+loop over time bins?
+
+- use de Colle 2012 for per-cell formalism
+ -> careful we're in spherical geometry 
+  -> theta in Doppler factor 
+   -> integrate over shell of constant R
 
 Todo (detailed):
+- for observations:
+  define T_obs time bins and frequency bins, go over sim timesteps, fill them, and voilà
+  -> allows to construct the electron distrib on the fly (since it needs two data dump)
+  all files are only read once!
+  -> create a data file with all relevant data to be read for spectras, lightcurves.. plots
 - rewrite eqn (4) in draft properly (with divergence, independant of coordinate system)
 - paper figures Hydro:
   Fig 5 and Fig 9 of Minu

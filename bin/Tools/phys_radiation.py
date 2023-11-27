@@ -6,13 +6,15 @@ This file contains the functions necessary to compute emitted radiation
 '''
 import numpy as np
 from phys_constants import *
+from environment import MyEnv
 
 
-def thinshell_spectra(nu, env, t, RS=True):
+def thinshell_spectra(nu, tT, r, env, RS=True):
   '''
   Instantaneous, normalized spectrum of a thin radiating shell
   cf Genet & Granot 2009
   '''
+  
   if RS:
     F0  = env.F0
     nu0 = env.nu0
@@ -21,11 +23,18 @@ def thinshell_spectra(nu, env, t, RS=True):
     F0  = env.F0FS
     nu0 = env.nu0FS
     T0  = env.T0FS
+  T0 *= r/env.R0
   Fs  = 3. * F0
-  #tT  = t/T0    # \tilde{T}
-  tT = 1.
-  x   = nu/nu0 
-  return nu * Fs * tT**(-2) * Band_func(x*tT)
+  #tT  = 1 + T/T0    # \tilde{T}, we choose Tej = 0 here
+  try:
+    x   = nu/nu0 
+    out = Fs * nu * tT**(-2) * Band_func(x*tT)
+  except ValueError:
+    nu = nu[np.newaxis, :]
+    x  = nu/nu0
+    tT = tT[:, np.newaxis]
+    out = Fs * nu * tT**(-2) * Band_func(x*tT)
+  return out
 
 
 def lfac2nu(lfac, B):
@@ -52,7 +61,7 @@ def derive_normPnu_Colle12(nu, nu_m, nu_c, p):
     return bool((x>=min(a,b) and x<=max(a,b)))
 
   x   = nu/nu_m
-  p_m =( 1-p)/2.
+  p_m = (1-p)/2.
   y   = nu/nu_c
   p_c = -1/2.
 
@@ -63,7 +72,7 @@ def derive_normPnu_Colle12(nu, nu_m, nu_c, p):
     Pnu = np.where(nu<=nu_min, (nu/nu_min)**(1./3.), 
       np.where(nu>nu_min & nu<=nu_max,
         np.where(nu_m<=nu_c, x**p_m, y**p_c), 
-        np.where(nu>nu_max, x**p_m*y**p_c)))
+          np.where(nu>nu_max, x**p_m*y**p_c)))
     return Pnu
 
   except AttributeError:

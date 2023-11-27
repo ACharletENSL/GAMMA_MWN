@@ -110,6 +110,22 @@ def open_rundata(key):
   else:
     return dfile_bool
 
+def open_raddata(key):
+
+  '''
+  returns a pandas dataframe with the extracted spectral data
+  '''
+  rfile_path, rfile_bool = get_radfile(key)
+  mode, runname, rhoNorm, geometry = get_runatts(key)
+  if rfile_bool:
+    df = pd.read_csv(rfile_path, index_col=0)
+    df.attrs['mode']    = mode
+    df.attrs['runname'] = runname 
+    df.attrs['rhoNorm'] = rhoNorm
+    return df
+  else:
+    return rfile_bool
+
 def dataList(key, itmin=0, itmax=None):
 
   '''
@@ -158,6 +174,18 @@ def get_runfile(key):
   dir_path = GAMMA_dir + '/results/%s/' % (key)
   #file_path = dir_path + "extracted_data.txt"
   file_path = dir_path + 'run_data.csv'
+  file_bool = os.path.isfile(file_path)
+  return file_path, file_bool
+
+def get_radfile(key):
+
+  '''
+  Returns path of file with  spectras over the run and boolean for its existence
+  '''
+
+  dir_path = GAMMA_dir + '/results/%s/' % (key)
+  #file_path = dir_path + "extracted_data.txt"
+  file_path = dir_path + 'run_observed.csv'
   file_bool = os.path.isfile(file_path)
   return file_path, file_bool
 
@@ -693,7 +721,6 @@ def df_to_shocks(df):
         clnsh.append(sh)
         break
   
-
   if len(clnsh) == 2:
     RS = clnsh[0]
     FS = clnsh[1]
@@ -738,7 +765,8 @@ def zoneID(df):
   # use GAMMA-detected shocks
   shocks = df.loc[(df['Sd'] == 1.0)]
   if shocks.empty:
-    pass
+    RScr = True
+    FScr = True
   else:
     RS, FS = df_to_shocks(df) 
     try:
@@ -761,19 +789,21 @@ def zoneID(df):
         FScr = True
         zone[zone == 1.] = 2. 
     
-    # case where no shocks propagating in the shells, use own algorithm
-    if RScr or FScr:
-      ilist  = get_fused_interf(df)
-      if RScr:
-        i4   = i_4.min()
-        wave = [item for item in ilist if i4<item[2]][0]
-        iw   = wave[2]
-        zone[i_4.min():iw+1] = 4.
-      if FScr:
-        i1   = i_1.max()
-        wave = [item for item in ilist if i1>item[1]][-1]
-        iw   = wave[1]
-        zone[iw:i_1.max()+1] = 1.
+  # case where no shocks propagating in the shells, use own algorithm
+  if RScr or FScr:
+    ilist  = get_fused_interf(df)
+    if RScr:
+      i4   = i_4.min()
+      wave = [item for item in ilist if i4<item[2]][0]
+      iw   = wave[2]
+      zone[i4:iw] = 4.
+      zone[iw:i_4.max()] = 3.
+    if FScr:
+      i1   = i_1.max()
+      wave = [item for item in ilist if i1>item[1]][-1]
+      iw   = wave[1]
+      zone[iw:i1] = 1.
+      zone[i_1.min():iw] = 2.
   
   df2 = df.assign(zone=zone)
   return df2
@@ -781,6 +811,20 @@ def zoneID(df):
 def get_fused_interf(df, h=.05, prom=.05, rel_h=.999):
   int_rho, int_u, int_p = get_allinterf(df, h, prom, rel_h)
   ilist = []
+
+  # clean potential duplicates
+  n = 0
+  while n < len(int_rho)-1:
+    i, iL, iR = int_rho[n]
+    j, jL, jR = int_rho[n+1]
+    if (i>=jL and i<=jR) or (j>=iL and j<=iR):
+      k = int(np.ceil((i+j)/2.))
+      kL = min(iL, jL)
+      kR = max(iR, jR)
+      del int_rho[n+1]
+      del int_rho[n]
+      int_rho.insert(n, (k, kL, kR))
+    n += 1
 
   # loop on rho interfaces because they are more numerous
   for item in int_rho:
@@ -829,7 +873,7 @@ def df_id_shocks(df):
 def get_allinterf(df, h=.05, prom=.05, rel_h=.99):
   rho, u, p = df_get_primvar(df)
   # filtering rho because data can be noisy
-  rho       = gaussian_filter1d(rho, sigma=1, order=0)
+  #rho       = gaussian_filter1d(rho, sigma=1, order=0)
   int_rho   = get_varinterf(rho, True, h, prom, rel_h)
   int_u     = get_varinterf(u, False, h, prom, rel_h)
   int_p     = get_varinterf(p, True, h, prom, rel_h)

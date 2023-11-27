@@ -16,6 +16,7 @@ from environment import *
 from run_analysis import *
 from data_IO import *
 from phys_functions_shells import *
+from scipy import integrate
 
 # matplotlib options
 # --------------------------------------------------------------------------------------------------
@@ -370,7 +371,58 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
 
 # spectras and lightcurves
 # --------------------------------------------------------------------------------------------------
-def plot_flux_instant(it, key='Last'):
+def time_integrated_flux(key):
+  '''
+  Plots time-integrated flux
+  '''
+  env = MyEnv(get_physfile(key))
+  rad = open_raddata(key)
+  spec = rad.iloc[:, 0:].apply(lambda x: integrate.trapz(x, rad.index))
+  x = np.logspace(-3, 1, 100)
+
+  plt.loglog(x, spec)
+  plt.xlabel('$\\nu/\\nu_0$')
+  plt.ylabel('$\\nu F_\\nu / \\nu_0 F_0$')
+  plt.title(env.runname)
+
+def compare_instant_fluxes(times, key='Last'):
+  plt.figure()
+  ax = plt.gca()
+  runname = get_runatts(key)[1]
+  plt.title(runname)
+  for Tobs in times:
+    ax_flux_instant(Tobs, key, ax)
+  plt.legend()#bbox_to_anchor=(1.02, 1.0), loc='upper left', borderaxespad=0.)
+  plt.tight_layout()
+
+def ax_flux_instant(Tobs, key='Last', ax_in=None):
+  '''
+  Plots instantaneous flux at chosen obs time
+  '''
+  if ax_in is None:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax=ax_in
+
+  rad = open_raddata(key)
+  env = MyEnv(get_physfile(key))
+  Ts = rad.index.to_numpy()
+  i_obs = np.searchsorted(rad.index, Tobs)
+  Tobs = rad.index[i_obs]
+  flux = rad.iloc[i_obs]/env.nu0F0
+  x = np.logspace(-3, 1, len(flux))
+
+  ax.loglog(x, flux, label=f'$\\bar{{T}} = {Tobs:.2f}$')
+  ax.set_xlabel('$\\nu/\\nu_0$')
+  ax.set_ylabel('$\\nu F_\\nu / \\nu_0 F_0$')
+
+  if ax_in is None:
+    plt.legend()
+    plt.title(env.runname)
+
+
+def plot_flux_instant_old(it, key='Last'):
   '''
   Plots instantaneous spectrum
   as of now: thin radiating shell, Genet & Granot 09
