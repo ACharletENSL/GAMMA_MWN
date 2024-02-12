@@ -17,9 +17,25 @@ from phys_functions_shells import shells_complete_setup, shells_add_analytics, s
 
 default_path = str(Path().absolute().parents[1] / 'phys_input.ini')
 Initial_path = str(Path().absolute().parents[1] / 'src/Initial/')
+cwd = os.getcwd().split('/')
+iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
+GAMMA_dir = '/'.join(cwd[:iG+1])
+
+def get_physfile(key):
+  '''
+  Returns path of phys_input file of the corresponding results folder
+  '''
+  
+  dir_path = GAMMA_dir + '/results/%s/' % (key)
+  file_path = dir_path + "phys_input.ini"
+  if os.path.isfile(file_path):
+    return file_path
+  else:
+    return GAMMA_dir + "/phys_input.ini"
 
 class MyEnv:
-  def __init__(self, path):
+  def __init__(self, key):
+    path = get_physfile(key)
     self.read_input(path)
     self.create_setup()
   

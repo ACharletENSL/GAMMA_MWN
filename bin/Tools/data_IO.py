@@ -39,6 +39,9 @@ def openData(key, it=None, sequence=True):
   data.attrs['runname'] = runname
   data.attrs['rhoNorm'] = rhoNorm
   data.attrs['geometry']= geometry
+  data.attrs['key'] = key
+  env = MyEnv(key)
+  data.attrs['rhoscale'] = env.rhoscale
   return(data)
 
 def openData_withtime(key, it):
@@ -58,19 +61,75 @@ def openData_withDistrib(key, it):
   if it == 0.:
     print("Open later data")
     df = openData_withZone(key, it)
-    df = df.assign(g1=0., g2=0., g3=0.)
+    df = df.assign(gm=0., gb=0., gM=0., fc=False, inj=False, dt=0.)
   else:
     its = dataList(key)
-    it0 = its[its.index(it)-1]
+    i_it= its.index(it)
+    it0 = its[i_it-1]
     df0 = openData_withZone(key, it0)
     df  = openData_withZone(key, it)
-    gmin0 = df0['gmin'].to_numpy()
-    gmax0 = df0['gmax'].to_numpy()
-    gmin1 = df['gmin'].to_numpy()
-    gmax1 = df['gmax'].to_numpy()
-    g1, g2, g3 = edistrib_plaw_vec(gmin0, gmax0, gmin1, gmax1)
-    df = df.assign(g1=g1, g2=g2, g3=g3)
+    shells = (df['trac']>0.5)
+    varlist = ['gmin', 'gmax', 'trac2']
+    gmin, gmax, trac = df.loc[shells][varlist].to_numpy().transpose()
+    gmin0, gmax0, trac0 = df0.loc[shells][varlist].to_numpy().transpose()
+
+    fc  = (gmax < gmin0) & (gmax > 1.1)
+    inj = ((trac - trac0 > 0.5))
+    #sc  = (gmax < gmax0) & (gmax > gmin0)
+    #inj = ((gmax/gmax0 > 10.) | (gmin/gmin0 < 10.))
+
+    # first add cooling rules
+    gm = gmin
+    gb = np.where(fc, gmin0, gmax)
+    gM = gmax0
+    dt = df['t'] - df0['t']
+
+    # injection really happens a bit earlier
+    # we need to consider theoretical gmin, gmax at shock
+    # the corresponding dt will not be the full time elapsed between 
+    if inj.any():
+      id_inj = np.argwhere(inj)[:, 0]
+      env = MyEnv(df.attrs['key'])
+      ish = shells[shells==True].index.min()
+      for i in id_inj:
+        k = i+ish
+        cell = df.iloc[k]
+        gmin_th, gmax_th = cell_derive_edistrib(cell, env)
+        gm[i] = gmin_th
+        gb[i] = gmin_th
+        gM[i] = gmax_th
+        dt[k] /= 2. 
+        # better: check on the rate of trac2 decay and determine dt since trac2=1
+    
+    # add to dataframe
+    #for arr in [gm, gb, gM, fc, inj]:
+    #  arr = resize_shell2sim(df, arr)
+    gm = resize_shell2sim(df, gm)
+    gb = resize_shell2sim(df, gb)
+    gM = resize_shell2sim(df, gM)
+    fc = resize_shell2sim(df, fc)
+    inj= resize_shell2sim(df, inj)
+    df = df.assign(gm=gm, gb=gb, gM=gM, fc=fc, inj=inj, dt=dt)
+
   return df
+
+
+def resize_shell2sim(df, arr):
+  '''
+  Resize 'shell-sized' array into a full sim one
+  '''
+  trac = df['trac'].to_numpy()
+  out = np.zeros(trac.shape)
+  out[trac>0.5] = arr
+  return out
+
+def open_cell(df, i):
+  '''
+  returns the i-th cell starting from the min index of shell 4
+  '''
+  trac = df['trac'].to_numpy()
+  i4  = np.argwhere((trac > 0.99) & (trac < 1.01))[:,0].min()
+  return df.iloc[i4+i]
 
 def get_runatts(key):
   '''
@@ -116,12 +175,8 @@ def open_raddata(key):
   returns a pandas dataframe with the extracted spectral data
   '''
   rfile_path, rfile_bool = get_radfile(key)
-  mode, runname, rhoNorm, geometry = get_runatts(key)
   if rfile_bool:
     df = pd.read_csv(rfile_path, index_col=0)
-    df.attrs['mode']    = mode
-    df.attrs['runname'] = runname 
-    df.attrs['rhoNorm'] = rhoNorm
     return df
   else:
     return rfile_bool
@@ -142,15 +197,14 @@ def dataList(key, itmin=0, itmax=None):
         its.append(it)
   its = sorted(its)
   ittemp = its
-  if itmin and not(itmax):
-    ittemp = its[itmin:]
-  elif not(itmin) and itmax:
-    ittemp = its[:itmax]
-  elif itmin and itmax:
-    ittemp = its[itmin:itmax]
+  imin = 0
+  imax = -1
+  if itmin:
+    imin = its.index(itmin)
+  if itmax:
+    imax = its.index(itmax)
   
-  its = ittemp
-  return its
+  return its[imin:imax]
 
 def get_physfile(key):
 
@@ -259,6 +313,58 @@ def get_varlist(var, Nz, mode):
 
 # analyze dataframe
 # --------------------------------------------------------------------------------------------------
+def df_get_rads(df, nuobs, Tobs, dTobs, env, func='analytic'):
+  '''
+  Get contributions to observed flux, separating the (former) two shells
+  '''
+
+  rad_RS = np.zeros((len(Tobs), len(nuobs)))
+  rad_FS = np.zeros((len(Tobs), len(nuobs)))
+  if func == 'analytic':
+    RS, FS = df_get_cellsBehindShock(df)
+    if not RS.empty:
+      rad_RS += cell_flux(RS, nuobs, Tobs, dTobs, env, func)
+    if not FS.empty:
+      rad_FS += cell_flux(FS, nuobs, Tobs, dTobs, env, func)
+  else:
+    rad_RS = df_get_rad_contribs(df, nuobs, Tobs, dTobs, env, 'RS', func)
+    rad_FS = df_get_rad_contribs(df, nuobs, Tobs, dTobs, env, 'FS', func)
+  return rad_RS, rad_FS
+
+def df_get_rad_contribs(df, nuobs, Tobs, dTobs, env, contrib='all', func='analytic'):
+  '''
+  Get contributions from a data file to observed flux, selecting a specific shell if needed
+  df need to come from openData_withDistrib
+  '''
+
+  out = np.zeros((len(Tobs), len(nuobs)))
+  if contrib in ['RS', 'FS']:
+    sub = '_' + contrib
+  else:
+    sub = ''
+  if func == 'analytic':
+    RS, FS = df_get_cellsBehindShock(df)
+    if contrib == 'RS':
+      if not RS.empty:
+        out += cell_flux(RS, nuobs, Tobs, dTobs, env, func)
+    elif contrib == 'FS':
+      if not FS.empty:
+        out += cell_flux(FS, nuobs, Tobs, dTobs, env, func)
+    else:
+      for cell in [RS, FS]:
+        out += cell_flux(cell, nuobs, Tobs, dTobs, env, func)
+  else:
+    sh = df.loc[(df['trac'] > 0.) & (df['gmax'] > 1.)]
+    if contrib == 'RS':
+      sh = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01) & (df['gmax'] > 1.)]
+    elif contrib == 'FS':
+      sh = df.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01) & (df['gmax'] > 1.)]
+    for i in sh.index:
+      cell = df.iloc[i]
+      out += cell_flux(cell, nuobs, Tobs, dTobs, env, func)
+  return out
+      
+
 def df_get_all(df):
 
   '''
@@ -540,101 +646,125 @@ def zone_get_zoneIntegrated(df, var, n):
   
   return res
 
+def df_get_cellsBehindShock(df, n=2):
+  '''
+  Return a cell object with radiative values & position taken at shock front
+  and hydro values taken downstream (n cells after shock)
+  '''
+  env = MyEnv(df.attrs['key'])
+  hdvars = ['dx', 'rho', 'vx', 'p', 'D', 'sx', 'tau']
+  anvars = ['rho', 'vx', 'p', 'gb']
+  anvalsRS = [env.rho3/env.rhoscale, env.beta, env.p_sh/(env.rhoscale*c_**2), env.gma_m]
+  anvalsFS = [env.rho2/env.rhoscale, env.beta, env.p_sh/(env.rhoscale*c_**2), env.gma_mFS]
+  iCD = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)].index.max()
+  RS, FS = df_to_shocks(df)
+  lRS, lFS = len(RS), len(FS)
+  if RS.empty:
+    RSfront = RS
+  else:
+    iRS = RS.index.min()
+    iRSd = min(iRS+lRS+n, iCD)
+    RSfront = df.iloc[iRS].copy()
+    RSdown = df.iloc[iRSd]
+    RSfront[hdvars] = RSdown[hdvars]
+    RSfront[anvars] = anvalsRS
+  if FS.empty:
+    FSfront = FS
+  else:
+    iFS = FS.index.min()
+    iFSd = max(iFS-lRS-n, iCD+1)
+    FSfront = df.iloc[iFS].copy()
+    FSdown = df.iloc[iFSd]
+    FSfront[hdvars] = FSdown[hdvars]
+    FSfront[anvars] = anvalsFS
+  return RSfront, FSfront
+
+# get variables
+cool_vars = ["V4", "dt", "inj", "fc", "gm", "gb", "gM",
+  "num", "nub", "nuM", "Lp", "L", "V4r", "tc"]
+var2func = {
+  "T":(derive_temperature, ['rho', 'p'], []),
+  "h":(derive_enthalpy, ['rho', 'p'], []),
+  "lfac":(derive_Lorentz, ['vx'], []),
+  "u":(derive_proper, ['vx'], []),
+  "Ek":(derive_Ekin, ['rho', 'vx'], []),
+  "Ei":(derive_Eint, ['rho', 'p'], []),
+  "ei":(derive_Eint_comoving, ['rho', 'p'], ['rhoscale']),
+  "B":(derive_B_comoving, ['rho', 'p'], ['rhoscale', 'eps_B']),
+  "res":(derive_resolution, ['x', 'dx'], []),
+  "numax":(derive_nu, ['rho', 'p', 'gmax'], ['rhoscale', 'eps_B']),
+  "numin":(derive_nu, ['rho', 'p', 'gmin'], ['rhoscale', 'eps_B']),
+  "num":(derive_nu, ['rho', 'p', 'gm'], ['rhoscale', 'eps_B']),
+  "nub":(derive_nu, ['rho', 'p', 'gb'], ['rhoscale', 'eps_B']),
+  "nuM":(derive_nu, ['rho', 'p', 'gM'], ['rhoscale', 'eps_B']),
+  "Pmax":(derive_max_emissivity, ['rho', 'p', 'gmin', 'gmax'], ['rhoscale', 'eps_B', 'psyn', 'xi_e']),
+  "Tth":(derive_normTime, ['x', 'vx'], []),
+  "Lp":(derive_localLum, ['rho', 'vx', 'p', 'x', 'dx', 'dt', 'gmin', 'gmax', 'gb'],
+    ['rhoscale', 'eps_B', 'psyn', 'xi_e', 'R0', 'geometry']),
+  "L":(derive_obsLum, ['rho', 'vx', 'p', 'x', 'dx', 'dt', 'gmin', 'gmax', 'gb'], 
+    ['rhoscale', 'eps_B', 'psyn', 'xi_e', 'R0', 'geometry']),
+  "n":(derive_n, ['rho'], ['rhoscale']),
+  "Pfac":(derive_emiss_prefac, [], ['psyn']),
+  "obsT":(derive_obsTimes, ['t', 'x', 'vx'], ['t0', 'z']),
+  "T0":(derive_obsNormTime, ['t', 'x', 'vx'], ['t0', 'z']),
+  "Tej":(derive_obsEjTime, ['t', 'x', 'vx'], ['t0', 'z']),
+  "Tpk":(derive_obsPkTime, ['t', 'x', 'vx'], ['t0', 'z']),
+  "V3":(derive_3volume, ['x', 'dx'], ['R0', 'geometry']),
+  "V4":(derive_4volume, ['x', 'dx', 'dt'], ['R0', 'geometry']),
+  "V4r":(derive_rad4volume, ['x', 'dx', 'rho', 'vx', 'p', 'dt', 'gb'],
+    ['rhoscale', 'eps_B', 'R0', 'geometry']),
+  "tc":(derive_tcool, ['rho', 'vx', 'p', 'gb'], ['rhoscale', 'eps_B'])
+}
+
+def get_vars(df, varlist):
+  '''
+  Return array of variables
+  '''
+  if type(df) == pd.core.series.Series:
+    out = np.zeros((len(varlist)))
+  else:
+    out = np.zeros((len(varlist), len(df)))
+  for i, var in enumerate(varlist):
+    out[i] = get_variable(df, var)
+  return out
 
 def get_variable(df, var):
   '''
-  Returns coordinate and chosen variable, in code units
+  Returns chosen variable
   '''
-
-  # List of vars requiring calculation, as dict with associated function
-  calc_vars = {
-    "T":df_get_T,
-    "h":df_get_h,
-    "lfac":df_get_lfac,
-    "u":df_get_u,
-    "Ek":df_get_Ekin,
-    "Ei":df_get_Eint,
-    "ei":df_get_Eint_comoving,
-    "B":df_get_B,
-    "dt":df_get_dt,
-    "res":df_get_res,
-    "numax":df_get_numax,
-    "numin":df_get_numin
-  }
-
-  r = df["x"].to_numpy()
-  if var in calc_vars:
-    out = calc_vars[var](df)
-    return r, out
-  elif var in df.columns:
-    out = df[var].to_numpy()
-    return r, out
+  if var in df.keys():
+    try:
+      res = df[var].to_numpy(copy=True)
+    except AttributeError:
+      res = df[var]
   else:
-    print("Required variable doesn't exist.")
+    func, inlist, envlist = var2func[var]
+    res = df_get_var(df, func, inlist, envlist)
+  return res
 
-# get variables 
-def df_get_T(df):
-  rho  = df["rho"].to_numpy(copy=True)
-  p    = df["p"].to_numpy(copy=True)
-  return derive_temperature(rho, p)
+def df_get_var(df, func, inlist, envlist):
+  params, envParams = get_params(df, inlist, envlist)
+  res = func(*params, *envParams)
+  return res
 
-def df_get_h(df):
-  rho = df["rho"].to_numpy(copy=True)
-  p = df["p"].to_numpy(copy=True)
-  return derive_enthalpy(rho, p)
-
-def df_get_Eint_comoving(df):
-  rho = df["rho"].to_numpy(copy=True)
-  p = df["p"].to_numpy(copy=True)
-  return derive_Eint_comoving(rho, p)
-
-def df_get_Eint(df):
-  rho = df["rho"].to_numpy(copy=True)
-  v = df["vx"].to_numpy(copy=True)
-  p = df["p"].to_numpy(copy=True)
-  return derive_Eint(rho, v, p)
-
-def df_get_lfac(df):
-  v = df["vx"].to_numpy(copy=True)
-  return derive_Lorentz(v)
-
-def df_get_u(df):
-  v = df["vx"].to_numpy(copy=True)
-  lfac = derive_Lorentz(v)
-  return lfac * v
-
-def df_get_Ekin(df):
-  rho = df["rho"].to_numpy(copy=True)
-  v = df["vx"].to_numpy(copy=True)
-  return derive_Ekin(rho, v)
-
-def df_get_Emass(df):
-  rho = df["rho"].to_numpy(copy=True)
-  return rho
-
-def df_get_res(df):
-  r = df["x"].to_numpy(copy=True)
-  dr = df["dx"].to_numpy(copy=True)
-  return dr/r
-
-def df_get_B(df):
-  e = df_get_Eint_comoving(df)
-  return np.sqrt(8*pi_*e*eps_B_)
-
-def df_get_numax(df):
-  gmax = df["gmax"].to_numpy(copy=True)
-  e = df_get_Eint_comoving(df)
-  B = np.sqrt(8*pi_*e*eps_B_)
-  numax = lfac2nu(gmax, B)
-  return Hz2eV(numax)
-
-def df_get_numin(df):
-  gmin = df["gmin"].to_numpy(copy=True)
-  e = df_get_Eint_comoving(df)
-  B = np.sqrt(8*pi_*e*eps_B_)
-  numin = lfac2nu(gmin, B)
-  return Hz2eV(numin)
-
+def get_params(df, inlist, envlist):
+  if (type(df) == pd.core.series.Series):
+    params = np.empty(len(inlist))
+  else:
+    params = np.empty((len(inlist), len(df)))
+  for i, var in enumerate(inlist):
+    if var in df.attrs:
+      params[i] = df.attrs[var].copy()
+    else:
+      try:
+        params[i] = df[var].to_numpy(copy=True)
+      except AttributeError:
+        params[i] = df[var]
+  envParams = []
+  if len(envlist) > 0.:
+    env = MyEnv(df.attrs['key'])
+    envParams = [getattr(env, name) for name in envlist]
+  return params, envParams
 
 def df_get_dt(df):
   '''
@@ -704,44 +834,60 @@ def df_to_shocklist(df):
   idlist = [[sh.index.min(), sh.index.max()] for sh in clnsh]
   return idlist
 
-
 def df_to_shocks(df):
   '''
   Extract the shocked part of data
   Cleans 'false' shock at wave onset when resolution is not high enough
   '''
 
-  ilist = get_fused_interf(df)
-  shocks = df.loc[(df['Sd'] == 1.0)]
-  shlist = np.split(shocks, np.flatnonzero(np.diff(shocks.index) != 1) + 1)
-  clnsh = []
-  for sh in shlist:
-    for inter in ilist:
-      if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]]):
-        clnsh.append(sh)
-        break
+  #ilist = get_fused_interf(df)
+  # RS = df.loc[(df['Sd'] == 1.0) & (df['trac'] > 0.99) & (df['trac'] < 1.01)]
+  # FS = df.loc[(df['Sd'] == 1.0) & (df['trac'] > 1.99) & (df['trac'] < 2.01)]
+  # RSlist = np.split(RS, np.flatnonzero(np.diff(RS.index) != 1) + 1)
+  # FSlist = np.split(FS, np.flatnonzero(np.diff(FS.index) != 1) + 1)
+  # clnRS = []
+  # for sh in RSlist:
+  #   for inter in ilist:
+  #     if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]]):
+  #       clnRS.append(sh)
+  #       break
+  # RSlist = clnRS
+  # clnFS = []
+  # for sh in FSlist:
+  #   for inter in ilist:
+  #     if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]]):
+  #       clnFS.append(sh)
+  #       break
+  # FSlist = clnFS
+  # shocks = pd.concat([RS, FS], axis=0)
+  # shlist = RSlist + FSlist
   
-  if len(clnsh) == 2:
-    RS = clnsh[0]
-    FS = clnsh[1]
-    RS = RS.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
-    FS = FS.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
-    return RS, FS
-  elif len(clnsh) > 2:
-    S4 = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
-    S1 = df.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
-    icd = S1.index.min()
-    left = [sh for sh in clnsh if sh.index.max() <= icd]
-    right = [sh for sh in clnsh if sh.index.min() >= icd]
-    RS = left[0]
-    FS = right[-1]
-    RS = RS.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
-    FS = FS.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
-    return RS, FS
-  else:
-    RS = shocks.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
-    FS = shocks.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
-    return RS, FS
+  out = []
+  S4 = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
+  S1 = df.loc[(df['trac'] > 1.99) & (df['trac'] < 2.01)]
+  i4b = S4.index.min()
+  icd = S4.index.max()
+  i1f = S1.index.max()
+  RSsh = S4.loc[df['Sd']==1.]
+  RSlist = np.split(RSsh, np.flatnonzero(np.diff(RSsh.index) != 1) + 1)
+  FSsh = S1.loc[df['Sd']==1.]
+  FSlist = np.split(FSsh, np.flatnonzero(np.diff(FSsh.index) != 1) + 1)
+  for (front, ilims, shlist) in zip(['RS', 'FS'], [(i4b, icd), (icd, i1f)], [RSlist, FSlist]):
+    iL, iR = ilims
+    crossedSh = [sh for sh in shlist if ((sh.index.max()<iL) | (sh.index.min()>iR))]
+    if (len(crossedSh) > 0) or (len(shlist)== 0):
+        out.append(pd.DataFrame(columns=df.keys()))
+    elif len(shlist) == 1:
+      out.append(shlist[0])
+    else:
+      fronts = [sh for sh in shlist if ((sh.index.min()>=iL) & (sh.index.max()<=iR))]
+      if front == RS:
+        out.append(shlist[0])
+      else:
+        out.append(shlist[-1])
+  return out
+
+
 
 def zoneID(df):
   '''
@@ -770,9 +916,9 @@ def zoneID(df):
   else:
     RS, FS = df_to_shocks(df) 
     try:
-      id_RS  = max(RS.index)
+      id_RS  = min(RS.index)
       rRS    = r[id_RS]
-      zone[(zone == 4.) & (r > rRS)] = 3.
+      zone[(zone == 4.) & (r >= rRS)] = 3.
     except ValueError: # no shock inside shell 4
       if min(shocks.index) < i_4.min():
         # shock exists and has crossed
@@ -780,9 +926,9 @@ def zoneID(df):
         zone[zone == 4.] = 3.
 
     try:
-      id_FS  = min(FS.index)
+      id_FS  = max(FS.index)
       rFS    = r[id_FS]
-      zone[(zone == 1.) & (r < rFS)] = 2.
+      zone[(zone == 1.) & (r <= rFS)] = 2.
     except ValueError: # no shock inside shell 1
       if max(shocks.index) > i_1.max():
         # shock exists and has crossed
@@ -868,8 +1014,6 @@ def df_id_shocks(df):
     idlist.append([sh.index.min(), sh.index.max()])
   return idlist
 
-
-
 def get_allinterf(df, h=.05, prom=.05, rel_h=.99):
   rho, u, p = df_get_primvar(df)
   # filtering rho because data can be noisy
@@ -894,7 +1038,7 @@ def get_peaksid(arr, h=.05, prom=.05, rel_h=.99):
   return res
 
 def df_get_primvar(df):
-  rho = df['rho'].to_numpy()
-  u   = df_get_u(df)
-  p   = df['p'].to_numpy()
+  rho, u, p = get_vars(df, ['rho', 'u', 'p'])
   return rho, u, p
+
+

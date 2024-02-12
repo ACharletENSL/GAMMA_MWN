@@ -37,27 +37,31 @@ def update_envFile(env):
   Update environment file to go with geometry
   we found shock strength threshold was to be changed between cartesian and spherical
   '''
-  filepath = os.getcwd() + '/src/environment.h'
-  out_lines = []
+  filepaths = [os.getcwd() + '/src/environment.h', os.getcwd() + '/src/constants.h']
+  
   envVars = {
     'DETECT_SHOCK_THRESHOLD_':env.chi_sh,
-    # 'eps_e_':env.eps_e,
-    # 'eps_B_':env.epsB,
-    # 'zeta_':env.xi_e,
+    'eps_e_':env.eps_e,
+    'eps_B_':env.eps_B,
+    'zeta_':env.xi_e,
+    'p_':env.psyn,
+    }
     # 'acc_eff_':env.alpha
-  }
-  with open(filepath, 'r') as f:
-    inFile = f.read().splitlines()
-    # copy file line by line with updated values where needed
-    for line in inFile:
-      if line.startswith('#define'):
-        l = line.split()
-        if l[1] in envVars:
-          line = line.replace(l[2], str(envVars[l[1]]))
-      out_lines.append(line)
   
-  with open(filepath, 'w') as outf:
-    outf.writelines(f'{s}\n' for s in out_lines)
+  for filepath in filepaths:
+    with open(filepath, 'r') as f:
+      out_lines = []
+      inFile = f.read().splitlines()
+      # copy file line by line with updated values where needed
+      for line in inFile:
+        if line.startswith('#define'):
+          l = line.split()
+          if l[1] in envVars:
+            line = line.replace(l[2], str(envVars[l[1]]))
+        out_lines.append(line)
+  
+    with open(filepath, 'w') as outf:
+      outf.writelines(f'{s}\n' for s in out_lines)
 
 def update_Makefile(env):
   '''
@@ -93,10 +97,9 @@ def update_Makefile(env):
     outf.writelines(f'{s}\n' for s in out_lines)
 
 def update_simFile(filepath, env):
-  Nsh4 = int(np.floor(env.Nsh1*env.D04/env.D01))
   gridvars = {
     'rhoNorm':env.rhoNorm, 'Nsh1':env.Nsh1, 'Ntot1':env.Nsh1+env.Next,
-    'Nsh4':Nsh4, 'Ntot4':Nsh4+env.Next,
+    'Nsh4':env.Nsh4, 'Ntot4':env.Nsh4+env.Next,
     'itmax':env.itmax, 'geometry':env.geometry
   }
   physvars = {}

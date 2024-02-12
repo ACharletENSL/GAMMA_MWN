@@ -22,18 +22,10 @@ def shells_complete_setup(env):
   def Ain_keys_butnotB(A, B):
     return A in env.__dict__.keys() and not B in env.__dict__.keys()
 
-  # add D0 if ton and vice-versa
   env.beta1 = derive_velocity_from_proper(env.u1)
+  env.lfac1 = derive_Lorentz_from_proper(env.u1)
   env.beta4 = derive_velocity_from_proper(env.u4)
-
-  if Ain_keys_butnotB('D01', 't1'):
-    env.t1    = env.D01/(env.beta1*c_)
-  elif Ain_keys_butnotB('t1', 'D01'):
-    env.D01   = env.t1*env.beta1*c_
-  if Ain_keys_butnotB('D04', 't4'):
-    env.t4    = env.D04/(env.beta4*c_)
-  elif Ain_keys_butnotB('t4', 'D04'):
-    env.D04   = env.t4*env.beta4*c_
+  env.lfac4 = derive_Lorentz_from_proper(env.u4)
 
   # t0 and R0
   if 'toff' in env.__dict__.keys():
@@ -43,28 +35,43 @@ def shells_complete_setup(env):
   elif Ain_keys_butnotB('R0', 't0'):
     env.t0 = env.R0/(env.beta4*c_)
 
+  # add D0 if ton and vice-versa
+  if Ain_keys_butnotB('D01', 't1'):
+    #env.t1  = (env.D01/env.R0)*env.toff
+    env.t1 = env.D01/(env.beta1*c_)
+  elif Ain_keys_butnotB('t1', 'D01'):
+    #env.D01 = (env.t1/env.toff)*env.R0
+    env.D01 = env.t1*env.beta1*c_#*(1+env.R0/env.lfac1**2)
+  if Ain_keys_butnotB('D04', 't4'):
+    #env.t4  = (env.D04/env.R0)*env.toff
+    env.t4  = env.D04/(env.beta4*c_)
+  elif Ain_keys_butnotB('t4', 'D04'):
+    #env.D04 = (env.t4/env.toff)*env.R0
+    env.D04 = env.t4*env.beta4*c_#*(1+env.R0/env.lfac4**2)
+  
+  env.Nsh4 = int(np.floor(env.Nsh1*env.D04/env.D01))
+  env.V0 = (4/3.)*pi_*((env.R0+env.D01)**3 - (env.R0-env.D04)**3)
+
   # add rho if Ek and vice-versa
   if Ain_keys_butnotB('Ek1', 'rho1'):
-    lfac1    = derive_Lorentz_from_proper(env.u1)
     V1c2     = 4.*pi_*env.R0**2*env.D01*c_**2
-    env.rho1 = (env.Ek1/(lfac1-1))/(V1c2*lfac1)
+    env.rho1 = (env.Ek1/(env.lfac1-1))/(V1c2*env.lfac1)
   elif Ain_keys_butnotB('rho1', 'Ek1'):
-    lfac1    = derive_Lorentz_from_proper(env.u1)
     V1c2     = 4.*pi_*env.R0**2*env.D01*c_**2
-    env.Ek1  = (lfac1-1)*env.rho1*V1c2*lfac1
+    env.Ek1  = (env.lfac1-1)*env.rho1*V1c2*env.lfac1
   if Ain_keys_butnotB('Ek4', 'rho4'):
-    lfac4    = derive_Lorentz_from_proper(env.u4)
     V4c2     = 4.*pi_*env.R0**2*env.D04*c_**2
-    env.rho4 = (env.Ek4/(lfac4-1))/(V4c2*lfac4)
+    env.rho4 = (env.Ek4/(env.lfac4-1))/(V4c2*env.lfac4)
   elif Ain_keys_butnotB('rho4', 'Ek4'):
-    lfac4    = derive_Lorentz_from_proper(env.u4)
     V4c2     = 4.*pi_*env.R0**2*env.D04*c_**2
-    env.Ek4  = (lfac4-1)*env.rho4*V4c2*lfac4
+    env.Ek4  = (env.lfac4-1)*env.rho4*V4c2*env.lfac4
   
   # complete with pressure
   p0 = min(env.rho1, env.rho4)*env.Theta0*c_**2
   env.p1 = p0
   env.p4 = p0
+
+  env.rhoscale = getattr(env, env.rhoNorm)
 
 def shells_add_analytics(env):
   '''
@@ -76,8 +83,6 @@ def shells_add_analytics(env):
   u34        = u21/np.sqrt(env.f)
   env.lfac21 = derive_Lorentz_from_proper(u21)
   env.lfac34 = derive_Lorentz_from_proper(u34)
-  env.lfac1  = derive_Lorentz_from_proper(env.u1)
-  env.lfac4  = derive_Lorentz_from_proper(env.u4)
   env.beta1  = env.u1/env.lfac1
   env.beta4  = env.u4/env.lfac4
   env.M1     = env.Ek1/((env.lfac1-1)*c_**2)
@@ -133,38 +138,59 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   a_u = env.u4/env.u1
   u34 = derive_proper_from_Lorentz(env.lfac34)
   beta34 = derive_velocity(env.lfac34)
+  beta21 = derive_velocity(env.lfac21)
   Hau = (env.lfac34-1) * u34 / (1+a_u**2)
   L = ((env.Ek1/env.t1)+(env.Ek4/env.t4))/2
-  Gp = (env.p-2)/(env.p-1)
-  eint3p = 4.*env.lfac34*(env.lfac34-1)*env.rho4*c_**2
-  Bp = np.sqrt(8.*pi_*env.eps_B*eint3p)
-  gma_m = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac34-1)
-  nuBp = e_*Bp/(2.*pi_*me_*c_)
-  nu0p = gma_m**2 * nuBp
-  eps_rad = 1. # normalization to values at RS, assumed fast cooling
+  Gp = (env.psyn-2)/(env.psyn-1)
+  env.eint2p = 4.*env.lfac21*(env.lfac21-1)*env.rho1*c_**2
+  env.eint3p = 4.*env.lfac34*(env.lfac34-1)*env.rho4*c_**2
+  env.Bp = np.sqrt(8.*pi_*env.eps_B*env.eint3p)
+  env.gma_m = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac34-1)
+  env.gma_mFS = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac21-1)
+  env.nuBp = e_*env.Bp/(2.*pi_*me_*c_)
+  env.nu0p = env.gma_m**2 * env.nuBp
+  env.eps_rad = 1
+  env.eps_radFS = 0.5
+  env.L0p = (2/3.) * env.eps_e * env.eps_rad * 4 * pi_ * env.R0**2 * c_**3 * \
+    ((env.psyn-2.)/(env.psyn-1)) * (env.lfac34-1)*u34 * env.rho4 / env.nu0p
+  env.L0 = 2*env.lfac*env.L0p
 
-  env.nu0 = 2.*env.lfac*nu0p/(1+z)
-  env.nu0F0 = (4./(9*pi_*dL**2)) * Gp * Hau * env.eps_e * eps_rad * L
-  env.F0 = env.nu0F0 / env.nu0
+  env.nu0 = 2.*env.lfac*env.nu0p/(1+z)
   env.T0 = (1+z) * (env.R0/c_) * ((1-env.betaRS)/env.betaRS)
+  env.zdl = (1+z) / (4*pi_*dL**2)
+  env.Fs = 2 * env.zdl * env.lfac * env.L0p
+  env.F0 = env.Fs/3.
+  env.nu0F0 = env.nu0*env.F0
+  Pfac = (4./3.) * (4*(env.psyn-1)/(3*env.psyn-1)) * (16*me_*c_**2*sigT_/(18*pi_*e_))
+  env.Pmax0 = Pfac * env.Bp * (env.rho3/mp_)
+  env.Pmax0FS = Pfac * env.Bp * (env.rho2/mp_)
+  env.tc = 3*me_*c_/(4*sigT_*env.eint3p*env.eps_B*env.gma_m)
+  env.tcFS = 3*me_*c_/(4*sigT_*env.eint2p*env.eps_B*env.gma_mFS)
 
   # for the FS
-  fac_nu = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**2
-  fac_F  = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**-2 * \
-      (derive_velocity(env.lfac34)/derive_velocity(env.lfac21)) * 2.
-  env.nu0FS = env.nu0 / fac_nu
-  env.F0FS  = env.F0 / fac_F
+  env.fac_nu = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**2
+  env.fac_F  = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**-2 * \
+      (derive_velocity(env.lfac34)/derive_velocity(env.lfac21)) * (env.eps_rad/env.eps_radFS)
+  env.fac_Lp = 2*((env.lfac34+1)/(env.lfac21+1))**(-0.5) * np.sqrt(env.lfac34/env.lfac21) * ((env.lfac34-1)/(env.lfac21-1))**-2 * (beta34/beta21)
+  env.nu0FS = env.nu0 / env.fac_nu
+  env.F0FS  = env.F0 / env.fac_F
+  env.nu0F0FS = env.nu0FS*env.F0FS
   env.T0FS  = (1+z) * (env.R0/c_) * ((1-env.betaFS)/env.betaFS)
   
   # normalized times (eqn F38)
-  lfacRS = derive_Lorentz(env.betaRS)
-  lfacFS = derive_Lorentz(env.betaFS)
   env.nTfRS = env.betaRS * c_ * env.tRS / env.R0
-  env.nTfFS = ((env.betaRS*(1+env.betaRS))/(env.betaFS*(1+env.betaFS))) * (lfacRS/lfacFS)**2 * env.betaFS * c_ * env.tFS / env.R0
+  env.nTfFS = ((env.betaRS*(1+env.betaRS))/(env.betaFS*(1+env.betaFS))) * (env.lfacRS/env.lfacFS)**2 * env.betaFS * c_ * env.tFS / env.R0
 
   # effective ejection timescales (eqn E3, E4)
-  env.teffejRS = env.t0 - env.R0/(env.betaRS*c_)
-  env.teffejFS = env.t0 - env.R0/(env.betaFS*c_)
+  env.teffejRS = (1+z)*(env.t0 - env.R0/(env.betaRS*c_))
+  env.TeffejRS = (1+z)*env.teffejRS
+  env.teffejFS = (1+z)*(env.t0 - env.R0/(env.betaFS*c_))
+  env.TeffejFS = (1+z)*env.teffejFS
+
+  # other obs times
+  env.Ts = (1+z)*(env.t0 - env.R0/c_)
+  env.TRS = (1+env.z)*(env.t0+env.tRS-(env.R0+env.betaRS*env.tRS*c_)/c_)
+  env.TFS = (1+env.z)*(env.t0+env.tFS-(env.R0+env.betaFS*env.tFS*c_)/c_)
 
 def shells_snapshot_fromenv(env, r, t):
   '''
@@ -445,13 +471,16 @@ def get_analytical(var, t, r, env):
     h = derive_enthalpy(rho, p)
     return h
   elif var == "Eint":
-    eint = derive_Eint(rho, p)
+    eint = derive_Eint_comoving(rho*env.rhoscale*c_**2, p*env.rhoscale*c_**2)
     return eint
   elif var == "Ekin":
     ek = derive_Ekin(rho, u)
     return ek
   elif var == "Emass":
     return rho
+  elif var == "B":
+    eint = derive_Eint_comoving(rho*env.rhoscale*c_**2, p*env.rhoscale*c_**2)
+  return np.sqrt(env.eps_B * eint * 8 * pi_)
 
 # Individual functions
 # -----------------------------------------------------

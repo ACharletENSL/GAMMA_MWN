@@ -10,7 +10,6 @@ This file analyze opened data
 import numpy as np
 import scipy.integrate as spi
 from data_IO import *
-from phys_radiation import thinshell_spectra
 from environment import MyEnv
 
 # Analysis functions
@@ -97,6 +96,92 @@ def open_clean_rundata(key):
   run_data = open_rundata(key)
   return run_data
 
+def get_cell_timevalues(key, var, i, its=[]):
+  if type(var) == list:
+    cool = any(item in var for item in cool_vars)
+
+  else:
+    cool = (var in cool_vars)
+
+  if len(its) == 0.:
+    its = np.array(dataList(key))[1:]
+  
+  time = np.zeros(len(its))
+
+  if type(var)==list:
+    data = np.zeros((len(var), len(its)))
+  else:
+    data = np.zeros(len(its))
+  for k, it in enumerate(its):
+    print(f'Reading file {it}')
+    df, t, dt = openData_withtime(key, it)
+    if cool:
+      df = openData_withDistrib(key, it)
+    trac = df['trac'].to_numpy()
+    i4 = np.argwhere((trac > 0.99) & (trac < 1.01))[:,0].min()
+    cell = df.iloc[i+i4]
+    time[k] = dt
+    if type(var)==list:
+      for j, name in enumerate(var):
+        data[j][k] = get_variable(cell, name)
+    else:
+      data[k] = get_variable(cell, var)
+
+  return time, data
+
+def get_behindShock_vals(key, varlist, its=[], itmax=None):
+  if len(its) == 0.:
+    its = np.array(dataList(key))[1:]
+  coolvar = (len([var for var in varlist if var in cool_vars])>0)
+  if coolvar:
+    its = its[1:]
+  data = np.zeros((2, len(varlist), len(its)))
+  time = np.zeros(len(its))
+  for k, it in enumerate(its):
+    print(f'Reading file {it}')
+    df, t, dt = openData_withtime(key, it)
+    if coolvar:
+      df = openData_withDistrib(key, it)
+    RS, FS = df_get_cellsBehindShock(df)
+    time[k] = dt
+    if not RS.empty:
+      data[0,:,k] = get_vars(RS, varlist)
+    else:
+      data[0,:,k] = 0.
+    if not FS.empty:
+      data[1,:,k] = get_vars(FS, varlist)
+    else:
+      data[1,:,k] = 0.
+  return its, time, data[0], data[1]
+
+def get_behindShock_value(key, var, its=[]):
+  if len(its) == 0.:
+    its = np.array(dataList(key))[1:]
+  if var in cool_vars:
+    its = its[1:]
+  data = np.zeros((2, len(varlist), len(its)))
+  time = np.zeros(len(its))
+  for k, it in enumerate(its):
+    print(f'Reading file {it}')
+    df, t, dt = openData_withtime(key, it)
+    if var in cool_vars:
+      df = openData_withDistrib(key, it)
+    RS, FS = df_get_cellsBehindShock(df)
+    time[k] = dt
+    if var == 'i':
+      data[0,k] = RS.name if len(RS) > 0 else 0
+      data[1,k] = FS.name if len(FS) > 0 else 0
+    else:
+      if not RS.empty:
+        data[0,k] = get_variable(RS, var)
+      else:
+        data[0,k] = 0.
+      if not FS.empty:
+        data[1,k] = get_variable(FS, var)
+      else:
+        data[1,k] = 0.
+  return its, time, data[0], data[1]
+
 def compare_crosstimes(key):
   '''
   Compare crossing times found numerically with the analytical values
@@ -142,7 +227,45 @@ def get_spectrum_run(key, mode='r'):
   out = pd.read_csv(rfile_path, index_col=0)
   return out
 
-def derive_spectrum_run(key, NTbins=50, Tmax=5., nubins=np.logspace(-3, 1, 100)):
+def get_radEnv(key, Nnu=200, Tbmax=5, nT=50):
+  '''
+  Returns necessary variables for spectrum calculation from a run
+  Nnu : number of frequency bins
+  Tbmax : max value of \bar{T} = (Tobs - Ts)/T0
+  nT : number of bins per unit Tnorm = betaRS*T0
+  '''
+  env = MyEnv(key)
+  nuobs = np.logspace(-7, 2, Nnu)*env.nu0
+  #Tth, Ton, Tej = derive_obsTimes(env.t0, env.R0/c_, env.betaRS, env.t0, env.z)
+  dTobs = env.T0/nT
+  Tobs = env.Ts + np.arange(Tbmax*nT)*dTobs
+  return nuobs, Tobs, dTobs, env
+
+def get_run_radiation(key, func='analytic'):
+
+  '''
+  Get radiation from a run, filling a pandas dataframe
+  writes it in a corresponding .csv file
+  /!\ if itmin != 0, starts at first iteration AFTER itmin
+  '''
+  dfile_path, dfile_bool = get_radfile(key)
+  nuobs, Tobs, dTobs, env = get_radEnv(key)
+  its = np.array(dataList(key))[2:]
+  RS_rad, FS_rad = np.zeros((2, len(Tobs), len(nuobs)))
+  for it in its:
+    print(f'Generating flux from file {it}')
+    df = openData_withDistrib(key, it)
+    RS_rad_i, FS_rad_i = df_get_rads(df, nuobs, Tobs, dTobs, env, func)
+    RS_rad += RS_rad_i
+    FS_rad += FS_rad_i
+  
+  nulist = [f'nuobs_{i}_'+sub for sub in ['RS', 'FS'] for i in range(len(nuobs))]
+  rads = np.concatenate((RS_rad, FS_rad), axis=1)
+  data = pd.DataFrame(rads, columns=nulist)
+  data.insert(0, "Tobs", Tobs)
+  data.to_csv(dfile_path)
+
+def derive_spectrum_run_2shocks(key, NTbins=50, Tmax=5., nubins=np.logspace(-3, 1, 100)):
   '''
   Creates data file for spectrum
   algorithm (v0, simple Band function):
@@ -151,9 +274,11 @@ def derive_spectrum_run(key, NTbins=50, Tmax=5., nubins=np.logspace(-3, 1, 100))
   - add those to corresponding observer time bins
   - write a file
   '''
-
+  # add normalization for timebins depending on pulse carac size T0 (Tth with R0, etc.)
+  # Tobs max = ~ 1000 Tbins, Tbins ~ 1/100 T0
   its = np.array(dataList(key))
   env = MyEnv(get_physfile(key))
+  rfile_path, rfile_bool = get_radfile(key)
   nubins *= env.nu0
   spec_tot = np.zeros((NTbins-1, len(nubins)))
   dT = Tmax/NTbins

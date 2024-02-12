@@ -15,11 +15,30 @@
 
 #if SHOCK_DETECTION_ == ENABLED_
 
+  static double spectral_p(double fvelu){
+    double pspec;
+    #if VARIABLE_PSPEC_ == ENABLED_
+      // if (fabs(fvelu) < 1.){
+      //   pspec = 2.;
+      // } else if (fabs(fvelu) < 10){
+      //   pspec = 2.+ (p_-2.)*log10(fabs(fvelu));
+      // } else {
+      //   pspec = p_;
+      // }
+
+      pspec = 2.11 + 0.11*tanh((log10(fabs(fvelu))-.5));
+
+    #else
+      pspec = p_;
+    #endif
+    return(pspec);
+  }
+
   static double compute_cs(double rho, double p){
     return(sqrt(GAMMA_*p / (rho + p*GAMMA_/(GAMMA_-1.))));
   }
 
-  static double compute_Sd(FluidState S1, FluidState S2, int dim, 
+  static double compute_Sd(FluidState S1, FluidState S2, int dim, double *pspec,
                            bool reverse=false){
 
     int uux = UU1+dim;
@@ -34,7 +53,8 @@
     double p1 = S1.prim[PPP];
     double p2 = S2.prim[PPP];
 
-    if (p1==p2) return(-1); // no shock possible
+    if (fabs((p1-p2)/p1)<1.e-10) return(-1); // no shock possible
+    if (p1 < p2) return (-1); // shock increases pressure
 
     double delta_p = p2 - p1;
     double dp = delta_p / (double) n_evals;
@@ -113,13 +133,18 @@
 
   void Interface :: measureShock(Cell *cL, Cell *cR){
 
-    double Sd;
+    double Sd, pspec;
+    
     // Forward shocks
-    Sd = compute_Sd(SL, SR, dim);
+    Sd = compute_Sd(SL, SR, dim, &pspec);
     cL->Sd = fmax(cL->Sd, Sd);
+    if (pspec > cL->pspec) cL->pspec = pspec;
+
     // Reverse shocks
-    Sd = compute_Sd(SR, SL, dim, true);
+    //if (dim==MV){ return; } // turning of radial reverse shocks in boxfit setup (toggle)
+    Sd = compute_Sd(SR, SL, dim, &pspec, true);
     cR->Sd = fmax(cR->Sd, Sd);
+    if (pspec > cR->pspec) cR->pspec = pspec;
 
   }  
 
@@ -133,6 +158,7 @@
 
     Sd = 0;
     isShocked = false;
+    pspec = 0;
 
   }
 
@@ -173,7 +199,7 @@
     double ee = eps_e_ * eps;
     double ne = zeta_ * rho / Nmp_;
     double lfac_av = ee / (ne * Nme_);
-    double gammaMin = (psyn-2.) / (psyn-1.) *lfac_av;
+    double gammaMin = 1. + ((psyn-2.) / (psyn-1.) *lfac_av);
 
     return(gammaMin);
   }
@@ -187,8 +213,10 @@
     double eps = rho * (h-1.) / gma;
     double eB = eps_B_ * eps;
     double B = sqrt(8.*PI*eB);
-    double fac = 3. * acc_eff_ / (4.* PI * pow(qe_, 3) * B * sin(theta_));
-    double gammaMax = (me_ * c_ * c_) * sqrt(fac);
+    // double fac = 3. * acc_eff_ / (4.* PI * pow(qe_, 3) * B * sin(theta_));
+    // double gammaMax = (me_ * c_ * c_) * sqrt(fac);
+    double gammaMax2 = 3. * qe_ / (sigmaT_ * B);
+    double gammaMax = 1. + sqrt(gammaMax2);
 
     return(gammaMax);
   }
@@ -211,10 +239,14 @@
     double lfac = S.lfac();
     double rho = S.prim[RHO];
     double lim = lfac * pow(rho, 4./3.);  // equiv. gammae = 1.
-    S.prim[GMN] = lim / (lfac*rho);
-    S.prim[GMX] = lim / (lfac*rho);
-    S.cons[GMN] = lim;
-    S.cons[GMX] = lim;
+    if (S.prim[GMX] > lim / (lfac*rho) or S.prim[GMX] <= 0.){
+        S.prim[GMX] = lim / (lfac*rho);
+        S.cons[GMX] = lim;
+    }
+    if (S.prim[GMN] > lim / (lfac*rho) or S.prim[GMN] <= 0.){
+        S.prim[GMN] = lim / (lfac*rho);
+        S.cons[GMN] = lim;
+    }
 
   }
 
@@ -225,18 +257,34 @@
     double lim = lfac * pow(rho, 4./3.) / (lfac*rho);  // equiv. gammae = 1.
     double *gmax = &S.prim[GMX];
     double *gmin = &S.prim[GMN];
+    double *psyn = &S.prim[PSN];
+    double *trac = &S.prim[TR1+1];
 
-    if (isShocked){
+    /*if (isShocked){
       *gmax = radiation_gammae2trac(GAMMA_MAX_INIT_, S) / (lfac*rho);
       *gmin = radiation_gammae2trac(1., S) / (lfac*rho);
     }
     if (*gmax > lim or *gmax == 0.) *gmax = lim;
-    if (*gmin > lim or *gmin == 0.) *gmin = lim;
-
+    if (*gmin > lim or *gmin == 0.) *gmin = lim;*/
+    if (S.prim[TR1+1] <= 10){
+      if (isShocked){
+        if (pspec>*psyn or std::isnan(*psyn)) *psyn = pspec;
+        *gmax = radiation_gammae2trac(gammaMaxInit(S), S) / (lfac*rho);
+        *gmin = radiation_gammae2trac(gammaMinInit(S), S) / (lfac*rho);
+        *trac = 1.;
+      }
+      // if (*gmax <= 0. or ::isnan(*gmax)) *gmax = lim;
+      // if (*gmin <= 0. or ::isnan(*gmin)) *gmin = lim;
+      if (::isnan(*gmax)) *gmax = lim;
+      if (::isnan(*gmin)) *gmin = lim;
+      // if (*gmax > lim or *gmax <= 0. or ::isnan(*gmax)) *gmax = lim;
+      // if (*gmin > lim or *gmin <= 0. or ::isnan(*gmin)) *gmin = lim;
+    }
   }
 
   void Cell :: radiativeSourceTerms(double dt){
 
+    /*
     double rho = S.prim[RHO];
     double p = S.prim[PPP];
     double h = 1 + p*GAMMA_/(GAMMA_-1.)/rho;
@@ -246,7 +294,25 @@
 
     double dgmax = Nalpha_ * pow(rho, 4./3.) * B*B * G.dV * dt;
     // printf("%le\n", dgmax);
-    S.prim[GMX] += dgmax;
+    S.prim[GMX] += dgmax;*/
+
+    double rho = S.prim[RHO];
+    double p = S.prim[PPP];
+    double trac = S.prim[TR1+1];
+    double lfac = S.lfac();
+    double gma = S.gamma();
+    double h = 1 + p*gma/(gma-1.)/rho;
+    double eps = rho * (h-1.) / gma;
+    double eB = eps_B_ * eps;
+    double B = sqrt(8.*PI*eB);
+
+    double dgma = Nalpha_ * pow(rho, 4./3.) * B*B * G.dV * dt;
+    // printf("%le\n", dgma);
+    S.cons[GMX] += dgma;
+    S.cons[GMN] += dgma;
+    if (trac > 0.){
+      S.cons[TR1+1] -= 0.7 * rho * lfac * G.dV;
+      } 
 
   }
 

@@ -10,11 +10,19 @@ from phys_constants import *
 from scipy.signal import unit_impulse
 
 def edistrib_plaw_vec(gmin0, gmax0, gmin1, gmax1):
-  #fc = (gmin0 >= gmax1)
-  g1 = np.where(gmin0 >= gmax1, gmax1, gmin1)
-  g2 = np.where(gmin0 >= gmax1, gmin0, gmax1)
-  g3 = np.where(gmin0 >= gmax1, gmax0, gmax0)
-  return g1, g2, g3
+  '''
+  Resulting power law from cooling between two time steps
+  -> two part power-law, with break at g2
+  '''
+  inj = ((gmax1>gmax0) | (gmin1>gmin0))
+  fc = (gmin0 >= gmax1) # can use ratio less than 2 instead of that
+  gm = np.where(inj, gmin0, np.where(fc, gmax1, gmin1))
+  gb = np.where(inj, gmin1, np.where(fc, gmin0, gmax1))
+  gM = np.where(inj, gmax1, gmax0)
+  #gm = np.where(gmin0 >= gmax1, gmax1, gmin1)
+  #gb = np.where(gmin0 >= gmax1, gmin0, gmax1)
+  #gM = np.where(gmin0 >= gmax1, gmax0, gmax0)
+  return gm, gb, gM, fc
 
 def edistrib_plaw(gmin0, gmax0, gmin1, gmax1):
   if gmin0 >= gmax1:
@@ -47,10 +55,10 @@ def cell_edistrib(gmin0, gmax0, gmin1, gmax1, p):
 
 def broken_plaw(x, g1, g2, g3, a1, a2):
   '''
-  Powerlaw with index a1 between g1 and g2, a2 between g2 and g3
+  Powerlaw with index -a1 between g1 and g2, -a2 between g2 and g3
   '''
   try:
-    n = np.where(x < g1, 0., 
+    n = np.where(x < g1, 0, 
       np.where(x < g2, (x/g1)**(-a1),
         np.where(x < g3, ((g2/g1)**(-a1))*(x/g2)**(-a2), 0.)))
     return n

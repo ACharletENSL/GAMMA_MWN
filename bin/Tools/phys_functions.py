@@ -9,14 +9,40 @@ This file contains functions to derive physical variables
 # Imports
 # --------------------------------------------------------------------------------------------------
 import numpy as np
+import math
+from phys_constants import *
+#from numba import njit
 
 # Functions
 # --------------------------------------------------------------------------------------------------
+def find_closest_old(A, target):
+  #A must be sorted
+  idx = np.searchsorted(A, target)
+  idx = np.clip(idx, 1, len(A)-1)
+  left = A[idx-1]
+  right = A[idx]
+  idx -= target - left < right - target
+  return idx
+
+#@njit
+def find_closest(array, value):
+    idx = np.searchsorted(array, value, side="left")
+    if idx > 0 and (idx == len(array) or math.fabs(value - array[idx - 1]) < math.fabs(value - array[idx])):
+        return (idx - 1)
+    else:
+        return (idx)
+
 def derive_reldiff(a, b):
   '''
   Relative difference
   '''
   return (a-b)/b
+
+def derive_resolution(x, dx):
+  '''
+  Resolution
+  '''
+  return dx/x
 
 def prim2cons(rho, u, p):
   '''
@@ -133,13 +159,19 @@ def derive_Eint(rho, v, p):
   eint = p/(gma-1.)  # in comoving frame
   return eint*lfac**2*(1+v**2*(gma-1.))
 
-def derive_Eint_comoving(rho, p):
+def derive_Eint_comoving(rho, p, rhoscale):
   '''
   Internal energy density in comoving frame
   '''
+  rho = rho*rhoscale*c_**2
+  p = p*rhoscale*c_**2
   T = derive_temperature(rho, p)
   gma  = derive_adiab_fromT_TM(T)
-  return p/(gma-1.) 
+  return p/(gma-1.)
+
+def derive_B_comoving(rho, p, rhoscale, eps_B=1/3.):
+  e = derive_Eint_comoving(rho, p, rhoscale)
+  return np.sqrt(8*pi_*eps_B*e)
 
 # Velocity and related
 def derive_Lorentz(v):
@@ -191,6 +223,166 @@ def derive_Ekin_fromproper(rho, u):
   '''
   lfac = derive_Lorentz_from_proper(u)
   return rho*(lfac-1)*lfac
+
+def lfac2nu(lfac, B):
+  '''
+  Synchrotron frequency of an electron with Lorentz factor lfac in magn field B (comoving)
+  '''
+
+  fac = 3*e_/(4.*pi_*me_*c_)
+  return fac * lfac**2 * B
+
+def nu2lfac(nu, B):
+  '''
+  Lorentz factor of an electron emitting photon of frequency nu in magn field B
+  '''
+
+  fac = 3*e_/(4.*pi_*me_*c_)
+  return (fac * B)**-0.5
+
+def Hz2eV(nu):
+  return h_eV_*nu
+
+def derive_nu(rho, p, lfac, rhoscale, eps_B=1/3.):
+  '''
+  Synchrotron frequency emitted by electron at Lorentz factor lfac
+  '''
+  B = derive_B_comoving(rho, p, rhoscale, eps_B)
+  nu = lfac2nu(lfac, B)
+  return nu
+
+def derive_normTime(r, beta, mu=1):
+  '''
+  Normalization time Ttheta
+  '''
+  return (1-beta*mu)*r
+
+def derive_max_emissivity(rho, p, gmin, gmax, rhoscale, eps_B, psyn, xi_e):
+  '''
+  Returns maximal emissivity used for normalisation, from Ayache et al. 2022
+  '''
+  
+  B = derive_B_comoving(rho, p, rhoscale, eps_B)
+  n = xi_e*derive_n(rho, rhoscale)*derive_xiDN(gmin, gmax, psyn)
+  fac = (4./3.) * (4*(psyn-1)/(3*psyn-1)) * (16*me_*c_**2*sigT_/(18*pi_*e_))
+  return B*n*fac
+
+def derive_emiss_prefac(psyn):
+  return (4*(psyn-1)/(3*psyn - 1)) * sigT_ * (4/3) * (8*me_*c_/(9*pi_*e_))
+
+def derive_xiDN(gmin, gmax, p):
+  '''
+  Fraction of emitting electrons
+  '''
+  def xiDN(gmin, gmax, p):
+    return ((gmax**(2-p) - gmin**(2-p))/(gmax**(2-p)-1))*((gmax**(1-p)-1.)/(gmax**(1-p)-gmin**(1-p)))
+  
+  return np.where(gmax<1., 0., np.where(gmin<1., xiDN(gmin, gmax, p), 1.))
+
+
+def derive_n(rho, rhoscale):
+  '''
+  Comoving number density
+  '''
+  return rho*rhoscale/mp_
+
+def derive_Psyn_electron(lfac, B):
+  '''
+  Synchrotron power emitted by an electron of Lorentz factor lfac in a field B
+  '''
+  u = derive_proper_from_Lorentz(lfac)
+  return (sigT_*c_/(4.*pi_)) * u**2 * B**2
+
+def derive_3volume(x, dx, R0, geometry='cartesian'):
+  '''
+  3-volume of a cell
+  '''
+  r = x*c_
+  dV = 2*dx*c_
+  if geometry == 'cartesian':
+    dV *= 2*pi_*R0**2
+  else:
+    dV *= 2*pi_*r**2
+  return dV
+
+def derive_4volume(x, dx, dt, R0, geometry='cartesian'):
+  '''
+  4-volume of a cell
+  '''
+  dV = derive_3volume(x, dx, R0, geometry)
+  V4 = dV * dt
+  return V4
+
+def derive_rad4volume(x, dx, rho, vx, p, dt, gma, rhoscale, eps_B, R0, geometry='cartesian'):
+  '''
+  4 volume of a cell considering cooling time at the peak comoving frequency
+  '''
+  dV = derive_3volume(x, dx, R0, geometry)
+  tcool = derive_tcool(rho, vx, p, gma, rhoscale, eps_B)
+  delt = np.where(tcool<dt, tcool, dt)
+  return dV * delt
+
+def derive_tcool(rho, vx, p, gma, rhoscale, eps_B):
+  '''
+  Synchrotron cooling time of an electron with lfac gma in source frame
+  '''
+  tpcool = derive_tcool_comoving(rho, p, gma, rhoscale, eps_B)
+  lfac = derive_Lorentz(vx)
+  return lfac*tpcool
+
+def derive_tcool_comoving(rho, p, gma, rhoscale, eps_B):
+  '''
+  Synchrotron cooling time of an electron with lfac gma in comoving frame
+  '''
+  eint = derive_Eint_comoving(rho, p, rhoscale)
+  return 3*me_*c_/(4*sigT_*eint*eps_B*gma)
+
+def derive_localLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn, xi_e, R0, geometry='cartesian'):
+  '''
+  Local peak luminosity
+  '''
+  V4 = derive_rad4volume(x, dx, rho, vx, p, dt, gma, rhoscale, eps_B, R0, geometry)
+  P = derive_max_emissivity(rho, p, gmin, gmax, rhoscale, eps_B, psyn, xi_e)
+  lfac = derive_Lorentz(vx)
+  Lp = lfac * V4 * P / x
+  return Lp
+
+def derive_obsLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn, xi_e, R0, geometry='cartesian'):
+  '''
+  Local peak luminosity in observer frame
+  '''
+  Lp = derive_localLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn, xi_e, R0, geometry='cartesian')
+  lfac = derive_Lorentz(vx)
+  return 2*lfac*Lp
+
+def derive_obsEjTime(t, r, beta, t0, z):
+  Tej, T0 = derive_obsTimes(t, r, beta, t0, z)
+  return Tej
+
+def derive_obsNormTime(t, r, beta, t0, z):
+  Tej, T0 = derive_obsTimes(t, r, beta, t0, z)
+  return T0
+
+def derive_obsPkTime(t, r, beta, t0, z):
+  '''
+  Returns observer time at which the emission from this cell will peak
+  '''
+  Tej, T0 = derive_obsTimes(t, r, beta, t0, z)
+  return 2*T0 + Tej
+
+def derive_obsTimes(t, r, beta, t0, z):
+  '''
+  Derive the relevant times in observer frame to calculate flux
+  Tej : effective ejection time of the cell
+  T0  : onset to peak time
+  /!\ r in units c /!\ (function to be used by data_IO:get_variable)
+  '''
+  t = t + t0
+  tej = t - r/beta
+  T0 = (1+z)*((1-beta)/beta)*r
+  Tej = (1+z)*tej
+  return Tej, T0
+
 
 # wave speed at interfaces
 def waveSpeedEstimates(SL, SR):

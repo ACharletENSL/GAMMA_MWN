@@ -11,14 +11,53 @@ Done:
   QUESTION: time to use for plotting compared to sim? (for now I set tilde{T} to 1 to see the spectras)
 - Band function emission from simulation (shocks as ultra thin emitting shell)
 - zone detection in spherical at high times  
+- added rad-related variables to be plotted
+- added time series of one cell plotting + updated get_variable method
+- df_get_B corrected
+- corrected electron distrib:
+  bugs when considering injection
+
+List of problems:
+Now that I have added a way to stop electron injection
+the data dump happen after the first injection and some of the information is lost
+-> trac2 diminishes linearly with time
+-> check the rate by looking at next timestep ? maybe verify it's same rate, check it at the beginning and use value
+-> get 'real' injection time from that
+-> get radiation by comparing time step with theoretical one with theoretical gmin, gmax
+-> interpolating shock values seems fishy, maybe just use the ones from the current time step (+ closer to real shock values)
+
+
+TODO:
+add plotting of values in cell behind shock(s) with time 
+  (+ values related to emission: peak flux and frequency and every parameters that influences them etc.)
+  -> they should not be changing that much! (~ constants in planar geometry)
+  /!\ where the electron distrib is injected, not too far behind
+  compare to theoretical values 
+at electron injection (in phys_edsitrib)
+  -> GAMMA injects electron at the end of the time step -> 
+  compare new gamma_min/max to theoretical gamma_min/max 
+  apply cooling rules as if it was previous timestep
+  check carefully which time you considers (cooling over half a timestep ? A full one ?) and use that consistently (don't forget dV4)
+
+add plot e distrib of a cell with time -> add to document
+add plots distrib in different regimes
+make sure values are coherent with normalization
+
+tests:
+- apply lightcurve method over full simulation -> write output in ready-to-read file
+- try with analytic Blandford McKee solution (look at de Colle 12 section 4)
+  -> 'numerize' analytical solution
+- try with numeric Blandford McKee solution (BM1D.cpp)
+  -> let evolve until mildly relativistic phase
+/!\ take log time bins /!\
+WRITE THINGS IN A DOC
 
 Ongoing task:
-loop over time bins?
 
-- use de Colle 2012 for per-cell formalism
- -> careful we're in spherical geometry 
-  -> theta in Doppler factor 
-   -> integrate over shell of constant R
+have RS and FS contributions separated
+add plotting lightcurves (check pulse size)
+add implementations suggested (see notes in plotting scripts and phys_radiation)
+check slopes of spectras
 
 Todo (detailed):
 - for observations:

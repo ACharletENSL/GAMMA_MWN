@@ -30,7 +30,28 @@ formatter = ticker.ScalarFormatter(useMathText=True)
 formatter.set_scientific(True) 
 formatter.set_powerlimits((-1,1)) 
 
-nolog_vars = ['trac', 'trac2', 'Sd', 'gmin', 'gmax', 'zone']
+# Legends and labels
+var_exp = {
+  "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$",
+  "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
+  "trac":"tracer", "trac2":"wasSh", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
+  "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
+  "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r", "Tth":"$T_\\theta$",
+  "numax":"$\\nu'_{max}$", "numin":"$\\nu'_{min}$", "B":"$B'$", "Pmax":"$P'_{max}$",
+  "gm":"$\\gamma_0$", "gb":"$\\gamma_1$", "gM":"$\\gamma_2$", "Lp":"$L'$", "L":"$L$",
+  "num":"$\\nu'_m$", "nub":"$\\nu'_b$", "nuM":"$\\nu'_M$", "inj":"inj", "fc":"fc",
+  "T0":"$T_{0,k}$", "Tej":"$T_{ej,k}$", "Tpk":"$T_{pk}$", "tc":"$t_c$",
+  "V4":"$\\Delta V^{(4)}$", "V3":"$\\Delta V^{(3)}$", "V4r":"$\\Delta V^{(4)}_c$",
+  }
+units_CGS  = {
+  "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
+  "D":"", "sx":"", "tau":"", "trac":"", "trac2":"", "Sd":"", "gmin":"", "gmax":"",
+  "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)", "res":"", "Tth":" (s)",
+  "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "M":" (g)", "Pmax":" (erg s$^{-1}$cm$^{-3}$)", "Lp":" (erg s$^{-1}$)",
+  "numax":" (Hz)", "numin":" (Hz)", "B":" (G)", "gm":"", "gb":"", "gM":"", "L":" (erg s$^{-1}$) ",
+  "num":" (Hz)", "nub":" (Hz)", "nuM":" (Hz)", "inj":"", "fc":"", "tc":" (s).",
+  "T0":" (s)", "Tej": " (s)", "Tpk":" (s)", "V4":" (cm$^3$s)", "V3":" (cm$^3$)", "V4r":" (cm$^3$s)"
+  }
 var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
   'f':"$n'_3/n'_2$", 'rho':"$n'$", 'rho3':"$n'_3$", 'rho2':"$n'_2$", 'Nsh':'$N_{cells}$',
   'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$', "Econs":"E",
@@ -38,12 +59,304 @@ var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$',
   'M':'$M$ (g)', 'Msh':'$M$ (g)', 'Ek':'$E_k$ (erg)', 'Ei':'$E_{int}$ (erg)',
   'E':'$E$ (erg)', 'Etot':'$E$ (erg)', 'Esh':'$E$ (erg)', 'W':'$W_{pdV}$ (erg)',
   'Rct':'$(r - ct)/R_0$ (cm)', 'D':'$\\Delta$ (cm)', 'u_i':'$\\gamma\\beta$',
-  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$', 'pdV':'$pdV$'}
-#var_legends = {}
+  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$', 'pdV':'$pdV$'
+  }
+cool_vars = ["inj", "fc", "gm", "gb", "gM", "num", "nub", "nuM"]
+nonlog_var = ['u', 'trac', 'Sd', 'zone', 'trac2']
+def get_normunits(xnormstr, rhonormsub):
+  rhonormsub  = '{' + rhonormsub +'}'
+  CGS2norm = {" (s)":"$/T_0$",  " (s).":"$/t_{c,RS}$", " (g)":" (g)", " (Hz)":f"$/\\nu'_0$", " (eV)":" (eV)", " (G)":"$/B'_3$",
+  " (cm)":" (ls)" if xnormstr == 'c' else "$/"+xnormstr+"$", " (g cm$^{-3}$)":f"$/\\rho_{rhonormsub}$",
+  " (Ba)":f"$/\\rho_{rhonormsub}c^2$", " (erg cm$^{-3}$)":f"$/\\rho_{rhonormsub}c^2$",
+  " (erg s$^{-1}$)":"$/L'_0$"," (erg s$^{-1}$) ":"$/L_0$", " (cm$^3$s)":"$/V_0t_0$", " (cm$^3$)":"$/V_0$",
+  " (cm$^3$)":" (cm$^3$)", " (erg s$^{-1}$cm$^{-3}$)":"$/P'_0$"}
+  return {key:(CGS2norm[value] if value else "") for (key,value) in units_CGS.items()}
+def get_varscaling(var, env):
+  rhoNorm = env.rhoscale
+  pNorm = rhoNorm*c_**2
+  unit  = units_CGS[var]
+  var_scale = 1.
+  if unit == " (g cm$^{-3}$)":
+    var_scale = rhoNorm
+  elif unit == " (Ba)" or unit == " (erg cm$^{-3}$)":
+    var_scale = pNorm
+  else:
+    var_scale = 1.
+  return var_scale
+
+
+# Cells timelapse plots
+# --------------------------------------------------------------------------------------------------
+#
+
+def plotduo_behindShocks(varlist, key='Last', itmax=None, tscaling='it', yscalings=['code', 'code'], logt=False, logys=[False, False],
+    names = ['RS', 'FS'], lslist = ['-', ':'], colors = ['r', 'b'], **kwargs):
+  '''
+  Plots 2 chosen variables as measured in the cell behind each shock front
+  '''
+
+  its = np.array(dataList(key, itmax=itmax))[1:]
+  its, time, yRS, yFS = get_behindShock_vals(key, varlist, its)
+  y = np.array([yRS, yFS])
+  y = y.transpose((1,0,2)) # reshape to order var -> front -> it
+
+  env = MyEnv(key)
+  fig, ax1 = plt.subplots()
+  ax2 = ax1.twinx()
+  axes = [ax1, ax2]
+  varexps = [var_exp[var] for var in varlist]
+  dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in lslist]
+  dummy_col = [plt.plot([],[],ls='-',color=c)[0] for c in colors]
+  legendlst = plt.legend(dummy_lst, varexps, bbox_to_anchor=(1.0, 1.02),
+    loc='lower right', borderaxespad=0.)
+  plt.legend(dummy_col, names, bbox_to_anchor=(0., 1.02),
+    loc='lower left', borderaxespad=0.)
+  fig.add_artist(legendlst)
+
+  if tscaling == 'it':
+    t = its
+    tlabel = 'it'
+  elif tscaling == 't0':
+    t = time/env.t0 + 1.
+    tlabel = '$t/t_0$'
+  else:
+    t = time
+    tlabel = '$t_{sim}$ (s)'
+  ax1.set_xlabel(tlabel)
+
+  for var, yvar, ax, yscaling, logy, varexp, ls in zip(varlist, y, axes, yscalings, logys, varexps, lslist):
+    if yscaling == 'code':
+      units  = get_normunits('c', 'Norm')
+      yscale = 1.
+      if var.startswith('nu'):
+        yscale = 1./env.nu0p
+      elif var == 'Lp':
+        yscale = 1./env.L0p
+      elif var == 'L':
+        yscale = 1/env.L0
+      elif var == 'B':
+        yscale = 1./env.Bp
+      elif var.startswith('T'):
+        yscale = 1./env.T0
+      elif "V4" in var:
+        yscale = 1/(env.V0*env.t0)
+      elif var == "V3":
+        yscale = 1/env.V0
+      elif var == "Pmax":
+        yscale = 1/env.Pmax0
+      elif var == "tc":
+        yscale = 1/env.tc
+    elif yscaling == 'CGS':
+      units = units_CGS
+      yscale = get_varscaling(var, env)
+    if var == 'i':
+      ylabel = 'i'
+    else:
+      ylabel = (varexp + units[var]) if units[var] else varexp
+
+    yvar *= yscale
+    if var.startswith('T'):
+      ylabel = '$\\bar{T}' + var_exp[var][2:]
+      yvar -= env.Ts/env.T0
+    ax.set_ylabel(ylabel)
+    ax.tick_params(axis='y')
+
+    for val, color in zip(yvar, colors):
+      ax.plot(t, val, ls=ls, color=color, **kwargs)
+
+    if logt:
+      ax.set_xscale('log')
+    if logy:
+      ax.set_yscale('log')
+
+
+
+
+def ax_behindShocks_timeseries(var, key='Last', itmax=None, tscaling='it', yscalings='code', ax_in=None, logt=False, logy=False, **kwargs):
+  '''
+  Plots a time series of var in cells behind the shocks
+  '''
+  if var == 'i':
+    yscaling = 'code'
+  env  = MyEnv(key)
+
+  if ax_in is None:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+  
+  # create dataset
+  its = np.array(dataList(key, itmax=itmax))[1:]
+  its, time, yRS, yFS = get_behindShock_value(key, var, its)
+  y = np.array([yRS, yFS])
+
+  # plot 
+  if tscaling == 'it':
+    t = its
+    tlabel = 'it'
+  elif tscaling == 't0':
+    t = time/env.t0 + 1.
+    tlabel = '$t/t_0$'
+  else:
+    t = time
+    tlabel = '$t_{sim}$ (s)'
+  ax.set_xlabel(tlabel)
+
+  if yscaling == 'code':
+    units  = get_normunits('c', 'Norm')
+    yscale = 1.
+    if var.startswith('nu'):
+      yscale = 1./env.nu0p
+    elif var == 'Lp':
+      yscale = 1./env.L0p
+    elif var == 'B':
+      yscale = 1./env.Bp
+    elif var.startswith('T'):
+      yscale = 1./env.T0
+  elif yscaling == 'CGS':
+    units = units_CGS
+    yscale = get_varscaling(var, env)
+  if var == 'i':
+    ylabel = 'i'
+  else:
+    ylabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
+  y *= yscale
+  if var.startswith('T'):
+      ylabel = '$\\bar{T}' + var_exp[var][2:]
+      yvar -= env.Ts/env.T0
+  ax.set_ylabel(ylabel)
+
+  ax.plot(t, y[0], label='RS', **kwargs)
+  ax.plot(t, y[1], label='FS', **kwargs)
+  if logt:
+    ax.set_xscale('log')
+  if logy:
+    ax.set_yscale('log')
+  
+  if ax_in is None:
+    plt.legend()
+
+def plot_injection_timeseries(i, key='Last', tscaling='it', **kwargs):
+  plt.figure()
+  ax = plt.gca()
+  varlist = ['trac2', 'fc', 'inj']
+  its = np.array(dataList(key))[1:]
+  t, y = get_cell_timevalues(key, varlist, i, its)
+  # plot 
+  if tscaling == 'it':
+    t = its
+    tlabel = 'it'
+  elif tscaling == 't0':
+    t = time/env.t0 + 1.
+    tlabel = '$t/t_0$'
+  else:
+    t = time
+    tlabel = '$t_{sim}$ (s)'
+  ax.set_xlabel(tlabel)
+  
+  for k, var in enumerate(varlist):
+    ax.plot(t, y[k], label=var, **kwargs)
+  plt.legend()
+
+def plot_edistrib_timeseries(i, key='Last', tscaling='it', **kwargs):
+  plt.figure()
+  ax = plt.gca()
+  varlist = ['gmin', 'gmax', 'gm', 'gb', 'gM']
+  its = np.array(dataList(key))[1:]
+  t, y = get_cell_timevalues(key, varlist, i, its)
+  # plot 
+  if tscaling == 'it':
+    t = its
+    tlabel = 'it'
+  elif tscaling == 't0':
+    t = time/env.t0 + 1.
+    tlabel = '$t/t_0$'
+  else:
+    t = time
+    tlabel = '$t_{sim}$ (s)'
+  ax.set_xlabel(tlabel)
+  
+  for k, var in enumerate(varlist):
+    ls = '-'
+    if var in ['gm', 'gb', 'gM']:
+      ls = ':'
+    ax.semilogy(t, y[k], label=var_exp[var], linestyle=ls, **kwargs)
+  plt.legend()
+
+
+def ax_cell_timeseries(var, i, key='Last', tscaling='it', yscaling='code', ax_in=None, logt=False, logy=False, **kwargs):
+  '''
+  Plots a time series of var in cell i
+  Cells are counted in the shells only
+  '''
+  
+  env  = MyEnv(key)
+  Nshtot = env.Nsh1+env.Nsh4
+  if i > Nshtot:
+    print(f"No corresponding cell in shells, i must be lower than {Nshtot}")
+
+  if ax_in is None:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+  
+  # create dataset
+  its = np.array(dataList(key))
+  if var in cool_vars:
+    its = its[1:]
+  data = np.zeros(its.shape)
+  time, y = get_cell_timevalues(key, var, i, its)
+
+  # plot 
+  if tscaling == 'it':
+    t = its
+    tlabel = 'it'
+  elif tscaling == 't0':
+    t = time/env.t0 + 1.
+    tlabel = '$t/t_0$'
+  else:
+    t = time
+    tlabel = '$t_{sim}$ (s)'
+  ax.set_xlabel(tlabel)
+
+  if yscaling == 'code':
+    units  = get_normunits('c', 'Norm')
+    yscale = 1.
+    if var.startswith('nu'):
+      yscale = 1./env.nu0p
+    elif var == 'Lp':
+      yscale = 1./env.L0p
+    elif var == 'B':
+      yscale = 1./env.Bp
+  elif yscaling == 'CGS':
+    units = units_CGS
+    yscale = get_varscaling(var, env)
+  
+  y *= yscale
+
+  ax.plot(t, y, label=var_exp[var], **kwargs)
+  if logt:
+    ax.set_xscale('log')
+  if logy:
+    ax.set_yscale('log')
+  
+  if ax_in == None:
+    ylabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
+    ax.set_ylabel(ylabel)
+
 
 # Time plots
 # --------------------------------------------------------------------------------------------------
+# to add a new variable, modify
+# this file: var_label, theoretical
+# run_analysis: get_timeseries
+# phys_function_shells: time_analytical
+
+
 lslist  = ['-', '--', '-.', ':']
+
 def compare_runs(var, keylist, tscaling='t0',
     logt=False, logy=False, **kwargs):
   '''
@@ -98,7 +411,7 @@ def ax_timeseries(var, key='Last', ax_in=None,
   else:
     ax = ax_in
   
-  env  = MyEnv(get_physfile(key))
+  env  = MyEnv(key)
   if env.geometry != 'cartesian':
     crosstimes = False
   theoretical = {
@@ -220,6 +533,11 @@ def ax_timeseries(var, key='Last', ax_in=None,
 
 # Snapshot plots
 # --------------------------------------------------------------------------------------------------
+# to add a new variable, modify
+# this file: var_exp, units_CGS, (auth_theory, nonlog_var, get_varscaling if necessary)
+# data_IO: get_variable
+# phys_functions_shells: get_analytical
+
 def article_series(name, its, key='cart_fid'):
   '''
   Series of snapshot constructed around 'name' prefix
@@ -244,26 +562,74 @@ def prim_snapshot(it, key='Last', theory=False, xscaling='R0'):
   #scatter = scatlist[1]
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
 
-def rad_snapshot(it, key='Last', xscaling='R0', distr='gamma'):
+def rad_snapshot(it, key='Last', xscaling='n', distr='gamma'):
   Nk = 3
   f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6, 2*Nk), layout='constrained')
   varlist = ['Sd', 'gmax', 'gmin']
+  yscalings = ['CGS', 'CGS', 'CGS']
   if distr == 'nu':
     varlist = ['Sd', 'numax', 'numin']
+    yscalings = ['CGS', 'code', 'code']
   logs = [False, True, True]
   for var, k, ax in zip(varlist, range(Nk), axes):
-    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, yscaling='CGS', logy=logs[k])
+    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, yscaling=yscalings[k], logy=logs[k])
     if k != 2: ax.set_xlabel('')
   f.suptitle(title)
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
 
+def accel_snapshot(it, key='Last', xscaling='n'):
+  Nk = 3
+  f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6, 2*Nk), layout='constrained')
+  varlist = ['Sd', 'trac2', 'gmax']
+  logs = [False, False, True]
+  yscalings = ['code', 'code', 'code']
+  for var, k, ax in zip(varlist, range(Nk), axes):
+    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, yscaling=yscalings[k], logy=logs[k])
+    if k != 3: ax.set_xlabel('')
+  f.suptitle(title)
+  plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+
+
+def emission_snapshot(it, key='Last', xscaling='n'):
+  Nk = 3
+  f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6, 2*Nk), layout='constrained')
+  varlist = ['nub', 'L', 'Tpk']
+  logs = [True, True, False]
+  #yscalings = ['CGS', 'code', 'code']
+  for var, k, ax in zip(varlist, range(Nk), axes):
+    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, yscaling='code', logy=logs[k])
+    if k != 3: ax.set_xlabel('')
+  f.suptitle(title)
+  plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+
+def obs_snapshot(it, key='Last', xscaling='n'):
+  Nk = 3
+  f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6, 2*Nk), layout='constrained')
+  varlist = ['B', 'nub', 'Lp']
+  logs = [True, True, True]
+  yscalings = ['CGS', 'code', 'code']
+  for var, k, ax in zip(varlist, range(Nk), axes):
+    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, yscaling=yscalings[k], logy=logs[k])
+    if k != 3: ax.set_xlabel('')
+  f.suptitle(title)
+  plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+
+def snap_multi(varlist, it, key='Last', xscaling='n'):
+  Nk = len(varlist)
+  f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6, 2*Nk), layout='constrained')
+  for var, k, ax in zip(varlist, range(Nk), axes):
+    title, scatter = ax_snapshot(var, it, key, theory=False, ax_in=ax, xscaling=xscaling, yscaling='code', logy=True)
+    if k != 3: ax.set_xlabel('')
+  f.suptitle(title)
+  plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
 
 def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
-    logx=False, logy=True, xscaling='R0', yscaling='code', **kwargs):
+    logx=False, logy=True, xscaling='n', yscaling='code', **kwargs):
   '''
   Create line plot on given ax of a matplotlib figure
   /!\ find an updated way to normalize all variables properly with units
   '''
+
   if ax_in is None:
     plt.figure()
     ax = plt.gca()
@@ -271,59 +637,24 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
   else:
     ax=ax_in
   
-  # Legends and labels
-  var_exp = {
-  "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$",
-  "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
-  "trac":"tracer", "trac2":"wasSh", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
-  "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$",
-  "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r",
-  "numax":"$\\nu_{max}$", "numin":"$\\nu_{min}$", "B":"$B"
-  }
-  units_CGS  = {
-  "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
-  "D":"", "sx":"", "tau":"", "trac":"", "trac2":"", "Sd":"", "gmin":"", "gmax":"",
-  "T":"", "h":"", "lfac":"", "u":"", "zone":"", "dt":" (s)", "res":"",
-  "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "M":" (g)",
-  "numax":" (eV)", "numin":" (eV)", "B":" (G)"
-  }
-  auth_theory = ["rho", "vx", "u", "p", "D", "sx", "tau", "T", "h", "lfac", "Ek", "Ei", "M"]
-  nonlog_var = ['u', 'trac', 'Sd', 'zone']
+  auth_theory = ["rho", "vx", "u", "p", "D", "sx", "tau",
+    "T", "h", "lfac", "Ek", "Ei", "M", "B"]
   if var not in auth_theory:
     theory = False
   if var in nonlog_var:
     logy = False
-  def get_normunits(xnormstr, rhonormsub):
-    rhonormsub  = '{' + rhonormsub +'}'
-    CGS2norm = {" (s)":" (s)", " (g)":" (g)", " (Hz)":" (Hz)", " (eV)":" (eV)", " (G)":" (G)",
-    " (cm)":" (ls)" if xnormstr == 'c' else "$/"+xnormstr+"$", " (g cm$^{-3}$)":f"$/\\rho_{rhonormsub}$",
-    " (Ba)":f"$/\\rho_{rhonormsub}c^2$", " (erg cm$^{-3}$)":f"$/\\rho_{rhonormsub}c^2$"}
-    return {key:(CGS2norm[value] if value else "") for (key,value) in units_CGS.items()}
-
-  def get_varscaling(var, rhoNorm):
-    pNorm = rhoNorm*c_**2
-    unit  = units_CGS[var]
-    var_scale = 1.
-    if unit == " (g cm$^{-3}$)":
-      var_scale = rhoNorm
-    elif unit == " (Ba)" or unit == " (erg cm$^{-3}$)":
-      var_scale = pNorm
-    elif unit == " (G)":
-      var_scale = np.sqrt(pNorm)
-    else:
-      var_scale = 1.
-    return var_scale
   
-  physpath = get_physfile(key)
-  env = MyEnv(physpath)
+  env = MyEnv(key)
   
   df, t, dt = openData_withtime(key, it)
+  if it != 0:
+    df = openData_withDistrib(key, it)
   n = df["zone"]
   Rcd = get_radius_zone(df, 2)*c_
   dRcd = (Rcd - env.R0)/env.R0
 
   rc_str= reformat_scientific(f"{dRcd:.3e}")
-  title = f"it {it}, $t_{{sim}}/t_0 = {dt/env.t0:.3f}$, $(R_{{cd}}-R_0)/R_0= {rc_str}$"
+  title = env.runname + f", it {it}, $(R_{{cd}}-R_0)/R_0= {rc_str}$"
   units = {}
   xscale = 1.
   if xscaling == 'code':
@@ -337,19 +668,35 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
   elif xscaling == 'Rcd':
     xlabel = '$r/R_{cd}$'
     xscale = 1./get_radius_zone(df, 2)
+  elif xscaling == 'n':
+    xlabel = 'n'
   else:
     xlabel = '$r$'
   if yscaling == 'code':
     units  = get_normunits('c', 'Norm')
     yscale = 1.
+    if var.startswith('nu'):
+      yscale = 1./env.nu0p
+    elif var == 'Lp':
+      yscale = 1./env.L0p
+    elif var == "L":
+      yscale = 1/env.L0
+    elif var == 'B':
+      yscale = 1./env.Bp
+    elif var.startswith('T'):
+      yscale = 1/env.T0
   elif yscaling == 'CGS':
     units = units_CGS
-    yscale = get_varscaling(var, getattr(env, env.rhoNorm))
+    yscale = get_varscaling(var, env)
   ylabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
-  ax.set_xlabel(xlabel)
-  ax.set_ylabel(ylabel)
 
-  x, y = get_variable(df, var)
+
+  x = df['x']
+  if xscaling == 'n':
+    trac = df['trac'].to_numpy()
+    i4  = np.argwhere((trac > 0.99) & (trac < 1.01))[:,0].min()
+    x = df['i'] - i4
+  y = get_variable(df, var)
   if theory:
     r = x*c_
     y_th = get_analytical(var, t, r, env)
@@ -358,6 +705,12 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
 
   x *= xscale
   y *= yscale
+  if var.startswith('T'):
+      ylabel = '$\\bar{T}' + var_exp[var][2:]
+      y -= env.Ts/env.T0
+  
+  ax.set_xlabel(xlabel)
+  ax.set_ylabel(ylabel)
   ax.plot(x, y, 'k', zorder=1)
   scatter = ax.scatter(x, y, c=n, lw=1, zorder=2, cmap='Paired', **kwargs)
   
@@ -371,12 +724,393 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None,
 
 # spectras and lightcurves
 # --------------------------------------------------------------------------------------------------
+def construct_run_lightcurve(key, lognu, logx=False, logy=False, crosstimes=True, fig_in=None):
+  '''
+  Constructs the lightcurve at chosen frequency, displays iteration after iteration
+  '''
+
+  if fig_in:
+    fig = fig_in
+  else:
+    fig = plt.figure()
+  ax = fig.add_subplot(111)
+  nuobs, Tobs, dTobs, env = get_radEnv(key)
+  nuobs = np.array([env.nu0 * 10**lognu])
+  Ton = env.Ts
+  Tth = env.T0
+  Tb = (Tobs-Ton)/Tth
+  RS_rad, FS_rad = np.zeros((2, len(Tobs), len(nuobs)))
+
+  plt.title(env.runname + f", log$_{{10}}(\\nu/\\nu_0) = {lognu}$")
+  plt.xlabel("$\\bar{{T}}$")
+  plt.ylabel("$\\nu F_\\nu / \\nu_0 F_0$")
+  dummy_col = [plt.plot([],[],ls='-',color=c)[0] for c in ['r', 'b', 'k']]
+  plt.legend(dummy_col, ['RS', 'FS', 'RS + FS'], bbox_to_anchor=(0.98, 0.98),
+    loc='upper right', borderaxespad=0.)
+  if logx:
+    ax.set_xscale('log')
+  if logy:
+    ax.set_yscale('log')
+  if crosstimes:
+    TbRS = (env.TRS - Ton)/Tth
+    TbFS = (env.TFS - Ton)/Tth
+    ax.axvline(TbRS, color='r', ls='--', lw=.7)
+    ax.text(TbRS, -.07, '$\\bar{T}_{RS}$', color='r', transform=ax.get_xaxis_transform(),
+      ha='center', va='top')
+    ax.axvline(TbFS, color='b', ls='--', lw=.7)
+    ax.text(TbFS, -.07, '$\\bar{T}_{FS}$', color='b', transform=ax.get_xaxis_transform(),
+      ha='center', va='top')
+  plt.tight_layout()
+  lineRS, = ax.plot(Tb, RS_rad, color='r')
+  lineFS, = ax.plot(Tb, FS_rad, color='b')
+  linesum,= ax.plot(Tb, (RS_rad+FS_rad), color='k')
+  ax.text(0.95, 0.48, '',
+      verticalalignment='bottom', horizontalalignment='right',
+      transform=ax.transAxes, fontsize=15)
+  ax.set_ylim([-0.2, 5.])
+  plt.draw()
+  its = np.array(dataList(key))[2:]
+  for it in its:
+    print(f'Generating flux from file {it}')
+    ax.texts[-1].set_text(f'it {it}')
+    df = openData_withDistrib(key, it)
+    RS, FS = df_get_cellsBehindShock(df)
+    if not RS.empty:
+      RS_rad_i = cell_flux(RS, nuobs, Tobs, dTobs, env, func='analytic')
+      RS_rad += RS_rad_i
+    if not FS.empty:
+      FS_rad_i = cell_flux(FS, nuobs, Tobs, dTobs, env, func='analytic')
+      FS_rad += FS_rad_i
+    sum_rad = RS_rad + FS_rad
+    lineRS.set_ydata(RS_rad)
+    lineFS.set_ydata(FS_rad)
+    linesum.set_ydata(sum_rad)
+    ax.texts[-1].set_text('it '+str(it))
+    fig.canvas.draw()
+
+def plot_run_lightcurve(key, lognu, logx=False, logy=False, crosstimes=True):
+  '''
+  Plots lightcurve at chosen frequency, generated from whole run
+  '''
+
+  plt.figure()
+  ax = plt.gca()
+  nuobs, Tobs, dTobs, env = get_radEnv(key)
+  Ton = env.Ts
+  Tth = env.T0
+  Tb = (Tobs-Ton)/Tth
+  its = np.array(dataList(key))[2:]
+  rads = open_raddata(key)
+  nuRS = [s for s in rads.keys() if 'RS' in s]
+  nuFS = [s for s in rads.keys() if 'FS' in s]
+  RS_rad = rads[nuRS].to_numpy()
+  FS_rad = rads[nuFS].to_numpy()
+  i_nu = find_closest(np.log10(nuobs/env.nu0), lognu)
+  nu = nuobs[i_nu]
+  light_RS = RS_rad[:, i_nu]
+  light_FS = FS_rad[:, i_nu]
+  
+  ax.plot(Tb, light_RS/env.nu0F0, color='r', label='RS')
+  ax.plot(Tb, light_FS/env.nu0F0, color='b', label='FS')
+  ax.plot(Tb, (light_FS+light_RS)/env.nu0F0, color='k', label='RS + FS')
+  if logx:
+    ax.set_xscale('log')
+  if logy:
+    ax.set_yscale('log')
+  if crosstimes:
+    TbRS = (env.TRS - Ton)/Tth
+    TbFS = (env.TFS - Ton)/Tth
+    ax.axvline(TbRS, color='r', ls='--', lw=.7)
+    ax.text(TbRS, -.07, '$\\bar{T}_{RS}$', color='r', transform=ax.get_xaxis_transform(),
+      ha='center', va='top')
+    ax.axvline(TbFS, color='b', ls='--', lw=.7)
+    ax.text(TbFS, -.07, '$\\bar{T}_{FS}$', color='b', transform=ax.get_xaxis_transform(),
+      ha='center', va='top')
+
+  plt.title(env.runname + f", log$_{{10}}(\\nu/\\nu_0) = {np.log10(nu/env.nu0):.1f}$")
+  plt.xlabel("$\\bar{{T}}$")
+  plt.ylabel("$\\nu F_\\nu / \\nu_0 F_0$")
+  plt.legend()
+  plt.tight_layout()
+
+
+def plot_run_spectrum(key, T):
+  '''
+  Plots instantaneous spectrum, generated from whole run
+  '''
+  plt.figure()
+  nuobs, Tobs, dTobs, env = get_radEnv(key)
+  its = np.array(dataList(key))[2:]
+  rads = open_raddata(key)
+  nuRS = [s for s in rads.keys() if 'RS' in s]
+  nuFS = [s for s in rads.keys() if 'FS' in s]
+  RS_rad = rads[nuRS].to_numpy()
+  FS_rad = rads[nuFS].to_numpy()
+  iTobs = find_closest(Tobs, T)
+  spec_RS = RS_rad[iTobs]
+  spec_FS = FS_rad[iTobs]
+  
+  plt.loglog(nuobs/env.nu0, spec_RS/env.nu0F0, color='r', label='RS')
+  plt.loglog(nuobs/env.nu0, spec_FS/env.nu0F0, color='b', label='FS')
+  plt.loglog(nuobs/env.nu0, (spec_FS+spec_RS)/env.nu0F0, color='k', label='RS + FS')
+  plt.title(env.runname + f", $\\bar{{T}} = {T/env.T0:.2f}$")
+  plt.xlabel("$\\nu/\\nu_0$")
+  plt.ylabel("$\\nu F_\\nu / \\nu_0 F_0$")
+  plt.legend()
+  plt.tight_layout()
+
+def plot_df_spectrum(key, it, T, func='analytic'):
+  '''
+  Plot instantaneous spectrum of iteration it of run key,
+  observed at observer time T
+  '''
+  plt.figure()
+  df = openData_withDistrib(key, it)
+  nuobs, Tobs, dTobs, env = get_radEnv(key)
+  RS_rad, FS_rad = df_get_rads(df, nuobs, Tobs, dTobs, env, func)
+  iTobs = find_closest(Tobs, T)
+  spec_RS = RS_rad[iTobs]
+  spec_FS = FS_rad[iTobs]
+  Rcd = get_radius_zone(df, 2)*c_
+  dRcd = (Rcd - env.R0)/env.R0
+  rc_str= reformat_scientific(f"{dRcd:.3e}")
+  title = env.runname + f", it {it}, $\\Delta R_{{cd}}/R_0= {rc_str}$, $\\bar{{T}} = {(T-env.Ts)/env.T0:.2f}$"
+  
+  plt.loglog(nuobs/env.nu0, spec_RS/env.nu0F0, color='r', label='RS')
+  plt.loglog(nuobs/env.nu0, spec_FS/env.nu0F0, color='b', label='FS')
+  plt.loglog(nuobs/env.nu0, (spec_FS+spec_RS)/env.nu0F0, color='k', label='RS + FS')
+  plt.title(title)
+  plt.xlabel("$\\nu/\\nu_0$")
+  plt.ylabel("$\\nu F_\\nu / \\nu_0 F_0$")
+  plt.legend()
+  plt.tight_layout()
+
+def plot_df_lightcurve(key, it, lognu, func='analytic', fig_in=None):
+  '''
+  Plot lightcurve contribution of iteration it of run key,
+  observed at frequency 10**lognu * nu_0
+  '''
+  if fig_in==None:
+    fig, ax = plt.subplots()
+  else:
+    fig = fig_in
+    ax = plt.gca()
+  df = openData_withDistrib(key, it)
+  nuobs, Tobs, dTobs, env = get_radEnv(key)
+  RS_rad, FS_rad = df_get_rads(df, nuobs, Tobs, dTobs, env, func)
+  i_nu = find_closest(np.log10(nuobs/env.nu0), lognu)
+  lc_RS = RS_rad[:, i_nu]
+  lc_FS = FS_rad[:, i_nu]
+  Tb = (Tobs - env.Ts)/env.T0
+  Rcd = get_radius_zone(df, 2)*c_
+  dRcd = (Rcd - env.R0)/env.R0
+  rc_str= reformat_scientific(f"{dRcd:.3e}")
+  title = env.runname + f", it {it}, $\\Delta R_{{cd}}/R_0= {rc_str}$, $\\log_{{10}}\\nu/\\nu_0={lognu}$"
+  
+  ax.plot(Tb, lc_RS/env.nu0F0, color='r', label='RS')
+  ax.plot(Tb, lc_FS/env.nu0F0, color='b', label='FS')
+  ax.plot(Tb, (lc_FS+lc_RS)/env.nu0F0, color='k', alpha=.5, label='RS + FS')
+  if fig_in == None:
+    plt.title(title)
+    ax.legend()
+  ax.set_xlabel("$\\bar{T}$")
+  ax.set_ylabel("$\\nu F_\\nu / \\nu_0 F_0$")
+  plt.tight_layout()
+
+def get_cell_env(key, it, i, Nnu=100, nT=50):
+  '''
+  Returns necessary variables for spectrum calculation
+  Mainly useful for testing
+  '''
+  env  = MyEnv(key)
+  df   = openData_withDistrib(key, it)
+  cell = open_cell(df, i)
+  lfac = cell['D']/cell['rho']
+  Tth, Ton, Tej = cell_derive_obsTimes(cell, env)
+  dT = Tth/nT
+  Tobs = Ton + (np.arange(5*nT)+0.5)*dT
+  B = cell_derive_B(cell, env)
+  nus = 2*lfac*lfac2nu(cell['gb'], B)/(1+env.z)
+  nuobs = np.logspace(-5, 2, Nnu) * nus
+
+  return cell, nuobs, Tobs, dT, env
+
+
+def plot_cell_compare_fluences(key, it, i):
+  '''
+  Plot time-integrated spectrum of cell i of iteration it of run key
+  compare analytical and numerical results
+  '''
+  plt.figure()
+  cell, nuobs, Tobs, dT, env = get_cell_env(key, it, i)
+  res1 = nuobs * cell_spectra_analytic(cell, nuobs, Tobs, dT, env)
+  spec1 = np.trapz(res1, x=Tobs, axis=0)
+  res2 = nuobs * cell_spectra_numeric(cell, nuobs, Tobs, dT, env)
+  spec2 = np.trapz(res2, x=Tobs, axis=0)
+  ratio = spec2/spec1
+  print(ratio.mean())
+  
+  plt.loglog(nuobs/env.nu0, spec2/(env.nu0F0*env.T0), label='numerical')
+  plt.loglog(nuobs/env.nu0, spec1/(env.nu0F0*env.T0), label='analytical')
+  plt.title(env.runname + f", cell {i}, it {it}")
+  plt.xlabel("$\\nu/\\nu_0$")
+  plt.ylabel("$f_\\nu / \\nu_0 F_0 T_0$")
+  plt.legend()
+  plt.tight_layout()
+
+def plot_cell_lightcurve(key, it, i, lognu):
+  '''
+  Compare lightcurve emitted by a spherical cell between numerical and analytical,
+  at frequency nu = 10**lognu nu_0
+  '''
+
+  #plt.figure()
+  cell, nuobs, Tobs, dT, env = get_cell_env(key, it, i)
+  nuobs, Tobs, dTobs, env = get_radEnv(key)
+  i_nu = find_closest(np.log10(nuobs/env.nu0), lognu)
+  #r = cell['x']*c_
+  #lfac = cell['D']/cell['rho']
+  #Tth, Ton, Tej = cell_derive_obsTimes(cell, env)
+  Tb = (Tobs - env.Ts)/env.T0
+
+  flux = cell_flux(cell, nuobs, Tobs, dT, env, 'analytic')
+
+  title=f'$\\log_{{10}}(\\nu/\\nu_0) = {lognu}$'
+  plt.semilogy(Tb, flux[:,i_nu]/env.nu0F0)
+  plt.title(env.runname + f", cell {i}, it {it}, "+title)
+  #plt.xlabel('$T_{obs}$')
+  plt.xlabel('$\\bar{T}$')
+  plt.ylabel('$\\frac{{\\nu F_\\nu}}{{\\nu_0 F_0}}$', rotation='horizontal')
+  plt.tight_layout()
+
+def plot_cell_timeintegspec_analytic(key, it, i):
+  '''
+  Plot time-integrated spectrum of cell i of iteration it of run key
+  '''
+  plt.figure()
+  cell, nuobs, Tobs, dT, env = get_cell_env(key, it, i)
+  res = nuobs * cell_spectra_analytic(cell, nuobs, Tobs, dT, env)
+  spec = np.trapz(res, x=Tobs, axis=0)
+  
+  plt.loglog(nuobs/env.nu0, spec/(env.nu0F0*env.T0))
+  plt.title(env.runname + f", cell {i}, it {it}, analytical")
+  plt.xlabel("$\\nu/\\nu_0$")
+  plt.ylabel("$f_\\nu / \\nu_0 F_{{\\nu_0}}T_0$")
+  plt.tight_layout()
+
+def plot_cell_timeintegspec_numeric(key, it, i, type='Band'):
+  '''
+  Plot time-integrated spectrum of cell i of iteration it of run key
+  '''
+  plt.figure()
+  cell, nuobs, Tobs, dT, env = get_cell_env(key, it, i)
+  res = nuobs * cell_spectra_numeric(cell, nuobs, Tobs, dT, env, type)
+  spec = np.trapz(res, x=Tobs, axis=0)
+  
+  plt.loglog(nuobs/env.nu0, spec/(env.nu0F0*env.T0))
+  plt.title(env.runname + f", cell {i}, it {it}, numerical")
+  plt.xlabel("$\\nu/\\nu_0$")
+  plt.ylabel("$f_\\nu / \\nu_0 F_{{\\nu_0}}T_0$")
+  plt.tight_layout()
+
+def plot_cell_lightcurve_analytic(key, it, i, lognu):
+  '''
+  Lightcurve at log10(nu/nu0) of cell i of iteration it of run key
+  '''
+
+  plt.figure()
+  cell, nuobs, Tobs, dT, env = get_cell_env(key, it, i)
+  res = cell_flux(cell, nuobs, Tobs, dT, env, 'analytic')
+  i_nu = find_closest(np.log10(nuobs/env.nu0), lognu)
+  r = cell['x']*c_
+  lfac = cell['D']/cell['rho']
+  Ton = env.t0 + cell['t'] - r/c_
+  Tth = r/(2*lfac**2*c_)
+  Tb = (Tobs - Ton)/Tth
+
+  title=f'$\\log_{{10}}(\\nu/\\nu_0) = {lognu}$'
+  plt.semilogy(Tb, res[:,i_nu]/env.nu0F0)
+  plt.title(env.runname + f", cell {i}, it {it}, "+title)
+  plt.xlabel('$\\bar{T}$')
+  plt.ylabel('$\\frac{{\\nu F_\\nu}}{{\\nu_0 F_0}}$', rotation='horizontal')
+  plt.tight_layout()
+
+def plot_cell_lightcurve_numeric(key, it, i, lognu, type='Band'):
+  '''
+  Lightcurve at log10(nu/nu0) of cell i of iteration it of run key
+  '''
+
+  plt.figure()
+  cell, nuobs, Tobs, dT, env = get_cell_env(key, it, i)
+  res = nuobs * cell_spectra_numeric(cell, nuobs, Tobs, dT, env, type)
+  i_nu = find_closest(np.log10(nuobs/env.nu0), lognu)
+  r = cell['x']*c_
+  lfac = cell['D']/cell['rho']
+  Ton = env.t0 + cell['t'] - r/c_
+  Tth = r/(2*lfac**2*c_)
+  Tb = (Tobs - Ton)/Tth
+
+  title=f'$\\log_{{10}}(\\nu/\\nu_0) = {lognu}$'
+  plt.semilogy(Tb, res[:,i_nu]/env.nu0F0)
+  plt.title(env.runname + f", cell {i}, it {it}, "+title)
+  plt.xlabel('$\\bar{T}$')
+  plt.ylabel('$\\frac{{\\nu F_\\nu}}{{\\nu_0 F_0}}$', rotation='horizontal')
+  plt.tight_layout()
+
+def plot_cell_spectrum_analytic(key, it, i, T):
+  '''
+  Plot instantaneous spectrum of cell i of iteration it of run key,
+  observed at observer time T
+  '''
+  plt.figure()
+  cell, nuobs, Tobs, dT, env = get_cell_env(key, it, i)
+  res = cell_flux(cell, nuobs, Tobs, dT, env, 'analytic')
+  iTobs = find_closest(Tobs, T)
+  spec = res[iTobs]
+  
+  plt.loglog(nuobs/env.nu0, spec/env.nu0F0)
+  plt.title(env.runname + f", cell {i}, it {it}, $T_{{obs}} = {T}$")
+  plt.xlabel("$\\nu/\\nu_0$")
+  plt.ylabel("$\\nu F_\\nu / \\nu_0 F_{{\\nu_0}}$")
+  plt.tight_layout()
+
+
+def plot_cell_spectrum_numeric(key, it, i, T, type='Band'):
+  '''
+  Plot instantaneous spectrum of cell i of iteration it of run key,
+  observed at observer time T
+  '''
+
+  env  = MyEnv(key)
+  df   = openData_withDistrib(key, it)
+  cell = df.iloc[i] 
+  r = cell['x']*c_
+  lfac = cell['D']/cell['rho']
+  Tth = r/(2*lfac**2*c_)
+  dT = Tth/100
+  Tobs = np.arange(1000)*dT
+  Tobs = 0.5*(Tobs[1:]+Tobs[:-1])
+  iTobs = find_closest(Tobs, T)
+  B = np.sqrt(env.eps_B * derive_Eint_comoving(cell['rho']*env.rhoscale*c_**2, cell['p']*env.rhoscale*c_**2))
+  nus = 2*lfac*lfac2nu(cell['gm'], B)/(1+env.z)
+  nuobs = np.logspace(-3, 2) * nus
+  res = nuobs * cell_spectra_numeric(cell, nuobs, Tobs, dT, env, type)
+  spec = res[iTobs]
+  
+  plt.loglog(nuobs/env.nu0, spec/env.nu0F0)
+  plt.title(env.runname + f", cell {i}, it {it}, $T_{{obs}} = {T}$")
+  plt.xlabel("$\\nu/\\nu_0$")
+  plt.ylabel("$\\nu F_\\nu / \\nu_0 F_{{\\nu_0}}$")
+  plt.tight_layout()
+
+
 def time_integrated_flux(key):
   '''
   Plots time-integrated flux
   '''
-  env = MyEnv(get_physfile(key))
+  env = MyEnv(key)
   rad = open_raddata(key)
+  # be careful of integration, check fig 4 Minu : plot nu * integrate(Fnu(T)) / nu0 Fnu0 T0
   spec = rad.iloc[:, 0:].apply(lambda x: integrate.trapz(x, rad.index))
   x = np.logspace(-3, 1, 100)
 
@@ -385,64 +1119,15 @@ def time_integrated_flux(key):
   plt.ylabel('$\\nu F_\\nu / \\nu_0 F_0$')
   plt.title(env.runname)
 
-def compare_instant_fluxes(times, key='Last'):
-  plt.figure()
-  ax = plt.gca()
-  runname = get_runatts(key)[1]
-  plt.title(runname)
-  for Tobs in times:
-    ax_flux_instant(Tobs, key, ax)
-  plt.legend()#bbox_to_anchor=(1.02, 1.0), loc='upper left', borderaxespad=0.)
-  plt.tight_layout()
-
-def ax_flux_instant(Tobs, key='Last', ax_in=None):
+# basic functions
+# --------------------------------------------------------------------------------------------------
+def update_line(hl, new_data):
   '''
-  Plots instantaneous flux at chosen obs time
+  Function to update plot
   '''
-  if ax_in is None:
-    plt.figure()
-    ax = plt.gca()
-  else:
-    ax=ax_in
-
-  rad = open_raddata(key)
-  env = MyEnv(get_physfile(key))
-  Ts = rad.index.to_numpy()
-  i_obs = np.searchsorted(rad.index, Tobs)
-  Tobs = rad.index[i_obs]
-  flux = rad.iloc[i_obs]/env.nu0F0
-  x = np.logspace(-3, 1, len(flux))
-
-  ax.loglog(x, flux, label=f'$\\bar{{T}} = {Tobs:.2f}$')
-  ax.set_xlabel('$\\nu/\\nu_0$')
-  ax.set_ylabel('$\\nu F_\\nu / \\nu_0 F_0$')
-
-  if ax_in is None:
-    plt.legend()
-    plt.title(env.runname)
-
-
-def plot_flux_instant_old(it, key='Last'):
-  '''
-  Plots instantaneous spectrum
-  as of now: thin radiating shell, Genet & Granot 09
-  '''
-  physpath = get_physfile(key)
-  env = MyEnv(physpath)
-  df, t, dt = openData_withtime(key, it)
-
-  x = np.logspace(-3, 1, 200)
-  nu = x*env.nu0
-  spec_RS = thinshell_spectra(nu, env, t, True)/env.nu0F0
-  spec_FS = thinshell_spectra(nu, env, t, False)/env.nu0F0
-
-  plt.loglog(x, spec_RS, c='r', ls='-.', label='RS')
-  plt.loglog(x, spec_FS, c='b', ls='-.', label='FS')
-  plt.loglog(x, spec_RS+spec_FS, c='k', ls='-.', label='RS + FS')
-  plt.xlabel('$\\nu/\\nu_0$')
-  plt.ylabel('$\\nu F_\\nu / \\nu_0 F_0$')
-  plt.title(f"$t_{{sim}}/t_0$ = {t/env.t0:.4f} (it = {it})")
-  plt.legend()
+  #hl.set_xdata(numpy.append(hl.get_xdata(), new_data))
+  hl.set_ydata(numpy.append(hl.get_ydata(), new_data))
+  plt.draw()
 
 # basic testing functions
 # --------------------------------------------------------------------------------------------------

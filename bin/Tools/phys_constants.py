@@ -16,6 +16,4 @@ me_   = 9.10938291e-28          # g: electron mass
 rme_  = e_*c_**2                # electron rest-mass
 h_    = 6.62607004e-27          # cm2.g.s-1: Planck constant 
 h_eV_ = 4.135667696e-15         # conversion factor Hz -> eV
-
-# Thomson cross-section
-sigT_ = (8.*pi_/3.) * (e_**2/rme_)**2
+sigT_ = 6.652457318e-25         # cm2: Thomson cross-section
