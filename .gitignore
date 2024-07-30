@@ -7,6 +7,7 @@ submit.sh
 *.out
 results/*
 *.png
+bin/Tools/figures/*
 
 # compiled files
 *.o

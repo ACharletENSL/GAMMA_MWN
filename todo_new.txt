@@ -1,0 +1,26 @@
+- mails:
+  labos FR (Frédéric Daigne, Stéphane Schanne, POP, Zakaria Meliani, Julien Malzac, Alexandre Marcowith)
+  labos étrangers (Luciano Rezzola, Hendrik van Eerten, Luca Del Zanna..)
+  Tsvi pour discuter de son projet
+  
+- write paper
+  - F_nu from analytic formula (finish testing python functions)
+  - fits of nu_pk F_{nu_pk} & nu_pk f_{nu_pk}
+
+- conf Hadra
+  -> trouver anecdotes
+  -> organiser ça proprement
+  -> faire présentation
+
+- implement general rad method with cooling regimes
+  -> make it independant from the colliding shells situation
+  -> rework place of injection
+    -> take out the new tracer? not sure tho because this allows for true downstream values
+    -> also allows for "true dt" in case when we don't output every it
+  -> rework notation, nu'_c reserved for the cooling over dynamical time scale
+  -> plot cooling of one cell depending on basic parameters
+      (how many time steps does it take for gamma_m to go down to 1?)
+  -> test on colliding shells by varying microphysics
+  -> test on BM1D vs Granot & Sari 02
+  -> can I directly output the code dt? /!\ not same as Delta t for "4D cell"
+  -> rewrite cooling eqn for gamma in GAMMA paper 

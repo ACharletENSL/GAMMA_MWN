@@ -13,8 +13,11 @@ import math
 from phys_constants import *
 #from numba import njit
 
-# Functions
+# General functions
 # --------------------------------------------------------------------------------------------------
+def logslope(x1, y1, x2, y2):
+  return (np.log10(y2)-np.log10(y1))/(np.log10(x2)-np.log10(x1))
+
 def find_closest_old(A, target):
   #A must be sorted
   idx = np.searchsorted(A, target)
@@ -23,6 +26,60 @@ def find_closest_old(A, target):
   right = A[idx]
   idx -= target - left < right - target
   return idx
+
+def intersect(a, b):
+  '''
+  check if segments [aL, aR] and [bL, bR] intersect
+  '''
+  aL, aR = a
+  bL, bR = b
+  return bool(aL in range(bL, bR+1) or aR in range(bL, bR+1))
+
+def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
+  '''
+  Powerlaw with index a0 to g1, -a1 between g1 and g2, -a2 between g2 and g3
+  put exponential cutoff after g3?
+  '''
+  try:
+    n = np.where(x < g1, (x/g1)**a0, 
+      np.where(x < g2, (x/g1)**(-a1),
+        np.where(x < g3, ((g2/g1)**(-a1))*(x/g2)**(-a2), 0.)))
+          #((g2/g1)**(-a1))*(g3/g2)**(-a2)*(x/g3)**(-a3))))
+    return n
+  except TypeError:
+    if x < g1: return (x/g1)**a0
+    elif x < g2: return (x/g1)**(-a1)
+    elif x < g3: return ((g2/g1)**(-a1))*(x/g2)**(-a2)
+    else: return 0.#((g2/g1)**(-a1))*(g3/g2)**(-a2)*(x/g3)**(-a3)
+
+def broken_plaw_simple(x, b1=-0.5, b2=-1.25):
+  '''
+  Simple broken power-law, normalized at break
+  '''
+  return np.piecewise(x, [x<=1., x>1.], [lambda x: x**b1, lambda x: x**b2])
+
+def Band_func(x, b1=-0.5, b2=-1.25):
+  '''
+  Band function, as seen in Genet & Granot 2009, eqn (1)
+  '''
+  xb = (b1-b2)/(1+b1)
+  return np.piecewise(x, [x<=xb, x>xb],
+    [lambda x: inf_Bandfunc(x, b1), lambda x: sup_Bandfunc(x, b1, b2)])
+  # if type(x) == np.ndarray:
+  #   return Bnorm * np.where(x<=xb, inf_Bandfunc(x, b1), sup_Bandfunc(x, b1, b2))
+  # else:
+  #   if x <= xb:
+  #     return Bnorm * inf_Bandfunc(x, b1)
+  #   else:
+  #     return Bnorm * sup_Bandfunc(x, b1, b2)
+
+def inf_Bandfunc(x, b1):
+  return np.exp(1+b1) * x**b1 * np.exp(-x*(1+b1))
+
+def sup_Bandfunc(x, b1, b2):
+  b  = (b1-b2)
+  xb = b/(1+b1)
+  return np.exp(1+b1) * x**b2 * xb**b * np.exp(-b)
 
 #@njit
 def find_closest(array, value):
@@ -87,6 +144,14 @@ def derive_enthalpy(rho, p, EoS='TM'):
     gma = 4./3.
   return 1. + T*gma/(gma-1.)
 
+def derive_adiab(rho, p):
+  '''
+  Adiabatic index, following Taub-Matthews EoS
+  '''
+  T = p/rho
+  gma = (1./6.)*(8. - 3.*T + np.sqrt(4. + 9.*T*T))
+  return gma
+
 def derive_adiab_fromT_Ryu(T):
   '''
   Adiabatic index from temperature, following Ryu et al 2006 EoS
@@ -149,14 +214,13 @@ def derive_cs_fromT(T, EoS='TM'):
   cs2 = derive_cs2_fromT(T, EoS)
   return np.sqrt(cs2)
 
-def derive_Eint(rho, v, p):
+def derive_Eint(rho, v, p, rhoscale):
   '''
   Internal energy density in lab frame
   '''
-  T = derive_temperature(rho, p)
   lfac = derive_Lorentz(v)
-  gma  = derive_adiab_fromT_TM(T)
-  eint = p/(gma-1.)  # in comoving frame
+  gma  = derive_adiab(rho, p)
+  eint = derive_Eint_comoving(rho, p, rhoscale)
   return eint*lfac**2*(1+v**2*(gma-1.))
 
 def derive_Eint_comoving(rho, p, rhoscale):
@@ -168,6 +232,16 @@ def derive_Eint_comoving(rho, p, rhoscale):
   T = derive_temperature(rho, p)
   gma  = derive_adiab_fromT_TM(T)
   return p/(gma-1.)
+
+def derive_epint(rho, p):
+  '''
+  Internal energy in comoving frame in code units
+  '''
+  gma = derive_adiab(rho, p)
+  h   = 1+p*gma/(gma-1.)/rho
+  eps = rho*(h-1)/gma
+  return eps
+
 
 def derive_B_comoving(rho, p, rhoscale, eps_B=1/3.):
   e = derive_Eint_comoving(rho, p, rhoscale)
@@ -210,12 +284,12 @@ def derive_velocity_from_proper(u):
   '''
   return u/np.sqrt(1+u**2)
 
-def derive_Ekin(rho, v):
+def derive_Ekin(rho, v, rhoscale):
   '''
   Kinetic energy in lab frame from density and velocity
   '''
   lfac = derive_Lorentz(v)
-  return (lfac-1)*lfac*rho
+  return (lfac-1)*lfac*rho*rhoscale*c_**2
 
 def derive_Ekin_fromproper(rho, u):
   '''
@@ -263,9 +337,9 @@ def derive_max_emissivity(rho, p, gmin, gmax, rhoscale, eps_B, psyn, xi_e):
   '''
   
   B = derive_B_comoving(rho, p, rhoscale, eps_B)
-  n = xi_e*derive_n(rho, rhoscale)*derive_xiDN(gmin, gmax, psyn)
+  ne = xi_e*derive_n(rho, rhoscale)*derive_xiDN(gmin, gmax, psyn)
   fac = (4./3.) * (4*(psyn-1)/(3*psyn-1)) * (16*me_*c_**2*sigT_/(18*pi_*e_))
-  return B*n*fac
+  return B*ne*fac
 
 def derive_emiss_prefac(psyn):
   return (4*(psyn-1)/(3*psyn - 1)) * sigT_ * (4/3) * (8*me_*c_/(9*pi_*e_))
@@ -298,12 +372,21 @@ def derive_3volume(x, dx, R0, geometry='cartesian'):
   3-volume of a cell
   '''
   r = x*c_
-  dV = 2*dx*c_
+  dr = dx*c_
+  S = 1.
   if geometry == 'cartesian':
-    dV *= 2*pi_*R0**2
+    S *= 4*pi_*R0**2
   else:
-    dV *= 2*pi_*r**2
-  return dV
+    S *= 4*pi_*r**2
+  return dr*S
+
+def derive_3vol_comoving(x, dx, vx, R0, geometry):
+  '''
+  Comoving 3-volume of a cell
+  '''
+  lfac = derive_Lorentz(vx)
+  V3 = derive_3volume(x, dx, R0, geometry)
+  return lfac*V3
 
 def derive_4volume(x, dx, dt, R0, geometry='cartesian'):
   '''
@@ -322,6 +405,12 @@ def derive_rad4volume(x, dx, rho, vx, p, dt, gma, rhoscale, eps_B, R0, geometry=
   delt = np.where(tcool<dt, tcool, dt)
   return dV * delt
 
+def derive_tc1(rho, vx, p, rhoscale, eps_B):
+  '''
+  Synchrotron cooling time of an electron at non-relativistic energy, in source frame
+  '''
+  return derive_tcool(rho, vx, p, 1., rhoscale, eps_B)
+
 def derive_tcool(rho, vx, p, gma, rhoscale, eps_B):
   '''
   Synchrotron cooling time of an electron with lfac gma in source frame
@@ -337,11 +426,98 @@ def derive_tcool_comoving(rho, p, gma, rhoscale, eps_B):
   eint = derive_Eint_comoving(rho, p, rhoscale)
   return 3*me_*c_/(4*sigT_*eint*eps_B*gma)
 
+def derive_Ppmax_noprefac(rho, p, rhoscale, eps_B):
+  B = derive_B_comoving(rho, p, rhoscale, eps_B)
+  ne = xi_e*derive_n(rho, rhoscale)
+  fac = sigT_ * me_ * c_**2 / e_
+  return fac * ne * B
+
+def derive_Epnu_FC(x, dx, dt, rho, p, R0, rhoscale, eps_B, geometry):
+  V4 = derive_4volume(x, dx, dt, R0, geometry)
+  Pmax = ((psyn-1)/(2*psyn))*derive_Ppmax_noprefac(rho, p, rhoscale, eps_B)
+  return V4*Pmax
+
+def derive_Epnu_SC(x, dx, dt, rho, p, R0, rhoscale, eps_B, geometry):
+  V4 = derive_4volume(x, dx, dt, R0, geometry)
+  Pmax = (4*(psyn-1)/(3*(3*psyn-1)))*derive_Ppmax_noprefac(rho, p, rhoscale, eps_B)
+  return V4*Pmax
+
+def derive_Epnu_vFC(x, dx, rho, vx, p, gmin,
+    R0, rhoscale, psyn, eps_B, eps_e, geometry):
+  '''
+  Total emitted energy per unit frequency of a 4D cell in very fast cooling
+  '''
+  Wp = 2*((psyn-1)/(psyn-2))
+  lfac = derive_Lorentz(vx)
+  V3 = derive_3volume(x, dx, R0, geometry)
+  nup_m = derive_nup_m_from_gmin(rho, p, gmin, rhoscale, eps_B)
+  epe = eps_e * derive_Eint_comoving(rho, p, rhoscale)
+  Epnu = lfac * V3 * epe / (Wp * nup_m)
+  return Epnu
+
+def derive_Epnu_thsh(x, dx, rho, vx, p,
+    R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry):
+  '''
+  Total emitted energy per unit frequency of a 4D cell in very fast cooling
+  '''
+  Wp = 2*((psyn-1)/(psyn-2))
+  lfac = derive_Lorentz(vx)
+  V3 = derive_3volume(x, dx, R0, geometry)
+  nup_m = derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e)
+  epe = eps_e * derive_Eint_comoving(rho, p, rhoscale)
+  Epnu = lfac * V3 * epe / (Wp * nup_m)
+  return Epnu
+
+def derive_Lum(r, dr, rho, vx, p, gmin, R0, rhoscale, psyn, eps_B, eps_e, geometry):
+  '''
+  Luminosity normalization for flux calculation in thin shell & very fast cooling regime
+  '''
+  Epnu = derive_Epnu_vFC(r, dr, rho, vx, p, gmin, R0, rhoscale, psyn, eps_B, eps_e, geometry)
+  lfac = derive_Lorentz(vx)
+  L0 = (2*vx*lfac**2/r) * Epnu
+  return L0
+
+def derive_Lum_thinshell(r, dr, rho, vx, p, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry):
+  '''
+  Luminosity normalization for flux calculation in thin shell & very fast cooling regime
+  '''
+  Epnu = derive_Epnu_thsh(r, dr, rho, vx, p, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry)
+  lfac = derive_Lorentz(vx)
+  L0 = (2*vx*lfac**2/r) * Epnu
+  return L0
+
+def derive_L_thsh_corr(t, r, dr, rho, vx, p, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry):
+  '''
+  lum but corrected to be peak lum of nuLnu instead of peak lnu
+  '''
+  Epnu = derive_Epnu_thsh(r, dr, rho, vx, p, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry)
+  lfac = derive_Lorentz(vx)
+  gma_m = derive_gma_m(rho, p, rhoscale, psyn, eps_e, xi_e)
+  gma_c = derive_gma_c(t, rho, vx, p, rhoscale, eps_B)
+  L0 = (2*vx*lfac**2/r) * Epnu
+  return L0 * (gma_c/gma_m)
+
+def derive_Fpeak_analytic(x, dx, rho, vx, p, gmin,
+    R0, rhoscale, psyn, eps_B, eps_e, zdl, geometry):
+  Epnu = derive_Epnu_vFC(x, dx, rho, vx, p, gmin, R0, rhoscale, psyn, eps_B, eps_e, geometry)
+  lfac = derive_Lorentz(vx)
+  L = (2*vx*lfac**2/x) * Epnu
+  return zdl * L
+
+def derive_Fpeak_numeric(x, dx, rho, vx, p, gmin,
+    R0, rhoscale, psyn, eps_B, eps_e, zdl, geometry):
+  Epnu = derive_Epnu_vFC(x, dx, rho, vx, p, gmin, R0, rhoscale, psyn, eps_B, eps_e, geometry)
+  lfac = derive_Lorentz(vx)
+  d2 = (lfac*(1-vx))**-2
+  L = (d2/(2*x)) * Epnu
+  return zdl * L
+
 def derive_localLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn, xi_e, R0, geometry='cartesian'):
   '''
   Local peak luminosity
   '''
   V4 = derive_rad4volume(x, dx, rho, vx, p, dt, gma, rhoscale, eps_B, R0, geometry)
+  #V4 = derive_4volume(x, dx, dt, R0, geometry)
   P = derive_max_emissivity(rho, p, gmin, gmax, rhoscale, eps_B, psyn, xi_e)
   lfac = derive_Lorentz(vx)
   Lp = lfac * V4 * P / x
@@ -351,38 +527,147 @@ def derive_obsLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn,
   '''
   Local peak luminosity in observer frame
   '''
-  Lp = derive_localLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn, xi_e, R0, geometry='cartesian')
+  Lp = derive_localLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn, xi_e, R0, geometry)
   lfac = derive_Lorentz(vx)
   return 2*lfac*Lp
 
-def derive_obsEjTime(t, r, beta, t0, z):
-  Tej, T0 = derive_obsTimes(t, r, beta, t0, z)
-  return Tej
-
-def derive_obsNormTime(t, r, beta, t0, z):
-  Tej, T0 = derive_obsTimes(t, r, beta, t0, z)
-  return T0
-
-def derive_obsPkTime(t, r, beta, t0, z):
-  '''
-  Returns observer time at which the emission from this cell will peak
-  '''
-  Tej, T0 = derive_obsTimes(t, r, beta, t0, z)
-  return 2*T0 + Tej
-
-def derive_obsTimes(t, r, beta, t0, z):
+def derive_obsTimes(tsim, r, beta, t0, z):
   '''
   Derive the relevant times in observer frame to calculate flux
-  Tej : effective ejection time of the cell
-  T0  : onset to peak time
+  Ton : onset time
+  Tth : angular time (comes from Doppler beaming)
+  Tej : effective ejection time
   /!\ r in units c /!\ (function to be used by data_IO:get_variable)
   '''
-  t = t + t0
-  tej = t - r/beta
-  T0 = (1+z)*((1-beta)/beta)*r
-  Tej = (1+z)*tej
-  return Tej, T0
+  t = tsim + t0 
+  #lfac = derive_Lorentz(beta)
+  Ton = (1+z)*(t - r)
+  Tth = (1+z)*((1-beta)/beta)*r
+  Tej = Ton - Tth
+  return Ton, Tth, Tej
+  
+def derive_obsEjTime(t, r, beta, t0, z):
+  '''
+  Ejection time in observer's frame
+  '''
+  Ton, Tr, Tej = derive_obsTimes(t, r, beta, t0, z)
+  return Tej
 
+def derive_obsOnTime(t, r, beta, t0, z):
+  '''
+  Onset time in observer's frame
+  '''
+  Ton, Tth, Tej = derive_obsTimes(t, r, beta, t0, z)
+  return Ton
+
+def derive_obsAngTime(t, r, beta, t0, z):
+  '''
+  Angular time in observer's frame
+  '''
+  Ton, Tth, Tej = derive_obsTimes(t, r, beta, t0, z)
+  return Tth
+
+def derive_cyclotron_comoving(rho, p, rhoscale, eps_B):
+  '''
+  Comoving cyclotron frequency
+  '''
+  B = derive_B_comoving(rho, p, rhoscale, eps_B)
+  nup_B = e_*B/(2*pi_*me_*c_)
+  return nup_B
+
+def derive_DopplerRed_los(vx, z):
+  '''
+  Derive Doppler + redshift factor along the line of sight
+  '''
+  lfac = derive_Lorentz(vx)
+  D = 1/(lfac*(1-vx))
+  return D/(1+z)
+
+def derive_nu_m(rho, vx, p, rhoscale, psyn, eps_B, eps_e, xi_e, z):
+  '''
+  Peak frequency of the electron distribution, in observer frame
+  '''
+  D = derive_DopplerRed_los(vx, z)
+  nup_m = derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e)
+  nu_m = nup_m*D
+  return nu_m
+
+def derive_nu_m_from_gmin(rho, vx, p, gmin, rhoscale, eps_B, z):
+  '''
+  Derive peak frequency, with Lorentz factor pre-determined
+  '''
+  D = derive_DopplerRed_los(vx, z)
+  nup_m = derive_nup_m_from_gmin(rho, p, gmin, rhoscale, eps_B)
+  return D*nup_m
+
+def derive_nup_m_from_gmin(rho, p, gmin, rhoscale, eps_B):
+  '''
+  Derive comoving peak frequency, with Lorentz factor pre-determined
+  '''
+  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
+  nup_m = nup_B*gmin**2
+  return nup_m
+
+def derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
+  '''
+  Peak frequency of the electron distribution, in comoving frame
+  '''
+  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
+  gma_m = derive_gma_m(rho, p, rhoscale, psyn, eps_e, xi_e)
+  nup_m = nup_B*gma_m**2
+  return nup_m
+
+def derive_nup_c(t, rho, vx, p, rhoscale, eps_B):
+  '''
+  Comoving cooling frequency
+  '''
+  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
+  gma_c = derive_gma_c(t, rho, vx, p, rhoscale, eps_B)
+  nup_c = nup_B*gma_c**2
+  return nup_c
+
+def derive_gma_c(t, rho, vx, p, rhoscale, eps_B):
+  '''
+  Typical Lorentz factor of cooled electrons
+  '''
+  lfac = derive_Lorentz(vx)
+  tdyn = t/lfac
+  e = derive_Eint_comoving(rho, p, rhoscale)
+  return 3*me_*c_/(4*sigT_*eps_B*e*tdyn)
+
+
+def derive_gma_m(rho, p, rhoscale, psyn, eps_e, xi_e):
+  '''
+  Return minimum Lorentz factor of accelerated electron distribution
+  '''
+  mp  = mp_ / (rhoscale*c_**3)
+  me  = me_ / (rhoscale*c_**3)
+  ne  = xi_e*rho/mp
+  gma = derive_adiab(rho, p)
+  h   = 1+p*gma/(gma-1.)/rho
+  ei  = rho*(h-1)/gma
+  ee  = eps_e*ei
+  Gp  = (psyn-2.)/(psyn-1.)
+  return Gp*ee/(ne*me)
+
+def derive_edistrib(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
+  '''
+  Return theoretical gamma_min and gamma_max of accelerated electron distribution
+  '''
+  Nmp_ = mp_ / (rhoscale*c_**3)
+  Nme_ = me_ / (rhoscale*c_**3)
+  gma = derive_adiab(rho, p)
+  h   = 1+p*gma/(gma-1.)/rho
+  eps = rho*(h-1)/gma
+  eB  = eps * eps_B
+  B   = np.sqrt(8.*pi_*eB)
+  gmax2 = 3*e_/(sigT_*B)
+  gmax = 1 + np.sqrt(gmax2)
+  ee  = eps * eps_e
+  ne  = xi_e * rho / Nmp_
+  lfac_av = ee / (ne * Nme_)
+  gmin = 1 + ((psyn-2.)/(psyn-1.) * lfac_av)
+  return gmin, gmax
 
 # wave speed at interfaces
 def waveSpeedEstimates(SL, SR):

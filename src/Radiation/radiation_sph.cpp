@@ -287,7 +287,7 @@
     
     if (isShocked and (S.prim[TR1+1]<=0.1)){
       if (pspec>*psyn or std::isnan(*psyn)) *psyn = pspec;
-      *gmax = radiation_gammae2trac(gammaMaxInit(S), S) / (lfac*rho);
+      *gmax = radiation_gammae2trac(GAMMA_MAX_INIT_, S) / (lfac*rho);
       *gmin = radiation_gammae2trac(gammaMinInit(S), S) / (lfac*rho);
       *trac = 1.;
     }

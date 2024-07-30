@@ -72,6 +72,8 @@ def shells_complete_setup(env):
   env.p4 = p0
 
   env.rhoscale = getattr(env, env.rhoNorm)
+  env.Theta1 = env.p1/(env.rho1*c_**2)
+  env.Theta4 = env.p4/(env.rho4*c_**2)
 
 def shells_add_analytics(env):
   '''
@@ -79,33 +81,35 @@ def shells_add_analytics(env):
   '''
 
   env.f      = env.rho4/env.rho1
-  u21        = derive_u_in1(env.u1, env.u4, env.f)
-  u34        = u21/np.sqrt(env.f)
-  env.lfac21 = derive_Lorentz_from_proper(u21)
-  env.lfac34 = derive_Lorentz_from_proper(u34)
+  env.u21    = derive_u_in1(env.u1, env.u4, env.f)
+  env.u34    = env.u21/np.sqrt(env.f)
+  env.lfac21 = derive_Lorentz_from_proper(env.u21)
+  env.lfac34 = derive_Lorentz_from_proper(env.u34)
   env.beta1  = env.u1/env.lfac1
   env.beta4  = env.u4/env.lfac4
   env.M1     = env.Ek1/((env.lfac1-1)*c_**2)
   env.M4     = env.Ek4/((env.lfac4-1)*c_**2)
 
   # Analytical estimates
-  env.u    = derive_u_lab(env.u1, u21)
+  env.u    = derive_u_lab(env.u1, env.u21)
   env.lfac = derive_Lorentz_from_proper(env.u)
   env.beta = env.u/env.lfac
   env.rho2 = 4.*env.lfac21*env.rho1
-  env.p_sh = (4./3.) * u21**2 * env.rho1 * c_**2
+  env.p_sh = (4./3.) * env.u21**2 * env.rho1 * c_**2
   env.rho3 = 4.*env.lfac34*env.rho4
 
   # shocks
-  env.betaFS = derive_betaFS(env.u1, u21, env.u)
+  env.betaFS = derive_betaFS(env.u1, env.u21, env.u)
   env.lfacFS = derive_Lorentz(env.betaFS)
+  env.gFS    = env.lfac/env.lfacFS
   env.tFS    = derive_FS_crosstime(env.beta1, env.D01, env.betaFS)
   env.D2f    = derive_shellwidth_crosstime(env.D01, env.lfac1, env.lfac, env.lfac21)
   env.Ei2f   = derive_Eint_crosstime(env.M1, env.u, env.lfac21)
   env.Ek2f   = derive_Ek_crosstime(env.M1, env.lfac)
 
-  env.betaRS = derive_betaRS(env.u4, u34, env.u)
+  env.betaRS = derive_betaRS(env.u4, env.u34, env.u)
   env.lfacRS = derive_Lorentz(env.betaRS)
+  env.gRS    = env.lfac/env.lfacRS
   env.tRS    = derive_RS_crosstime(env.beta4, env.D04, env.betaRS)
   env.D3f    = derive_shellwidth_crosstime(env.D04, env.lfac4, env.lfac, env.lfac34)
   env.Ei3f   = derive_Eint_crosstime(env.M4, env.u, env.lfac34)
@@ -135,24 +139,32 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   Add the normalization values for emission curves
   Minu paper equations G11, 15, 17
   ''' 
+  env.z = z
   a_u = env.u4/env.u1
-  u34 = derive_proper_from_Lorentz(env.lfac34)
+  env.u34 = derive_proper_from_Lorentz(env.lfac34)
   beta34 = derive_velocity(env.lfac34)
+  env.u21 = derive_proper_from_Lorentz(env.lfac21)
   beta21 = derive_velocity(env.lfac21)
-  Hau = (env.lfac34-1) * u34 / (1+a_u**2)
+  Hau = (env.lfac34-1) * env.u34 / (1+a_u**2)
   L = ((env.Ek1/env.t1)+(env.Ek4/env.t4))/2
   Gp = (env.psyn-2)/(env.psyn-1)
   env.eint2p = 4.*env.lfac21*(env.lfac21-1)*env.rho1*c_**2
   env.eint3p = 4.*env.lfac34*(env.lfac34-1)*env.rho4*c_**2
+  env.ad_gma3 = (4*env.lfac34+1)/(3*env.lfac34)
+  env.ad_gma2 = (4*env.lfac21+1)/(3*env.lfac21)
   env.Bp = np.sqrt(8.*pi_*env.eps_B*env.eint3p)
+  env.BpFS = np.sqrt(8.*pi_*env.eps_B*env.eint2p)
   env.gma_m = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac34-1)
   env.gma_mFS = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac21-1)
+  env.gma_Max = 1e8
   env.nuBp = e_*env.Bp/(2.*pi_*me_*c_)
+  env.nuBpFS = e_*env.BpFS/(2.*pi_*me_*c_)
   env.nu0p = env.gma_m**2 * env.nuBp
+  env.nu0pFS = env.gma_mFS**2 * env.nuBpFS
   env.eps_rad = 1
   env.eps_radFS = 0.5
   env.L0p = (2/3.) * env.eps_e * env.eps_rad * 4 * pi_ * env.R0**2 * c_**3 * \
-    ((env.psyn-2.)/(env.psyn-1)) * (env.lfac34-1)*u34 * env.rho4 / env.nu0p
+    ((env.psyn-2.)/(env.psyn-1)) * (env.lfac34-1)*env.u34 * env.rho4 / env.nu0p
   env.L0 = 2*env.lfac*env.L0p
 
   env.nu0 = 2.*env.lfac*env.nu0p/(1+z)
@@ -162,20 +174,42 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.F0 = env.Fs/3.
   env.nu0F0 = env.nu0*env.F0
   Pfac = (4./3.) * (4*(env.psyn-1)/(3*env.psyn-1)) * (16*me_*c_**2*sigT_/(18*pi_*e_))
-  env.Pmax0 = Pfac * env.Bp * (env.rho3/mp_)
-  env.Pmax0FS = Pfac * env.Bp * (env.rho2/mp_)
-  env.tc = 3*me_*c_/(4*sigT_*env.eint3p*env.eps_B*env.gma_m)
-  env.tcFS = 3*me_*c_/(4*sigT_*env.eint2p*env.eps_B*env.gma_mFS)
+  env.Pmax0 = Pfac * env.Bp * env.xi_e * (env.rho3/mp_)
+  env.Pmax0FS = Pfac * env.BpFS * env.xi_e * (env.rho2/mp_)
+  env.tc = 3*me_*c_*env.lfac/(4*sigT_*env.eint3p*env.eps_B*env.gma_m)
+  env.tcFS = 3*me_*c_*env.lfac/(4*sigT_*env.eint2p*env.eps_B*env.gma_mFS)
 
   # for the FS
+  # ratio_1 = (env.lfac34+1)/(env.lfac21+1)
+  # ratio_2 = env.lfac34/env.lfac21
+  # ratio_3 = (env.lfac34-1)/(env.lfac21-1)
+  # ratio_freq = (ratio_1**(-0.5))*(ratio_2**(0.5))*(ratio_3**2)
+  # ratio_bol = (ratio_1**(-1))*(ratio_2)*ratio_vel
+  # ratio_lum = (ratio_freq**(-1))*(ratio_bol)
   env.fac_nu = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**2
   env.fac_F  = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**-2 * \
-      (derive_velocity(env.lfac34)/derive_velocity(env.lfac21)) * (env.eps_rad/env.eps_radFS)
+      (derive_velocity(env.lfac34)/derive_velocity(env.lfac21)) #* (env.eps_rad/env.eps_radFS)
   env.fac_Lp = 2*((env.lfac34+1)/(env.lfac21+1))**(-0.5) * np.sqrt(env.lfac34/env.lfac21) * ((env.lfac34-1)/(env.lfac21-1))**-2 * (beta34/beta21)
+  env.fac_T  = ((env.lfacFS/env.lfacRS)**2)*(env.betaFS/env.betaRS)*((1+env.betaFS)/(1+env.betaRS))
+  env.nu0pFS = env.nu0p / env.fac_nu
   env.nu0FS = env.nu0 / env.fac_nu
+  env.L0FS  = env.L0 / env.fac_F
   env.F0FS  = env.F0 / env.fac_F
   env.nu0F0FS = env.nu0FS*env.F0FS
   env.T0FS  = (1+z) * (env.R0/c_) * ((1-env.betaFS)/env.betaFS)
+
+  env.Ts   = (1+z)*(env.t0 - env.R0/c_)
+
+  # final radii and times
+  env.dRRS = env.tRS*env.betaRS*c_
+  env.RfRS = env.R0 + env.dRRS
+  env.TRS  = (1+env.z)*(env.t0+env.tRS-env.RfRS/c_)
+  env.tTfRS = env.RfRS/env.R0
+
+  env.dRFS = env.tFS*env.betaFS*c_
+  env.RfFS = env.R0 + env.dRFS
+  env.TFS  = (1+env.z)*(env.t0+env.tFS-(env.R0+env.betaFS*env.tFS*c_)/c_)
+  env.tTfFS = env.RfFS/env.R0
   
   # normalized times (eqn F38)
   env.nTfRS = env.betaRS * c_ * env.tRS / env.R0
@@ -186,11 +220,7 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.TeffejRS = (1+z)*env.teffejRS
   env.teffejFS = (1+z)*(env.t0 - env.R0/(env.betaFS*c_))
   env.TeffejFS = (1+z)*env.teffejFS
-
-  # other obs times
-  env.Ts = (1+z)*(env.t0 - env.R0/c_)
-  env.TRS = (1+env.z)*(env.t0+env.tRS-(env.R0+env.betaRS*env.tRS*c_)/c_)
-  env.TFS = (1+env.z)*(env.t0+env.tFS-(env.R0+env.betaFS*env.tFS*c_)/c_)
+  
 
 def shells_snapshot_fromenv(env, r, t):
   '''
@@ -351,7 +381,6 @@ def derive_radii_withtime(env, t):
   Returns expected radii for each interface with time
   need to determine min velocity of the RF when interacting with ext medium
   '''
-
   Rb0 = np.array([-env.D04, 0.]) + env.R0
   Rf0 = np.array([0., env.D01]) + env.R0
   vb0 = np.array([env.beta4, env.betaRS])*c_
@@ -359,16 +388,14 @@ def derive_radii_withtime(env, t):
   vbc = np.array([0., env.betaRFp3])*c_
   vfc = np.array([env.betaRFm2, 0.])*c_
 
-  R4  = np.where(t<env.tRS, ) 
-  Rcd = env.R0 + env.beta*c_*t
-
+  Rcd = np.array(env.R0 + env.beta*c_*t)
   Rb  = [np.where(t<env.tRS, Rb0[n]+vb0[n]*t, Rb0[n]+vb0[n]*env.tRS+vbc[n]*(t-env.tRS))
     for n in [0, 1]]
   Rf  = [np.where(t<env.tFS, Rf0[n]+vf0[n]*t, Rf0[n]+vf0[n]*env.tFS+vbc[n]*(t-env.tFS))
     for n in [0, 1]]
   R4, Rrs = Rb
   Rfs, R1 = Rf
-  return R4, Rrs, Rcd, Rfs, R1
+  return np.array([R4, Rrs, Rcd, Rfs, R1])
 
 
 # Theoretical expectations with time
@@ -436,8 +463,8 @@ def time_analytical(varkey, t, env):
     E4, E3, E2, E1 = np.array(derive_Ekin_withtime(env, t)) + np.array(derive_Eint_withtime(env, t))
     return E4+E3, E1+E2
   elif varkey == 'Etot':
-    E4, E3, E2, E1 = np.array(derive_Ekin_withtime(env, t)) + np.array(derive_Eint_withtime(env, t))
-    Etot = E4+E3+E2+E1
+    #E4, E3, E2, E1 = np.array(derive_Ekin_withtime(env, t)) + np.array(derive_Eint_withtime(env, t))
+    Etot = (env.Ek1+env.Ek4)*np.ones(t.shape) #E4+E3+E2+E1
     return [Etot]
   elif varkey == 'epsth':
     Ei4, Ei3, Ei2, Ei1 = derive_Eint_withtime(env, t)
@@ -573,7 +600,7 @@ def derive_RS_crosstime(beta4, D4, betaRS):
 def derive_Eint_crosstime(M0, u, lfacrel):
   '''
   Derives internal energy in shell 2/3 at FS/RS crossing time
-  M0, lfacrel = M1, lfac21 for shell 2 ; M4, lfac34 for shell 3
+  (M0, lfacrel) = (M1, lfac21) for shell 2 ; (M4, lfac34) for shell 3
   '''
   lfac = derive_Lorentz_from_proper(u)
   beta = u/lfac

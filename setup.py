@@ -111,7 +111,7 @@ def update_simFile(filepath, env):
     }
   elif env.mode =='shells':
     physvars = {
-      'R_0':env.R0, 't_start':env.t0, 'Theta0':env.Theta0,
+      'R_0':env.R0, 't_start':env.t0, 'Theta0':env.Theta0, 'cont':env.rhoContr,
       'rho1':env.rho1, 'u1':env.u1, 'p1':env.p1, 'D01':env.D01,
       'rho4':env.rho4, 'u4':env.u4, 'p4':env.p4, 'D04':env.D04
     }

@@ -1,3 +1,19 @@
+
+TODO:
+
+- full, proper implementation (if time, separate shells as much as possible from env and methods)
+- plots and consistency checks with full method
+  - cooling of one cell
+- BM1D test for spherical method, check Granot Sari 2002 and apply radiation methpod to analytical solution
+  - try with analytic Blandford McKee solution (look at de Colle 12 section 4)
+    -> 'numerize' analytical solution
+  - try with numeric Blandford McKee solution (BM1D.cpp)
+    -> let evolve until mildly relativistic phase
+  /!\ take log time bins /!\
+- complete work document
+  - in Ayache paper -> eq 19 is y_min - 1, also in equation 17 it's gamma'_e^2-1
+
+
 Done:
 - Add microphysics variation in env
 - we want only ONCE gamma max & min injection
@@ -16,6 +32,13 @@ Done:
 - df_get_B corrected
 - corrected electron distrib:
   bugs when considering injection
+
+
+Radiative contribution:
+-> check if cell in one df didn't radiate the previous timesteps
+-> check if shock crosses more than one cell in one time bin -> check when reading sim, relaunch with less it per time bins
+-> why are the GAMMA timesteps much shorter than shock crossing time of one cell?
+
 
 List of problems:
 Now that I have added a way to stop electron injection
@@ -39,108 +62,30 @@ at electron injection (in phys_edsitrib)
   apply cooling rules as if it was previous timestep
   check carefully which time you considers (cooling over half a timestep ? A full one ?) and use that consistently (don't forget dV4)
 
-add plot e distrib of a cell with time -> add to document
-add plots distrib in different regimes
-make sure values are coherent with normalization
 
 tests:
 - apply lightcurve method over full simulation -> write output in ready-to-read file
-- try with analytic Blandford McKee solution (look at de Colle 12 section 4)
-  -> 'numerize' analytical solution
-- try with numeric Blandford McKee solution (BM1D.cpp)
-  -> let evolve until mildly relativistic phase
-/!\ take log time bins /!\
-WRITE THINGS IN A DOC
 
-Ongoing task:
 
-have RS and FS contributions separated
-add plotting lightcurves (check pulse size)
-add implementations suggested (see notes in plotting scripts and phys_radiation)
-check slopes of spectras
 
 Todo (detailed):
-- for observations:
-  define T_obs time bins and frequency bins, go over sim timesteps, fill them, and voilà
-  -> allows to construct the electron distrib on the fly (since it needs two data dump)
-  all files are only read once!
-  -> create a data file with all relevant data to be read for spectras, lightcurves.. plots
 - rewrite eqn (4) in draft properly (with divergence, independant of coordinate system)
 - paper figures Hydro:
   Fig 5 and Fig 9 of Minu
   values in shocked region (taken near the CD) in cart vs sph
   snapshots in spherical
   shock strength with time
-- explicit what I do in a document (article draft?)
 - plots with time from a single cell viewpoint:
   -> how many timesteps does it take for a cell to go from first shock passage to having cooled below gamma_min = 1.
-- basic model: Genet & Granot 2009 section 3.1 (Band functions, use spherical symmetry)
-  -> /!\ definition of \tilde{T} /!\
-  -> start with that, then replace with distrib
-  -> check Beniamini & Granot 2016, section 4.2, with beta' = 0 (gamma' = 1)
-- next step: spectrum from "real" electron distribution
-  -> cf picture, left fast cooling, right normal cooling
-- Colle et al 2012 method for SRHD -> emission
-- Minu emission paper eqn G18-19-20 for the parameter space, play with parameters keeping those X_0 constants
-/!\ we also have observational constraints (u1 : 100-1000, L and t_off quite constraint)
-for example: higher u1 to have less fast cooling (cause eB depends on R0)
-we want to see the different regimes (very fast, fast, marginally fast..), a few representative sims
 
-Calculating radiations:
-1. construct "timestep" electron distribution taking into account coolign from previous timestep
-(see whiteboard picture)
--> when gmax1 < gmin0 -> "instantaneous" e distrib is delta function
--> add broken power-law from integrating over timestep
-2. local emissivity. Take care of electron number, time elapsed. Which scheme do we use?
-Later: check check & recheck. For emission, try out on basic situations (shock tubes, BM..) to make sure everything is in place
 
 Tasks:
-FOCUS pdV
-- calculate cooling timescales to verify transition between rad cooling and adiab
-- in Ayache paper -> eq 19 is y_min - 1, also in equation 17 it's gamma'_e^2-1
-- begin draft with hydro results
-    reproduce Minu's plots to compare cart with analytics
-    spherical to cartesian comparisons
-    compare relfdiff of variables for diff a_u
-- take cells compression into account for analytical estimates to compare snapshots to?
-- how do we create lightcurves/spectras
-- note: in very strong cooling case, we will have to do some analytical estimates for the 
 
-Electron distribution & radiation work
-- better rules for e- distribution inside GAMMA (gmin, gmax)
-- postprocessing
 
 python code
-- microphysics params are in phys_constants, add to environment
 - organize Tools folder (one plotting script, and sources in a subfolder, organize them more)
 - object programming for variables to plot? (allow for easier implementation of new ones)
 
-later stuff
-Add shock strength = Mach number of shock in upstream
-Add switch for zoneID if check detection was used or not?
-
-FOCUS:
-1. launch sims internal shocks
---> do we reproduce the analytics in planar symmetry?
-start at the beginning of the shock
-don't even need split/merge (at least for starters)
-box size -> moving window (see BM method, but use density and not only pressure bcause cold shells)
-u1 = 100, u4 = 200, density contrast ~1/4 (slowest is more dense)...
-see Minu's notes for quantities to plot
-/!\ add velocity before and after shells to avoid shock structures on the external sides as much as possible
-for this compare with expected ram pressure of the CD in the lab frame
-in spherical define starting radius
-maybe test for highest Lorentz
-start with few hundreds cells and then test for convergence
-check if algo detectes very small rarefaction wave on the front/back of the shells
--> move the box depending on that
---> and now in spherical symmetry
-2. electron distribution in the flow
--> shock detection
--> cooling regimes
-3. lightcurves production
--> be careful of relativistic effects (highly relativistic shells)
--> good test case: BM profile
 
 Todolist:
 1. Cell resolution, numerics, and plotting

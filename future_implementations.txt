@@ -1,0 +1,24 @@
+Post-processing
+- proper rewrite emission, agnostic of colliding shells
+    (no need to be too much of a proper software, this is a later point)
+- rewrite calculations in C/C++ with Py wrapper? Include directly with GAMMA?
+- proper Py package? Include astropy, compare with things like jetsimpy, etc.
+
+- evolution of microphysics
+    p already implemented, what about eps_e, eps_e, zeta?
+    Asano paper (check his presentation of HEPRO VIII if still exists)
+- add IC cooling? 
+    start with simplifying assumption inside one 1D track
+    Pellouin & Daigne 24 (formulation + simple que le Kumar et al. 09)
+- polarisation? 
+    with hydro only we can use assumptions on B field and apply the method for a pulse
+    Gill & Granot 2021, Gill Granot Kumar 2020
+    -> certainly will not give very useful results in our 1D approach but the 2D can be very intersting from the rise of instabilities such as RTI
+- better prim2cons?
+    already started with Newman & Hamlin 14 but not tested well yet
+    compare with Kastaun et al. 21 (they give a comparison in the article)
+- MHD?
+    HLLD Mignone+ 09, Mignone & DelZanna 20
+
+
+

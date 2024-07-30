@@ -17,28 +17,28 @@ static int GEOMETRY_  = 0 ;           // 0 for cartesian, 0 for spherical
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
 static double rho0    = n0*mp_;       // g.cm-3:  comoving CBM mass density
-static double Theta0  = 0.0001 ;   //          Theta0 = p/(rho*c^2)
+static double Theta0  = 5e-05 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
 static double rho1 = 4.667291079080062e-12 ;     // comoving density of front shell
 static double u1   = 1e+02 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 104345.78059068859 ;
+static double p1   = 52172.890295344296 ;
 static double D01  = 2997774695.012281 ;     // spatial extension of front shell
 static double rho4 = 1.1610033862318822e-12 ;     // comoving density of back shell
 static double u4   = 2e+02 ;          // proper velocity of back shell
-static double p4   = 104345.78059068859 ;
+static double p4   = 52172.890295344296 ;
 static double D04  = 2997887106.645374 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
-static double cont = 1e-3;            // density contrast between shell and ext medium
+static double cont = 0.05 ;           // density contrast between shell and ext medium
 
 // box size
 static double R_0     = 79947153684166.38 ;
-static int Nsh1   = 900 ;
-static int Ntot1  = 950 ;
-static int Nsh4   = 900 ;
-static int Ntot4  = 950 ;
+static int Nsh1   = 450 ;
+static int Ntot1  = 500 ;
+static int Nsh4   = 450 ;
+static int Ntot4  = 500 ;
 static int Ncells = Ntot4 + Ntot1;
 
 // normalisation constants:
@@ -109,6 +109,7 @@ int Grid::initialValues(){
     double r = x*lNorm;
 
     if (GEOMETRY_ == 0){ // cartesian geometry
+      // std::cout << "Cartesian geometry";
       if (r <= R_0-D04){
         c->S.prim[RHO] = cont*rho4/rhoNorm;
         c->S.prim[VV1] = beta4;
@@ -135,33 +136,36 @@ int Grid::initialValues(){
       }
     }
     else if (GEOMETRY_ == 1){ // spherical geometry
+      // std::cout << "Spherical geometry";
       double R4 = R_0 - D04;
       double R1 = R_0 + D01;
-      
+      double gma = 5./3.;
+
       if (r <= R4){
-        double rho = cont*rho4*pow(R4/R_0, -2.);
+        double rho = cont*rho4*pow(r/R4, -2.);
+        //double p   = p4*pow(r/R4, -2*gma);
         c->S.prim[RHO] = rho/rhoNorm;
         c->S.prim[VV1] = beta4;
         c->S.prim[PPP] = p4/pNorm;
         c->S.prim[TR1] = 0.;
       }
       if ((r >= R4) and (r <= R_0)){
-        double rho = rho4*pow(r/R_0, -2.);
-        //std::cout << rho << "\n";
-        c->S.prim[RHO] = rho/rhoNorm;
+        //double rho = rho4*pow(r/R_0, -2.);
+        c->S.prim[RHO] = rho4/rhoNorm;
         c->S.prim[VV1] = beta4;
         c->S.prim[PPP] = p4/pNorm;
         c->S.prim[TR1] = 1.;
       }
       if ((r > R_0) and (r <= R1)){
-        double rho = rho1*pow(r/R_0, -2.);
-        c->S.prim[RHO] = rho/rhoNorm;
+        //double rho = rho1*pow(r/R_0, -2.);
+        c->S.prim[RHO] = rho1/rhoNorm;
         c->S.prim[VV1] = beta1;
         c->S.prim[PPP] = p1/pNorm;
         c->S.prim[TR1] = 2.;
       }
-      if (r > R_0+D01){
-        double rho = cont*rho1*pow(R1/R_0, -2.);
+      if (r > R1){
+        double rho = cont*rho1*pow(r/R1, -2.);
+        //double p   = p1*pow(r/R1, -2*gma);
         c->S.prim[RHO] = rho/rhoNorm;
         c->S.prim[VV1] = beta1;
         c->S.prim[PPP] = p1/pNorm;
@@ -180,58 +184,58 @@ void Grid::userKinematics(int it, double t){
   UNUSED(it);
   UNUSED(t);
 
-  // DEFAULT VALUES
-  //double vIn  = 1.;
-  //double vOut = 1.;
-  //double vb = vOut;
+  // // DEFAULT VALUES
+  // //double vIn  = 1.;
+  // //double vOut = 1.;
+  // //double vb = vOut;
 
-  // check if rarefaction wave(s) too close to boundary
-  int iout = iRbnd-1;
-  int iin  = iLbnd+1;
-  double rout = Ctot[iout].G.x[r_];
-  double rin  = Ctot[iin].G.x[r_];
-  double rlimL = rin + 0.02 * (rout-rin);
-  double rlimR = rin + 0.98 * (rout-rin);
+  // // check if rarefaction wave(s) too close to boundary
+  // int iout = iRbnd-1;
+  // int iin  = iLbnd+1;
+  // double rout = Ctot[iout].G.x[r_];
+  // double rin  = Ctot[iin].G.x[r_];
+  // double rlimL = rin + 0.02 * (rout-rin);
+  // double rlimR = rin + 0.98 * (rout-rin);
 
-  // left boundary
-  int ia = iin;
-  double rcand = rin;
-  Cell c = Ctot[ia];
-  double pcand = c.S.prim[PPP];
-  double ptemp;
-  while (rcand < rlimL){
-    ia++;
-    c = Ctot[ia];
-    rcand = c.G.x[r_];
-    ptemp = std::max(c.S.prim[PPP], pcand);
-    pcand = ptemp;
-  }
-  if (pcand >= 10.*p4/pNorm){
-    for (int n = 0; n < ngst; ++n){
-      int    iL = n;
-      Itot[iL].v = 0.9;
-  }
-  }
+  // // left boundary
+  // int ia = iin;
+  // double rcand = rin;
+  // Cell c = Ctot[ia];
+  // double pcand = c.S.prim[PPP];
+  // double ptemp;
+  // while (rcand < rlimL){
+  //   ia++;
+  //   c = Ctot[ia];
+  //   rcand = c.G.x[r_];
+  //   ptemp = std::max(c.S.prim[PPP], pcand);
+  //   pcand = ptemp;
+  // }
+  // if (pcand >= 10.*p4/pNorm){
+  //   for (int n = 0; n < ngst; ++n){
+  //     int    iL = n;
+  //     Itot[iL].v = 0.9;
+  // }
+  // }
   
-  // right boundary
-  ia = iout;
-  rcand = rout;
-  c = Ctot[ia];
-  pcand = c.S.prim[PPP];
-  while (rcand > rlimR){
-    ia--;
-    c = Ctot[ia];
-    rcand = c.G.x[r_];
-    ptemp = std::max(c.S.prim[PPP], pcand);
-    pcand = ptemp;
-  }
-  if (pcand >= 10.*p1/pNorm){
-    //std::cout << "Shell edge too close to sim edge";
-    for (int n = 0; n < ngst; ++n){
-      int    iR = ntrack-2-n;
-      Itot[iR].v = 1.1;
-    }
-  }
+  // // right boundary
+  // ia = iout;
+  // rcand = rout;
+  // c = Ctot[ia];
+  // pcand = c.S.prim[PPP];
+  // while (rcand > rlimR){
+  //   ia--;
+  //   c = Ctot[ia];
+  //   rcand = c.G.x[r_];
+  //   ptemp = std::max(c.S.prim[PPP], pcand);
+  //   pcand = ptemp;
+  // }
+  // if (pcand >= 10.*p1/pNorm){
+  //   //std::cout << "Shell edge too close to sim edge";
+  //   for (int n = 0; n < ngst; ++n){
+  //     int    iR = ntrack-2-n;
+  //     Itot[iR].v = 1.1;
+  //   }
+  // }
 }
 
 void Cell::userSourceTerms(double dt){
@@ -298,7 +302,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if ( it > 40000 ){ stop = true; }
+  if ( it > 15000 ){ stop = true; }
   //if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
 
 }
