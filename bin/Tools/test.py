@@ -7,21 +7,53 @@ Run this file to perform the current test
 '''
 
 from plotting_scripts_new import *
+from thinshell_analysis import *
 plt.ion()
 
+key = 'sph_fid'
+env = MyEnv(key)
+extract_contribs(key, extrapolate=False)
+path = get_contribspath(key)
+fig, axs = plt.subplots(2,1,sharex='all')
+N = 200
+for sh, col in zip(['RS', 'FS'], ['r', 'b']):
+  nuth, Lth = (env.nu0, env.tL0) if sh == 'RS' else (env.nu0FS, env.tL0FS)
+  df = pd.read_csv(path+sh+'.csv')
+  t = df['time'][:N]/env.t0
+  nu = df[f'nu_m_{{{sh}}}'][:N]
+  L = df[f'Lth_{{{sh}}}'][:N]
+  axs[0].semilogy(t, nu, c=col, ls='-.')
+  axs[0].scatter(t, nu, c=col, marker='x', alpha=.8)
+  axs[1].semilogy(t, L, c=col, ls='-.')
+  axs[1].scatter(t, L, c=col, marker='x', alpha=.8)
+axs[1].set_xlabel('$t/t_0$')
+extract_contribs(key, extrapolate=True)
+for sh, col in zip(['RS', 'FS'], ['r', 'b']):
+  nuth, Lth = (env.nu0, env.tL0) if sh == 'RS' else (env.nu0FS, env.tL0FS)
+  df = pd.read_csv(path+sh+'.csv')
+  t = df['time'][:N]/env.t0
+  nu = df[f'nu_m_{{{sh}}}'][:N]
+  L = df[f'Lth_{{{sh}}}'][:N]
+  axs[0].semilogy(t, nu, c=col)
+  axs[0].scatter(t, nu, c=col, marker='x')
+  axs[0].axhline(nuth, c=col, ls='--')
+  axs[1].semilogy(t, L, c=col)
+  axs[1].scatter(t, L, c=col, marker='x')
+lstlegend = [axs[-1].plot([], [], c='k', ls=ls)[0] for ls in ['-', '-.']]
+axs[-1].legend(lstlegend, ['extrapolation', 'no extrap.'])
+axs[1].set_xlabel('$t/t_0$')
 '''
 Plot the flux integrand at fixed nu and fixed T to get why it doesn't converge
 '''
-
-key = 'Last'
-nuobs, Tobs, env = get_radEnv(key)
-lognu, logT = -1, 0
-nub = nuobs/env.nu0
-i_nu = find_closest(nub, 10**lognu)
-Tb = (Tobs-env.Ts)/env.T0
-i_T = find_closest(Tb, 10**logT)
-b1, b2 = -0.5, -1.25
-colors = ['r', 'b', 'g', 'y', 'c', 'm', 'teal', 'darkorange']
+# key = 'Last'
+# nuobs, Tobs, env = get_radEnv(key)
+# lognu, logT = -1, 0
+# nub = nuobs/env.nu0
+# i_nu = find_closest(nub, 10**lognu)
+# Tb = (Tobs-env.Ts)/env.T0
+# i_T = find_closest(Tb, 10**logT)
+# b1, b2 = -0.5, -1.25
+# colors = ['r', 'b', 'g', 'y', 'c', 'm', 'teal', 'darkorange']
 
 def plot_fluxes(key):
   fig = plt.figure()

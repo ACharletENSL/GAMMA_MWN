@@ -313,7 +313,7 @@ def get_spectrum_run(key, mode='r'):
   out = pd.read_csv(rfile_path, index_col=0)
   return out
 
-def get_radEnv(key, Nnu=200, Tbmax=5, nT=50):
+def get_radEnv(key, Tbmax=5, nT=100):
   '''
   Returns necessary variables for spectrum calculation from a run
   Nnu : number of frequency bins
@@ -321,7 +321,7 @@ def get_radEnv(key, Nnu=200, Tbmax=5, nT=50):
   nT : number of bins per unit Tnorm = betaRS*T0
   '''
   env = MyEnv(key)
-  nuobs = np.logspace(-3, 1.1, Nnu)*env.nu0
+  nuobs = np.concatenate((np.logspace(-3, -1, 100), np.logspace(-1, 1.5, 300), np.logspace(1.5, 2.5)), axis=None)*env.nu0
   Tobs = env.Ts + np.linspace(0, 5, nT*Tbmax)*env.T0
   return nuobs, Tobs, env
 

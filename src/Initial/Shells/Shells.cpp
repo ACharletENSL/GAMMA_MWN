@@ -35,10 +35,10 @@ static double cont = 0.05 ;           // density contrast between shell and ext 
 
 // box size
 static double R_0     = 79947153684166.38 ;
-static int Nsh1   = 450 ;
-static int Ntot1  = 500 ;
-static int Nsh4   = 450 ;
-static int Ntot4  = 500 ;
+static int Nsh1   = 900 ;
+static int Ntot1  = 1000 ;
+static int Nsh4   = 900 ;
+static int Ntot4  = 1000 ;
 static int Ncells = Ntot4 + Ntot1;
 
 // normalisation constants:
@@ -290,7 +290,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
 void Simu::dataDump(){
 
-  if (it % 10 == 0){ grid.printCols(it, t); }
+  if (it % 5 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -302,7 +302,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if ( it > 15000 ){ stop = true; }
+  if ( it > 30000 ){ stop = true; }
   //if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
 
 }

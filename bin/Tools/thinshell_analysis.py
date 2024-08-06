@@ -10,6 +10,7 @@ polynomial fit, get peak position
 '''
 
 from plotting_scripts_new import *
+from scipy.optimize import curve_fit
 plt.ion()
 
 cols_dic = {'RS':'r', 'FS':'b', 'RS+FS':'k', 'CD':'purple',
@@ -30,6 +31,96 @@ spsh_cols = {'Band':'g', 'plaw':'teal'}
 
 ### plots
 
+def plot_nuRatios_compared(keylist = ['sph_fid', 'cart_fid']):
+  '''
+  Compare two Delta R/ R0 plots
+  '''
+  fig, ax = plt.subplots()
+  lstyles = ['-', '-.']
+  dummy_lst = [ax.plot([],  [], c='k', ls=l)[0] for l in lstyles]
+  ax.legend(dummy_lst, ['sph.', 'hybrid'])
+  for key, l in zip(keylist, lstyles):
+    plot_nubrkRatio(key, ax, ls=l)
+  ax.set_xlabel('$\\Delta R/R_0$')
+  ax.set_ylabel('$\\nu_{bk}/\\nu_{1/2}$')
+
+
+def plot_nubrkRatio(key, ax_in=None, ratio=.5, **kwargs):
+  '''
+  Plot ratio between frequency at break nu_bk and at nuFnu(nu_bk)/2 as a function of Delta R/R0
+  '''
+
+  env = MyEnv(key)
+  dRR, nu_ratio = get_breakRatioRS_run(key, ratio)
+
+  if not ax_in:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+  
+  ax.plot(dRR[:-1], nu_ratio[:-1], c='r', **kwargs)
+
+  if not ax_in: 
+    ax.set_xlabel('$\\Delta R/R_0$')
+    ax.set_ylabel('$\\nu_{bk}/\\nu_{1/2}$')
+
+
+def plot_nubrknratio(key, ax_in=None, ratio=.5, **kwargs):
+  '''
+  Plot ratio between frequency at break nu_bk and at nuFnu(nu_bk)/2 as a function of Delta R/R0
+  '''
+
+  env = MyEnv(key)
+  dRR, nu_bks, nu_atr = get_freqs_brknratio(key, ratio=ratio)
+
+  if not ax_in:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+  
+  ax.semilogy(dRR[:-1], nu_bks[:-1]/env.nu0, c='r', **kwargs)
+  ax.semilogy(dRR[:-1], nu_atr[:-1]/env.nu0, c='mediumvioletred', **kwargs)
+
+  if not ax_in: 
+    ax.set_xlabel('$\\Delta R/R_0$')
+    ax.set_ylabel('$\\nu_{bk}/\\nu_0$')
+
+
+def plot_nubrks_compared(keylist = ['sph_fid', 'cart_fid']):
+  '''
+  Compare two Delta R/ R0 plots
+  '''
+  fig, ax = plt.subplots()
+  lstyles = ['-', '-.']
+  dummy_lst = [ax.plot([],  [], c='k', ls=l)[0] for l in lstyles]
+  ax.legend(dummy_lst, ['sph.', 'hybrid'])
+  for key, l in zip(keylist, lstyles):
+    plot_nubrk(key, ax, ls=l)
+  ax.set_xlabel('$\\Delta R/R_0$')
+  ax.set_ylabel('$\\nu_{bk}/\\nu_0$')
+  ax.set_ylim(ymin = 8e-2)
+
+
+def plot_nubrk(key, ax_in=None, **kwargs):
+  '''
+  Plot frequency at break as a function of Delta R/R0
+  '''
+  env = MyEnv(key)
+  dRR, nubks = get_breakfreqsRS_run(key)
+
+  if not ax_in:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+  
+  ax.semilogy(dRR[:-1], nubks[:-1]/env.nu0, c='r', **kwargs)
+
+  if not ax_in: 
+    ax.set_xlabel('$\\Delta R/R_0$')
+    ax.set_ylabel('$\\nu_{bk}/\\nu_0$')
   
 
 def plot_contribs(key, varlist=['nu_m', 'Lth'], itmin=0, itmax=None):
@@ -97,6 +188,7 @@ def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band'):
   '''
   fig = plt.figure()
   plotfuncs = [plot_nupk, plot_nupkFnupk]
+  crTb = 1.
   gs = fig.add_gridspec(len(plotfuncs), 1, wspace=0)
   axs = gs.subplots(sharex='all')
   names, colors = ['RS', 'FS'], ['r', 'b']
@@ -109,7 +201,8 @@ def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band'):
   for label, plotfunc, ax in zip(ylabels, plotfuncs, axs):
     ax.set_ylabel(label)
     for key, ls in zip(keylist, lstyles):
-      plotfunc(key, func=func, ax_in=ax, ls=ls)
+      theory = True if key == 'cart_fid' else False
+      plotfunc(key, func=func, ax_in=ax, theory=Theory, ls=ls)
     ax.set_xscale('linear')
   axs[-1].set_yscale('linear')
   axs[-1].set_xlim((0,5))
@@ -120,7 +213,7 @@ def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band'):
   plt.tight_layout()
 
 
-def plot_radPanel_t(key, func='Band'):
+def plot_radPanel_t(key, func='Band', theory=False):
   '''
   Plots nu_pk, L_pk, and their product with time in a single figure
   '''
@@ -136,11 +229,11 @@ def plot_radPanel_t(key, func='Band'):
 
   for label, plotfunc, ax in zip(ylabels, plotfuncs, axs):
     ax.set_ylabel(label)
-    plotfunc(key, func=func, ax_in=ax)
+    plotfunc(key, func=func, ax_in=ax, theory=theory)
     ax.set_xscale('linear')
   axs[-1].set_yscale('linear')
   axs[-1].set_xlim((0,5))
-  axs[0].set_ylim(ymin=9e-3)
+  axs[0].set_ylim(ymin=5e-3)
   fig.legend(dummy_col, names, handlelength=1.5)
 
 
@@ -164,7 +257,7 @@ def plot_radPanels(key):
   fig.legend(dummy_col, names, handlelength=1.5, loc='outside center right')
   #plt.tight_layout()
 
-def plot_compareAll(var, lognu=-1, logT=0, Nnu=200, theory=False,
+def plot_compareAll(var, lognu=-1, logT=0, theory=False,
   pres_mode=False, art_mode=False):
   '''
   Plots 2x1 of the selected var comparing between runs
@@ -192,26 +285,26 @@ def plot_compareAll(var, lognu=-1, logT=0, Nnu=200, theory=False,
   if var == 'lc':
     title = 'lightcurves at $\\log_{10}\\tilde{\\nu}=$' + f'{lognu:d}'
     def plotfunc(key, func, ax_in, **kwargs):
-      plot_lightcurve(key, lognu, func, theory, totonly=False, ax_in=ax_in, Nnu=Nnu, **kwargs)
+      plot_lightcurve(key, lognu, func, theory, totonly=False, ax_in=ax_in, **kwargs)
     def plot_hybtotline(ax_in):
-      plot_lightcurve('cart_fid', lognu, 'Band', theory=False, totonly=True, ax_in=ax_in, Nnu=Nnu, ls=lstyles[-1])
+      plot_lightcurve('cart_fid', lognu, 'Band', theory=False, totonly=True, ax_in=ax_in, ls=lstyles[-1])
   elif var == 'sp':
     title = 'spectras at $\\bar{T}=$'+f'{10**logT:.1f}'
     def plotfunc(key, func, ax_in, **kwargs):
-      plot_spectrum(key, logT, func, theory, totonly=False, ax_in=ax_in, Nnu=Nnu, **kwargs)
+      plot_spectrum(key, logT, func, theory, totonly=False, ax_in=ax_in, **kwargs)
     def plot_hybtotline(ax_in):
-      plot_spectrum('cart_fid', logT, 'Band', theory=False, totonly=True, ax_in=ax_in, Nnu=Nnu, ls=lstyles[-1])
+      plot_spectrum('cart_fid', logT, 'Band', theory=False, totonly=True, ax_in=ax_in, ls=lstyles[-1])
   elif var == 'tsp':
     title = 'time-integrated spectras'
     ylabel = '$\\nu f_\\nu/\\nu_0 F_0 T_0$'
     def plotfunc(key, func, ax_in, **kwargs):
-      plot_integSpec(key, func, theory=theory, ax_in=ax_in, Nnu=Nnu, **kwargs)
+      plot_integSpec(key, func, theory=theory, ax_in=ax_in, **kwargs)
     def plot_hybtotline(ax_in):
-      plot_integSpec('cart_fid', 'Band', theory=False, totonly=True, ax_in=ax_in, Nnu=Nnu, ls=lstyles[-1])
+      plot_integSpec('cart_fid', 'Band', theory=False, totonly=True, ax_in=ax_in, ls=lstyles[-1])
   elif var == 'bhv':
     title = 'spectral behavior'
     def plotfunc(key, func, ax_in, **kwargs):
-      plot_radBehav(key, func, False, ax_in, Nnu=Nnu,
+      plot_radBehav(key, func, False, ax_in,
           pres_mode=pres_mode, **kwargs)
   
   fig.supylabel(ylabel)
@@ -240,7 +333,7 @@ def plot_compareAll(var, lognu=-1, logT=0, Nnu=200, theory=False,
 
 
 
-def plot_comparedRad(key, lognu=-1, logT=0, Nnu=200, theory=True):
+def plot_comparedRad(key, lognu=-1, logT=0, theory=True):
   '''
   Creates combined plot (2 lightcurves, 2 spectras) to compare Band & plaw
   at given lognu and logT
@@ -264,23 +357,23 @@ def plot_comparedRad(key, lognu=-1, logT=0, Nnu=200, theory=True):
   ax_lcp.set_xlabel('$\\bar{T}$')
   ax_spp.set_xlabel('$\\tilde{\\nu}$')
 
-  plot_lightcurve(key, lognu, 'Band', theory=theory, ax_in=ax_lcb, Nnu=Nnu)
-  plot_lightcurve(key, lognu, 'plaw', theory=theory, ax_in=ax_lcp, Nnu=Nnu)
-  plot_spectrum(key, logT, 'Band', theory=theory, ax_in=ax_spb, Nnu=Nnu)
-  plot_spectrum(key, logT, 'plaw', theory=theory, ax_in=ax_spp, Nnu=Nnu)
+  plot_lightcurve(key, lognu, 'Band', theory=theory, ax_in=ax_lcb)
+  plot_lightcurve(key, lognu, 'plaw', theory=theory, ax_in=ax_lcp)
+  plot_spectrum(key, logT, 'Band', theory=theory, ax_in=ax_spb)
+  plot_spectrum(key, logT, 'plaw', theory=theory, ax_in=ax_spp)
 
 def plot_spectrum(key, logT, func='Band',
   theory=False, hybrid=True, totonly=False, newmethod=True,
-  ax_in=None, Nnu=200, **kwargs):
+  ax_in=None, **kwargs):
   '''
   Plots instantaneous spectrum at \bar{T} = 10**logT
   '''
-  nuobs, Tobs, env = get_radEnv(key, Nnu)
+  nuobs, Tobs, env = get_radEnv(key)
   Tb = (Tobs-env.Ts)/env.T0
   T = np.array([env.T0*10**logT + env.Ts])
   nub = nuobs/env.nu0
-  nuFnus = nuFnu_thinshell_run(key, nuobs, T, env, func, Nnu)[:,0,:] if newmethod \
-    else nuFnu_thinshell_run_v1(key, nuobs, T, env, func, Nnu)[:,0,:]
+  nuFnus = nuFnu_thinshell_run(key, nuobs, T, env, func)[:,0,:] #if newmethod \
+    #else nuFnu_thinshell_run_v1(key, nuobs, T, env, func)[:,0,:]
   nuFnus = np.append(nuFnus, [nuFnus.sum(axis=0)], axis=0)
   nuFnus /= env.nu0F0
   names = ['RS', 'FS', 'RS+FS']
@@ -318,15 +411,15 @@ def plot_spectrum(key, logT, func='Band',
 
 def plot_lightcurve(key, lognu, func='Band',
   theory=False, hybrid=True, totonly=False, newmethod=True,
-  ax_in=None, Nnu=200, **kwargs):
+  ax_in=None, **kwargs):
   '''
   Plots lightcurve at nu = 10**lognu nu_O
   '''
-  nuobs, Tobs, env = get_radEnv(key, Nnu)
+  nuobs, Tobs, env = get_radEnv(key)
   nuobs = np.array([10**lognu*env.nu0])
   Tb = (Tobs-env.Ts)/env.T0
-  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func, Nnu)[:,:,0] if newmethod \
-    else nuFnu_thinshell_run_v1(key, nuobs, Tobs, env, func, Nnu)[:,:,0]
+  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)[:,:,0] #if newmethod \
+    #else nuFnu_thinshell_run_v1(key, nuobs, Tobs, env, func)[:,:,0]
   nuFnus = np.append(nuFnus, [nuFnus.sum(axis=0)], axis=0)
   nuFnus /= env.nu0F0
   names = ['RS', 'FS', 'RS+FS']
@@ -362,13 +455,13 @@ def plot_lightcurve(key, lognu, func='Band',
     plt.title(key+', $\\log\\tilde{\\nu}=$'+f'{lognu:d}'+', '+func)
 
 def plot_integSpec(key, func='Band',
-  theory=False, hybrid=True, totonly=False, ax_in=None, Nnu=200, **kwargs):
+  theory=False, hybrid=True, totonly=False, ax_in=None, **kwargs):
   '''
   Plots time integrated spectrum
   '''
-  nuobs, Tobs, env = get_radEnv(key, Nnu)
+  nuobs, Tobs, env = get_radEnv(key)
   nub = nuobs/env.nu0
-  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func, Nnu)
+  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
   fnus = np.trapz(nuFnus, x=Tobs, axis=1)
   fnus = np.append(fnus, [fnus.sum(axis=0)], axis=0)
   fnus /= env.T0*env.nu0F0
@@ -403,7 +496,17 @@ def plot_integSpec(key, func='Band',
     plt.ylabel("$\\nu f_{\\nu}/\\nu_0 F_0 T_0$")
     plt.title(key+', '+func)
 
-def plot_radBehav(key, func='Band', theory=False, ax_in=None, Nnu=200, 
+def plot_bhvCompared(func='Band'):
+  fig, ax = plt.subplots()
+  plot_radBehav('sph_fid', func=func, theory=True, ax_in=ax, pres_mode=True, ls='-')
+  plot_radBehav('cart_fid', func=func, theory=True, ax_in=ax, pres_mode=True, ls='-.')
+  dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in ['-', '-.', ':']]
+  ax.legend(dummy_lst, ['sph.', 'hybrid num.', 'theoric'])
+  plt.xlabel("$\\nu_{pk}/\\nu_0$")
+  plt.ylabel("$\\nu_{pk}F_{\\nu_{pk}}/\\nu_0F_0$")
+  plt.title('spectral behavior')
+
+def plot_radBehav(key, func='Band', theory=False, ax_in=None, 
     pres_mode=False, **kwargs):
   '''
   Plots nuFnu_pk(nu_pk) of the observed flux
@@ -416,25 +519,21 @@ def plot_radBehav(key, func='Band', theory=False, ax_in=None, Nnu=200,
     ax = ax_in
   
   names, colors = ['RS', 'FS'], ['r', 'b']
-  nuobs, Tobs, env = get_radEnv(key, Nnu)
-  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func, Nnu)
+  nuobs, Tobs, env = get_radEnv(key)
+  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
   Nit = 1 if pres_mode else nuFnus.shape[0]
   NT = nuFnus.shape[1]
 
   if theory:
-    # nuFnus_th = nuFnu_theoric(nuobs, Tobs, env, geometry=env.geometry, func=func)
-    # for k, nuFnu, name, col in zip(range(Nit), nuFnus_th, names, colors):
-    #   nupks, nuFnupks = np.zeros((2,NT))
-    #   for i in range(NT):
-    #     ipk = np.argmax(nuFnu[i])
-    #     nupks[i] = nuobs[ipk]
-    #     nuFnupks[i] = nuFnu[i,ipk]
-    # ax.loglog(nupks/env.nu0, nuFnupks, c=col, ls='-.')
     for k, name in zip(range(Nit), names):
-      plot_bhv_hybrid(sh=name, ax_in=ax, ls=':')
+      if env.geometry == 'spherical':
+        dRoR = 1.52 if name == 'RS' else 1.67
+      else:
+        dRoR = None
+      plot_bhv_hybrid(dRoR=dRoR, sh=name, ax_in=ax, ls=':')
     if not ax_in:
       dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in ['-', ':']]
-      loc = 'lower center' if pres_mode else 'upper left'
+      loc = 'upper center'
       lstlegend = ax.legend(dummy_lst, ['numerical', 'analytical'], loc=loc) #bbox_to_anchor=(0.98, 0.7)
       ax.add_artist(lstlegend)
 
@@ -446,20 +545,24 @@ def plot_radBehav(key, func='Band', theory=False, ax_in=None, Nnu=200,
       nuFnupks[i] = nuFnu[i,ipk]
     ax.loglog(nupks[1:]/env.nu0, nuFnupks[1:]/env.nu0F0, c=col, label=name, **kwargs)
   
-  xmin = 5e-3
-  if not pres_mode:
-    ax.set_xlim(xmin=xmin)
-  ax.set_ylim(ymin=1e-2)
+  # xmin = 5e-3
+  # if not pres_mode:
+  #   ax.set_xlim(xmin=xmin)
+  # ax.set_ylim(ymin=1e-2)
+  if pres_mode:
+    ax.set_xlim(xmin=4e-2)
 
   if not ax_in:
     if not pres_mode:
       plt.legend()
     if pres_mode:
       plt.title(env.geometry)
+    else:
+      plt.title(key)
     plt.xlabel("$\\nu_{pk}/\\nu_0$")
     plt.ylabel("$\\nu_{pk}F_{\\nu_{pk}}/\\nu_0F_0$")
 
-def plot_bhv_hybrid(dRoR=None, sh='RS', ax_in=None, Nnu=200, **kwargs):
+def plot_bhv_hybrid(dRoR=None, sh='RS', ax_in=None, **kwargs):
   '''
   Plots spectral behavior of chosen front, from fits on hybrid approach
   '''
@@ -469,14 +572,14 @@ def plot_bhv_hybrid(dRoR=None, sh='RS', ax_in=None, Nnu=200, **kwargs):
   else:
     ax = ax_in
 
-  nuobs, Tobs, env = get_radEnv('cart_fid', Nnu)
+  nuobs, Tobs, env = get_radEnv('cart_fid')
   g, Tth, dRR, fac_nu, fac_F, col = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F, 'b') if sh == 'FS' else (env.gRS, env.T0, env.dRRS, 1., 1., 'r')
   tT = 1. + (Tobs - env.Ts)/Tth
-  dR = dRoR if dRoR else dRR
+  dR = dRoR if dRoR else dRR/env.R0
   tTf = 1. + dR
   nu, nuFnu = approx_bhv_hybrid(tT, tTf, g)
   nu /= fac_nu
-  nuFnu *= fac_F
+  nuFnu /= (fac_F*fac_nu)
   ax.loglog(nu, nuFnu, c=col, **kwargs)
 
   if not ax_in:
@@ -484,7 +587,7 @@ def plot_bhv_hybrid(dRoR=None, sh='RS', ax_in=None, Nnu=200, **kwargs):
     plt.ylabel("$\\nu F_{\\nu}/\\nu_0 F_0$")
     plt.tight_layout()
 
-def plot_nupk(key, func='Band', ax_in=None, Nnu=500, **kwargs):
+def plot_nupk(key, func='Band', ax_in=None, theory=False, **kwargs):
   '''
   Plots nu_pk (\bar{T}) of the observed flux
   '''
@@ -496,26 +599,44 @@ def plot_nupk(key, func='Band', ax_in=None, Nnu=500, **kwargs):
     ax = ax_in
   
   names, colors = ['RS', 'FS'], ['r', 'b']
-  nuobs, Tobs, env = get_radEnv(key, Nnu)
+  nuobs, Tobs, env = get_radEnv(key)
   Tb = (Tobs-env.Ts)/env.T0
-  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func, Nnu)
-
+  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
 
   for nuFnu, name, col in zip(nuFnus, names, colors):
-    nupks, nuFnupks = np.zeros((2,nuFnu.shape[0]))
+    nupks = np.zeros(nuFnu.shape[0])
     for i in range(nuFnu.shape[0]):
       ipk = np.argmax(nuFnu[i])
       nupks[i] = nuobs[ipk]
-    ax.loglog(Tb[1:], nupks[1:]/env.nu0, c=col, label=name, **kwargs)
+    ax.semilogy(Tb[1:], nupks[1:]/env.nu0, c=col, label=name, **kwargs)
 
-    
+    if theory:
+      g, Tth, dRR, fac_nu, fac_F = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F) \
+        if name == 'FS' else (env.gRS, env.T0, env.dRRS, 1., 1.)
+      tT = 1. + (Tobs - env.Ts)/Tth
+      tTf = 1. + dRR/env.R0
+      if env.geometry == 'cartesian':
+        nu, nuFnu = approx_bhv_hybrid(tT, tTf, g)
+        nu /= fac_nu
+        ax.semilogy(Tb, nu, c=col, ls=':', **kwargs)
+      else:
+        def fitfunc(x, d1, d2):
+          return approx_nupk_hybrid(x, tTfi=tTf, gi=g, d1=d1, d2=d2)
+        curve_fit(fitfunc, tT[2:], nupks[2:])
+
+  
 
   if not ax_in:
+    if theory:
+      dummy_lst = [plt.plot([],[], c='k', ls=l)[0] for l in ['-', ':']]
+      lstlegend = ax.legend(dummy_lst, ['numerical', 'analytical'], loc='lower right')
+      ax.add_artist(lstlegend)
     plt.legend()
+    plt.title(key)
     plt.xlabel("$\\bar{T}$")
     plt.ylabel("$\\nu_{pk}/\\nu_0$")
 
-def plot_nupkFnupk(key, func='Band', ax_in=None, Nnu=500, **kwargs):
+def plot_nupkFnupk(key, func='Band', ax_in=None, theory=False, **kwargs):
   '''
   Plots nu_pk F_{nu_pk} (\bar{T}) of the observed flux
   '''
@@ -527,32 +648,30 @@ def plot_nupkFnupk(key, func='Band', ax_in=None, Nnu=500, **kwargs):
     ax = ax_in
   
   names, colors = ['RS', 'FS'], ['r', 'b']
-  nuobs, Tobs, env = get_radEnv(key, Nnu)
+  nuobs, Tobs, env = get_radEnv(key)
   Tb = (Tobs-env.Ts)/env.T0
-  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func, Nnu)
+  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
 
-  # if theory:
-  #   nuFnus_th = nuFnu_theoric(nuobs, Tobs, env, geometry=env.geometry, func=func)
-  #   for nuFnu, name, col in zip(nuFnus_th, names, colors):
-  #     nupks, nuFnupks = np.zeros((2,nuFnu.shape[0]))
-  #     for i in range(nuFnu.shape[0]):
-  #       ipk = np.argmax(nuFnu[i])
-  #       nupks[i] = nuobs[ipk]
-  #       nuFnupks[i] = nuFnu[i,ipk]
-  #   ax.loglog(nupks/env.nu0, nuFnupks, c=col, ls='-.')
-  #   if not ax_in:
-  #     dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in ['-', '-.']]
-  #     lstlegend = ax.legend(dummy_lst, ['numerical', 'analytical'],
-  #       fontsize=11, loc='upper right', borderaxespad=0.) #bbox_to_anchor=(0.98, 0.7)
-  #     ax.add_artist(lstlegend)
   for nuFnu, name, col in zip(nuFnus, names, colors):
     nupks, nuFnupks = np.zeros((2,nuFnu.shape[0]))
     for i in range(nuFnu.shape[0]):
       ipk = np.argmax(nuFnu[i])
       nuFnupks[i] = nuFnu[i,ipk]
-    ax.loglog(Tb[1:], nuFnupks[1:]/env.nu0F0, c=col, label=name, **kwargs)
+    ax.semilogy(Tb[1:], nuFnupks[1:]/env.nu0F0, c=col, label=name, **kwargs)
+    if theory:
+      g, Tth, dRR, fac_nu, fac_F, col = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F, 'b') \
+        if name == 'FS' else (env.gRS, env.T0, env.dRRS, 1., 1., 'r')
+      tT = 1. + (Tobs - env.Ts)/Tth
+      tTf = 1. + dRR/env.R0
+      nu, nuFnu = approx_bhv_hybrid(tT, tTf, g)
+      nuFnu /= (fac_F*fac_nu)
+      ax.semilogy(Tb, nuFnu, c=col, ls=':', **kwargs)
 
   if not ax_in:
+    if theory:
+      dummy_lst = [plt.plot([],[], c='k', ls=l)[0] for l in ['-', ':']]
+      lstlegend = ax.legend(dummy_lst, ['numerical', 'analytical'], loc='lower right')
+      ax.add_artist(lstlegend)
     plt.legend()
     plt.xlabel("$\\bar{T}$")
     plt.ylabel("$\\nu_{pk}F_{\\nu_{pk}}/\\nu_0F_0$")
@@ -954,11 +1073,11 @@ def analysis_rad_thinshell(key, func='Band'):
   file_path = get_rpath_thinshell(key)
   data.to_csv(file_path)
 
-def nuFnu_thinshell_run(key, nu_in, T_in, env, func, hybrid=True, Nnu=200):
+def nuFnu_thinshell_run_v0(key, nu_in, T_in, env, func, hybrid=True):
   '''
   Returns nuFnu for 2 fronts at chosen obs freq and time
   '''
-  nuobs, Tobs, env = get_radEnv(key, Nnu)
+  nuobs, Tobs, env = get_radEnv(key)
   rads = open_raddata(key, func)
   nuRS = [s for s in rads.keys() if 'RS' in s]
   nuFS = [s for s in rads.keys() if 'FS' in s]
@@ -994,7 +1113,7 @@ def nuFnu_thinshell_run_v1(key, nuobs, Tobs, env, func, hybrid=True):
   for i, sh in enumerate(sh_names):
     ids = run_data[f'ish_{{{sh}}}'].to_numpy()
     its_split = np.split(its, np.flatnonzero(np.diff(ids))+1)
-    df_dataIn = run_data.loc[its_split[iIn][0]]
+    #df_dataIn = run_data.loc[its_split[iIn][0]]
     #nu, Lnu = df_dataIn[[f'nu_m_{{{sh}}}', f'Lth_{{{sh}}}']]
     for j, it_group in enumerate(its_split[1:]): 
       # only calculate contribution from first it where cell is shocked
@@ -1005,6 +1124,105 @@ def nuFnu_thinshell_run_v1(key, nuobs, Tobs, env, func, hybrid=True):
       #  df_data[[f'nu_m_{{{sh}}}', f'Lth_{{{sh}}}']] = nu, Lnu # artificially set values at start to 2 it after
       nuFnus[i] += nuobs * df_get_Fnu_thinshell(df_data, sh, nuobs, Tobs, env, func, hybrid)
   
+  return nuFnus
+
+def get_breakfreqsRS_run(key, dRRmin=.2, func='Band'):
+  '''
+  Get the break frequency at each increment of the flux coming from the RS
+  Allows to explore the range of Delta R/R_0 of the full shell
+  '''
+  nuobs, Tobs, env = get_radEnv(key)
+  path = get_contribspath(key)
+  df = pd.read_csv(path+'RS.csv')
+  nuFnu = np.zeros((len(Tobs), len(nuobs)))
+  Nsh = len(df.index)
+  dRR, nubks = np.zeros((2, Nsh))
+  for i in range(Nsh):
+    row = df.iloc[i]
+    nuFnu += nuobs * df_get_Fnu_thinshell(row, 'RS', nuobs, Tobs, env, func)
+    Tej, Tth = row[['Tej_{RS}', 'Tth_{RS}']]
+    Ton = Tej + Tth
+    ion = find_closest(Tobs, Ton)
+    ipk = np.argmax(nuFnu[ion])
+    dRR[i] = row['r_{RS}']*c_/env.R0 - 1.
+    nubks[i] = nuobs[ipk]
+  return dRR[dRR>dRRmin], nubks[dRR>dRRmin]
+
+def get_freqs_brknratio(key, ratio=.5, dRRmin=0.2, func='Band'):
+  '''
+  Returns nu_bk and nu at ratio*nuFnu(nu_bk)
+  '''
+  # colors = ['r', 'b', 'g', 'c', 'm']
+  # plt.figure()
+  nuobs, Tobs, env = get_radEnv(key)
+  path = get_contribspath(key)
+  df = pd.read_csv(path+'RS.csv')
+  nuFnu = np.zeros((len(Tobs), len(nuobs)))
+  Nsh = len(df.index)
+  dRR, nu_bks, nu_atr = np.zeros((3, Nsh))
+  l = 0
+  for i in range(Nsh):
+    row = df.iloc[i]
+    nuFnu += nuobs * df_get_Fnu_thinshell(row, 'RS', nuobs, Tobs, env, func)
+    dRR[i] = row['r_{RS}']*c_/env.R0 - 1.
+    if dRR[i] >= dRRmin:
+      Tej, Tth = row[['Tej_{RS}', 'Tth_{RS}']]
+      Ton = Tej + Tth
+      ion = np.searchsorted(Tobs, Ton)
+      # peak frequency at crossing time is our "break frequency" 
+      ibk = np.argmax(nuFnu[ion])
+      nu_bk = nuobs[ibk]
+
+      # construct the nupkFnupk(nupk) curve
+      nupks, nuFnupks = np.zeros((2,ion))
+      for k in range(ion):
+        ipk = np.argmax(nuFnu[k])
+        nupks[k] = nuobs[ipk]
+        nuFnupks[k] = nuFnu[k,ipk]
+        
+      # find_sorted & np.searchsorted need sorted array, nuFnupks may decrease
+      nFn_atbrk = nuFnupks[-1]
+      i_h = find_closest(nuFnupks[nuFnupks<=nuFnupks.max()], ratio*nFn_atbrk)
+      nu_h = nupks[i_h]
+      
+      nu_bks[i] = nu_bk
+      nu_atr[i] = nu_h
+      # if dRR[i] % 0.2 <= 0.002:
+      #   col = colors[l]
+      #   plt.loglog(nupks/env.nu0, nuFnupks/env.nu0F0, label=f'{dRR[i]:.2f}', alpha=.7, c=col)
+      #   plt.axvline(nu_bk/env.nu0, c=col)
+      #   plt.axvline(nu_h/env.nu0, c=col, ls=':')
+      #   plt.axhline(nFn_atbrk/env.nu0F0, c=col)
+      #   plt.axhline(ratio*nFn_atbrk/env.nu0F0, c=col, ls=':')
+      #   l += 1
+
+  #plt.legend()
+  return dRR[dRR >= dRRmin], nu_bks[dRR >= dRRmin], nu_atr[dRR >= dRRmin]
+
+def get_breakRatioRS_run(key, ratio=.5, dRRmin=.2, func='Band'):
+  '''
+  Returns nu_{bk}/nu_{ratio}, ratio typically is 1/2 or 1/3 
+  nu_{1/2} is the frequency at which the peak flux (rising) is at half its value at break
+  '''
+
+  dRR, nu_bks, nu_atr = get_freqs_brknratio(key, ratio=ratio, dRRmin=dRRmin, func=func)
+  return dRR, nu_bks/nu_atr
+  
+
+
+
+def nuFnu_thinshell_run(key, nuobs, Tobs, env, func, hybrid=True):
+  '''
+  Calculates nuFnu for both shock fronts of whole run
+  func is the spectral shape in comoving frame ('Band' or 'plaw')
+  '''
+  nuFnus = np.zeros((2, len(Tobs), len(nuobs)))
+  path = get_contribspath(key)
+  for i, sh in enumerate(['RS', 'FS']):
+    df = pd.read_csv(path+sh+'.csv')
+    for it in range(len(df.index)):
+      row = df.iloc[it]
+      nuFnus[i] += nuobs * df_get_Fnu_thinshell(row, sh, nuobs, Tobs, env, func, hybrid)
   return nuFnus
 
 def flux_contribs_run(key, varlist=['nu_m', 'Lth'], itmin=0, itmax=None):
@@ -1129,6 +1347,57 @@ def run_get_Gammash(key, smoothing=True, kernel_size=10):
 
   return lfac_sh
 
+def extrapolate_early(df, env, nsamp=10, istart=15):
+  '''
+  Do the extrapolation of contributions at early times before shock settled properly
+  Performs extrapolation by sampling over nsamp datapoints starting from the istart'th
+  '''
+  sample = df.iloc[istart:istart+nsamp].copy()
+  dt = np.diff(sample['time'].to_numpy()).mean()
+  ids = df.index
+  sh = df.keys()[1][-3:-1]
+  v  = sample[f'v_{{{sh}}}'].mean()
+  dr = dt*v
+  a_nu = np.diff(np.log10(sample[f'nu_m_{{{sh}}}'].to_numpy())).mean()
+  a_L = np.diff(np.log10(sample[f'Lth_{{{sh}}}'].to_numpy())).mean()
+  df = df.drop(ids[:istart])
+  t_i, r_i, nu_i, L_i = df.iloc[0][['time', f'r_{{{sh}}}', f'nu_m_{{{sh}}}', f'Lth_{{{sh}}}']]
+  Nit = 1+int(min(np.floor(t_i/dt), np.floor(r_i/dr)))
+  df_in =  pd.DataFrame(columns=df.keys())
+  for n in range(1, Nit):
+    i = istart - n
+    t, r, nu, L = t_i - n*dt, r_i - n*dr, nu_i*10**(-n*a_nu), L_i*10**(-n*a_L)
+    Ton, Tth, Tej = derive_obsTimes(t, r, v, env.t0, env.z)
+    vals = [t, r, v, Tej, Tth, nu, L]
+    dic = {key:val for key, val in zip(df.keys(), vals)}
+    row = pd.DataFrame(dic, index=[i])
+    df_in = pd.concat([row, df_in], ignore_index=True)
+  df = pd.concat([df_in, df])
+  return df
+
+def extract_contribs(key, extrapolate=True):
+  '''
+  Extracts only the data that contributes to radiation, a file for each shock
+  '''
+
+  file_path = get_fpath_thinshell(key)
+  outpath = get_contribspath(key)
+  env = MyEnv(key)
+  run_data = pd.read_csv(file_path, index_col=0)
+  its = run_data.index.to_list()
+  varlist = ['r', 'v', 'Tej', 'Tth', 'nu_m', 'Lth']
+  for sh in ['RS', 'FS']:
+    keylist = ['time'] + [var + f'_{{{sh}}}' for var in varlist]
+    ids = run_data[f'ish_{{{sh}}}'].to_numpy()
+    its_split = np.split(its, np.flatnonzero(np.diff(ids))+1)
+    its_contribs = []
+    for it_group in its_split[1:]: 
+      its_contribs.append(it_group[0])
+    df = run_data.loc[its_contribs][keylist].copy(deep=True)
+    if extrapolate:
+      df = extrapolate_early(df, env)
+    df.to_csv(outpath+sh+'.csv', index=False)
+
 def analysis_hydro_thinshell(key, itmin=0, itmax=None):
   '''
   Extract all datas from all files
@@ -1179,6 +1448,11 @@ def analysis_hydro_thinshell(key, itmin=0, itmax=None):
   # create csv file
   file_path = get_fpath_thinshell(key)
   data.to_csv(file_path)
+
+def get_contribspath(key):
+  dir_path = GAMMA_dir + f'/results/{key}/'
+  file_path = dir_path + 'thinshell_'
+  return file_path
 
 def get_fpath_thinshell(key):
   dir_path = GAMMA_dir + f'/results/{key}/'

@@ -449,10 +449,6 @@ def approx_bhv_hybrid(tTi, tTfi, gi):
   nuFnu = approx_nupkFnupk_hybrid(tTi, tTfi, gi)
   return nu, nuFnu
 
-def approx_nupk_RS(key, Nnu=200):
-  nuobs, Tobs, env = get_radEnv(key, Nnu)
-  
-
 def approx_nupkFnupk_hybrid(tTi, tTfi, gi):
   '''
   Peak flux (peak of nu F_nu) of a shock front with respect to its normalized time
@@ -464,13 +460,13 @@ def approx_nupkFnupk_hybrid(tTi, tTfi, gi):
     return 1 - tTeff**-3
   return np.piecewise(tTi, [tTi<=tTfi, tTi>tTfi], [lambda x: f(x), lambda x: f(tTfi)*tT_eff2(x, tTfi, gi)**-3])
 
-def approx_nupk_hybrid(tTi, tTfi, gi):
+def approx_nupk_hybrid(tTi, tTfi, gi, d1=1, d2=1):
   '''
   Peak frequency of a shock front with respect to its normalized time 
   tTfi = R_{f,i}/R_0
   '''
 
-  return np.piecewise(tTi, [tTi<=tTfi, tTi>tTfi], [lambda x: x**-1, lambda x: (tTfi*tT_eff2(x, tTfi, gi))**-1])
+  return np.piecewise(tTi, [tTi<=tTfi, tTi>tTfi], [lambda x: x**-d1, lambda x: tTfi**-d1*tT_eff2(x, tTfi, gi)**-d2])
 
 def tT_eff1(tTi, gi):
   '''

@@ -148,6 +148,7 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   Hau = (env.lfac34-1) * env.u34 / (1+a_u**2)
   L = ((env.Ek1/env.t1)+(env.Ek4/env.t4))/2
   Gp = (env.psyn-2)/(env.psyn-1)
+  Wp = 2./Gp
   env.eint2p = 4.*env.lfac21*(env.lfac21-1)*env.rho1*c_**2
   env.eint3p = 4.*env.lfac34*(env.lfac34-1)*env.rho4*c_**2
   env.ad_gma3 = (4*env.lfac34+1)/(3*env.lfac34)
@@ -220,6 +221,12 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.TeffejRS = (1+z)*env.teffejRS
   env.teffejFS = (1+z)*(env.t0 - env.R0/(env.betaFS*c_))
   env.TeffejFS = (1+z)*env.teffejFS
+
+  # equivalent luminosity
+  env.DV0 = 4.*pi_*env.R0**2*env.D3f/env.Nsh4
+  env.DV0FS = 4.*pi_*env.R0**2*env.D2f/env.Nsh1
+  env.tL0 = ((1+z)/env.T0)*env.lfac*env.DV0*env.eps_e*env.eint3p/(Wp*env.nu0p)
+  env.tL0FS = ((1+z)/env.T0FS)*env.lfac*env.DV0FS*env.eps_e*env.eint2p/(Wp*env.nu0pFS)
   
 
 def shells_snapshot_fromenv(env, r, t):
