@@ -29,9 +29,39 @@ spsh_cols = {'Band':'g', 'plaw':'teal'}
 #   plot_shBehav(keylist): nuFnu_pk(nu_pk) for different runs
 # code time-integrated spectrum, integrate up to convergence (code with variable Tbmax I guess)
 
+def get_Rf_th(key, m, sh='RS'):
+  '''
+  Derives theoretical crossing radius assuming power-law for shock front 
+  '''
+  env = MyEnv(key)
+
+def get_crossradii(key):
+  '''
+  Get crossing radii
+  '''
+  path = get_contribspath(key)
+  for i, sh in enumerate(['RS', 'FS']):
+    df = pd.read_csv(path+sh+'.csv')
+
+def get_pksnunFnu(key, func='Band'):
+  '''
+  Returns nupk and nupkFnupk
+  '''
+
+  nuobs, Tobs, env = get_radEnv(key)
+  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
+  NT = nuFnus.shape[1]
+  nupks, nuFnupks = np.zeros((2,2,NT))
+  for k, nuFnu in enumerate(nuFnus):
+    for i in range(NT):
+      ipk = np.argmax(nuFnu[i])
+      nupks[k][i] = nuobs[ipk]
+      nuFnupks[k][i] = nuFnu[i,ipk]
+  return nupks, nuFnupks
+
 ### plots
 
-def plot_nuRatios_compared(keylist = ['sph_fid', 'cart_fid']):
+def plot_nuRatios_compared(keylist = ['sph_fid', 'cart_fid'], max=False):
   '''
   Compare two Delta R/ R0 plots
   '''
@@ -40,18 +70,18 @@ def plot_nuRatios_compared(keylist = ['sph_fid', 'cart_fid']):
   dummy_lst = [ax.plot([],  [], c='k', ls=l)[0] for l in lstyles]
   ax.legend(dummy_lst, ['sph.', 'hybrid'])
   for key, l in zip(keylist, lstyles):
-    plot_nubrkRatio(key, ax, ls=l)
+    plot_nubrkRatio(key, ax, max=max, ls=l)
   ax.set_xlabel('$\\Delta R/R_0$')
   ax.set_ylabel('$\\nu_{bk}/\\nu_{1/2}$')
 
 
-def plot_nubrkRatio(key, ax_in=None, ratio=.5, **kwargs):
+def plot_nubrkRatio(key, ax_in=None, ratio=.5, max=False, **kwargs):
   '''
   Plot ratio between frequency at break nu_bk and at nuFnu(nu_bk)/2 as a function of Delta R/R0
   '''
 
   env = MyEnv(key)
-  dRR, nu_ratio = get_breakRatioRS_run(key, ratio)
+  dRR, nu_ratio = get_breakRatioRS_run(key, ratio, max=max)
 
   if not ax_in:
     plt.figure()
@@ -66,13 +96,13 @@ def plot_nubrkRatio(key, ax_in=None, ratio=.5, **kwargs):
     ax.set_ylabel('$\\nu_{bk}/\\nu_{1/2}$')
 
 
-def plot_nubrknratio(key, ax_in=None, ratio=.5, **kwargs):
+def plot_nubrknratio(key, ax_in=None, ratio=.5, max=False, **kwargs):
   '''
   Plot ratio between frequency at break nu_bk and at nuFnu(nu_bk)/2 as a function of Delta R/R0
   '''
 
   env = MyEnv(key)
-  dRR, nu_bks, nu_atr = get_freqs_brknratio(key, ratio=ratio)
+  dRR, nu_bks, nu_atr = get_freqs_brknratio(key, ratio=ratio, max=max)
 
   if not ax_in:
     plt.figure()
@@ -213,7 +243,7 @@ def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band'):
   plt.tight_layout()
 
 
-def plot_radPanel_t(key, func='Band', theory=False):
+def plot_radPanel_t(key, func='Band', theory=False, logT=False):
   '''
   Plots nu_pk, L_pk, and their product with time in a single figure
   '''
@@ -230,11 +260,13 @@ def plot_radPanel_t(key, func='Band', theory=False):
   for label, plotfunc, ax in zip(ylabels, plotfuncs, axs):
     ax.set_ylabel(label)
     plotfunc(key, func=func, ax_in=ax, theory=theory)
-    ax.set_xscale('linear')
+    ax.set_xscale('log') if logT else ax.set_xscale('linear')
+
   axs[-1].set_yscale('linear')
   axs[-1].set_xlim((0,5))
   axs[0].set_ylim(ymin=5e-3)
   fig.legend(dummy_col, names, handlelength=1.5)
+  axs[0].set_title(key)
 
 
 def plot_radPanels(key):
@@ -1148,12 +1180,12 @@ def get_breakfreqsRS_run(key, dRRmin=.2, func='Band'):
     nubks[i] = nuobs[ipk]
   return dRR[dRR>dRRmin], nubks[dRR>dRRmin]
 
-def get_freqs_brknratio(key, ratio=.5, dRRmin=0.2, func='Band'):
+def get_freqs_brknratio(key, ratio=.5, dRRmin=0.2, func='Band', max=False):
   '''
   Returns nu_bk and nu at ratio*nuFnu(nu_bk)
   '''
-  # colors = ['r', 'b', 'g', 'c', 'm']
-  # plt.figure()
+  colors = ['r', 'b', 'g', 'c', 'm']
+  plt.figure()
   nuobs, Tobs, env = get_radEnv(key)
   path = get_contribspath(key)
   df = pd.read_csv(path+'RS.csv')
@@ -1169,9 +1201,6 @@ def get_freqs_brknratio(key, ratio=.5, dRRmin=0.2, func='Band'):
       Tej, Tth = row[['Tej_{RS}', 'Tth_{RS}']]
       Ton = Tej + Tth
       ion = np.searchsorted(Tobs, Ton)
-      # peak frequency at crossing time is our "break frequency" 
-      ibk = np.argmax(nuFnu[ion])
-      nu_bk = nuobs[ibk]
 
       # construct the nupkFnupk(nupk) curve
       nupks, nuFnupks = np.zeros((2,ion))
@@ -1179,7 +1208,13 @@ def get_freqs_brknratio(key, ratio=.5, dRRmin=0.2, func='Band'):
         ipk = np.argmax(nuFnu[k])
         nupks[k] = nuobs[ipk]
         nuFnupks[k] = nuFnu[k,ipk]
-        
+
+      # peak frequency at crossing time is our "break frequency" 
+      ibk = np.argmax(nuFnu[ion])
+      nu_bk = nuobs[ibk]
+      if max: # break and max are not the same
+        ibk = np.argmax(nuFnupks)
+        nu_bk = nupks[ibk]
       # find_sorted & np.searchsorted need sorted array, nuFnupks may decrease
       nFn_atbrk = nuFnupks[-1]
       i_h = find_closest(nuFnupks[nuFnupks<=nuFnupks.max()], ratio*nFn_atbrk)
@@ -1187,25 +1222,25 @@ def get_freqs_brknratio(key, ratio=.5, dRRmin=0.2, func='Band'):
       
       nu_bks[i] = nu_bk
       nu_atr[i] = nu_h
-      # if dRR[i] % 0.2 <= 0.002:
-      #   col = colors[l]
-      #   plt.loglog(nupks/env.nu0, nuFnupks/env.nu0F0, label=f'{dRR[i]:.2f}', alpha=.7, c=col)
-      #   plt.axvline(nu_bk/env.nu0, c=col)
-      #   plt.axvline(nu_h/env.nu0, c=col, ls=':')
-      #   plt.axhline(nFn_atbrk/env.nu0F0, c=col)
-      #   plt.axhline(ratio*nFn_atbrk/env.nu0F0, c=col, ls=':')
-      #   l += 1
+      if dRR[i] % 0.2 <= 0.002:
+        col = colors[l]
+        plt.loglog(nupks/env.nu0, nuFnupks/env.nu0F0, label=f'{dRR[i]:.2f}', alpha=.7, c=col)
+        plt.axvline(nu_bk/env.nu0, c=col)
+        plt.axvline(nu_h/env.nu0, c=col, ls=':')
+        plt.axhline(nFn_atbrk/env.nu0F0, c=col)
+        plt.axhline(ratio*nFn_atbrk/env.nu0F0, c=col, ls=':')
+        l += 1
 
-  #plt.legend()
+  plt.legend()
   return dRR[dRR >= dRRmin], nu_bks[dRR >= dRRmin], nu_atr[dRR >= dRRmin]
 
-def get_breakRatioRS_run(key, ratio=.5, dRRmin=.2, func='Band'):
+def get_breakRatioRS_run(key, ratio=.5, dRRmin=.2, func='Band', max=False):
   '''
   Returns nu_{bk}/nu_{ratio}, ratio typically is 1/2 or 1/3 
   nu_{1/2} is the frequency at which the peak flux (rising) is at half its value at break
   '''
 
-  dRR, nu_bks, nu_atr = get_freqs_brknratio(key, ratio=ratio, dRRmin=dRRmin, func=func)
+  dRR, nu_bks, nu_atr = get_freqs_brknratio(key, ratio=ratio, dRRmin=dRRmin, func=func, max=max)
   return dRR, nu_bks/nu_atr
   
 

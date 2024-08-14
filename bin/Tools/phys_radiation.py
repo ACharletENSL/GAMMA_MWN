@@ -201,13 +201,9 @@ def flux_shockfront_planar(nu_bar, T_bar, g, DeltaR, b1=-0.5, b2=-1.25, func='Ba
 
   if func == 'Band':
     def f(x):
-      #gx = 1 + g**2*(x**-1-1.)
-      #return x**-2 * gx**-3 * Band_func(gx*nub, b1, b2)
       return x**-3*Band_func(x, b1=b1, b2=b2)
   elif func == 'plaw':
     def f(x):
-      #gx = 1 + g**2*(x**-1-1.)
-      #return x**-2 * gx**-3 * broken_plaw_simple(gx*nub, b1, b2)
       return x**-3*broken_plaw_simple(x, b1=b1, b2=b2)
   else:
     print("func must be 'Band' of 'plaw'!")
@@ -235,8 +231,6 @@ def flux_shockfront_planar(nu_bar, T_bar, g, DeltaR, b1=-0.5, b2=-1.25, func='Ba
         x_l = nu_bar[j]*(1 + (g**2)*( (1/y_max) -1.0 ))
         quant = spi.quad(f, x_l, x_u)[0]
         F_nu[j,i] = 3*(quant)*(nu_bar[j]**2)
-        #quant = spi.quad(f, y_min, y_max, args=(nu_bar[j]))[0]
-        #F_nu[j,i] = 3*g**2*quant
   if case == 1:
     out = F_nu[:,0]
   elif case == 2:
@@ -307,7 +301,63 @@ def flux_shockfront_planar(nu_bar, T_bar, g, DeltaR, b1=-0.5, b2=-1.25, func='Ba
 #     out = F_nu
 #   return out
 
+def flux_shockfront_planar_yInt(nu_bar, T_bar, g, DeltaR, b1=-0.5, b2=-1.25, func='Band'):
+  '''
+  Returns Fnu of a given shock front in the fully planar case (a=0, d=0)
+  Here we use the integral form without changing variables
+  T_bar must already be scaled to the shock front considered
+  '''
+  if (type(nu_bar)==np.ndarray) and (type(T_bar)==np.ndarray):
+    case = 0
+  elif (type(nu_bar)==np.ndarray):
+    case = 1
+    T_bar = np.array([T_bar])
+  elif (type(T_bar)==np.ndarray):
+    case = 2
+    nu_bar = np.array([nu_bar])
+  
+  F_nu = np.zeros((len(nu_bar), len(T_bar)))
 
+  if func == 'Band':
+    def f(y, nu_bar):
+      gy = 1 + g**2 * (y**-1 - 1)
+      return gy**-3 * y**-2 * Band_func(gy*nu_bar, b1=b1, b2=b2)
+  elif func == 'plaw':
+    def f(y, nu_bar):
+      gy = 1 + g**2 * (y**-1 - 1)
+      return gy**-3 * y**-2 * broken_plaw_simple(gy*nu_bar, b1=b1, b2=b2)
+  else:
+    print("func must be 'Band' of 'plaw'!")
+
+  if g == 1.: # Avoid crash for g = 1
+    g += 1e-4
+
+  tilde_T = 1 + T_bar
+  for i in range(len(T_bar)):
+    for j in range(len(nu_bar)):
+      if(tilde_T[i]<1):
+        y_min = 1
+      else:
+        y_min = 1/tilde_T[i]
+
+      if(tilde_T[i]<(1+DeltaR)):
+        y_max = 1
+      else:
+        y_max = (1+DeltaR)/tilde_T[i]
+      
+      if(tilde_T[i]<1):
+        quant = 0
+      else:
+        quant = spi.quad(f, y_min, y_max, args=(nu_bar[j]))[0]
+        F_nu[j,i] = 3*g**2*quant
+
+  if case == 1:
+    out = F_nu[:,0]
+  elif case == 2:
+    out = F_nu[0]
+  else:
+    out = F_nu
+  return out
 
 def flux_shockfront_hybrid(nu_bar, T_bar, g, DeltaR, b1=-0.5, b2=-1.25, func='Band'):
   '''
@@ -389,7 +439,7 @@ def flux_shockfront_hybrid(nu_bar, T_bar, g, DeltaR, b1=-0.5, b2=-1.25, func='Ba
   return out
 
 def flux_shockfront_general(nu_bar, T_bar, g, DeltaR,
-      a=1, d=-1, m=0, b1=-0.25, b2=-1.25, func='Band'):
+      a=1, d=-1, m=0, b1=-0.5, b2=-1.25, func='Band'):
   '''
   Generate the observed flux for a shockfront crossing a region of normalized width DeltaR.
   The shock propagates with Gamma = Gamma0 * (r/R0)**(-m/2), with downstream lfac = g * shock lfac.
@@ -398,30 +448,67 @@ def flux_shockfront_general(nu_bar, T_bar, g, DeltaR,
   nu_bar = nuobs/nu_pk(r=R0), T_tilde = (Tobs-Tej(r=R0, Gamma=Gamma0))/Ttheta(r=R0, Gamma=Gamma0)
   Return a value normalized to F0 = (1+z)*2*Gamma0*L'0/(4*pi_*dL**2)
   '''
-  def f(y, nub, tT):
-    return integrand_general(y, nub, tT, g, a, d, m, b1, b2, func)
 
-  T_tilde = 1. + T_bar
-  if (type(nu_bar)==np.ndarray) and (type(T_tilde)==np.ndarray):
+  if (type(nu_bar)==np.ndarray) and (type(T_bar)==np.ndarray):
     case = 0
   elif (type(nu_bar)==np.ndarray):
     case = 1
-    T_tilde = np.array([T_tilde])
-  elif (type(T_tilde)==np.ndarray):
+    T_bar = np.array([T_bar])
+  elif (type(T_bar)==np.ndarray):
     case = 2
     nu_bar = np.array([nu_bar])
-  F_nu = np.zeros((len(nu_bar), len(T_tilde)))
 
-  for j, nub in enumerate(nu_bar):
-    for i, tT in enumerate(T_tilde):
-      if (tT >= 1.):
-        y_min = tT**-1
-        if (tT < (1+DeltaR)):
-          y_max = 1
-        else:
-          y_max = (1+DeltaR)/tT
-        I = spi.quad(f, y_min, y_max, args=(nub, tT))[0]
-        F_nu[j,i] = g**3 * tT**(-m/(2*(m+1))) * I 
+  F_nu = np.zeros((len(nu_bar), len(T_bar)))
+
+  if func == 'Band':
+    def f(y, nub, tT):
+      m1 = m+1
+      gy = 1 + g**2 * (y**-m1 - 1) / m1
+      term = (1+m*y**m1)/(g**2 + (m1-g**2)*y**m1)
+      x = tT**-d * y**(m/2-d) * gy * nub
+      return gy**-2 * y**(a-1-m/2) * term * Band_func(x, b1=b1, b2=b2)
+  elif func == 'plaw':
+    def f(y, nub, tT):
+      m1 = m+1
+      gy = 1 + g**2 * (y**-m1 - 1) / m1
+      term = (1+m*y**m1)/(g**2 + (m1-g**2)*y**m1)
+      x = tT**-d * y**(m/2-d) * gy * nub
+      return gy**-2 * y**(a-1-m/2) * term * broken_plaw_simple(x, b1=b1, b2=b2)
+  else:
+    print("func must be 'Band' of 'plaw'!")
+
+  if g == 1.: # Avoid crash for g = 1
+    g += 1e-4
+
+  tilde_T = 1. + T_bar
+  for i in range(len(T_bar)):
+    for j in range(len(nu_bar)):
+      if(tilde_T[i]<1):
+        y_min = 1
+      else:
+        y_min = 1/tilde_T[i]
+
+      if(tilde_T[i]<(1+DeltaR)):
+        y_max = 1
+      else:
+        y_max = (1+DeltaR)/tilde_T[i]
+      
+      if(tilde_T[i]<1):
+        quant = 0
+      else:
+        quant = spi.quad(f, y_min, y_max, args=(nu_bar[j], tilde_T[i]))[0]
+        F_nu[j,i] = 3*g**2*tilde_T[i]**(a-m/(2*(m+1)))*quant
+
+  # for j, nub in enumerate(nu_bar):
+  #   for i, tT in enumerate(T_tilde):
+  #     if (tT >= 1.):
+  #       y_min = tT**-1
+  #       if (tT < (1+DeltaR)):
+  #         y_max = 1
+  #       else:
+  #         y_max = (1+DeltaR)/tT
+  #       quant = spi.quad(f, y_min, y_max, args=(nub, tT))[0]
+  #       F_nu[j,i] = 3 * g**2 * tT**(a-m/(2*(m+1))) * quant
       
   if case == 1:
     out = F_nu[:,0]
@@ -448,6 +535,15 @@ def approx_bhv_hybrid(tTi, tTfi, gi):
   nu = approx_nupk_hybrid(tTi, tTfi, gi)
   nuFnu = approx_nupkFnupk_hybrid(tTi, tTfi, gi)
   return nu, nuFnu
+
+def nupk_approx(tT, tTf, d1, d2):
+  return np.piecewise(tT, [tT<=tTf, tT>tTf],
+      [lambda x: x**-d1, lambda x: tTf**-d1*(x/tTf)**-d2])
+
+def nupkFnupk_approx(tT, tTf, p1, p2):
+  return np.piecewise(tT, [tT<=tTf, tT>tTf],
+  [lambda x: 1 - x**-p1, lambda x: (1 - tTf**-p1)*(x/tTf)**-p2])
+   
 
 def approx_nupkFnupk_hybrid(tTi, tTfi, gi):
   '''
