@@ -913,7 +913,8 @@ def plot_lfac(key, ax_in=None, smoothing=True, kernel_size=10):
   name_int = ['RS', 'CD', 'FS']
   rlist = run_data[[f'r_{{{name}}}' for name in name_int]].to_numpy().transpose()
   vallist = run_data[[f'lfac_{{{name}}}' for name in name_int]].to_numpy().transpose()
-  gmaRS, gmaFS = run_get_Gammash(key, smoothing, kernel_size) 
+  #gmaRS, gmaFS = run_get_Gammash(key, smoothing, kernel_size) 
+  gmaRS, gmaFS = run_data[[f'lfacsh_{{{name}}}' for name in ['RS', 'FS']]].to_numpy().transpose()
   name_int = ['RS', 'FS', '3', 'CD', '2']
   rlist = np.stack((rlist[0], rlist[-1], *rlist))
   vallist = np.stack((gmaRS, gmaFS, *vallist))
@@ -1445,7 +1446,7 @@ def analysis_hydro_thinshell(key, itmin=0, itmax=None):
   name_int = ['RS', 'CD', 'FS']
   name_sh = ['RS', 'FS']
   var_int = ['r', 'v', 'lfac', 'p']
-  var_sh  = ['id', 'ish', 'dr', 'ShSt', 'lfac', 'Tej', 'Tth', 'nu_m', 'Lth']
+  var_sh  = ['id', 'ish', 'dr', 'ShSt', 'lfacsh', 'Tej', 'Tth', 'nu_m', 'Lth']
   varlist_rho = ['rho_{RS}', 'rho_{CD-}', 'rho_{CD+}', 'rho_{FS}']
   varlist_int = [f'{s1}_{{{s2}}}' for s1 in var_int for s2 in name_int]
   varlist_sh  = [f'{s1}_{{{s2}}}' for s1 in var_sh for s2 in name_sh]

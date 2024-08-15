@@ -1,7 +1,8 @@
 # files ignored by git
 
-# server jobs file
-submit.sh
+# server jobs file & config
+#submit.sh
+src/Initial/Shells/Shells.cpp
 
 # outputs
 *.out
