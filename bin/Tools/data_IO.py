@@ -696,6 +696,39 @@ def get_shocksStrength(df, n=3):
     out.append(shst)
   return out
 
+def get_shocksLfac(df, n=3):
+  '''
+  Derives shock Lorentz factor from upstream and downstream values
+  cf R24a eqn. C1
+  '''
+  RS, FS = df_to_shocks(df)
+  iCD = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)].index.max()
+  out = []
+  for i, sh in enumerate([RS, FS]):
+    if sh.empty:
+      lfacsh = 0.
+    elif 0. in sh['trac'].to_list():
+      lfacsh = 0.
+    else:
+      iL = min(sh.index) - n
+      iR = max(sh.index) + n
+      if i: # FS
+        iL = max(iL, iCD+1)
+        iu = iR
+        id = iL
+      else: # RS
+        iR = min(iR, iCD)
+        iu = iL
+        id = iR
+      vu, Du = df.iloc[iu][['vx', 'D']].to_list()
+      vd, Dd = df.iloc[id][['vx', 'D']].to_list()
+      Drat = Du/Dd
+      vsh = (Drat*vu - vd)/(Drat - 1)
+      lfacsh = derive_Lorentz(vsh)
+    out.append(lfacsh)
+  return out
+
+
 def df_get_shellCell0(df):
   '''
   Returns the index in dataframe of the first cell in the shells

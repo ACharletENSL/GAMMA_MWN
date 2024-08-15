@@ -9,7 +9,8 @@ nupks, nuFnupks = get_pksnunFnu(key)
 # objectif : fit courbes nupk(T), nupkFnupk(T)
 # step 1: trouver le break entre les deux parties
 # step 2: faire fit
-mRS = -2*0.09103
+#mRS = -2*0.09103
+mRS = -2*0.13176423165558485
 mFS = 0.02
 fig = plt.figure()
 gs = fig.add_gridspec(2, 1, hspace=0)
@@ -23,6 +24,13 @@ for i, sh, istart, T0, m, g, fac_nu, fac_F, col in zip(range(2), ['RS', 'FS'], [
   tT = 1 + (Tobs - env.Ts)/T0
   tTf = 1 + (Tonf - env.Ts)/T0
   i_f = find_closest(tT, tTf)
+
+  # additional points to force fit
+  ifits = []
+  # for r in [8, 6, 4]:
+  #   tTfit = 1 + (tTf-1)/r
+  #   ifits.append(find_closest(tT, tTfit))
+  ifits += [i_f-1, i_f, -1]
   
   def get_tTeff1(tT, k):
     return 1. + np.abs(k*(m+1+g**2)/(g**2*(g**2-1))) * (tT - 1.)
@@ -30,7 +38,7 @@ for i, sh, istart, T0, m, g, fac_nu, fac_F, col in zip(range(2), ['RS', 'FS'], [
     return 1. + np.abs(k*(m+1+g**2)/(g**2*(g**2-1)))  * (r*c_/env.R0)**-(m+1) * (tT-1.)
 
   sigma = np.ones(tT.shape)
-  sigma[[i_f-1, i_f, -1]] = 0.01
+  sigma[ifits] = 0.01
   # fit nupk
   def fitfunc_nu_inf(tT, d, k):
     tTeff1 = get_tTeff1(tT, k)

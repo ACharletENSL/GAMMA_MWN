@@ -998,6 +998,7 @@ def plot_lfacsh(key, ax_in=None):
 
   names = ['RS', 'FS']
   rlist = run_data[[f'r_{{{name}}}' for name in names]].to_numpy().transpose()
+  lfaclist = run_data[[f'lfac_{{{name}}}' for name in names]].to_numpy().transpose()
   lfacsh = run_get_Gammash(key)
 
   if not ax_in:
@@ -1005,10 +1006,11 @@ def plot_lfacsh(key, ax_in=None):
     ax = plt.gca()
   else:
     ax = ax_in
-  for r, lfac, name, valth in zip(rlist, lfacsh, names, [env.lfacRS, env.lfacFS]):
+  for r, lfac1, lfac2, name, valth in zip(rlist, lfacsh, lfaclist, names, [env.lfacRS, env.lfacFS]):
     col = cols_dic[name]
-    ax.loglog(r[r>0.]*c_/env.R0, lfac[r>0.], c=col, label=f'$\\Gamma_{{{name}}}$')
-    ax.axhline(valth, color='k', ls='--', lw=.6)
+    ax.loglog(r[r>0.]*c_/env.R0, lfac1[r>0.], c=col, label=f'$\\Gamma_{{{name}}}$')
+    ax.loglog(r[r>0.]*c_/env.R0, lfac2[r>0.], c='k', ls=':')
+    ax.axhline(valth, color=col, ls='--', lw=.6)
     ax.text(1.02, valth, f"$\\Gamma_{{{name+',th'}}}$", color='k', transform=ax.get_yaxis_transform(),
             ha='left', va='center')
 
@@ -1443,7 +1445,7 @@ def analysis_hydro_thinshell(key, itmin=0, itmax=None):
   name_int = ['RS', 'CD', 'FS']
   name_sh = ['RS', 'FS']
   var_int = ['r', 'v', 'lfac', 'p']
-  var_sh  = ['id', 'ish', 'dr', 'ShSt', 'Tej', 'Tth', 'nu_m', 'Lth']
+  var_sh  = ['id', 'ish', 'dr', 'ShSt', 'lfac', 'Tej', 'Tth', 'nu_m', 'Lth']
   varlist_rho = ['rho_{RS}', 'rho_{CD-}', 'rho_{CD+}', 'rho_{FS}']
   varlist_int = [f'{s1}_{{{s2}}}' for s1 in var_int for s2 in name_int]
   varlist_sh  = [f'{s1}_{{{s2}}}' for s1 in var_sh for s2 in name_sh]
@@ -1532,13 +1534,14 @@ def df_get_all_thinshell(df):
   idShList = [iRS, iFS]
   drList   = [drRS, drFS]
   ShStList = get_shocksStrength(df)
+  lfacShList = get_shocksLfac(df)
   TejList  = [TejRS, TejFS]
   TthList  = [TthRS, TthFS]
   numList  = [0. if cell.empty else get_variable(cell, 'nu_m') for cell in [RSd, FSd]]
   LthList  = [0. if cell.empty else get_variable(cell, 'Lth') for cell in [RSd, FSd]]
 
   return radList, vList, lfaclist, prsList, rhoList, idDList, \
-    idShList, drList, ShStList, TejList, TthList, numList, LthList
+    idShList, drList, ShStList, lfacShList, TejList, TthList, numList, LthList
 
 
 def df_get_all_thinshell_v1(df, theory=False):
@@ -1561,11 +1564,12 @@ def df_get_all_thinshell_v1(df, theory=False):
   idShList = [iRS, iFS]
   drList   = [drRS, drFS]
   ShStList = get_shocksStrength(df)
+  lfacShList = get_shocksLfac(df)
   TejList  = [TejRS, TejFS]
   TthList  = [TthRS, TthFS]
   numList  = [0. if cell.empty else get_variable(cell, 'nu_m') for cell in [RS, FS]]
   LthList  = [0. if cell.empty else get_variable(cell, 'Lth') for cell in [RS, FS]]
 
   return radList, vList, lfacList, prsList, rhoList, idShList, \
-    idShList, drList, ShStList, TejList, TthList, numList, LthList
+    idShList, drList, ShStList, lfacShList, TejList, TthList, numList, LthList
 

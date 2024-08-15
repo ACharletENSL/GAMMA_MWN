@@ -572,8 +572,8 @@ def derive_betaFS(u1, u21, u):
   Derives velocity of forward shock in the lab frame
   '''
   lfac21 = derive_Lorentz_from_proper(u21)
-  lfac   = derive_Lorentz_from_proper(u)
   lfac1  = derive_Lorentz_from_proper(u1)
+  lfac   = derive_Lorentz_from_proper(u)
   beta   = u/lfac
   num    = (0.25/lfac21)*(u1/lfac) - beta
   denom  = (0.25/lfac21)*(lfac1/lfac) - 1.
@@ -586,8 +586,8 @@ def derive_betaRS(u4, u34, u):
   '''
   lfac34 = derive_Lorentz_from_proper(u34)
   lfac4  = derive_Lorentz_from_proper(u4)
-  beta4  = u4/lfac4
   lfac   = derive_Lorentz_from_proper(u)
+  beta4  = u4/lfac4
   num    = beta4 - 4*lfac34*(u/lfac4)
   denom  = 1 - 4*lfac34*(lfac/lfac4)
   return num/denom
