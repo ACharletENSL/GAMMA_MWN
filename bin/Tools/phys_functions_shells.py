@@ -171,7 +171,7 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.nu0 = 2.*env.lfac*env.nu0p/(1+z)
   env.T0 = (1+z) * (env.R0/c_) * ((1-env.betaRS)/env.betaRS)
   env.zdl = (1+z) / (4*pi_*dL**2)
-  env.Fs = 2 * env.zdl * env.lfac * env.L0p
+  env.Fs = env.zdl * env.L0
   env.F0 = env.Fs/3.
   env.nu0F0 = env.nu0*env.F0
   Pfac = (4./3.) * (4*(env.psyn-1)/(3*env.psyn-1)) * (16*me_*c_**2*sigT_/(18*pi_*e_))
@@ -223,11 +223,15 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.TeffejFS = (1+z)*env.teffejFS
 
   # equivalent luminosity
-  env.DV0 = 4.*pi_*env.R0**2*env.D3f/env.Nsh4
-  env.DV0FS = 4.*pi_*env.R0**2*env.D2f/env.Nsh1
+  env.DV0 = pi_*env.R0**2*env.D3f/(env.Nsh4*env.lfac34)
+  env.DV0FS = pi_*env.R0**2*env.D2f/(env.Nsh1*env.lfac21)
   env.tL0 = ((1+z)/env.T0)*env.lfac*env.DV0*env.eps_e*env.eint3p/(Wp*env.nu0p)
   env.tL0FS = ((1+z)/env.T0FS)*env.lfac*env.DV0FS*env.eps_e*env.eint2p/(Wp*env.nu0pFS)
-  
+  #env.tL0 = (env.eps_e*env.eint3p/(Wp*env.nu0p)) * env.lfac*c_ * pi_*env.R0*env.D04/(env.lfac34*env.Nsh4)
+  env.dV04 = 4*pi_*env.R0**2*(env.D04/env.Nsh4)
+  env.dV01 = 4*pi_*env.R0**2*(env.D01/env.Nsh1)
+  env.dEp0 = env.eps_e*(env.lfac34-1)*c_**2*env.lfac*env.dV04*env.rho4/(Wp*env.nu0p)
+  env.dEp0FS = env.eps_e*(env.lfac21-1)*c_**2*env.lfac*env.dV01*env.rho1/(Wp*env.nu0pFS)
 
 def shells_snapshot_fromenv(env, r, t):
   '''

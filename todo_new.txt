@@ -1,16 +1,20 @@
-- mails:
-  labos FR (Frédéric Daigne, Stéphane Schanne, POP, Zakaria Meliani, Julien Malzac, Alexandre Marcowith)
-  labos étrangers (Luciano Rezzola, Hendrik van Eerten, Luca Del Zanna..)
-  Tsvi pour discuter de son projet
-  
-- write paper
-  - F_nu from analytic formula (finish testing python functions)
-  - fits of nu_pk F_{nu_pk} & nu_pk f_{nu_pk}
+scaling de nupk: 
+équation pas bonne?
 
-- conf Hadra
-  -> trouver anecdotes
-  -> organiser ça proprement
-  -> faire présentation
+check variation exacte de nu_m via variation de B et gamma_m -> on s'attend à un facteur 150 mais on n'a que un facteur 10
+intégrer sur bandes de fréquences des satellites -> les observations cachent la variabilité spectrale sur ces bandes
+
+faire equal mass pour comparer avec Daigne & Mochkovitch -> rarefaction wave ou pas?
+  environ 1000 cellules, arrêter quand la distribution de LF est à peu près monotone
+  refaire la fig 4 -> faire des outputs aux mêmes temps
+  refaire la fig 5 -> valeurs derrière le choc
+
+ajouter SSC mais attention c'est pas fifou (cf le McCarthy et Pellouin)
+Hybride simu + Tleco
+cacluler efficacité
+check deceleration radius (mass swept by the shell) and compare with final radius
+
+faire un manuel de GAMMA
 
 - implement general rad method with cooling regimes
   -> make it independant from the colliding shells situation

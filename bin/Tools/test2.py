@@ -6,6 +6,15 @@ nuobs, Tobs, env = get_radEnv(key)
 path = get_contribspath(key)
 nupks, nuFnupks = get_pksnunFnu(key)
 
+'''
+nupk : evaluate Epk at the chosen yeff, don't forget angular dependance in Doppler
+Fnupk: for Delta R/R0 > 1, do integral without evaluating at nupk first
+find some smooth behavior for xi_eff and reflect it in integration limits
+xi_eff may saturate at other values than 1, we can set values
+-> k1 free param in Delta R/R0 < 1, k2 free param in Delta R/R0 > 1, s smoothing param
+--> 3 free params in total
+'''
+
 # objectif : fit courbes nupk(T), nupkFnupk(T)
 # step 1: trouver le break entre les deux parties
 # step 2: faire fit

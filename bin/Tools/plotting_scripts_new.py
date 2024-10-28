@@ -26,7 +26,7 @@ plt.rc('xtick', labelsize=12)
 plt.rc('ytick', labelsize=12) 
 plt.rc('legend', fontsize=12) 
 plt.rcParams['savefig.dpi'] = 200
-
+plt.rcParams['axes.grid'] = True
 formatter = ticker.ScalarFormatter(useMathText=True)
 formatter.set_scientific(True) 
 formatter.set_powerlimits((-1,1)) 
@@ -36,9 +36,9 @@ cm = plt.get_cmap('tab20')
 # Legends and labels
 var_exp = {
   "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$", "v":"$\\beta$",
-  "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$",
+  "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$", "gma_m":"$\\gamma_m$",
   "trac":"tracer", "trac2":"wasSh", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
-  "T":"$\\Theta$", "h":"$h$", "lfac":"$\\gamma$", "u":"$\\gamma\\beta$", "u_i":"$\\gamma\\beta$", "u_sh":"$\\gamma\\beta$",
+  "T":"$\\Theta$", "h":"$h$", "lfac":"$\\Gamma$", "u":"$\\Gamma\\beta$", "u_i":"$\\Gamma\\beta$", "u_sh":"$\\gamma\\beta$",
   "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r", "Tth":"$T_\\theta$",
   "numax":"$\\nu'_{max}$", "numin":"$\\nu'_{min}$", "B":"$B'$", "Pmax":"$P'_{max}$",
   "gm":"$\\gamma_0$", "gb":"$\\gamma_1$", "gM":"$\\gamma_2$", "Lp":"$L'$", "L":"$L$",
@@ -66,7 +66,7 @@ var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$', 'u_i':'$\\ga
   'Rct':'$(r - ct)/R_0$ (cm)', 'D':'$\\Delta$ (cm)', 'u_i':'$\\gamma\\beta$',
   'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$', 'pdV':'$pdV$'
   }
-cool_vars = ["inj", "fc", "gm", "gb", "gM", "num", "nub", "nuM"]
+cool_vars = ["inj", "fc", "gmin", "gmax", "trac2", "gm", "gb", "gM", "num", "nub", "nuM"]
 nonlog_var = ['u', 'trac', 'Sd', 'zone', 'trac2']
 def get_normunits(xnormstr, rhonormsub):
   rhonormsub  = '{' + rhonormsub +'}'
@@ -95,7 +95,7 @@ def get_varscaling(var, env):
 #
 
 def plotduo_behindShocks(varlist, key='Last', itmin=0, itmax=None,
-    tscaling='it', yscalings=['code', 'code'], logt=False, logys=[False, False],
+    xscaling='it', yscalings=['code', 'code'], logt=False, logys=[False, False],
     names = ['RS', 'FS'], lslist = ['-', ':'], colors = ['r', 'b'], **kwargs):
   '''
   Plots 2 chosen variables as measured in the cell behind each shock front
@@ -117,19 +117,19 @@ def plotduo_behindShocks(varlist, key='Last', itmin=0, itmax=None,
   # each is series of [it, t, val1, val2]
 
   for vals, col in zip([RS_vals, FS_vals], colors):
-    if tscaling == 'it':
+    if xscaling == 'it':
       Nt = 0
       tscale, toffs = 1., 0.
-      tlabel = 'it'
-    elif tscaling == 't0':
+      xlabel = 'it'
+    elif xscaling == 't0':
       Nt = 1
       tscale, toffs = 1/env.t0, 1.
-      tlabel = '$t/t_0$'
+      xlabel = '$t/t_0$'
     else:
       Nt = 1
       tscale, toffs = 1., 0.
-      tlabel = '$t_{sim}$ (s)'
-    ax1.set_xlabel(tlabel)
+      xlabel = '$t_{sim}$ (s)'
+    ax1.set_xlabel(xlabel)
     t = vals[Nt]*tscale + toffs
     y = [vals[-2], vals[-1]]
 
@@ -176,7 +176,7 @@ def plotduo_behindShocks(varlist, key='Last', itmin=0, itmax=None,
     if logy:
       ax.set_yscale('log')
 
-def ax_behindShocks_timeseries(var, key='Last', itmin=0, itmax=None, tscaling='it', yscaling='code', ax_in=None, logt=False, logy=False, **kwargs):
+def ax_behindShocks_timeseries(var, key='Last', itmin=0, itmax=None, xscaling='it', yscaling='code', ax_in=None, logt=False, logy=False, **kwargs):
   '''
   Plots a time series of var in cells behind the shocks
   '''
@@ -193,20 +193,29 @@ def ax_behindShocks_timeseries(var, key='Last', itmin=0, itmax=None, tscaling='i
   
   # create dataset
   its = np.array(dataList(key, itmin=itmin, itmax=itmax))[1:]
-  its, time, yRS, yFS = get_behindShock_value(key, var, its)
+  its, time, rRS, rFS, yRS, yFS = get_behindShock_value(key, var, its)
   y = np.array([yRS, yFS])
 
   # plot 
-  if tscaling == 'it':
-    t = its
-    tlabel = 'it'
-  elif tscaling == 't0':
+  if xscaling == 'it':
+    xRS, xFS = its, its
+    xlabel = 'it'
+  elif xscaling == 't0':
     t = time/env.t0 + 1.
-    tlabel = '$t/t_0$'
+    xRS, xFS = t, t
+    xlabel = '$t/t_0$'
+  elif xscaling == 'r':
+    xRS, xFS = rRS*c_/env.R0, rFS*c_/env.R0
+    xlabel = '$r/R_0$'
+  elif xscaling == 'T':
+    t = time + env.t0
+    xRS = ((t - rRS) - env.Ts)/env.T0
+    xFS = ((t - rFS) - env.Ts)/env.T0
+    xlabel = "$\\bar{T}$"
   else:
-    t = time
-    tlabel = '$t_{sim}$ (s)'
-  ax.set_xlabel(tlabel)
+    xRS, xFS = time, time
+    xlabel = '$t_{sim}$ (s)'
+  ax.set_xlabel(xlabel)
 
   if yscaling == 'code':
     units  = get_normunits('c', 'Norm')
@@ -238,8 +247,8 @@ def ax_behindShocks_timeseries(var, key='Last', itmin=0, itmax=None, tscaling='i
       y -= env.Ts/env.T0
   ax.set_ylabel(ylabel)
 
-  ax.plot(t, y[0], label='RS', **kwargs)
-  ax.plot(t, y[1], label='FS', **kwargs)
+  ax.plot(xRS, y[0], label='RS', c='r', **kwargs)
+  ax.plot(xFS, y[1], label='FS', c='b', **kwargs)
   if logt:
     ax.set_xscale('log')
   if logy:
@@ -248,45 +257,45 @@ def ax_behindShocks_timeseries(var, key='Last', itmin=0, itmax=None, tscaling='i
   if ax_in is None:
     plt.legend()
 
-def plot_injection_timeseries(i, key='Last', tscaling='it', **kwargs):
+def plot_injection_timeseries(i, key='Last', xscaling='it', **kwargs):
   plt.figure()
   ax = plt.gca()
   varlist = ['trac2', 'fc', 'inj']
   its = np.array(dataList(key))[1:]
   t, y = get_cell_timevalues(key, varlist, i, its)
   # plot 
-  if tscaling == 'it':
+  if xscaling == 'it':
     t = its
-    tlabel = 'it'
-  elif tscaling == 't0':
+    xlabel = 'it'
+  elif xscaling == 't0':
     t = time/env.t0 + 1.
-    tlabel = '$t/t_0$'
+    xlabel = '$t/t_0$'
   else:
     t = time
-    tlabel = '$t_{sim}$ (s)'
-  ax.set_xlabel(tlabel)
+    xlabel = '$t_{sim}$ (s)'
+  ax.set_xlabel(xlabel)
   
   for k, var in enumerate(varlist):
     ax.plot(t, y[k], label=var, **kwargs)
   plt.legend()
 
-def plot_edistrib_timeseries(i, key='Last', tscaling='it', **kwargs):
+def plot_edistrib_timeseries(i, key='Last', xscaling='it', **kwargs):
   plt.figure()
   ax = plt.gca()
   varlist = ['gmin', 'gmax', 'gm', 'gb', 'gM']
   its = np.array(dataList(key))[1:]
   t, y = get_cell_timevalues(key, varlist, i, its)
   # plot 
-  if tscaling == 'it':
+  if xscaling == 'it':
     t = its
-    tlabel = 'it'
-  elif tscaling == 't0':
+    xlabel = 'it'
+  elif xscaling == 't0':
     t = time/env.t0 + 1.
-    tlabel = '$t/t_0$'
+    xlabel = '$t/t_0$'
   else:
     t = time
-    tlabel = '$t_{sim}$ (s)'
-  ax.set_xlabel(tlabel)
+    xlabel = '$t_{sim}$ (s)'
+  ax.set_xlabel(xlabel)
   
   for k, var in enumerate(varlist):
     ls = '-'
@@ -295,7 +304,7 @@ def plot_edistrib_timeseries(i, key='Last', tscaling='it', **kwargs):
     ax.semilogy(t, y[k], label=var_exp[var], linestyle=ls, **kwargs)
   plt.legend()
 
-def ax_cell_timeseries(var, i, key='Last', tscaling='it', yscaling='code', ax_in=None, logt=False, logy=False, **kwargs):
+def ax_cell_timeseries(var, i, key='Last', xscaling='it', yscaling='code', ax_in=None, logt=False, logy=False, **kwargs):
   '''
   Plots a time series of var in cell i
   Cells are counted in the shells only
@@ -320,16 +329,16 @@ def ax_cell_timeseries(var, i, key='Last', tscaling='it', yscaling='code', ax_in
   time, y = get_cell_timevalues(key, var, i, its)
 
   # plot 
-  if tscaling == 'it':
+  if xscaling == 'it':
     t = its
-    tlabel = 'it'
-  elif tscaling == 't0':
+    xlabel = 'it'
+  elif xscaling == 't0':
     t = time/env.t0 + 1.
-    tlabel = '$t/t_0$'
+    xlabel = '$t/t_0$'
   else:
     t = time
-    tlabel = '$t_{sim}$ (s)'
-  ax.set_xlabel(tlabel)
+    xlabel = '$t_{sim}$ (s)'
+  ax.set_xlabel(xlabel)
 
   if yscaling == 'code':
     units  = get_normunits('c', 'Norm')
@@ -379,7 +388,7 @@ def plot_behindShocks(key, varlist, itmin=0, itmax=None, thcorr=False, n=2, m=1)
 
 lslist  = ['-', '--', '-.', ':']
 
-def compare_runs(var, keylist, tscaling='t0',
+def compare_runs(var, keylist, xscaling='t0',
     logt=False, logy=False, **kwargs):
   '''
   Compare time plots for different runs
@@ -391,7 +400,7 @@ def compare_runs(var, keylist, tscaling='t0',
   ax = plt.gca()
   
   for k, key in enumerate(keylist):
-    name, legend = ax_timeseries(var, key, ax, tscaling=tscaling, 
+    name, legend = ax_timeseries(var, key, ax, xscaling=xscaling, 
       yscaling=False, theory=False, crosstimes=False,
       logt=logt, logy=logy, ls=lslist[k]) 
     names.append(name)
@@ -418,7 +427,7 @@ def plot_conservation(var, key='Last'):
   plt.tight_layout()
 
 def ax_timeseries(var, key='Last', ax_in=None,
-  tscaling='t0', yscaling=False, stopatcross=True,
+  xscaling='t0', yscaling=False, stopatcross=True,
   theory=True, crosstimes=True, reldiff=False,
   logt=False, logy=False, **kwargs):
   '''
@@ -470,22 +479,22 @@ def ax_timeseries(var, key='Last', ax_in=None,
     dummy_lst = [plt.plot([],[],c='k',ls='-')[0], plt.plot([],[],c='k',ls=':')[0]]
   title = env.runname
 
-  if tscaling == 'it':
+  if xscaling == 'it':
     t = data.index
-    tlabel = 'it'
+    xlabel = 'it'
     crosstimes = False
     theory  = False
-  elif tscaling == 't0':
+  elif xscaling == 't0':
     t = data['time'].to_numpy()/env.t0 + 1.
-    tlabel = '$t/t_0$'
+    xlabel = '$t/t_0$'
     tRS = env.tRS/env.t0 + 1.
     tFS = env.tFS/env.t0 + 1.
   else:
     t = data['time'].to_numpy()
-    tlabel = '$t_{sim}$ (s)'
+    xlabel = '$t_{sim}$ (s)'
     tRS = env.tRS
     tFS = env.tFS
-  ax.set_xlabel(tlabel)
+  ax.set_xlabel(xlabel)
 
   ylabel = var_label[var]
   varlist = data.keys()[1:]
@@ -581,9 +590,23 @@ def article_snap(name, it, key='cart_fid'):
   plt.savefig(figname)
   plt.close()
 
-def prim_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False'):
+def prim_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False', suptitle=True):
   f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
   varlist = ['rho', 'u', 'p']
+  #scatlist= []
+  for var, k, ax in zip(varlist, range(3), axes):
+    title, scatter = ax_snapshot(var, it, key, theory, ax_in=ax, xscaling=xscaling, itoff=itoff)
+    #scatlist.append(scatter)
+    if k != 2: ax.set_xlabel('')
+  
+  if suptitle:
+    f.suptitle(title)
+  #scatter = scatlist[1]
+  plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+
+def cons_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False'):
+  f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
+  varlist = ['D', 'sx', 'tau']
   #scatlist= []
   for var, k, ax in zip(varlist, range(3), axes):
     title, scatter = ax_snapshot(var, it, key, theory, ax_in=ax, xscaling=xscaling, itoff=itoff)
@@ -593,6 +616,7 @@ def prim_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False'):
   f.suptitle(title)
   #scatter = scatlist[1]
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+
 
 def rad_snapshot(it, key='Last', xscaling='n', distr='gamma'):
   Nk = 3
@@ -680,7 +704,7 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
   env = MyEnv(key)
   
   df, t, dt = openData_withtime(key, it)
-  if it != 0:
+  if (it != 0) and (var in cool_vars):
     df = openData_withDistrib(key, it)
   n = df["zone"].to_numpy()
 
@@ -1125,7 +1149,7 @@ def plot_df_lightcurve_old(key, it, lognu, method='analytic', func='Band',
   plt.tight_layout()
 
 def plot_df_lightcurve(key, it, lognu, method='analytic', func='Band',
-  theory=False, logT=False, logF=False, Tscaling='RS', fig_in=None, **kwargs):
+  theory=False, logT=False, logF=False, xscaling='RS', fig_in=None, **kwargs):
   '''
   Plots the lightcurve of a given datafile
   '''
@@ -1137,18 +1161,18 @@ def plot_df_lightcurve(key, it, lognu, method='analytic', func='Band',
   
   df = openData_withDistrib(key, it)
   if method == 'analytic':
-    plot_cell_lightcurve(key, it, 'RS', lognu, method, func, theory, logT, logF, Tscaling, fig, color='r')
+    plot_cell_lightcurve(key, it, 'RS', lognu, method, func, theory, logT, logF, xscaling, fig, color='r')
     line_RS = ax.get_lines()[-1]
     T = line_RS.get_xdata()
     nuFnu_RS = line_RS.get_ydata()
-    plot_cell_lightcurve(key, it, 'FS', lognu, method, func, theory, logT, logF, Tscaling, fig, color='b')
+    plot_cell_lightcurve(key, it, 'FS', lognu, method, func, theory, logT, logF, xscaling, fig, color='b')
     nuFnu_FS = ax.get_lines()[-1].get_ydata()
     nuFnu_tot = nuFnu_RS + nuFnu_FS
     plt.plot(T, nuFnu_tot, color='k')
   
-  if Tscaling == 'RS':
+  if xscaling == 'RS':
     ax.set_xlabel("$\\bar{T}_{RS}$")
-  elif Tscaling == 'FS':
+  elif xscaling == 'FS':
     T = (Tobs - env.Ts)/env.T0FS
     ax.set_xlabel("$\\bar{T}_{FS}$")
   else:
@@ -1160,7 +1184,7 @@ def plot_df_lightcurve(key, it, lognu, method='analytic', func='Band',
 
 
 def plot_cell_lightcurve(key, it, i, lognu, func='Band',
-  theory=False, logT=False, logF=False, Tscaling='local', logslope=False,
+  theory=False, logT=False, logF=False, xscaling='local', logslope=False,
   fig_in=None, dR=None, **kwargs):
   '''
   Plots the lightcurve of a given cell. i can also be the name of a shock front
@@ -1192,14 +1216,14 @@ def plot_cell_lightcurve(key, it, i, lognu, func='Band',
   print(f"Analytic/numeric peak ratio = {nuFnua.max()/nuFnun.max()}")
 
   T = Tobs
-  if Tscaling == 'local':
+  if xscaling == 'local':
     T = Tb
     ax.set_xlabel("$\\bar{T}$")
     #ax.set_xlim(xmin=0.)
-  elif Tscaling == 'RS':
+  elif xscaling == 'RS':
     T = (Tobs - env.Ts)/env.T0
     ax.set_xlabel("$\\bar{T}_{RS}$")
-  elif Tscaling == 'FS':
+  elif xscaling == 'FS':
     T = (Tobs - env.Ts)/env.T0FS
     ax.set_xlabel("$\\bar{T}_{FS}$")
   else:

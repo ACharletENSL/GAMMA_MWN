@@ -16,3 +16,6 @@ bin/Tools/figures/*
 bin/Tools/__pycache__
 bin/Tools/__pycache__/*
 bin/GAMMA
+notes_encours.txt
+Makefile
+relaunch_test.sh

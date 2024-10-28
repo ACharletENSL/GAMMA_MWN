@@ -47,19 +47,39 @@ def get_pksnunFnu(key, func='Band'):
   '''
   Returns nupk and nupkFnupk
   '''
+  path = get_contribspath(key) + 'pks.csv'
+  try:
+    df = pd.read_csv(path)
+    print('reading file ' + path)
+    nuRS, nuFS, nuFnuRS, nuFnuFS = df.to_numpy().transpose()
+    nupks = np.array([nuRS, nuFS])
+    nuFnupks = np.array([nuFnuRS, nuFnuFS])
 
-  nuobs, Tobs, env = get_radEnv(key)
-  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
-  NT = nuFnus.shape[1]
-  nupks, nuFnupks = np.zeros((2,2,NT))
-  for k, nuFnu in enumerate(nuFnus):
-    for i in range(NT):
-      ipk = np.argmax(nuFnu[i])
-      nupks[k][i] = nuobs[ipk]
-      nuFnupks[k][i] = nuFnu[i,ipk]
+  except FileNotFoundError:
+    nuobs, Tobs, env = get_radEnv(key)
+    nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
+    NT = nuFnus.shape[1]
+    nupks, nuFnupks = np.zeros((2,2,NT))
+    for k, nuFnu in enumerate(nuFnus):
+      for i in range(NT):
+        ipk = np.argmax(nuFnu[i])
+        nupks[k][i] = nuobs[ipk]
+        nuFnupks[k][i] = nuFnu[i,ipk]
+    dic = {'nu_RS':nupks[0], 'nu_FS':nupks[1], 'nuFnu_RS':nuFnupks[0], 'nuFnu_FS':nuFnupks[1]}
+    df = pd.DataFrame.from_dict(dic)
+    df.to_csv(path, index=False)
+
   return nupks, nuFnupks
 
+def write_pks(key, func='Band'):
+  nupks, nuFnupks = get_pksnunFnu(key, func)
+  path = get_contribspath(key) + 'pks'
+  dic = {'nu_RS':nupks[0], 'nu_FS':nupks[1], 'nuFnu_RS':nuFnupks[0], 'nuFnu_FS':nuFnupks[1]}
+  df = pd.DataFrame.from_dict(dic)
+  df.to_csv(path+'.csv', index=False)
+
 ### plots
+
 
 def plot_nuRatios_compared(keylist = ['sph_fid', 'cart_fid'], max=False):
   '''
@@ -151,22 +171,72 @@ def plot_nubrk(key, ax_in=None, **kwargs):
   if not ax_in: 
     ax.set_xlabel('$\\Delta R/R_0$')
     ax.set_ylabel('$\\nu_{bk}/\\nu_0$')
-  
 
-def plot_contribs(key, varlist=['nu_m', 'Lth'], itmin=0, itmax=None):
+def plot_comovContribs(key, xscale='t'):
+  '''
+  plots Gamma, nu'_m, L'
+  vs it, t, T, or r
+  '''
+  sh_names = ['RS', 'FS']
+  var_in = ['i_d', 'lfac', 'nu_m', 'Lth']
+  
+  out = []
+  file_path = get_fpath_thinshell(key)
+  run_data = pd.read_csv(file_path, index_col=0)
+  its = run_data.index.to_list()
+  sh_names = ['RS', 'FS']
+  for i, sh in enumerate(sh_names):
+    ids = run_data[f'ish_{{{sh}}}'].to_numpy()
+    ids_split = np.split(ids, np.flatnonzero(np.diff(ids))+1)
+    its_split = np.split(its, np.flatnonzero(np.diff(ids))+1)
+    out_sh = np.zeros((len(its_split),len(varlist)+2))
+    for j, it_group, ids_group in zip(range(len(its_split)), its_split, ids_split):
+      # only calculate contribution from first it where cell is shocked
+      it = it_group[0]
+      ish = int(ids_group[0])
+      df_data = run_data.loc[it].copy()
+      var_str = [f'{var}_{{{sh}}}' for var in varlist]
+      data = df_data[var_str].to_numpy()
+      out_sh[j] += np.insert(data, 0, [it, ish])
+    out.append(out_sh.transpose())
+  return out
+
+def plot_contribs(key, varlist=['nu_m', 'Lth'], itmin=0, itmax=None, xscaling='it'):
   sh_names = ['RS', 'FS']
   var_in = varlist.copy()
+  l = len(varlist)
+  env = MyEnv(key)
   contribs = flux_contribs_run(key, varlist, itmin, itmax)
-
+  # careful, contribs is a list of 2 arrays with different lengths
+  # order: it, time, r, i_sh, vars
   var_in.insert(0, 'i_d')
+
+  xlabel = ''
+  if xscaling == 'it':
+    xlabel = 'it'
+  elif xscaling == 'r':
+    xlabel = '$r/R_0$'
+  elif xscaling == 't':
+    xlabel = '$t/t_0$'
+  elif xscaling == 'T':
+    xlabel = '$\\bar{T}$'
 
   fig, axs = plt.subplots(len(var_in),1,sharex='all')
   dummy_col = [plt.plot([],[], c=cols_dic[name], ls='-')[0] for name in sh_names]
 
   for sh, cont in zip(sh_names, contribs):
-    for i, var in enumerate(cont[1:]):
-      axs[i].semilogy(cont[0][1:], var[1:], c=cols_dic[sh])
-      axs[i].scatter(cont[0][1:], var[1:], s=4., c='k', marker='x')
+    if xscaling == 'it':
+      x = cont[0]
+    elif xscaling == 'r':
+      x = cont[2]*c_/env.R0
+    elif xscaling == 't':
+      x = cont[1]/env.t0 + 1.
+    elif xscaling == 'T':
+      T = cont[1] + env.t0 - cont[2]
+      x = (T-T[0])/env.T0
+    for i, var in enumerate(cont[-l-1:]):
+      axs[i].semilogy(x[1:], var[1:], c=cols_dic[sh])
+      axs[i].scatter(x[1:], var[1:], s=4., c='k', marker='x')
   axs[0].set_yscale('linear')
   fig.legend(dummy_col, sh_names)
   
@@ -175,7 +245,7 @@ def plot_contribs(key, varlist=['nu_m', 'Lth'], itmin=0, itmax=None):
     ax.set_ylabel(label) 
     #ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
     #ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
-  axs[-1].set_xlabel('it')
+  axs[-1].set_xlabel(xlabel)
 
 def plot_hydroPanels(key):
   '''
@@ -212,38 +282,38 @@ def plot_hydroPanels_reduced(key):
   fig.legend(dummy_col, names, handlelength=1.5, loc='outside center right')
   #plt.tight_layout()
 
-def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band'):
-  '''
-  Same as radPanel_t but to compare two or more runs
-  '''
-  fig = plt.figure()
-  plotfuncs = [plot_nupk, plot_nupkFnupk]
-  crTb = 1.
-  gs = fig.add_gridspec(len(plotfuncs), 1, wspace=0)
-  axs = gs.subplots(sharex='all')
-  names, colors = ['RS', 'FS'], ['r', 'b']
-  lstyles = ['-', '-.']
-  runnames = ['sph', 'hybrid'] if keylist == ['sph_fid', 'cart_fid'] else keylist
-  dummy_col = [plt.plot([],[], c=col, ls='-')[0] for name, col in zip(names, colors)]
-  dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in lstyles]
-  ylabels = ['$\\nu_{pk}/\\nu_0$', "$\\nu_{pk}F_{\\nu_{pk}}/\\nu_0F_0$"]
+# def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band'):
+#   '''
+#   Same as radPanel_t but to compare two or more runs
+#   '''
+#   fig = plt.figure()
+#   plotfuncs = [plot_nupk, plot_nupkFnupk]
+#   crTb = 1.
+#   gs = fig.add_gridspec(len(plotfuncs), 1, wspace=0)
+#   axs = gs.subplots(sharex='all')
+#   names, colors = ['RS', 'FS'], ['r', 'b']
+#   lstyles = ['-', '-.']
+#   runnames = ['sph', 'hybrid'] if keylist == ['sph_fid', 'cart_fid'] else keylist
+#   dummy_col = [plt.plot([],[], c=col, ls='-')[0] for name, col in zip(names, colors)]
+#   dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in lstyles]
+#   ylabels = ['$\\nu_{pk}/\\nu_0$', "$\\nu_{pk}F_{\\nu_{pk}}/\\nu_0F_0$"]
 
-  for label, plotfunc, ax in zip(ylabels, plotfuncs, axs):
-    ax.set_ylabel(label)
-    for key, ls in zip(keylist, lstyles):
-      theory = True if key == 'cart_fid' else False
-      plotfunc(key, func=func, ax_in=ax, theory=Theory, ls=ls)
-    ax.set_xscale('linear')
-  axs[-1].set_yscale('linear')
-  axs[-1].set_xlim((0,5))
-  axs[-1].set_xlabel("$\\bar{T}$")
-  axs[0].set_ylim(ymin=5e-3)
-  axs[0].legend(dummy_col, names, handlelength=1.5)
-  axs[1].legend(dummy_lst, runnames)
-  plt.tight_layout()
+#   for label, plotfunc, ax in zip(ylabels, plotfuncs, axs):
+#     ax.set_ylabel(label)
+#     for key, ls in zip(keylist, lstyles):
+#       theory = True if key == 'cart_fid' else False
+#       plotfunc(key, func=func, ax_in=ax, theory=theory, ls=ls)
+#     ax.set_xscale('linear')
+#   axs[-1].set_yscale('linear')
+#   axs[-1].set_xlim((0,5))
+#   axs[-1].set_xlabel("$\\bar{T}$")
+#   axs[0].set_ylim(ymin=5e-3)
+#   axs[0].legend(dummy_col, names, handlelength=1.5)
+#   axs[1].legend(dummy_lst, runnames)
+#   plt.tight_layout()
 
 
-def plot_radPanel_t(key, func='Band', theory=False, logT=False):
+def plot_radPanel_t(key, func='Band', theory=False, logT=False, smallWin=False):
   '''
   Plots nu_pk, L_pk, and their product with time in a single figure
   '''
@@ -263,30 +333,37 @@ def plot_radPanel_t(key, func='Band', theory=False, logT=False):
     ax.set_xscale('log') if logT else ax.set_xscale('linear')
 
   axs[-1].set_yscale('linear')
-  axs[-1].set_xlim((0,5))
-  axs[0].set_ylim(ymin=5e-3)
+  if smallWin:
+    axs[-1].set_xlim((0,5))
+    axs[0].set_ylim(ymin=5e-3)
   fig.legend(dummy_col, names, handlelength=1.5)
   axs[0].set_title(key)
 
 
-def plot_radPanels(key):
+def plot_radPanels(key, comov=True, xscale='r'):
   '''
   Plots hydro variable in a column panel
   '''
-  fig, axs = plt.subplots(3, 1, figsize=(6,12), layout='constrained', sharex='all')
+  plotfuncs = [plot_num, plot_Lnum]
+  fig, axs = plt.subplots(len(plotfuncs), 1, figsize=(6,12), layout='constrained', sharex='all')
   #fig.set_figheight(8)
-  axs[-1].set_xlabel('$r/R_0$')
-  plotfuncs = [plot_num, plot_Lnum, plot_numLnum]
-  ylabels = ['$\\nu_m/\\nu_0$', "$L_{\\nu_m}/L_0$",
-    "$\\nu_m L_{\\nu_m}/\\nu_0L_0$"]
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
+  ylabels = ["$\\nu'_m/\\nu'_0$", "$L'_{\\nu_m}/L'_0$"] if comov else ["$\\nu_m/\\nu_0$", "$L_{\\nu_m}/L_0$"]
 
   for plotfunc, ax, ylabel in zip(plotfuncs, axs, ylabels):
-    plotfunc(key, ax_in=ax)
+    plotfunc(key, ax_in=ax, comov=comov, xscale=xscale)
     ax.set_ylabel(ylabel)
+  axs[-1].set_xlabel(xlabel)
   fig.set_figheight(6)
-  names = ['RS', '3', 'CD-', 'CD', 'CD+', '2', 'FS']
+  names = ['RS', 'FS']
   dummy_col = [plt.plot([],[], c=cols_dic[name], ls='-')[0] for name in names]
-  fig.legend(dummy_col, names, handlelength=1.5, loc='outside center right')
+  axs[0].legend(dummy_col, names, handlelength=1.5, loc='lower right')
   #plt.tight_layout()
 
 def plot_compareAll(var, lognu=-1, logT=0, theory=False,
@@ -402,7 +479,8 @@ def plot_spectrum(key, logT, func='Band',
   '''
   nuobs, Tobs, env = get_radEnv(key)
   Tb = (Tobs-env.Ts)/env.T0
-  T = np.array([env.T0*10**logT + env.Ts])
+  iT = find_closest(Tb, 10**logT)
+  T = np.array([Tobs[iT]])
   nub = nuobs/env.nu0
   nuFnus = nuFnu_thinshell_run(key, nuobs, T, env, func)[:,0,:] #if newmethod \
     #else nuFnu_thinshell_run_v1(key, nuobs, T, env, func)[:,0,:]
@@ -433,6 +511,11 @@ def plot_spectrum(key, logT, func='Band',
   else:
     for val, name in zip(nuFnus, names):
       ax.loglog(nub, val, c=cols_dic[name], label=name, **kwargs)
+
+  nupks, Fnupks = get_pksnunFnu(key)
+  cols = ['r', 'b']
+  for nupk, Fnupk, col in zip(nupks, Fnupks, cols):
+    ax.scatter(nupk[iT]/env.nu0, Fnupk[iT]/env.nu0F0, c=col)
 
   if not ax_in:
     plt.legend()
@@ -530,10 +613,10 @@ def plot_integSpec(key, func='Band',
 
 def plot_bhvCompared(func='Band'):
   fig, ax = plt.subplots()
-  plot_radBehav('sph_fid', func=func, theory=True, ax_in=ax, pres_mode=True, ls='-')
-  plot_radBehav('cart_fid', func=func, theory=True, ax_in=ax, pres_mode=True, ls='-.')
-  dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in ['-', '-.', ':']]
-  ax.legend(dummy_lst, ['sph.', 'hybrid num.', 'theoric'])
+  plot_radBehav('sph_fid', func=func, theory=False, ax_in=ax, pres_mode=True, ls='-')
+  plot_radBehav('cart_fid', func=func, theory=False, ax_in=ax, pres_mode=True, ls='-.')
+  dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in ['-', '-.']]
+  ax.legend(dummy_lst, ['spherical', 'hybrid'])
   plt.xlabel("$\\nu_{pk}/\\nu_0$")
   plt.ylabel("$\\nu_{pk}F_{\\nu_{pk}}/\\nu_0F_0$")
   plt.title('spectral behavior')
@@ -551,10 +634,11 @@ def plot_radBehav(key, func='Band', theory=False, ax_in=None,
     ax = ax_in
   
   names, colors = ['RS', 'FS'], ['r', 'b']
+  nupks, nuFnupks = get_pksnunFnu(key)
   nuobs, Tobs, env = get_radEnv(key)
   nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
-  Nit = 1 if pres_mode else nuFnus.shape[0]
-  NT = nuFnus.shape[1]
+  Nit = 1 if pres_mode else nuFnupks.shape[0]
+  NT = nuFnupks.shape[1]
 
   if theory:
     for k, name in zip(range(Nit), names):
@@ -569,13 +653,9 @@ def plot_radBehav(key, func='Band', theory=False, ax_in=None,
       lstlegend = ax.legend(dummy_lst, ['numerical', 'analytical'], loc=loc) #bbox_to_anchor=(0.98, 0.7)
       ax.add_artist(lstlegend)
 
-  for k, nuFnu, name, col in zip(range(Nit), nuFnus, names, colors):
-    nupks, nuFnupks = np.zeros((2,NT))
-    for i in range(NT):
-      ipk = np.argmax(nuFnu[i])
-      nupks[i] = nuobs[ipk]
-      nuFnupks[i] = nuFnu[i,ipk]
-    ax.loglog(nupks[1:]/env.nu0, nuFnupks[1:]/env.nu0F0, c=col, label=name, **kwargs)
+  
+  for k, nupk, nuFnupk, name, col in zip(range(Nit), nupks, nuFnupks, names, colors):
+    ax.loglog(nupk[1:]/env.nu0, nuFnupk[1:]/env.nu0F0, c=col, label=name, **kwargs)
   
   # xmin = 5e-3
   # if not pres_mode:
@@ -631,16 +711,12 @@ def plot_nupk(key, func='Band', ax_in=None, theory=False, **kwargs):
     ax = ax_in
   
   names, colors = ['RS', 'FS'], ['r', 'b']
-  nuobs, Tobs, env = get_radEnv(key)
-  Tb = (Tobs-env.Ts)/env.T0
-  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
+  nupks, nuFnupks = get_pksnunFnu(key)
+  nuobs, Tobs, env = get_radEnv(key) 
+  Tb = (Tobs - env.Ts)/env.T0
 
-  for nuFnu, name, col in zip(nuFnus, names, colors):
-    nupks = np.zeros(nuFnu.shape[0])
-    for i in range(nuFnu.shape[0]):
-      ipk = np.argmax(nuFnu[i])
-      nupks[i] = nuobs[ipk]
-    ax.semilogy(Tb[1:], nupks[1:]/env.nu0, c=col, label=name, **kwargs)
+  for nupk, name, col in zip(nupks, names, colors):
+    ax.semilogy(Tb[1:], nupk[1:]/env.nu0, c=col, label=name, **kwargs)
 
     if theory:
       g, Tth, dRR, fac_nu, fac_F = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F) \
@@ -656,8 +732,6 @@ def plot_nupk(key, func='Band', ax_in=None, theory=False, **kwargs):
           return approx_nupk_hybrid(x, tTfi=tTf, gi=g, d1=d1, d2=d2)
         curve_fit(fitfunc, tT[2:], nupks[2:])
 
-  
-
   if not ax_in:
     if theory:
       dummy_lst = [plt.plot([],[], c='k', ls=l)[0] for l in ['-', ':']]
@@ -667,6 +741,7 @@ def plot_nupk(key, func='Band', ax_in=None, theory=False, **kwargs):
     plt.title(key)
     plt.xlabel("$\\bar{T}$")
     plt.ylabel("$\\nu_{pk}/\\nu_0$")
+
 
 def plot_nupkFnupk(key, func='Band', ax_in=None, theory=False, **kwargs):
   '''
@@ -680,16 +755,12 @@ def plot_nupkFnupk(key, func='Band', ax_in=None, theory=False, **kwargs):
     ax = ax_in
   
   names, colors = ['RS', 'FS'], ['r', 'b']
+  nupks, nuFnupks = get_pksnunFnu(key) 
   nuobs, Tobs, env = get_radEnv(key)
   Tb = (Tobs-env.Ts)/env.T0
-  nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
 
-  for nuFnu, name, col in zip(nuFnus, names, colors):
-    nupks, nuFnupks = np.zeros((2,nuFnu.shape[0]))
-    for i in range(nuFnu.shape[0]):
-      ipk = np.argmax(nuFnu[i])
-      nuFnupks[i] = nuFnu[i,ipk]
-    ax.semilogy(Tb[1:], nuFnupks[1:]/env.nu0F0, c=col, label=name, **kwargs)
+  for nuFnupk, name, col in zip(nuFnupks, names, colors):
+    ax.semilogy(Tb[1:], nuFnupk[1:]/env.nu0F0, c=col, label=name, **kwargs)
     if theory:
       g, Tth, dRR, fac_nu, fac_F, col = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F, 'b') \
         if name == 'FS' else (env.gRS, env.T0, env.dRRS, 1., 1., 'r')
@@ -715,8 +786,14 @@ def plot_numLnum(key, ax_in=None, xscale='r'):
   env = MyEnv(key)
   file_path = get_fpath_thinshell(key)
   run_data = pd.read_csv(file_path, index_col=0)
-  x = run_data['time'].to_numpy()/env.t0
-  xlabel = "$t/t_0$" if xscale == 't' else "$r/R_0$"
+  t = run_data['time'].to_numpy()/env.t0
+  xlabel = ""
+  if xscale == 't':
+    xlabel = "$t/t_0$"
+  elif xscale == 'r': 
+    xlabel = "$r/R_0$"
+  elif xscale == 'T':
+    xlabel = "$\\bar{T}$"
 
   names = ['RS', 'FS']
   rlist = run_data[[f'r_{{{name}}}' for name in names]].to_numpy().transpose()
@@ -732,10 +809,13 @@ def plot_numLnum(key, ax_in=None, xscale='r'):
     ax = ax_in
   for r, nu, L, name, th in zip(rlist, nulist, Llist, names, thvals):
     col = cols_dic[name]
-    if xscale != 't':
+    if xscale == 'r':
       x = r*c_/env.R0
       ax.loglog(x[r>0.], nu[r>0.]*L[r>0.]/nu0L0, label=f'{name}', c=col)
     else:
+      if xscale == 'T':
+        T = t*env.t0 - r
+        x = (T-env.Ts)/env.T0
       ax.semilogy(x[r>0.], nu[r>0.]*L[r>0.]/nu0L0, label=f'{name}')
     ax.axhline(th/nu0L0, c=col, ls='--', lw=.8)
   ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
@@ -746,7 +826,8 @@ def plot_numLnum(key, ax_in=None, xscale='r'):
     plt.ylabel("$\\nu_mL_{\\nu_m}/\\nu_0 L_0$")
     plt.legend()
 
-def plot_num(key, ax_in=None, xscale='r'):
+
+def plot_num(key, ax_in=None, xscale='r', comov=True, rscaling=False):
   '''
   Plots peak observed frequency with radius
   '''
@@ -758,31 +839,50 @@ def plot_num(key, ax_in=None, xscale='r'):
   names = ['RS', 'FS']
   rlist = run_data[[f'r_{{{name}}}' for name in names]].to_numpy().transpose()
   vallist = run_data[[f'nu_m_{{{name}}}' for name in names]].to_numpy().transpose()
-  x = run_data['time'].to_numpy()/env.t0
-  xlabel = "$t/t_0$" if xscale == 't' else "$r/R_0$"
+  if comov:
+    lfaclist = run_data[[f'lfac_{{{name}}}' for name in names]].to_numpy().transpose()
+    vallist /= 2*lfaclist/(1+env.z)
+  t = run_data['time'].to_numpy()/env.t0 + 1
+  x = t
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
+  ylabel, scale = ("$\\nu'_m/\\nu'_0$", env.nu0p) if comov else ("$\\nu_m/\\nu_0$", env.nu0)
+  if rscaling:
+    ylabel = "$r\\nu'_m/R_0\\nu'_0$" if comov else "$r\\nu_m/R_0\\nu_0$"
+  thvals = [env.nu0p, env.nu0pFS] if comov else [env.nu0, env.nu0FS]
 
   if not ax_in:
     plt.figure()
     ax = plt.gca()
   else:
     ax = ax_in
-  for r, val, name, th in zip(rlist, vallist, names, [env.nu0, env.nu0FS]):
+  for r, val, name, th in zip(rlist, vallist, names, thvals):
+    if rscaling:
+      val *= r*c_/env.R0
     col = cols_dic[name]
-    if xscale != 't':
+    if xscale == 'r':
       x = r*c_/env.R0
-      ax.loglog(x[r>0.], val[r>0.]/env.nu0, c=col, label=f'{name}')
+      ax.loglog(x[r>0.], val[r>0.]/scale, c=col, label=f'{name}')
     else:
-      ax.semilogy(x[r>0.], val[r>0.]/env.nu0, c=col, label=f'{name}')
-    ax.axhline(th/env.nu0, c=col, ls='--', lw=.8)
+      if xscale == 'T':
+        T = t*env.t0 - r
+        x = (T-env.Ts)/env.T0
+      ax.semilogy(x[r>0.], val[r>0.]/scale, c=col, label=f'{name}')
+    ax.axhline(th/scale, c=col, ls='--', lw=.8)
   ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
   ax.xaxis.set_minor_formatter(ticker.ScalarFormatter())
   
   if not ax_in:
     plt.xlabel(xlabel)
-    plt.ylabel("$\\nu_m/\\nu_0$")
+    plt.ylabel(ylabel)
     plt.legend()
 
-def plot_Lnum(key, ax_in=None, xscale='r'):
+def plot_Lnum(key, ax_in=None, xscale='r', comov=True):
   '''
   Plots peak observed luminosity
   '''
@@ -790,51 +890,84 @@ def plot_Lnum(key, ax_in=None, xscale='r'):
   env = MyEnv(key)
   file_path = get_fpath_thinshell(key)
   run_data = pd.read_csv(file_path, index_col=0)
-  x = run_data['time'].to_numpy()/env.t0
-  xlabel = "$t/t_0$" if xscale == 't' else "$r/R_0$"
+  t = run_data['time'].to_numpy()/env.t0 + 1
+  x = t
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
+  ylabel = "$L'_{\\nu'_m}/L'_0$" if comov else "$L_{\\nu_m}/L_0$"
+  #scale = env.tL0/(2*env.lfac) if comov else env.tL0
+  scale = env.L0p if comov else env.L0
 
   names = ['RS', 'FS']
   rlist = run_data[[f'r_{{{name}}}' for name in names]].to_numpy().transpose()
   vallist = run_data[[f'Lth_{{{name}}}' for name in names]].to_numpy().transpose()
-  thlist = [env.L0, env.L0FS]
+  if comov:
+    lfaclist = run_data[[f'lfac_{{{name}}}' for name in names]].to_numpy().transpose()
+    vallist /= 2*lfaclist/(1+env.z)
 
   if not ax_in:
     plt.figure()
     ax = plt.gca()
   else:
     ax = ax_in
-  for r, val, name, th in zip(rlist, vallist, names, thlist):
+  for r, val, name in zip(rlist, vallist, names):
     col = cols_dic[name]
-    if xscale != 't':
+    if xscale == 'r':
       x = r*c_/env.R0
-      ax.loglog(x[r>0.], val[r>0.]/env.L0, c=col, label=f'{name}')
+      ax.loglog(x[r>0.], val[r>0.]/scale, c=col, label=f'{name}')
     else:
-      ax.semilogy(x[r>0.], val[r>0.]/env.L0, c=col, label=f'{name}')
-    ax.axhline(th/env.L0, c=col, ls='--', lw=.8)
+      if xscale == 'T':
+        T = t*env.t0 - r
+        x = (T-env.Ts)/env.T0
+      ax.semilogy(x[r>0.], val[r>0.]/scale, c=col, label=f'{name}')
+    #ax.axhline(th/env.L0, c=col, ls='--', lw=.8)
   ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
   ax.xaxis.set_minor_formatter(ticker.ScalarFormatter())
   
   if not ax_in:
     plt.xlabel(xlabel)
-    plt.ylabel("$L_{\\nu_m}/L_0$")
+    plt.ylabel(ylabel)
     plt.legend()
 
-def plot_rhop(key, rscale=2., ax_in=None, smoothing=True, kernel_size=50):
+def plot_nm(key):
+  '''
+  Combine plot_ShSt and plot_lfac, with fits
+  '''
+  fig, axs = plt.subplots(2, 1, sharex='all')
+  plot_ShSt(key, ax_in=axs[0], fit=True)
+  plot_lfac(key, ax_in=axs[1], fit=True)
+  axs[0].set_title(key)
+  axs[-1].set_xlabel('$r/R_0$')
+
+def plot_rhop(key, rscale=2., ax_in=None, xscale='r', smoothing=True, kernel_size=50):
   '''
   Plots comoving densities downstream of shocks and on both sides of the CD
   '''
   env = MyEnv(key)
   file_path = get_fpath_thinshell(key)
   run_data = pd.read_csv(file_path, index_col=0)
-  if env.geometry == 'cartesian':
-    rscale = 0.
+  # if env.geometry == 'cartesian':
+  #   rscale = 0.
 
   name_int = ['RS', 'CD', 'CD', 'FS']
+  t = run_data['time'].to_numpy() + env.t0
   rlist = run_data[[f'r_{{{name}}}' for name in name_int]].to_numpy().transpose()
   name_int = ['RS', 'CD-', 'CD+', 'FS']
   rholist = run_data[[f'rho_{{{name}}}' for name in name_int]].to_numpy().transpose()
   name_cols = ['3', 'CD-', 'CD+', '2']
-
+  x = t
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
 
   if not ax_in:
     plt.figure()
@@ -850,9 +983,17 @@ def plot_rhop(key, rscale=2., ax_in=None, smoothing=True, kernel_size=50):
       print('Smoothing data')
       kernel = np.ones(kernel_size) / kernel_size
       rho_sc = np.convolve(rho_sc, kernel, mode='same')
-    ax.loglog(r_sc, rho_sc*r_sc**rscale, label=name, c=col)
-  
-  ax.set_ylim(ymin=.75)
+    if xscale == 't':
+      x = t/env.t0
+    elif xscale == 'r':
+      x = r*c_/env.R0
+    elif xscale == 'T':
+      T = t - r
+      x = (T-env.Ts)/env.T0
+    ax.loglog(x[r>0], rho_sc*r_sc**rscale, label=name, c=col)
+  if xscale == 'T':
+    ax.set_xscale('linear')
+  #ax.set_ylim(ymin=.75)
   ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
   ax.xaxis.set_minor_formatter(ticker.ScalarFormatter())
   ax.axhline(1., c='r', ls='--', lw=.8)
@@ -861,11 +1002,11 @@ def plot_rhop(key, rscale=2., ax_in=None, smoothing=True, kernel_size=50):
   ax.set_ylabel("$\\tilde{\\rho'}$" + rscale_str)
 
   if not ax_in:
-    plt.xlabel("$r/R_0$")
+    plt.xlabel(xlabel)
     plt.legend()
     plt.tight_layout()
 
-def plot_gfac(key, ax_in=None):
+def plot_gfac(key, ax_in=None, xscale='r'):
   '''
   Plots the g = Gamma/Gamma_sh factor for each shock
   '''
@@ -874,10 +1015,19 @@ def plot_gfac(key, ax_in=None):
   run_data = pd.read_csv(file_path, index_col=0)
 
   name_int = ['RS', 'FS']
+  t = run_data['time'].to_numpy() + env.t0
   rlist = run_data[[f'r_{{{name}}}' for name in name_int]].to_numpy().transpose()
   lfaclist = run_data[[f'lfac_{{{name}}}' for name in name_int]].to_numpy().transpose()
   gmaRS, gmaFS = run_get_Gammash(key)
   vallist = lfaclist/np.array([gmaRS, gmaFS])
+  x = t
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
 
   if not ax_in:
     plt.figure()
@@ -886,7 +1036,14 @@ def plot_gfac(key, ax_in=None):
     ax = ax_in
   for r, g, name in zip(rlist, vallist, name_int):
     col = cols_dic[name]
-    ax.loglog(r[r>0.]*c_/env.R0, g[r>0.], label=f'$g_{{{name}}}$', c=col)
+    if xscale == 't':
+      x = t/env.t0
+    elif xscale == 'r':
+      x = r*c_/env.R0
+    elif xscale == 'T':
+      T = t - r
+      x = (T-env.Ts)/env.T0
+    ax.loglog(x[r>0], g[r>0.], label=f'$g_{{{name}}}$', c=col)
   ax.axhline(env.gRS, c='r', ls='--', lw=.8)
   ax.axhline(env.gFS, c='b', ls='--', lw=.8)
   ax.set_ylim(ymax=1.24)
@@ -897,11 +1054,11 @@ def plot_gfac(key, ax_in=None):
   ax.yaxis.set_minor_locator(ticker.FixedLocator([0.9, 1., 1.1, 1.2])) 
 
   if not ax_in:
-    plt.xlabel("$r/R_0$")
+    plt.xlabel(xlabel)
     plt.legend()
     plt.tight_layout()
 
-def plot_lfac(key, ax_in=None, smoothing=True, kernel_size=10):
+def plot_lfac(key, ax_in=None, smoothing=True, kernel_size=10, fit=False):
   '''
   Plots relevant Lorentz factors (in lab frame):
   Gamma_4, _d,RS, _CD, _d,FS, _1
@@ -909,34 +1066,65 @@ def plot_lfac(key, ax_in=None, smoothing=True, kernel_size=10):
   env = MyEnv(key)
   file_path = get_fpath_thinshell(key)
   run_data = pd.read_csv(file_path, index_col=0)
-
-  name_int = ['RS', 'CD', 'FS']
-  rlist = run_data[[f'r_{{{name}}}' for name in name_int]].to_numpy().transpose()
-  vallist = run_data[[f'lfac_{{{name}}}' for name in name_int]].to_numpy().transpose()
-  #gmaRS, gmaFS = run_get_Gammash(key, smoothing, kernel_size) 
-  gmaRS, gmaFS = run_data[[f'lfacsh_{{{name}}}' for name in ['RS', 'FS']]].to_numpy().transpose()
-  name_int = ['RS', 'FS', '3', 'CD', '2']
-  rlist = np.stack((rlist[0], rlist[-1], *rlist))
-  vallist = np.stack((gmaRS, gmaFS, *vallist))
-
   if not ax_in:
     plt.figure()
     ax = plt.gca()
   else:
     ax = ax_in
+  name_int = ['RS', 'CD', 'FS']
+  rlist = run_data[[f'r_{{{name}}}' for name in name_int]].to_numpy().transpose()
+  gma3, gmaCD, gma2 = run_data[[f'lfac_{{{name}}}' for name in name_int]].to_numpy().transpose()
+  #gmaRS, gmaFS = run_get_Gammash(key, smoothing, kernel_size) 
+  gmaRS, gmaFS = run_data[[f'lfacsh_{{{name}}}' for name in ['RS', 'FS']]].to_numpy().transpose()
+  if smoothing:
+    print('Smoothing Gamma_sh data')
+    kernel = np.ones(kernel_size) / kernel_size
+    gmaRS = np.convolve(gmaRS, kernel, mode='same')
+    gmaFS = np.convolve(gmaFS, kernel, mode='same')
+    gma3  = np.convolve(gma3, kernel, mode='same')
+    gma2  = np.convolve(gma2, kernel, mode='same')
+  name_int = ['RS', 'FS', '3', 'CD', '2']
+  rlist = np.stack((rlist[0], rlist[-1], *rlist))
+  vallist = np.stack((gmaRS, gmaFS, gma3, gmaCD, gma2))
 
   for r, lfac, name in zip(rlist, vallist, name_int):
     col = cols_dic[name]
     ax.loglog(r[r>0.]*c_/env.R0, lfac[r>0.], c=col, label=f'$\\Gamma_{{{name}}}$')
   ax.axhline(env.lfacRS, c='r', ls='--', lw=.8)
   ax.axhline(env.lfacFS, c='b', ls='--', lw=.8)
+
+  if fit:
+    planvals = [env.lfacRS, env.lfacFS, env.lfac, env.lfac, env.lfac]
+    sphvals = [120.4, 133.6, 136.3, 128.3, 124.4]
+    #for rad, gma, Xplan, Xsph, name in zip(rlist, vallist, planvals, sphvals, name_int):
+    for rad, gma, Xplan, name in zip(rlist, vallist, planvals, name_int):
+      r = rad[rad>0]*c_/env.R0
+      lfac = gma[rad>0]
+      col = cols_dic[name]
+      i_s = max(find_closest(r, 1.05), kernel_size)
+      i_smp = max(find_closest(r, 1.1), kernel_size+30)
+      m = logslope(r[i_s], lfac[i_s], r[i_smp], lfac[i_smp])
+      def fitfunc(r, Xsph, s):
+        if m>0:
+          return ((Xplan * r**m)**-s + Xsph**-s)**(-1/s)
+        elif m<0:
+          return ((Xplan * r**m)**s + Xsph**s)**(1/s)
+        else:
+          return Xsph * np.ones(r.shape)
+      sigma = np.ones(r.shape)
+      sigma[i_s] = 0.01
+      popt, pcov = curve_fit(fitfunc, r, lfac, bounds=([100, 1], [200, np.inf]))
+      Xsph, s = popt
+      fitted = fitfunc(r, *popt)
+      ax.plot(r, fitted, c='k', ls=':')
+      print(f'{name}: gma_sph = {Xsph:.1f}, m={-2*m:.2f}, s={s:.2f}')
+
   ax.set_ylabel(f"$\\Gamma$")
   ax.set_ylim((105., 145.))
   ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
   ax.xaxis.set_minor_formatter(ticker.ScalarFormatter())
   ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
   ax.yaxis.set_minor_locator(ticker.FixedLocator([110, 120, 130, 140])) 
-
   if not ax_in:
     plt.xlabel("$r/R_0$")
     plt.legend()
@@ -1022,7 +1210,7 @@ def plot_lfacsh(key, ax_in=None):
     plt.legend()
     plt.tight_layout()
 
-def plot_ShSt(key, ax_in=None):
+def plot_ShSt(key, ax_in=None, xscale='r', fit=False):
   '''
   Plots shock Lorentz factors (in lab frame)
   '''
@@ -1031,20 +1219,62 @@ def plot_ShSt(key, ax_in=None):
   file_path = get_fpath_thinshell(key)
   run_data = pd.read_csv(file_path, index_col=0)
 
+  if fit: xscale = 'r'
   names = ['RS', 'FS']
+  t = run_data['time'].to_numpy() + env.t0
   rlist = run_data[[f'r_{{{name}}}' for name in names]].to_numpy().transpose()
   vallist = run_data[[f'ShSt_{{{name}}}' for name in names]].to_numpy().transpose()
+
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
 
   if not ax_in:
     plt.figure()
     ax = plt.gca()
   else:
     ax = ax_in
-  for r, ShSt, name in zip(rlist, vallist, names):
+
+  planvals = [env.lfac34 - 1, env.lfac21 - 1]
+  for rad, ShSt, name, Xplan in zip(rlist, vallist, names, planvals):
     col = cols_dic[name]
-    ax.loglog(r[r>0.]*c_/env.R0, ShSt[r>0.], c=col, label=f'{name}')
-  ax.axhline(env.lfac34-1., c='r', ls='--')
-  ax.axhline(env.lfac21-1., c='b', ls='--')
+    r = rad[rad>0.]*c_/env.R0
+    x = r
+    ShSt = ShSt[rad>0.]
+    if xscale == 't':
+      x = t/env.t0
+    elif xscale == 'r':
+      x = r*c_/env.R0
+    elif xscale == 'T':
+      T = t - rad
+      x = (T-env.Ts)/env.T0
+    ax.loglog(x[r>0], ShSt, c=col, label=f'{name}')
+    ax.axhline(Xplan, c=col, ls='--')
+    if fit:
+      i_s = find_closest(r, 1.05)
+      i_smp = find_closest(r, 1.1)
+      n = logslope(r[i_s], ShSt[i_s], r[i_smp], ShSt[i_smp])
+      def fitfunc(r, Xsph, s):
+        if n>0:
+          return ((Xplan * r**n)**-s + Xsph**-s)**(-1/s)
+        elif n<0:
+          return ((Xplan * r**n)**s + Xsph**s)**(1/s)
+        else:
+          return Xsph * np.ones(r.shape)
+      sigma = np.ones(r.shape)
+      sigma[i_s] = 0.01
+      popt, pcov = curve_fit(fitfunc, r[i_s:], ShSt[i_s:], bounds=([0, 1], [np.inf, np.inf]))
+      Xsph, s = popt
+      fitted = fitfunc(r, *popt)
+      ax.plot(r, fitted, c='k', ls=':')
+      print(f'{name}: ShSt_sph = {Xsph:.1e}, n={-n:.2f}, s={s:.2f}')
+  if xscale=='T':
+    ax.set_xscale('linear')
+
   ax.set_ylabel("$\\Gamma_{ud}-1$")
   ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
   ax.xaxis.set_minor_formatter(ticker.ScalarFormatter())
@@ -1053,7 +1283,7 @@ def plot_ShSt(key, ax_in=None):
   #ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
 
   if not ax_in:
-    plt.xlabel("$r/R_0$")
+    plt.xlabel(xlabel)
     plt.legend()
     plt.tight_layout()
 
@@ -1206,11 +1436,9 @@ def get_freqs_brknratio(key, ratio=.5, dRRmin=0.2, func='Band', max=False):
       ion = np.searchsorted(Tobs, Ton)
 
       # construct the nupkFnupk(nupk) curve
-      nupks, nuFnupks = np.zeros((2,ion))
-      for k in range(ion):
-        ipk = np.argmax(nuFnu[k])
-        nupks[k] = nuobs[ipk]
-        nuFnupks[k] = nuFnu[k,ipk]
+      nupks, nuFnupks = get_pksnunFnu(key) 
+      nupks = nupks[0]
+      nuFnupks = nuFnupks[0]
 
       # peak frequency at crossing time is our "break frequency" 
       ibk = np.argmax(nuFnu[ion])
@@ -1248,7 +1476,6 @@ def get_breakRatioRS_run(key, ratio=.5, dRRmin=.2, func='Band', max=False):
   
 
 
-
 def nuFnu_thinshell_run(key, nuobs, Tobs, env, func, hybrid=True):
   '''
   Calculates nuFnu for both shock fronts of whole run
@@ -1267,25 +1494,29 @@ def flux_contribs_run(key, varlist=['nu_m', 'Lth'], itmin=0, itmax=None):
   '''
   Returns only the values used as contribution
   '''
-  out = []
+  varlist[0:0] = ['time', 'r', 'ish']
+  env = MyEnv(key)
   file_path = get_fpath_thinshell(key)
   run_data = pd.read_csv(file_path, index_col=0)
   its = run_data.index.to_list()
   sh_names = ['RS', 'FS']
-  for i, sh in enumerate(sh_names):
+  out = []
+  for sh in sh_names:
     ids = run_data[f'ish_{{{sh}}}'].to_numpy()
     ids_split = np.split(ids, np.flatnonzero(np.diff(ids))+1)
     its_split = np.split(its, np.flatnonzero(np.diff(ids))+1)
-    out_sh = np.zeros((len(its_split),len(varlist)+2))
+    out_sh = np.zeros((len(its_split),len(varlist)+1))
     for j, it_group, ids_group in zip(range(len(its_split)), its_split, ids_split):
       # only calculate contribution from first it where cell is shocked
       it = it_group[0]
       ish = int(ids_group[0])
       df_data = run_data.loc[it].copy()
-      var_str = [f'{var}_{{{sh}}}' for var in varlist]
+      var_str = [f'{var}_{{{sh}}}' if var != 'time' else var for var in varlist]
       data = df_data[var_str].to_numpy()
-      out_sh[j] += np.insert(data, 0, [it, ish])
-    out.append(out_sh.transpose())
+      data = np.concatenate((np.array([it]), data))
+      out_sh[j] += data
+    out_sh = out_sh.transpose()
+    out.append(out_sh)
   return out
 
 def df_get_Fnu_thinshell(df_data, sh, nuobs, Tobs, env, func, hybrid=True):
@@ -1305,7 +1536,7 @@ def df_get_Fnu_thinshell(df_data, sh, nuobs, Tobs, env, func, hybrid=True):
       return broken_plaw_simple(x, b1=b1, b2=b2)
   else:
     print("func must be 'Band' of 'plaw'!")
-    return nuFnus
+    return Fnu
   
   var_sh = ['Tej', 'Tth', 'r', 'nu_m', 'Lth']
   varlist = [f'{var}_{{{sh}}}' for var in var_sh]
@@ -1385,28 +1616,29 @@ def run_get_Gammash(key, smoothing=True, kernel_size=10):
 
   return lfac_sh
 
-def extrapolate_early(df, env, nsamp=10, istart=15):
+def extrapolate_early(df, env, nsamp=10, i_s=15):
   '''
   Do the extrapolation of contributions at early times before shock settled properly
-  Performs extrapolation by sampling over nsamp datapoints starting from the istart'th
+  Performs extrapolation by sampling over nsamp datapoints starting from the i_s'th
   '''
-  sample = df.iloc[istart:istart+nsamp].copy()
+  sample = df.iloc[i_s:i_s+nsamp].copy()
   dt = np.diff(sample['time'].to_numpy()).mean()
   ids = df.index
   sh = df.keys()[1][-3:-1]
   v  = sample[f'v_{{{sh}}}'].mean()
   dr = dt*v
+  a_g = np.diff(np.log10(sample[f'lfac_{{{sh}}}'].to_numpy())).mean()
   a_nu = np.diff(np.log10(sample[f'nu_m_{{{sh}}}'].to_numpy())).mean()
   a_L = np.diff(np.log10(sample[f'Lth_{{{sh}}}'].to_numpy())).mean()
-  df = df.drop(ids[:istart])
-  t_i, r_i, nu_i, L_i = df.iloc[0][['time', f'r_{{{sh}}}', f'nu_m_{{{sh}}}', f'Lth_{{{sh}}}']]
+  df = df.drop(ids[:i_s])
+  t_i, r_i, gma_i, nu_i, L_i = df.iloc[0][['time', f'r_{{{sh}}}', f'lfac_{{{sh}}}', f'nu_m_{{{sh}}}', f'Lth_{{{sh}}}']]
   Nit = 1+int(min(np.floor(t_i/dt), np.floor(r_i/dr)))
   df_in =  pd.DataFrame(columns=df.keys())
   for n in range(1, Nit):
-    i = istart - n
-    t, r, nu, L = t_i - n*dt, r_i - n*dr, nu_i*10**(-n*a_nu), L_i*10**(-n*a_L)
+    i = i_s - n
+    t, r, gma, nu, L = t_i - n*dt, r_i - n*dr, gma_i*10**(-n*a_g), nu_i*10**(-n*a_nu), L_i*10**(-n*a_L)
     Ton, Tth, Tej = derive_obsTimes(t, r, v, env.t0, env.z)
-    vals = [t, r, v, Tej, Tth, nu, L]
+    vals = [t, r, v, Tej, Tth, gma, nu, L]
     dic = {key:val for key, val in zip(df.keys(), vals)}
     row = pd.DataFrame(dic, index=[i])
     df_in = pd.concat([row, df_in], ignore_index=True)
@@ -1423,7 +1655,7 @@ def extract_contribs(key, extrapolate=True):
   env = MyEnv(key)
   run_data = pd.read_csv(file_path, index_col=0)
   its = run_data.index.to_list()
-  varlist = ['r', 'v', 'Tej', 'Tth', 'nu_m', 'Lth']
+  varlist = ['r', 'v', 'Tej', 'Tth', 'lfac', 'nu_m', 'Lth']
   for sh in ['RS', 'FS']:
     keylist = ['time'] + [var + f'_{{{sh}}}' for var in varlist]
     ids = run_data[f'ish_{{{sh}}}'].to_numpy()
@@ -1574,3 +1806,133 @@ def df_get_all_thinshell_v1(df, theory=False):
   return radList, vList, lfacList, prsList, rhoList, idShList, \
     idShList, drList, ShStList, lfacShList, TejList, TthList, numList, LthList
 
+# plot any possible variable obtainable from the basic hydro variables
+def plot_multi_fronts(key, varlist=['lfac', 'gma_m', 'B'], xscale='r', plaw=False):
+  fig = plt.figure()
+  gs = fig.add_gridspec(len(varlist), 1, hspace=0)
+  axs = gs.subplots(sharex='all')
+
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
+  axs[-1].set_xlabel(xlabel)
+
+  for var, ax in zip(varlist, axs):
+    plot_atfronts(key, var, xscale=xscale, plaw=plaw, ax_in=ax)
+  
+
+def plot_atfronts(key, var, xscale='r', plaw=False, ax_in=None):
+  '''plots variable var behind shock fronts'''
+  kernel_size = 50
+  sigma = 5
+  if not ax_in:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
+  if not ax_in: ax.set_xlabel(xlabel)
+  ylabel = var_exp[var]
+  if plaw:
+    ylabel = 'd$\\ln ' + ylabel[1:] + '/d$\\ln ' + xlabel[1:]
+  ax.set_ylabel(ylabel)
+
+  env = MyEnv(key)
+  file_path = get_fpath_thinshell(key)
+  run_data = pd.read_csv(file_path, index_col=0)
+  run_data.attrs['key'] = key
+  t = run_data['time'].to_numpy() + env.t0
+
+  for sh in ['RS', 'FS']:
+    col = cols_dic[sh]
+    r = run_data[f'r_{{{sh}}}'].to_numpy()
+    val = get_variable_sh(run_data, var, sh)
+    val = val[r>0]
+    t = t[r>0]
+    r = r[r>0]
+    if xscale == 't':
+      x = t/env.t0
+    elif xscale == 'r':
+      x = r*c_/env.R0
+    elif xscale == 'T':
+      T = t - r
+      x = (T-env.Ts)/env.T0
+    
+    if plaw:
+      # plot d ln(val)/d ln(x)
+      # smooth first
+      arr = val/val.max()
+      val = gaussian_filter1d(arr, sigma, order=0)
+      # kernel = np.ones(kernel_size) / kernel_size
+      # val = np.convolve(val, kernel, mode='same')
+      if xscale == 'T': x += 1.
+      lnx = np.log(x)
+      lnval = np.log(val)
+      val = np.gradient(lnval, lnx)
+  
+    ax.loglog(x, val, c=col)
+    
+
+# overwrite corresponding functions from data_io to include shock name
+def get_vars_sh(df, varlist, sh):
+  '''
+  Return array of variables
+  '''
+  if type(df) == pd.core.series.Series:
+    out = np.zeros((len(varlist)))
+  else:
+    out = np.zeros((len(varlist), len(df)))
+  for i, var in enumerate(varlist):
+    out[i] = get_variable_sh(df, var, sh)
+  return out
+
+def get_variable_sh(df, var, sh):
+  '''
+  Returns chosen variable for the corresponding shock front
+  '''
+  varsh = f'{var}_{{{sh}}}'
+  if varsh in df.keys():
+    try:
+      res = df[varsh].to_numpy(copy=True)
+    except AttributeError:
+      res = df[varsh]
+  else:
+    func, inlist, envlist = var2func[var]
+    res = df_get_var(df, func, inlist, envlist, sh)
+  return res
+
+def df_get_var_sh(df, func, inlist, envlist, sh):
+  params, envParams = get_params_sh(df, inlist, envlist, sh)
+  res = func(*params, *envParams)
+  return res
+
+def get_params_sh(df, inlist, envlist, sh):
+  if (type(df) == pd.core.series.Series):
+    params = np.empty(len(inlist))
+  else:
+    params = np.empty((len(inlist), len(df)))
+  for i, var in enumerate(inlist):
+    var = f'{var}_{{{sh}}}'
+    if var in df.attrs:
+      params[i] = df.attrs[var].copy()
+    else:
+      try:
+        params[i] = df[var].to_numpy(copy=True)
+      except AttributeError:
+        params[i] = df[var]
+  envParams = []
+  if len(envlist) > 0.:
+    env = MyEnv(df.attrs['key'])
+    envParams = [getattr(env, name) for name in envlist]
+  return params, envParams

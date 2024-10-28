@@ -1,7 +1,7 @@
-INITIAL    = Shells/Shells
+INITIAL    = Shells/Shells_eqM
 TIMESTEP   = rk3
-GEOMETRY   = cartesian
-HYDRO      = rel_cart
+GEOMETRY   = spherical
+HYDRO      = rel_sph
 RADIATION  = radiation_sph
 SOLVER     = hllc
 DIMENSIONS = 1d

@@ -194,7 +194,7 @@ def get_behindShock_vals(key, varlist, itmin=0, itmax=None, thcorr=True, n=2, m=
           RS[anvars] = anvalsRS
           RS['gmin'] = get_variable(RS, 'gma_m')
         RSvals = get_vars(RS, varlist)
-        RSvals = np.concatenate((np.array([it, t]), RSvals))
+        RSvals = np.concatenate((np.array([it, t]), RS['x'], RSvals))
         RS_ids.append(iRS)
         RS_out.append(RSvals)
         
@@ -207,7 +207,7 @@ def get_behindShock_vals(key, varlist, itmin=0, itmax=None, thcorr=True, n=2, m=
           FS[anvars] = anvalsFS
           FS['gmin'] = get_variable(FS, 'gma_m')
         FSvals = get_vars(FS, varlist)
-        FSvals = np.concatenate((np.array([it, t]), FSvals))
+        FSvals = np.concatenate((np.array([it, t]), FS['x'], FSvals))
         FS_ids.append(iFS)
         FS_out.append(FSvals)
 
@@ -220,6 +220,7 @@ def get_behindShock_value(key, var, its=[]):
     its = np.array(dataList(key))[1:]
   if var in cool_vars:
     its = its[1:]
+  rs = np.zeros((2, len(its)))
   data = np.zeros((2, len(its)))
   time = np.zeros(len(its))
   for k, it in enumerate(its):
@@ -235,14 +236,18 @@ def get_behindShock_value(key, var, its=[]):
       data[1,k] = FS.name if len(FS) > 0 else 0
     else:
       if not RS.empty:
+        rs[0,k] = RS['x']
         data[0,k] = get_variable(RS, var)
       else:
+        rs[0,k] = 0.
         data[0,k] = 0.
       if not FS.empty:
+        rs[1,k] = FS['x']
         data[1,k] = get_variable(FS, var)
       else:
+        rs[1,k]
         data[1,k] = 0.
-  return its, time, data[0], data[1]
+  return its, time, rs[0], rs[1], data[0], data[1]
 
 def compare_crosstimes(key):
   '''
@@ -313,7 +318,7 @@ def get_spectrum_run(key, mode='r'):
   out = pd.read_csv(rfile_path, index_col=0)
   return out
 
-def get_radEnv(key, Tbmax=5, nT=100):
+def get_radEnv(key):
   '''
   Returns necessary variables for spectrum calculation from a run
   Nnu : number of frequency bins
@@ -321,8 +326,18 @@ def get_radEnv(key, Tbmax=5, nT=100):
   nT : number of bins per unit Tnorm = betaRS*T0
   '''
   env = MyEnv(key)
-  nuobs = np.concatenate((np.logspace(-3, -1, 100), np.logspace(-1, 1.5, 300), np.logspace(1.5, 2.5)), axis=None)*env.nu0
-  Tobs = env.Ts + np.linspace(0, 5, nT*Tbmax)*env.T0
+  if 'big' in key:
+    Tbmax = 10
+    nT = 200
+    lognumin = -5
+    nnu_low = 400
+  else:
+    Tbmax=5
+    nT= 200
+    lognumin = -3
+    nnu_low = 200
+  nuobs = np.concatenate((np.logspace(lognumin, -1, nnu_low), np.logspace(-1, 1.5, 300)), axis=None)*env.nu0
+  Tobs = env.Ts + np.linspace(0, Tbmax, nT*Tbmax)*env.T0
   return nuobs, Tobs, env
 
 def run_lightcurve_theoric(key, lognu):
