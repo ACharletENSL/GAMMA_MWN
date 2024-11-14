@@ -1,6 +1,6 @@
-INITIAL    = Shells/Shells_eqM
+INITIAL    = Shells/Shells
 TIMESTEP   = rk3
-GEOMETRY   = spherical
+GEOMETRY   = spherical1D
 HYDRO      = rel_sph
 RADIATION  = radiation_sph
 SOLVER     = hllc

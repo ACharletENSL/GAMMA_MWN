@@ -21,10 +21,11 @@ from scipy import integrate
 
 # matplotlib options
 # --------------------------------------------------------------------------------------------------
-plt.rc('font', family='serif', size=12)
-plt.rc('xtick', labelsize=12) 
-plt.rc('ytick', labelsize=12) 
+plt.rc('font', family='serif', size=14)
+plt.rc('xtick', labelsize=13) 
+plt.rc('ytick', labelsize=13) 
 plt.rc('legend', fontsize=12) 
+plt.rcParams["figure.figsize"] = (7,7)
 plt.rcParams['savefig.dpi'] = 200
 plt.rcParams['axes.grid'] = True
 formatter = ticker.ScalarFormatter(useMathText=True)
@@ -35,30 +36,30 @@ cm = plt.get_cmap('tab20')
 
 # Legends and labels
 var_exp = {
-  "x":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$", "v":"$\\beta$",
+  "time":"$t$", "x":"$r$", "r":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$", "v":"$\\beta$",
   "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$", "gma_m":"$\\gamma_m$",
   "trac":"tracer", "trac2":"wasSh", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\Gamma$", "u":"$\\Gamma\\beta$", "u_i":"$\\Gamma\\beta$", "u_sh":"$\\gamma\\beta$",
   "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r", "Tth":"$T_\\theta$",
   "numax":"$\\nu'_{max}$", "numin":"$\\nu'_{min}$", "B":"$B'$", "Pmax":"$P'_{max}$",
-  "gm":"$\\gamma_0$", "gb":"$\\gamma_1$", "gM":"$\\gamma_2$", "Lp":"$L'$", "L":"$L$",
-  "Lth":"$\\tilde{L}_{\\nu_m}$", "Lum":"$\\tilde{L}_{\\nu_m}$",
+  "gm":"$\\gamma_0$", "gb":"$\\gamma_1$", "gM":"$\\gamma_2$", "Lp_num":"$L'$", "L":"$L$",
+  "Lth":"$\\tilde{L}_{\\nu_m}$", "Lum":"$\\tilde{L}_{\\nu_m}$", "Lp":"$L'$", "Lbol":"$L'_{bol}$",
   "num":"$\\nu'_m$", "nub":"$\\nu'_b$", "nuM":"$\\nu'_M$", "inj":"inj", "fc":"fc", "nu_m":"$\\nu_m$","nu_m2":"$\\nu_m$",
   "Ton":"$T_{on}$", "Tth":"$T_{\\theta,k}$", "Tej":"$T_{ej,k}$", "tc":"$t_c$", 
   "V4":"$\\Delta V^{(4)}$", "V3":"$\\Delta V^{(3)}$", "V4r":"$\\Delta V^{(4)}_c$",
-  "i":"i", 'i_sh':'i$_{sh}$', 'i_d':'i$_d$'
+  "i":"i", 'i_sh':'i$_{sh}$', 'i_d':'i$_d$', 'ish':'i$_{sh}$'
   }
 units_CGS  = {
-  "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
+  "time":" (s)", "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
   "D":"", "sx":"", "tau":"", "trac":"", "trac2":"", "Sd":"", "gmin":"", "gmax":"", "u_sh":"",
-  "T":"", "h":"", "lfac":"", "u":"", "u_i":"", "zone":"", "dt":" (s)", "res":"", "Tth":" (s)",
+  "T":"", "h":"", "lfac":"", "u":"", "u_i":"", "zone":"", "dt":" (s)", "res":"", "Tth":" (s)", "Lbol":" (erg)",
   "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "M":" (g)", "Pmax":" (erg s$^{-1}$cm$^{-3}$)", "Lp":" (erg s$^{-1}$)",
   "numax":" (Hz)", "numin":" (Hz)", "B":" (G)", "gm":"", "gb":"", "gM":"", "L":" (erg s$^{-1}$) ", "Lum":" (erg s$^{-1}$) ",
   "num":" (Hz)", "nub":" (Hz)", "nuM":" (Hz)", "inj":"", "fc":"", "tc":" (s).", "Ton":" (s)",
   "Tth":" (s)", "Tej": " (s)", "V4":" (cm$^3$s)", "V3":" (cm$^3$)", "V4r":" (cm$^3$s)", "i":"", "nu_m":" (Hz)", "nu_m2":" (Hz)",
   }
 var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$', 'u_i':'$\\gamma\\beta$', 'u_sh':'$\\gamma\\beta$',
-  'f':"$n'_3/n'_2$", 'rho':"$n'$", 'rho3':"$n'_3$", 'rho2':"$n'_2$", 'Nsh':'$N_{cells}$',
+  'f':"$n'_3/n'_2$", 'rho':"$n'$", 'rho3':"$n'_3$", 'rho2':"$n'_2$", 'Nsh':'$N_{cells}$', "Lbol":"$L'_{bol}$",
   'V':'$V$ (cm$^3$)', 'Nc':'$N_{cells}$', 'ShSt':'$\\Gamma_{ud}-1$', "Econs":"E",
   'ShSt ratio':'$(\\Gamma_{34}-1)/(\\Gamma_{21}-1)$', "Wtot":"$W_4 - W_1$",
   'M':'$M$ (g)', 'Msh':'$M$ (g)', 'Ek':'$E_k$ (erg)', 'Ei':'$E_{int}$ (erg)',
@@ -72,7 +73,7 @@ def get_normunits(xnormstr, rhonormsub):
   rhonormsub  = '{' + rhonormsub +'}'
   CGS2norm = {" (s)":"$/T_0$",  " (s).":"$/t_{c,RS}$", " (g)":" (g)", " (Hz)":f"$/\\nu'_0$", " (eV)":" (eV)", " (G)":"$/B'_3$",
   " (cm)":" (ls)" if xnormstr == 'c' else "$/"+xnormstr+"$", " (g cm$^{-3}$)":f"$/\\rho_{rhonormsub}$",
-  " (Ba)":f"$/\\rho_{rhonormsub}c^2$", " (erg cm$^{-3}$)":f"$/\\rho_{rhonormsub}c^2$",
+  " (Ba)":f"$/\\rho_{rhonormsub}c^2$", " (erg cm$^{-3}$)":f"$/\\rho_{rhonormsub}c^2$", " (erg)":"$/L'_{bol}$",
   " (erg s$^{-1}$)":"$/L'_0$"," (erg s$^{-1}$) ":"$/L_0$", " (cm$^3$s)":"$/V_0t_0$", " (cm$^3$)":"$/V_0$",
   " (cm$^3$)":" (cm$^3$)", " (erg s$^{-1}$cm$^{-3}$)":"$/P'_0$"}
   return {key:(CGS2norm[value] if value else "") for (key,value) in units_CGS.items()}
@@ -85,6 +86,8 @@ def get_varscaling(var, env):
     var_scale = rhoNorm
   elif unit == " (Ba)" or unit == " (erg cm$^{-3}$)":
     var_scale = pNorm
+  elif unit == " (erg)":
+    var_scale = env.Ek1
   else:
     var_scale = 1.
   return var_scale
@@ -365,18 +368,33 @@ def ax_cell_timeseries(var, i, key='Last', xscaling='it', yscaling='code', ax_in
     ylabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
     ax.set_ylabel(ylabel)
 
-def plot_behindShocks(key, varlist, itmin=0, itmax=None, thcorr=False, n=2, m=1):
+def plot_behindShocks(key, varlist, itmin=0, xscaling='it', itmax=None, thcorr=False, n=2, m=1):
   '''
   Creates plots for chose variables
   '''
-
+  
+  env = MyEnv(key)
   RS_vals, FS_vals = get_behindShock_vals(key, varlist, itmin, itmax, thcorr, n, m)
   Nvar = len(varlist)
   fig, axs = plt.subplots(Nvar, 1, sharex='all')
+  if Nvar == 1: axs = [axs]
   for vals, col in zip([RS_vals, FS_vals], ['r', 'b']):
-    for y, ax in zip(vals[2:], axs):
-      ax.semilogy(vals[0], y, c=col)
-      ax.scatter(vals[0], y, marker='x', c=col)
+    if xscaling == 'it':
+      x = vals[0]
+      xlabel = 'it'
+    elif xscaling == 't':
+      x = vals[1]/env.t0 + 1
+      xlabel = '$t/t_0$'
+    elif xscaling == 'r':
+      x = vals[2]*c_/env.R0
+      xlabel = '$r/R_0$'
+    elif xscaling == 'T':
+      x = ((vals[1] + env.t0 - vals[2]) - env.Ts)/env.T0
+      xlabel = '$\\bar{T}$'
+    for y, ax in zip(vals[-Nvar:], axs):
+      ax.semilogy(x, y, c=col)
+      ax.scatter(x, y, marker='x', c=col)
+  axs[-1].set_xlabel(xlabel)
 
 # Time plots
 # --------------------------------------------------------------------------------------------------
@@ -590,7 +608,7 @@ def article_snap(name, it, key='cart_fid'):
   plt.savefig(figname)
   plt.close()
 
-def prim_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False', suptitle=True):
+def prim_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False', suptitle=True, legend=True):
   f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
   varlist = ['rho', 'u', 'p']
   #scatlist= []
@@ -602,7 +620,9 @@ def prim_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False', su
   if suptitle:
     f.suptitle(title)
   #scatter = scatlist[1]
-  plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+  if legend:
+    #plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+    f.legend(*scatter.legend_elements(), loc='center right')
 
 def cons_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False'):
   f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
@@ -707,17 +727,20 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
   if (it != 0) and (var in cool_vars):
     df = openData_withDistrib(key, it)
   n = df["zone"].to_numpy()
+  nc = int(n.max())
+  bounds = np.linspace(0, nc, nc+1)
+  norm = mpl.colors.BoundaryNorm(bounds, nc)
 
   if tformat == 'Rcd':
     Rcd = get_radius_zone(df, 2)*c_
     dRcd = (Rcd - env.R0)/env.R0
     rc_str= reformat_scientific(f"{dRcd:.3e}")
-    tstr = f", $(R_{{cd}}-R_0)/R_0= {rc_str}$"
+    tstr = f"$(R_{{cd}}-R_0)/R_0= {rc_str}$"
   else:
-    tstr = f", $t/t_0={1.+t/env.t0:.2f}$"
+    tstr = f"$t/t_0={1.+t/env.t0:.2f}$"
 
-  it_str = "" if itoff else f", it {it}"
-  title = env.runname + it_str + tstr
+  it_str = "" if itoff else env.runname + f", it {it}, "
+  title = it_str + tstr
   units = {}
   xscale = 1.
   if xscaling == 'code':
@@ -737,6 +760,7 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
     xlabel = '$r$'
   if yscaling in ['code', 'norm']:
     units  = get_normunits('c', 'Norm')
+  if yscaling == 'code':
     yscale = 1.
   elif yscaling=='norm':
     if var.startswith('nu'):
@@ -745,6 +769,8 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
       yscale = 1./env.L0p
     elif var == "L":
       yscale = 1./env.L0
+    elif var == 'Lbol':
+      yscale = 1./env.Lbolp
     elif var == 'B':
       yscale = 1./env.Bp
     elif var in ["Tth", "Ton", "Tej"]:
@@ -753,7 +779,7 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
       yscale = 1./env.u
   elif yscaling == 'CGS':
     units = units_CGS
-    yscale = get_varscaling(var, env)
+  yscale = get_varscaling(var, env)
   ylabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
 
 
@@ -779,7 +805,7 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
   ax.set_xlabel(xlabel)
   ax.set_ylabel(ylabel)
   ax.plot(x, y, 'k', zorder=1)
-  scatter = ax.scatter(x, y, c=n, lw=1, zorder=2, cmap=cm, **kwargs)
+  scatter = ax.scatter(x, y, c=n, lw=1, zorder=2, cmap=cm, norm=norm, **kwargs)
   
   if logx:
     ax.set_xscale('log')

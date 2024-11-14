@@ -9,9 +9,9 @@ This file contains functions to derive physical variables
 # Imports
 # --------------------------------------------------------------------------------------------------
 import numpy as np
-import math
+from math import *
 from phys_constants import *
-#from numba import njit
+from numba import jit, prange, vectorize
 
 # General functions
 # --------------------------------------------------------------------------------------------------
@@ -35,6 +35,7 @@ def intersect(a, b):
   bL, bR = b
   return bool(aL in range(bL, bR+1) or aR in range(bL, bR+1))
 
+
 def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
   '''
   Powerlaw with index a0 to g1, -a1 between g1 and g2, -a2 between g2 and g3
@@ -52,30 +53,73 @@ def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
     elif x < g3: return ((g2/g1)**(-a1))*(x/g2)**(-a2)
     else: return 0.#((g2/g1)**(-a1))*(g3/g2)**(-a2)*(x/g3)**(-a3)
 
+@jit(nopython=True)
 def broken_plaw_simple(x, b1=-0.5, b2=-1.25):
   '''
   Simple broken power-law, normalized at break
   '''
   return np.piecewise(x, [x<=1., x>1.], [lambda x: x**b1, lambda x: x**b2])
 
-def Band_func(x, b1=-0.5, b2=-1.25):
+@jit(nopython=True)
+def Band_func_v2(x_arr, b1=-0.5, b2=-1.25):
+  '''
+  Rewritten to be accelerated by numba
+  '''
+
+  b1 = np.float64(b1)
+  b2 = np.float64(b2)
+  b  = b1-b2
+  xb = b/(1+b1)
+  xdim = len(x_arr.shape)
+  if xdim == 1:
+    N = len(x_arr)
+    y_arr = np.zeros(N)
+    for i in prange(N):
+      x = x_arr[i]
+      if x<=xb:
+        y = np.exp(1+b1) * x**b1 * np.exp(-x*(1+b1))
+      else:
+        y = np.exp(1+b1) * x**b2 * xb**b * np.exp(-b)
+      y_arr[i] = y + y_arr[i]
+  elif xdim == 2:
+    N1, N2 = x_arr.shape
+    y_arr = np.zeros((N1, N2))
+    for i in prange(N1):
+      for j in prange(N2):
+        x = x_arr[i,j]
+        if x<=xb:
+          y = np.exp(1+b1) * x**b1 * np.exp(-x*(1+b1))
+        else:
+          y = np.exp(1+b1) * x**b2 * xb**b * np.exp(-b)
+        y_arr[i,j] = y + y_arr[i]
+
+  return y_arr
+
+
+def Band_func_basic(x, b1=-0.5, b2=-1.25):
+  b  = b1-b2
+  xb = b/(1+b1)
+  if x<= xb:
+    return np.exp(1+b1) * x**b1 * np.exp(-x*(1+b1))
+  else:
+    return np.exp(1+b1) * x**b2 * xb**b * np.exp(-b)
+
+Band_func = vectorize(Band_func_basic)
+
+def Band_func_old(x, b1=-0.5, b2=-1.25):
   '''
   Band function, as seen in Genet & Granot 2009, eqn (1)
   '''
   xb = (b1-b2)/(1+b1)
   return np.piecewise(x, [x<=xb, x>xb],
     [lambda x: inf_Bandfunc(x, b1), lambda x: sup_Bandfunc(x, b1, b2)])
-  # if type(x) == np.ndarray:
-  #   return Bnorm * np.where(x<=xb, inf_Bandfunc(x, b1), sup_Bandfunc(x, b1, b2))
-  # else:
-  #   if x <= xb:
-  #     return Bnorm * inf_Bandfunc(x, b1)
-  #   else:
-  #     return Bnorm * sup_Bandfunc(x, b1, b2)
 
+
+@jit(nopython=True)
 def inf_Bandfunc(x, b1):
   return np.exp(1+b1) * x**b1 * np.exp(-x*(1+b1))
 
+@jit(nopython=True)
 def sup_Bandfunc(x, b1, b2):
   b  = (b1-b2)
   xb = b/(1+b1)
@@ -511,6 +555,19 @@ def derive_Fpeak_numeric(x, dx, rho, vx, p, gmin,
   d2 = (lfac*(1-vx))**-2
   L = (d2/(2*x)) * Epnu
   return zdl * L
+
+def derive_Lbol_comov(x, rho, p, R0, rhoscale, eps_e, geometry):
+  ''' Bolometric luminosity in comoving frame'''
+  eint = derive_Eint_comoving(rho, p, rhoscale)
+  r = R0 if geometry == 'cartesian' else x*c_
+  S = (4./3.)*pi_*r**2
+  return eps_e*eint*S*c_
+
+def derive_Lp_nupm(x, rho, p, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry):
+  Lbol = derive_Lbol_comov(x, rho, p, R0, rhoscale, eps_e, geometry)
+  nup_m = derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e)
+  Wp = 2*(psyn-1)/(psyn-2)
+  return Lbol/(Wp*nup_m)
 
 def derive_localLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn, xi_e, R0, geometry='cartesian'):
   '''

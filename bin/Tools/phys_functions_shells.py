@@ -51,6 +51,8 @@ def shells_complete_setup(env):
   
   env.Nsh4 = int(np.floor(env.Nsh1*env.D04/env.D01))
   env.V0 = (4/3.)*pi_*((env.R0+env.D01)**3 - (env.R0-env.D04)**3)
+  env.dr4 = env.D04/env.Nsh4
+  env.dr1 = env.D01/env.Nsh1
 
   # add rho if Ek and vice-versa
   if Ain_keys_butnotB('Ek1', 'rho1'):
@@ -164,8 +166,9 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.nu0pFS = env.gma_mFS**2 * env.nuBpFS
   env.eps_rad = 1
   env.eps_radFS = 0.5
-  env.L0p = (2/3.) * env.eps_e * env.eps_rad * 4 * pi_ * env.R0**2 * c_**3 * \
-    ((env.psyn-2.)/(env.psyn-1)) * (env.lfac34-1)*env.u34 * env.rho4 / env.nu0p
+  env.Lbolp = (4/3.) * env.eps_e * env.eps_rad * (4*pi_*env.R0**2) * c_**3 * \
+     (env.lfac34-1)*env.u34 * env.rho4 
+  env.L0p = env.Lbolp / (Wp*env.nu0p)
   env.L0 = 2*env.lfac*env.L0p
 
   env.nu0 = 2.*env.lfac*env.nu0p/(1+z)
@@ -174,6 +177,8 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.Fs = env.zdl * env.L0
   env.F0 = env.Fs/3.
   env.nu0F0 = env.nu0*env.F0
+  env.tL0 = (3*env.lfac*env.dr4/(c_*env.T0))*env.L0p
+
   Pfac = (4./3.) * (4*(env.psyn-1)/(3*env.psyn-1)) * (16*me_*c_**2*sigT_/(18*pi_*e_))
   env.Pmax0 = Pfac * env.Bp * env.xi_e * (env.rho3/mp_)
   env.Pmax0FS = Pfac * env.BpFS * env.xi_e * (env.rho2/mp_)
@@ -194,11 +199,12 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.fac_T  = ((env.lfacFS/env.lfacRS)**2)*(env.betaFS/env.betaRS)*((1+env.betaFS)/(1+env.betaRS))
   env.nu0pFS = env.nu0p / env.fac_nu
   env.nu0FS = env.nu0 / env.fac_nu
+  env.L0pFS = env.L0p / env.fac_F
   env.L0FS  = env.L0 / env.fac_F
   env.F0FS  = env.F0 / env.fac_F
   env.nu0F0FS = env.nu0FS*env.F0FS
   env.T0FS  = (1+z) * (env.R0/c_) * ((1-env.betaFS)/env.betaFS)
-
+  env.tL0FS = (3*env.lfac*env.dr1/(c_*env.T0FS))*env.L0pFS
   env.Ts   = (1+z)*(env.t0 - env.R0/c_)
 
   # final radii and times

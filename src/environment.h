@@ -54,7 +54,7 @@ enum{skip_,merge_,split_};
 #define VI     1.            // interface velocity (units of CD velocity)
 #define GAMMA_ (5./3.)
 #define EOS_   IDEAL_      // carefull, GAMMA_ needs to be set to 5/3 when using SYNGE
-#define CFL_   0.05
+#define CFL_   0.2
 
 #define MPI_ ENABLED_
 #define OMP_ ENABLED_

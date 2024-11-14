@@ -137,8 +137,8 @@ def snapSeries(key, theory=False):
   for t in t_snaps:
     i = find_closest(times, t)
     it_snaps.append(its[i])
-  for it, name in zip(it_snaps, names):
-    prim_snapshot(it, key, theory, xscaling='Rcd', itoff=True)
+  for it, name, leg in zip(it_snaps, names, (False, True, False)):
+    prim_snapshot(it, key, theory, xscaling='Rcd', itoff=True, legend=leg)
     figname = './figures/snap_' + env.runname + '_' + name + '.png' 
     plt.savefig(figname)
     plt.close()

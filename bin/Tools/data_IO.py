@@ -911,9 +911,9 @@ def df_get_cellBehindShock(df, shFront, n=5, m=1):
     sh = FS
     #sign = -1
   l = len(sh)
+  for key in df.attrs.keys():
+    sh.attrs[key] = df.attrs[key]
   if sh.empty:
-    for key in df.attrs.keys():
-      sh.attrs[key] = df.attrs[key]
     return sh
   else:
     i_min, i_max = sh.index.min(), sh.index.max()
@@ -926,6 +926,9 @@ def df_get_cellBehindShock(df, shFront, n=5, m=1):
     
     front = df.iloc[i].copy()
     down = df.iloc[i_d]
+    for key in df.attrs.keys():
+      front.attrs[key] = df.attrs[key]
+      down.attrs[key] = df.attrs[key]
     front[hdvars] = down[hdvars]
     front['gmin'] = get_variable(front, "gma_m")
 
@@ -1014,16 +1017,18 @@ def df_to_shocks(df):
         out.append(shlist[-1])
   return out
 
-def df_check_crossed(df, tol=5):
+def df_check_crossed(df, tol=50):
   '''
   Check which shocks have crossed their respective shells
   '''
   RScr, FScr = False, False
   shocks = df.loc[(df['Sd'] == 1.0)]
+  t = df['t'].mean()
 
   if not shocks.empty: # shocks.empty == True: setup OR both crossed and are out of box
     RS, FS = df_to_shocks(df)
-    if (df.attrs['it'] > tol):
+    
+    if (t > tol):
       if RS.empty: # no shock inside shell 4
         # shock has crossed
         RScr = True
@@ -1031,7 +1036,7 @@ def df_check_crossed(df, tol=5):
         # shock has crossed
         FScr = True
   else:
-    if (df.attrs['it'] > tol): # t != 0.
+    if (t > tol): # t != 0.
       RScr, FScr = True, True
   return RScr, FScr
       
@@ -1061,7 +1066,7 @@ def zoneID(df, Ttol=.02):
     i4   = i_4.min()
     wave = [item for item in ilist if i4<item[2]][0]
     iw   = min(wave[2], i_4.max())
-    zone[i4:iw] = 4.
+    #zone[i4:iw] = 4.
       #zone[iw:i_4.max()] = 3.
   else:
     if RS.empty: # too early for shocks

@@ -194,7 +194,7 @@ def get_behindShock_vals(key, varlist, itmin=0, itmax=None, thcorr=True, n=2, m=
           RS[anvars] = anvalsRS
           RS['gmin'] = get_variable(RS, 'gma_m')
         RSvals = get_vars(RS, varlist)
-        RSvals = np.concatenate((np.array([it, t]), RS['x'], RSvals))
+        RSvals = np.concatenate((np.array([it, t, RS['x']]), RSvals))
         RS_ids.append(iRS)
         RS_out.append(RSvals)
         
@@ -207,7 +207,7 @@ def get_behindShock_vals(key, varlist, itmin=0, itmax=None, thcorr=True, n=2, m=
           FS[anvars] = anvalsFS
           FS['gmin'] = get_variable(FS, 'gma_m')
         FSvals = get_vars(FS, varlist)
-        FSvals = np.concatenate((np.array([it, t]), FS['x'], FSvals))
+        FSvals = np.concatenate((np.array([it, t, FS['x']]), FSvals))
         FS_ids.append(iFS)
         FS_out.append(FSvals)
 
@@ -318,7 +318,7 @@ def get_spectrum_run(key, mode='r'):
   out = pd.read_csv(rfile_path, index_col=0)
   return out
 
-def get_radEnv(key):
+def get_radEnv(key, forpks=False):
   '''
   Returns necessary variables for spectrum calculation from a run
   Nnu : number of frequency bins
@@ -336,6 +336,13 @@ def get_radEnv(key):
     nT= 200
     lognumin = -3
     nnu_low = 200
+  if forpks:
+    Tbmax = int(np.ceil(3*(max(env.TRS, env.TFS)-env.Ts)/env.T0))
+    Tbmax = max(Tbmax, 5)
+    nT = max(env.Nsh1, env.Nsh4)
+    lognumin = -4
+    nnu_low = 300
+
   nuobs = np.concatenate((np.logspace(lognumin, -1, nnu_low), np.logspace(-1, 1.5, 300)), axis=None)*env.nu0
   Tobs = env.Ts + np.linspace(0, Tbmax, nT*Tbmax)*env.T0
   return nuobs, Tobs, env

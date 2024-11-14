@@ -1,5 +1,3 @@
-scaling de nupk: 
-équation pas bonne?
 
 check variation exacte de nu_m via variation de B et gamma_m -> on s'attend à un facteur 150 mais on n'a que un facteur 10
 intégrer sur bandes de fréquences des satellites -> les observations cachent la variabilité spectrale sur ces bandes
