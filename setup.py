@@ -29,7 +29,7 @@ def main():
   update_simFile(simfile, env)
   update_Makefile(env)
   update_envFile(env)
-  subprocess.call("cp -f ./phys_input.ini ./results/Last/", shell=True)
+  #subprocess.call("cp -f ./phys_input.ini ./results/Last/", shell=True)
   #run_name = get_runName("./phys_input.ini")
 
 def update_envFile(env):

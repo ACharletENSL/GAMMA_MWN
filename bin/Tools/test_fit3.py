@@ -5,11 +5,11 @@ import sys
 key = sys.argv[1] if len(sys.argv) > 1 else 'sph_big'
 func = 'Band'
 plot_1stfit = False
-plot_xi = False
-nuobs, Tobs, env = get_radEnv(key)
+plot_xi = True
+nuobs, Tobs0, env = get_radEnv(key, forpks=True)
 path = get_contribspath(key)
 nupks, nuFnupks = get_pksnunFnu(key)
-Tb = (Tobs-env.Ts)/env.T0
+Tb = (Tobs0-env.Ts)/env.T0
 
 shocks = ['RS', 'FS']
 cols = ['r', 'b']
@@ -19,6 +19,7 @@ nu_facs = [1., 1./env.fac_nu]
 F_facs = [1., 1./env.fac_F]
 norms_T = [env.T0, env.T0FS]
 norms_nu = [env.nu0, env.nu0FS]
+norms_Lp = [env.L0p, env.L0pFS]
 norms_F = [env.F0, env.F0FS]
 
 
@@ -33,14 +34,14 @@ title = ''
 
 if plot_xi:
   fig2, axs2 = plt.subplots(2, 1, sharex='all')
-  ax_xi, ax_y = axs2
+  ax_xi, ax_err = axs2
   #ax_xi.set_title(f'log fitting {'ON' if withlog else 'OFF'}, effective final radius {'ON' if withReff else 'OFF'}')
   ax_xi.set_ylabel('$\\xi_{eff}$')
-  ax_y.set_ylabel('$y_{eff}$')
-  # ax_err.set_ylabel('err.')
-  # ax_err.set_xlabel('$\\bar{T}_{sh}$')
-  # dummy_lst = [plt.plot([], [], ls=l, c='k')[0] for l in ['-.', '--']]
-  # ax_err.legend(dummy_lst, ['$\\nu_{pk}$', '$\\nu_{pk} F_{\\nu_{pk}}$'])
+  #ax_y.set_ylabel('$y_{eff}$')
+  ax_err.set_ylabel('err.')
+  ax_err.set_xlabel('$\\bar{T}_{sh}$')
+  dummy_lst = [plt.plot([], [], ls=l, c='k')[0] for l in ['-.', '--']]
+  ax_err.legend(dummy_lst, ['$\\nu_{pk}$', '$\\nu_{pk} F_{\\nu_{pk}}$'])
 
 if plot_1stfit:
   # figr, axr = plt.subplots()
@@ -54,22 +55,23 @@ if plot_1stfit:
   axs3[-1].set_xlabel('$r/R_0$')
 i_smp = 20 # sampling to estimate initial plaw index
 iff = -2
-i_s = 5 # flawed data from numerics at beginning
+i_s = 15 # flawed data from numerics at beginning
 
-inputs = [shocks, cols, nupks, nuFnupks, g_vals, norms_T, norms_nu, norms_F, nu_facs, F_facs, ['--', '-.']]
-for sh, col, nupk, nuFnupk, g, T0, nu0, F0, fac_nu, fac_F, l in zip(*inputs):
+inputs = [shocks, cols, nupks, nuFnupks, g_vals, norms_T, norms_nu, norms_Lp, norms_F, nu_facs, F_facs, ['--', '-.']]
+for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs):
 
+  Tobs = Tobs0[nuFnupk>0]
   nu = nupk[nuFnupk>0]/nu0
   nuFnu = nuFnupk[nuFnupk>0]/(nu0*F0)
   nup0 = (1+env.z)*nu0/(2*env.lfac)
-  Lp0 = 3*F0/(2*env.lfac*env.zdl)
+  #Lp0 = 3*F0/(2*env.lfac*env.zdl)
   fac_nuFnu = fac_nu*fac_F # difference in normalization
   nuNorm = 1.
   FnuNorm = 1.
 
   df = pd.read_csv(path+sh+'.csv')
   rsh, lfac, num, Lp = df[[f'r_{{{sh}}}', f'lfac_{{{sh}}}', f'nu_m_{{{sh}}}', f'Lp_{{{sh}}}']].to_numpy().transpose()
-  rsh, lfac, num, Lp = rsh[rsh>0.], lfac[rsh>0.], num[rsh>0.], Lp[rsh>0.]
+  rsh, lfac, num, Lp = rsh[rsh>0.][i_s:], lfac[rsh>0.][i_s:], num[rsh>0.][i_s:], Lp[rsh>0.][i_s:]
   rsh *= c_/env.R0
   nup = (1+env.z)*num/(2*lfac)
   #nup /= env.nu0p
@@ -79,6 +81,7 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, F0, fac_nu, fac_F, l in zip(*inputs):
   Lp /= Lp0
   lfac /= env.lfac
   tT = 1 + (Tobs - env.Ts)/T0
+  tT = tT
   
   def tT_to_tTth(tT, Tth):
     '''
@@ -104,26 +107,32 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, F0, fac_nu, fac_F, l in zip(*inputs):
       return ((Xpl * r**m)**-s + Xsph**-s)**(-1/s)
     else:
       return Xsph*np.ones(r.shape)
-  popt_lfac, pcov = curve_fit(fitfunc_lfac, rsh, lfac, bounds=([0.75, 0.5, ml, 1], [1.25, 2, mu, np.inf]))
+  popt_lfac, pcov = curve_fit(fitfunc_lfac, rsh, lfac, p0=[lfac[0], lfac[-1], m0, 2],
+    bounds=([0.75, 0.5, ml, 1], [1.25, 2, mu, np.inf]))
   lfacpl, lfacsph, m, s_lfac = popt_lfac
   print(f'lfac {sh}: m = {m:.2f}, starts at {lfacpl*env.lfac:.1f}, saturates at {lfacsph*env.lfac:.1f}, s = {s_lfac:.1f}')
 
 
   # fit nu'
   d0 = logslope(rsh[0], nup[0], rsh[i_smp], nup[i_smp]) - 1
+  dl = min(d0*0.9, d0*1.1)
+  du = max(d0*0.9, d0*1.1)
   def fitfunc_nup(r, Xpl, Xsph, d, s):  
     return ((Xpl * r**d)**s + (Xsph*r**-1)**s)**(1/s)
-  popt_nup, pcov = curve_fit(fitfunc_nup, rsh, nup,
-      bounds=([1e-3, 1e-4, 1.1*d0, 1], [1., 1., 0.9*d0, np.inf]))
+  popt_nup, pcov = curve_fit(fitfunc_nup, rsh, nup, p0=[nup[0], nup[-1], d0, 2],
+      bounds=([0.1, 0.1, dl, 1], [10, 10, du, np.inf]))
   nuppl, nupsph, d, s_nup = popt_nup
   print(f"nup {sh}: d = {d:.2f}, starts at {nuppl:.1e} nu'_0, saturates at {nupsph:.1e} nu'_0, s = {s_nup:.1f}")
 
 
   # fit Lp
   a0 = logslope(rsh[0], Lp[0], rsh[i_smp], Lp[i_smp])
+  al = min(a0*0.9, a0*1.1)
+  au = max(a0*0.9, a0*1.1)
   def fitfunc_Lp(r, Xpl, Xsph, a, s):
     return ((Xpl * r**a)**-s + (Xsph*r)**-s)**(-1/s)
-  popt_Lp, pcov = curve_fit(fitfunc_Lp, rsh, Lp, bounds=([1, 1, 0.9*a0, 1], [10, 10, 1.1*a0, np.inf]))
+  popt_Lp, pcov = curve_fit(fitfunc_Lp, rsh, Lp, #p0=[Lp[0], Lp[-1], a0, 2],
+    bounds=([0.1, 0.1, al, 1], [10, 10, au, np.inf]))
   Lppl, Lpsph, a, s_Lp = popt_Lp
   print(f"Lp {sh}: a = {a:.2f}, starts at {Lppl:.1e} L', saturates at {Lpsph:.1e} L'0, s = {s_Lp:.1f}")
 
@@ -158,20 +167,16 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, F0, fac_nu, fac_F, l in zip(*inputs):
   def xi_to_y(xi, m=0):
     return (1 + (m+1)*g**-2*xi)**(-1/(m+1))
 
-  nu_pl = 2*(lfacpl*env.lfac)*(nuppl*nup0)
-  F_pl = 3*env.zdl * 2*(lfacpl*env.lfac)*(Lppl*Lp0)
+  nu_pl = lfacpl*nuppl
+  F_pl = lfacpl*Lppl
   nuFnu_pl = nu_pl*F_pl
-  prefac_nu = (nu0/nu_pl)
-  prefac_F = (F0/F_pl)
-  prefac_nuFnu = prefac_nu*prefac_F
-  print(f'{sh}: prefac nu = {prefac_nu:.2f}, prefac nuFnu = {prefac_nuFnu:.2e}')
 
   def fit_nupk_rise(tT, knu, xi_sat, k, s, m=0):
     xi = xi_eff(tT, xi_sat, k, s, m)
     y = xi_to_y(xi, m)
     r = tT # R_L(T) = R_0 \tilde{T}
     reff = y*r
-    return  knu *lfac_fitted(reff)*nup_fitted(reff)/(1+xi)
+    return  knu * nu_pl * lfac_fitted(reff)*nup_fitted(reff)/(1+xi) 
 
   def fit_nuFnupk_rise(tT, knu, kF, xi_sat, k, s, m=0):
     ximax = tT_to_ximax(tT, m)
@@ -179,10 +184,8 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, F0, fac_nu, fac_F, l in zip(*inputs):
     y = xi_to_y(xi, m)
     r = tT # R_L(T) = R_0 \tilde{T}
     reff = r*y
-    # factor of 3 for the normalization, Fs = 3 F0
-    #nu = prefac_nu*lfac_fitted(reff)*nup_fitted(reff)/(1+xi)
     nu = fit_nupk_rise(tT, knu, xi_sat, k, s, m)
-    Fnu = kF*ximax*(1+xi)**-3 * lfac_fitted(reff)**3*lfac_fitted(r)**-2*Lp_fitted(reff)
+    Fnu = kF * F_pl * ximax*(1+xi)**-3 * lfac_fitted(reff)**3*lfac_fitted(r)**-2*Lp_fitted(reff)
     return nu*Fnu
 
   # to fit both functions with the same underlying physical parameters
@@ -193,42 +196,79 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, F0, fac_nu, fac_F, l in zip(*inputs):
     return fit
 
   tT_rise, tT_HLE = np.split(tT, [i_f])
-  tT_rise = tT_rise[i_s:]
+  istart = np.searchsorted(tT_rise-1, 1e-2)
+  tT_rise = tT_rise[istart:]
   nu_rise, nu_HLE = np.split(nu, [i_f])
-  nu_rise = nu_rise[i_s:]
+  nu_rise = nu_rise[istart:]
   nuFnu_rise, nuFnu_HLE = np.split(nuFnu, [i_f])
-  nuFnu_rise = nuFnu_rise[i_s:]
+  nuFnu_rise = nuFnu_rise[istart:]
   ydata_rise = np.hstack((nu_rise, nuFnu_rise))
   ydata_HLE = np.hstack((nu_HLE, nuFnu_HLE))
 
-
   sigma = np.ones(tT_rise.shape)
-  sigma[iff] = 0.01
+  sigma[-1] = 0.01
 
   sigma = np.hstack((sigma, sigma))
   # params order: knu, kF, xi_sat, k, s
   popt1, pcov1 = curve_fit(partial(fit_both_rise, m=0), tT_rise, ydata_rise,
-      p0=[1., 1., 1, 0.3, 3], bounds=([1., 1., .5, 0.1, 1], [1.01, 1.01, 10, 1, np.inf]), sigma=sigma)
+      p0=[1., 1., 5, 0.3, 3], bounds=([0.9, 0.9, 1, 0.1, 1.], [1.1, 1.1, 10, 1, np.inf]), sigma=sigma)
   knu, kF, xi_sat, k, s = popt1
   title += f'{sh}: $\\xi_{{sat}}$ = {xi_sat:.2f}, k = {k:.2f}, s = {s:.1f}, $k_\\nu$ = {knu:.2f}, $k_F$ = {kF:.2f}'
-  title += '\n'
+
   fit_xi = xi_eff(tT[:i_f], xi_sat, k, s, m)
   fit_nu_rise = fit_nupk_rise(tT[:i_f], *popt1)
   fit_nuFnu_rise = fit_nuFnupk_rise(tT[:i_f], *popt1)
 
-  fit_nu = fit_nu_rise
-  fit_nuFnu = fit_nuFnu_rise
-  Tb = tT[:i_f] - 1
+  # fit HLE
+  Tth = Tthf
+  yf = (1 + (m+1)*g**-2 *fit_xi[-1])**(-1/(m+1))
+  Tth = Tthf * yf**(m+1)
+  def fit_nupk_HLE(tT, dnu):
+    nupkf = fit_nupk_rise(tTf, *popt1)
+    tTth = tT_to_tTth(tT, Tth)
+    return nupkf * (tTth/tTth[0])**dnu
+  def fit_nuFnupk_HLE(tT, dnu, dF):
+    nuFnupkf = fit_nuFnupk_rise(tTf, *popt1)
+    tTth = tT_to_tTth(tT, Tth)
+    d = dnu+dF
+    return nuFnupkf * (tTth/tTth[0])**d
+  def fit_both_HLE(tT, dnu, dF):
+    nufit = fit_nupk_HLE(tT, dnu)
+    nuFnufit = fit_nuFnupk_HLE(tT, dnu, dF)
+    fit = np.hstack((nufit, nuFnufit))
+    return fit
+
+  sigma = np.ones(tT_HLE.shape)
+  sigma[0] = 0.01
+  sigma = np.hstack((sigma, sigma))
+  popt2, pcov2 = curve_fit(fit_both_HLE, tT_HLE, ydata_HLE, p0=[-1, -2], sigma=sigma)
+  dnu, dF = popt2
+  fit_nu_HLE = fit_nupk_HLE(tT_HLE, dnu) 
+  fit_nuFnu_HLE = fit_nuFnupk_HLE(tT_HLE, dnu, dF)
+  title += f', d$_\\nu$ = {dnu:.2f}, d$_F$ = {dF:.2f}\n'
+
+
+  fit_nu = np.concatenate((fit_nu_rise, fit_nu_HLE), axis=None)
+  fit_nuFnu = np.concatenate((fit_nuFnu_rise, fit_nuFnu_HLE), axis=None)
+  nu_err_f = np.abs(fit_nu[istart:] - nu[istart:])/nu[istart:]
+  nu_err = nu_err_f.max()
+  nuFnu_err_f = np.abs(fit_nuFnu[istart:] - nuFnu[istart:])/nuFnu[istart:]
+  nuFnu_err = nuFnu_err_f.max()
+
+  Tb = tT - 1
   if plot_xi:
-    ax_xi.loglog(Tb, fit_xi, c=col)
+    ax_xi.loglog(Tb[:i_f], fit_xi, c=col)
     ax_xi.grid(True, which='both')
-    ax_y.loglog(Tb, xi_to_y(fit_xi), c=col)
-    ax_y.grid(True, which='both')
-  ax_nu.loglog(Tb, nu[:i_f]*fac_nu, c=col)
+    ax_err.semilogx(Tb[istart:], nu_err_f, ls='-.', c=col)
+    ax_err.semilogx(Tb[istart:], nuFnu_err_f, ls='--', c=col)
+    #ax_y.loglog(Tb, xi_to_y(fit_xi), c=col)
+    ax_err.grid(True, which='both')
+    
+  ax_nu.loglog(Tb, nu*fac_nu, c=col)
   ax_nu.loglog(Tb, fit_nu*fac_nu, ls='--', c='k')
   ax_nu.grid(True, which='both')
-  ax_nF.loglog(Tb, nuFnu[:i_f]*fac_nuFnu, c=col)
-  ax_nF.semilogx(Tb, fit_nuFnu*fac_nuFnu, ls='--', c=col)
+  ax_nF.loglog(Tb, nuFnu*fac_nuFnu, c=col)
+  ax_nF.semilogx(Tb, fit_nuFnu*fac_nuFnu, ls='--', c='k')
   ax_nF.grid(True, which='both')
   # ax_nu.axvline(Tb[i_f], c=col, ls='--', lw=.8)
   # ax_nF.axvline(Tb[i_f], c=col, ls='--', lw=.8)

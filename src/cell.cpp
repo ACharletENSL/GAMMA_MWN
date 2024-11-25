@@ -68,7 +68,7 @@ void Cell::update_dt(int dim, Interface IL, Interface IR){
     dt_cand = fmin(dt_candL, dt_candR);
 
     if (dt_cand < 0){
-      printf("MV %le %le %le %le\n", dt_cand, a, l, v);
+      printf("Negative dt at cell %d, MV %le %le %le %le\n", nde_ind[0], dt_cand, a, l, v);
       exit(30);
     }
   } 

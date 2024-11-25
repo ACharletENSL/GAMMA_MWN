@@ -1,4 +1,4 @@
-INITIAL    = Shells/Shells
+INITIAL    = Shells/Shells_eqM
 TIMESTEP   = rk3
 GEOMETRY   = spherical1D
 HYDRO      = rel_sph

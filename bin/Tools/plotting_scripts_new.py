@@ -602,6 +602,17 @@ def ax_timeseries(var, key='Last', ax_in=None,
 # data_IO: get_variable
 # phys_functions_shells: get_analytical
 
+# def prim_snapshot_raw(it, key='Last'):
+#   ''' Snapshot of data file it showing rho, u=\gamma\beta, and p, no zone no rescale
+#   '''
+#   df = openData(key, it)
+#   keys = ['rho', 'u', 'p']
+#   Nk = len(keys)
+#   f, axes = plt.subplots(Nk, 1, sharex=True, figsize=(6,2*Nk))
+#   for key, ax in axes:
+
+
+
 def article_snap(name, it, key='cart_fid'):
   prim_snapshot(it, key, theory=True, xscaling='Rcd')
   figname = './figures/' + name + '_' + str(it) + 'png' 

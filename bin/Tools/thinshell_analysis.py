@@ -16,7 +16,7 @@ plt.ion()
 cols_dic = {'RS':'r', 'FS':'b', 'RS+FS':'k', 'CD':'purple',
   'CD-':'mediumvioletred', 'CD+':'mediumpurple', '3':'darkred', '2':'darkblue'}
 spsh_cols = {'Band':'g', 'plaw':'teal'}
-kernel_size = 20
+kernel_size = 10
 # create plots
 # plotlist in 1st page of draft
 # hydro plots:
@@ -29,6 +29,11 @@ kernel_size = 20
 #   plot_lightcurve(key, lognu, func): lightcurve at nu/nu0 = 10**lognu, spectral shape func
 #   plot_shBehav(keylist): nuFnu_pk(nu_pk) for different runs
 # code time-integrated spectrum, integrate up to convergence (code with variable Tbmax I guess)
+
+def run_fullAnalyzis(key, smoothing=False):
+  analysis_hydro_thinshell(key)
+  extract_contribs(key, smoothing)
+  write_pks(key, force=True)
 
 def get_Rf_th(key, m, sh='RS'):
   '''
@@ -61,7 +66,7 @@ def get_pksnunFnu(key, func='Band', force=False, detailed=True):
     print('Writing file ' + path)
     forpks = detailed
     nuobs, Tobs, env = get_radEnv(key, forpks=True)
-    nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func)
+    nuFnus = nuFnu_thinshell_run(key, nuobs, Tobs, env, func, printing=True)
     NT = nuFnus.shape[1]
     nupks, nuFnupks = np.zeros((2,2,NT))
     for k, nuFnu in enumerate(nuFnus):
@@ -209,10 +214,72 @@ def plot_comovContribs(key, xscale='t'):
     out.append(out_sh.transpose())
   return out
 
-def plot_contribs(key, varlist=['nu_m', 'Lth'], xscaling='it'):
+def plot_compareContribs(keylist, varlist=['Ton', 'nu_m', 'Lth'], xscaling='r'):
+  '''
+  Same as plot_contribs but comparing runs
+  '''
+  
+
+  sh_names = ['RS', 'FS']
+  lstyles = ['-', '-.', ':']
+  xlabel = ''
+  if xscaling == 'it':
+    xlabel = 'it'
+  elif xscaling == 'r':
+    xlabel = '$r/R_0$'
+  elif xscaling == 't':
+    xlabel = '$t/t_0$'
+  elif xscaling == 'T':
+    xlabel = '$\\bar{T}$'
+
+  fig, axs = plt.subplots(len(varlist)+1,1,sharex='all')
+  dummy_ls  = [plt.plot([],[], c='k', ls=l)[0] for l in lstyles[:len(keylist)]]
+  dummy_col = [plt.plot([],[], c=cols_dic[name], ls='-')[0] for name in sh_names]
+
+
+  for key, ls in zip(keylist, lstyles):
+    contribs = flux_contribs_run(key, varlist)
+    env = MyEnv(key)
+
+    for sh, cont in zip(sh_names, contribs):
+      it, t, r = cont[0:3]
+      #vals = cont[3:]
+      if xscaling == 'it':
+        x = it
+      elif xscaling == 'r':
+        x = r*c_/env.R0
+      elif xscaling == 't':
+        x = t/env.t0 + 1.
+      elif xscaling == 'T':
+        T = (1+env.z)*(t + env.t0 - cont[2])
+        x = (T-T[0])/env.T0
+      
+      for ax, var, name in zip(axs, cont[3:], ['i_sh']+varlist):
+        label = var_exp[name]
+        scale = 'log'
+        if name == 'i_sh':
+          label = '$i_\\mathrm{sh}-i_\\mathrm{CD}$'
+          var -= env.Next+env.Nsh4
+          scale = 'linear'
+        elif name == 'nu_m':
+          label = '$\\nu_m/\\nu_0$'
+          var /= env.nu0
+        elif name.startswith('T'):
+          label = '$\\bar{T}_\\mathrm{' + name[1:] + '}$'
+          var = (var - env.Ts)/env.T0
+          scale = 'linear'
+        ax.set_ylabel(label)
+        ax.plot(x[1:], var[1:], c=cols_dic[sh], ls=ls)
+        ax.set_yscale(scale)
+        ax.scatter(x[1:], var[1:], s=4., c='k', marker='x')
+  axs[0].set_yscale('linear')
+  axs[0].legend(dummy_col, sh_names)
+  axs[-1].legend(dummy_ls, keylist)
+  axs[-1].set_xlabel(xlabel)
+
+def plot_contribs(key, varlist=['Ton', 'nu_m', 'Lth'], xscaling='it'):
   sh_names = ['RS', 'FS']
   contribs = flux_contribs_run(key, varlist)
-  l = len(varlist)
   env = MyEnv(key)
   # careful, contribs is a list of 2 arrays with different lengths
   # order: it, time, r, i_sh, vars
@@ -227,7 +294,7 @@ def plot_contribs(key, varlist=['nu_m', 'Lth'], xscaling='it'):
   elif xscaling == 'T':
     xlabel = '$\\bar{T}$'
 
-  fig, axs = plt.subplots(l+1,1,sharex='all')
+  fig, axs = plt.subplots(len(varlist)+1,1,sharex='all')
   axs[0].set_title(key)
   dummy_col = [plt.plot([],[], c=cols_dic[name], ls='-')[0] for name in sh_names]
 
@@ -246,11 +313,21 @@ def plot_contribs(key, varlist=['nu_m', 'Lth'], xscaling='it'):
     
     for ax, var, name in zip(axs, cont[3:], ['i_sh']+varlist):
       label = var_exp[name]
-      if name == 'nu_m':
+      scale = 'log'
+      if name == 'i_sh':
+        label = '$i_\\mathrm{sh}-i_\\mathrm{CD}$'
+        var -= env.Next+env.Nsh4
+        scale = 'linear'
+      elif name == 'nu_m':
         label = '$\\nu_m/\\nu_0$'
         var /= env.nu0
+      elif name.startswith('T'):
+        label = '$\\bar{T}_\\mathrm{' + name[1:] + '}$'
+        var = (var - env.Ts)/env.T0
+        scale = 'linear'
       ax.set_ylabel(label)
-      ax.semilogy(x[1:], var[1:], c=cols_dic[sh])
+      ax.plot(x[1:], var[1:], c=cols_dic[sh])
+      ax.set_yscale(scale)
       ax.scatter(x[1:], var[1:], s=4., c='k', marker='x')
   axs[0].set_yscale('linear')
   fig.legend(dummy_col, sh_names)
@@ -289,7 +366,17 @@ def plot_hydroPanels(key, smoothing=True, art_mode=True):
     axs[3].set_ylim(ymin=1.9e-2)
     axs[0].set_xlim(xmin=1.)
 
-def plot_hydroPanels_reduced(key,smoothing=False):
+def plot_compareHydro(keylist):
+  lstyles = ['-', '-.', ':']
+  fig, axs = plt.subplots(2, 1, layout='constrained', sharex='all')
+  axs[-1].set_xlabel('$r/R_0$')
+  plotfuncs = [plot_lfac, plot_ShSt]
+  for key, ls in zip(keylist, lstyles):
+    for plotfunc, ax in zip(plotfuncs, axs):
+      plotfunc(key, ax_in=ax, ls=ls)
+
+
+def plot_hydroPanels_reduced(key, smoothing=False):
   '''
   Plots hydro variable in a column panel
   '''
@@ -306,7 +393,7 @@ def plot_hydroPanels_reduced(key,smoothing=False):
   # fig.legend(dummy_col, names, handlelength=1.5, loc='upper center', ncol=len(dummy_col))
   #plt.tight_layout()
 
-def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band'):
+def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band', logT=False):
   '''
   Same as radPanel_t but to compare two or more runs
   '''
@@ -326,11 +413,13 @@ def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band'):
     ax.set_ylabel(label)
     for key, ls in zip(keylist, lstyles):
       #theory = True if key == 'cart_fid' else False
-      plotfunc(key, func=func, ax_in=ax, theory=False, ls=ls)
-    ax.set_xscale('linear')
-  axs[-1].set_yscale('linear')
-  axs[-1].set_xlim((0,5))
-  axs[-1].set_xlabel("$\\bar{T}$")
+      plotfunc(key, func=func, ax_in=ax, logT=logT, theory=False, ls=ls)
+  #   ax.set_xscale('linear')
+  # axs[-1].set_yscale('linear')
+  xmin = 1 if logT else 0
+  xlabel = "$\\tilde{T}$" if logT else "$\\bar{T}$"
+  axs[-1].set_xlim((xmin,5))
+  axs[-1].set_xlabel(xlabel)
   axs[0].set_ylim(ymin=5e-3)
   axs[0].legend(dummy_col, names, handlelength=1.5)
   axs[1].legend(dummy_lst, runnames)
@@ -355,7 +444,7 @@ def plot_radPanel_t(key, func='Band', theory=False, logT=False, smallWin=False):
 
   for label, plotfunc, ax in zip(ylabels, plotfuncs, axs):
     ax.set_ylabel(label)
-    plotfunc(key, func=func, ax_in=ax, theory=theory)
+    plotfunc(key, func=func, ax_in=ax, logT=logT, theory=theory)
     ax.set_xscale('log') if logT else ax.set_xscale('linear')
 
   axs[-1].set_yscale('linear')
@@ -738,7 +827,7 @@ def plot_bhv_hybrid(dRoR=None, sh='RS', ax_in=None, **kwargs):
     plt.ylabel("$\\nu F_{\\nu}/\\nu_0 F_0$")
     plt.tight_layout()
 
-def plot_nupk(key, func='Band', ax_in=None, theory=False, **kwargs):
+def plot_nupk(key, func='Band', ax_in=None, logT=False, theory=False, **kwargs):
   '''
   Plots nu_pk (\bar{T}) of the observed flux
   '''
@@ -753,10 +842,16 @@ def plot_nupk(key, func='Band', ax_in=None, theory=False, **kwargs):
   nupks, nuFnupks = get_pksnunFnu(key)
   nuobs, Tobs, env = get_radEnv(key, forpks=True) 
   Tb = (Tobs - env.Ts)/env.T0
+  x = Tb
+  xlabel = "$\\bar{T}$"
+  if logT:
+    x += 1
+    xlabel = "\\tilde{T}"
+  xscale = 'log' if logT else 'linear'
 
   for nupk, name, col in zip(nupks, names, colors):
-    ax.semilogy(Tb[1:], nupk[1:]/env.nu0, c=col, label=name, **kwargs)
-
+    ax.semilogy(x[1:], nupk[1:]/env.nu0, c=col, label=name, **kwargs)
+    ax.set_xscale(xscale)
     if theory:
       g, Tth, dRR, fac_nu, fac_F = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F) \
         if name == 'FS' else (env.gRS, env.T0, env.dRRS, 1., 1.)
@@ -778,11 +873,11 @@ def plot_nupk(key, func='Band', ax_in=None, theory=False, **kwargs):
       ax.add_artist(lstlegend)
     plt.legend()
     plt.title(key)
-    plt.xlabel("$\\bar{T}$")
+    plt.xlabel(xlabel)
     plt.ylabel("$\\nu_{pk}/\\nu_0$")
 
 
-def plot_nupkFnupk(key, func='Band', ax_in=None, theory=False, **kwargs):
+def plot_nupkFnupk(key, func='Band', ax_in=None, logT=False, logF=False, theory=False, **kwargs):
   '''
   Plots nu_pk F_{nu_pk} (\bar{T}) of the observed flux
   '''
@@ -797,9 +892,16 @@ def plot_nupkFnupk(key, func='Band', ax_in=None, theory=False, **kwargs):
   nupks, nuFnupks = get_pksnunFnu(key) 
   nuobs, Tobs, env = get_radEnv(key, forpks=True)
   Tb = (Tobs-env.Ts)/env.T0
+  x = Tb
+  xlabel = "$\\bar{T}$"
+  if logT:
+    x += 1
+    xlabel = "\\tilde{T}"
+  xscale = 'log' if logT else 'linear'
+  yscale = 'log' if logF else 'linear'
 
   for nuFnupk, name, col in zip(nuFnupks, names, colors):
-    ax.semilogy(Tb[1:], nuFnupk[1:]/env.nu0F0, c=col, label=name, **kwargs)
+    ax.plot(x[1:], nuFnupk[1:]/env.nu0F0, c=col, label=name, **kwargs)
     if theory:
       g, Tth, dRR, fac_nu, fac_F, col = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F, 'b') \
         if name == 'FS' else (env.gRS, env.T0, env.dRRS, 1., 1., 'r')
@@ -807,7 +909,9 @@ def plot_nupkFnupk(key, func='Band', ax_in=None, theory=False, **kwargs):
       tTf = 1. + dRR/env.R0
       nu, nuFnu = approx_bhv_hybrid(tT, tTf, g)
       nuFnu /= (fac_F*fac_nu)
-      ax.semilogy(Tb, nuFnu, c=col, ls=':', **kwargs)
+      ax.plot(x, nuFnu, c=col, ls=':', **kwargs)
+    ax.set_xscale(xscale)
+    ax.set_yscale(yscale)
 
   if not ax_in:
     if theory:
@@ -1146,7 +1250,7 @@ def plot_gfac(key, ax_in=None, xscale='r'):
     plt.legend()
     plt.tight_layout()
 
-def plot_lfac(key, ax_in=None, smoothing=True, N=kernel_size, fit=False, ilim=30):
+def plot_lfac(key, ax_in=None, smoothing=True, N=kernel_size, fit=False, ilim=30, **kwargs):
   '''
   Plots relevant Lorentz factors (in lab frame):
   Gamma_4, _d,RS, _CD, _d,FS, _1
@@ -1193,7 +1297,9 @@ def plot_lfac(key, ax_in=None, smoothing=True, N=kernel_size, fit=False, ilim=30
 
   if smoothing:
     for arr in [gmaRS, gmaFS, gma3, gma2]:
+      arr[:] = gaussian_filter1d(arr, sigma=2, order=0)
       arr[:] = smoothing_rollave(arr, N)
+      # arr[:] = smoothing_rollave(arr, N)
 
   name_int = ['RS', 'FS', '3', 'CD', '2']
   rlist = np.stack((rlist[0], rlist[-1], *rlist))
@@ -1203,9 +1309,10 @@ def plot_lfac(key, ax_in=None, smoothing=True, N=kernel_size, fit=False, ilim=30
     col = cols_dic[name]
     lfac = lfac[r>0.]
     r = r[r>0.]*c_/env.R0
-    ax.loglog(r[:-ilim], lfac[:-ilim], c=col, label=f'$\\Gamma_{{{name}}}$')
-  ax.axhline(env.lfacRS, c='r', ls='--', lw=.8)
-  ax.axhline(env.lfacFS, c='b', ls='--', lw=.8)
+    ax.loglog(r[:-ilim], lfac[:-ilim], c=col, label=f'$\\Gamma_{{{name}}}$', **kwargs)
+
+  ax.hlines([env.lfacRS, env.lfacFS], 0, 0.5, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls='--')
+  ax.hlines([120.3, 133.6], 0.5, 1, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls=':')
 
 
   ax.set_ylabel(f"$\\Gamma$")
@@ -1307,7 +1414,7 @@ def plot_lfacsh(key, ax_in=None):
     plt.legend()
     plt.tight_layout()
 
-def plot_ShSt(key, ax_in=None, xscale='r', fit=False, smoothing=True, N=kernel_size):
+def plot_ShSt(key, ax_in=None, xscale='r', fit=False, smoothing=True, N=kernel_size, **kwargs):
   '''
   Plots shock Lorentz factors (in lab frame)
   '''
@@ -1337,6 +1444,7 @@ def plot_ShSt(key, ax_in=None, xscale='r', fit=False, smoothing=True, N=kernel_s
     ax = ax_in
 
   planvals = [env.lfac34 - 1, env.lfac21 - 1]
+  sphvals = [7.35e-2, 2.36e-2]
   for rad, ShSt, name, Xplan in zip(rlist, vallist, names, planvals):
     col = cols_dic[name]
     r = rad[rad>0.]*c_/env.R0
@@ -1369,8 +1477,10 @@ def plot_ShSt(key, ax_in=None, xscale='r', fit=False, smoothing=True, N=kernel_s
     elif xscale == 'T':
       T = (1+env.z)*(t - rad)
       x = (T-env.Ts)/env.T0
-    ax.loglog(x[r>0], ShSt, c=col, label=f'{name}')
-    ax.axhline(Xplan, c=col, ls='--')
+    ax.loglog(x[r>0], ShSt, c=col, label=f'{name}', **kwargs)
+
+  ax.hlines(planvals, 0, 0.5, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls='--')
+  ax.hlines(sphvals, 0.5, 1, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls=':')
 
 
   if xscale=='T':
@@ -1648,7 +1758,7 @@ def get_breakRatioRS_run(key, ratio=.5, dRRmin=.2, func='Band', max=False):
   
 
 
-def nuFnu_thinshell_run(key, nuobs, Tobs, env, func, hybrid=True):
+def nuFnu_thinshell_run(key, nuobs, Tobs, env, func, hybrid=True, printing=False):
   '''
   Calculates nuFnu for both shock fronts of whole run
   func is the spectral shape in comoving frame ('Band' or 'plaw')
@@ -1656,12 +1766,13 @@ def nuFnu_thinshell_run(key, nuobs, Tobs, env, func, hybrid=True):
   nuFnus = np.zeros((2, len(Tobs), len(nuobs)))
   path = get_contribspath(key)
   for i, sh in enumerate(['RS', 'FS']):
-    print(f'Calculating contributions from {sh}')
+    if printing:
+      print(f'Calculating contributions from {sh}')
     df = pd.read_csv(path+sh+'.csv')
     N = len(df.index)
     for j in range(N):
       row = df.iloc[j]
-      if not (j % int(N/100)):
+      if printing and (not (j % int(N/100))):
         print(f'from it {row['it']}')
       nuFnus[i] += nuobs * df_get_Fnu_thinshell(row, sh, nuobs, Tobs, env, func, hybrid)
   return nuFnus
@@ -1883,6 +1994,28 @@ def smooth_contribs(df, env):
   r *= c_/env.R0
   rf = r[-1]
 
+  # fit lfac, nu_m and Lth to function
+  lfacname = f'lfac_{{{sh}}}'
+  lfac = df[lfacname].to_numpy(copy=True)
+  lfac /= env.lfac
+  m0 = logslope(r[0], lfac[0], r[10], lfac[10])
+  def fitfunc_lfac(r, lfacpl, lfacsph, m, s):
+    if m<0:
+      return ((lfacpl * r**m)**s + lfacsph**s)**(1/s)
+    else:
+      return ((lfacpl * r**m)**-s + lfacsph**-s)**(-1/s)
+  popt, pcov = curve_fit(fitfunc_lfac, r[r>0.], lfac[r>0.],
+      p0=[1, 1, m0, 1])
+  lfacfit = env.lfac*fitfunc_lfac(r[r>0], *popt)
+  df.loc[df[rname]>0., lfacname] = lfacfit
+  vfit = derive_velocity(lfacfit)
+  df.loc[r>0., f'v_{{{sh}}}'] = vfit
+  Tonfit, Tthfit, Tejfit = derive_obsTimes(
+    df.loc[r>0.]['time'], df.loc[r>0.][rname], vfit, env.t0, env.z)  
+  df.loc[r>0., f'Ton_{{{sh}}}'] = Tonfit
+  df.loc[r>0., f'Tth_{{{sh}}}'] = Tthfit
+  df.loc[r>0., f'Tej_{{{sh}}}'] = Tejfit
+
   nuname = f'nu_m_{{{sh}}}'
   nu = df[nuname].to_numpy(copy=True)
   nu0 = getattr(env, 'nu0' + f'{sh if sh=='FS' else ''}')
@@ -1906,9 +2039,9 @@ def smooth_contribs(df, env):
       p0=[1, 1, a0, 1])
   def L_fitted(r):
     return fitfunc_L(r, *popt)
-  
-  df.loc[df[rname]>0., nuname] = nu0*nu_fitted(df.loc[df[rname]>0.][rname]*c_/env.R0)
-  df.loc[df[rname]>0., Lname] = tL0*L_fitted(df.loc[df[rname]>0.][rname]*c_/env.R0)
+
+  df.loc[r>0., nuname] = nu0*nu_fitted(df.loc[r>0.][rname]*c_/env.R0)
+  df.loc[r>0., Lname] = tL0*L_fitted(df.loc[r>0.][rname]*c_/env.R0)
   return df
 
 def extract_contribs(key, extrapolate=True, smoothing=False):

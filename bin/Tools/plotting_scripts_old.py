@@ -53,6 +53,22 @@ def pivot(data, key):
 
 # Plotting functions
 # --------------------------------------------------------------------------------------------------
+def plot_primvars(key, it):
+  data = readData(key, it, sequence=True)
+  keys = ['rho', 'u', 'p']
+  plotMulti(data, keys, logx=False, logz=['rho', 'p'])
+
+def plot_energies(key, it):
+  data = readData(key, it, sequence=True)
+  keys = ['erest', 'ekin', 'eint']
+  plotMulti(data, keys, logx=False, logz=['erest', 'ekin', 'eint'])
+
+def plot_vars(key, it, varlist, loglist=None):
+  data = readData(key, it, sequence=True)
+  if not loglist:
+    loglist = []
+  plotMulti(data, varlist, logx=False, logz=loglist)
+
 def plotMulti(data, keys, jtrack=None, logx=True, logz=[], znorms={}, labels={}, **kwargs):
 
   '''

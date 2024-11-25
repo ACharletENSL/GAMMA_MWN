@@ -9,7 +9,7 @@ This file contains functions to derive physical variables
 # Imports
 # --------------------------------------------------------------------------------------------------
 import numpy as np
-from math import *
+import math
 from phys_constants import *
 from numba import jit, prange, vectorize
 

@@ -17,24 +17,24 @@ static int GEOMETRY_  = 1 ;           // 1 for cartesian, 1 for spherical
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
 static double rho0    = n0*mp_;       // g.cm-3:  comoving CBM mass density
-static double Theta0  = 0.001 ;   //          Theta0 = p/(rho*c^2)
+static double Theta0  = 0.0001 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 4.667291079080062e-12 ;     // comoving density of front shell
-static double u1   = 1e+02 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 1043457.8059068858 ;
-static double D01  = 2997774695.012281 ;     // spatial extension of front shell
-static double rho4 = 1.1610033862318822e-12 ;     // comoving density of back shell
-static double u4   = 2e+02 ;          // proper velocity of back shell
-static double p4   = 1043457.8059068858 ;
-static double D04  = 2997887106.645374 ;     // spatial extension of back shell
+static double rho1 = 5.362024250607598e-13 ;     // comoving density of front shell
+static double u1   = 2e+02 ;          // proper velocity (gamma*beta) of front shell
+static double p1   = 6748.747430115155 ;
+static double D01  = 2997857961.674381 ;     // spatial extension of front shell
+static double rho4 = 7.50899420640934e-14 ;     // comoving density of back shell
+static double u4   = 4e+02 ;          // proper velocity of back shell
+static double p4   = 6748.747430115155 ;
+static double D04  = 2997915211.5296025 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 0.01 ;           // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 79947153684166.38 ;
+static double R_0     = 156984222064716.78 ;
 static int Nsh1   = 450 ;
 static int Ntot1  = 460 ;
 static int Nsh4   = 450 ;

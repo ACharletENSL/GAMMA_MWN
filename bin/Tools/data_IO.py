@@ -696,7 +696,23 @@ def get_shocksStrength(df, n=3):
     out.append(shst)
   return out
 
-def get_shocksLfac(df, n=3):
+# def get_shocksLfac(df):
+#   '''
+#   Derives shock LF from Granot & Rabinovich 2024 Eqn 34
+#   Assumes cold upstream, TM EoS and upstream at rest!
+#   '''
+#   RS, FS = df_to_shocks(df)
+#   iCD = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)].index.max()
+#   out = []
+#   for i, sh in enumerate([RS, FS]):
+#     if sh.empty:
+#       lfacsh = 0.
+#     elif 0. in sh['trac'].to_list():
+#       lfacsh = 0.
+#     else:
+
+
+def get_shocksLfac_v1(df, n=3):
   '''
   Derives shock Lorentz factor from upstream and downstream values
   cf R24a eqn. C1
