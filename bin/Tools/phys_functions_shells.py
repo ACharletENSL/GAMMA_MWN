@@ -195,7 +195,7 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.fac_nu = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**2
   env.fac_F  = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**-2 * \
       (derive_velocity(env.lfac34)/derive_velocity(env.lfac21)) #* (env.eps_rad/env.eps_radFS)
-  env.fac_Lp = 2*((env.lfac34+1)/(env.lfac21+1))**(-0.5) * np.sqrt(env.lfac34/env.lfac21) * ((env.lfac34-1)/(env.lfac21-1))**-2 * (beta34/beta21)
+  env.fac_Lp = env.fac_F
   env.fac_T  = ((env.lfacFS/env.lfacRS)**2)*(env.betaFS/env.betaRS)*((1+env.betaFS)/(1+env.betaRS))
   env.nu0pFS = env.nu0p / env.fac_nu
   env.nu0FS = env.nu0 / env.fac_nu

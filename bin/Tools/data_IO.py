@@ -48,6 +48,17 @@ def openData(key, it=None, sequence=True):
   data.attrs['rhoscale'] = env.rhoscale
   return(data)
 
+def openData_TnoZ(key, it):
+  '''
+  openData_withtime but no zoneID
+  '''
+  data = openData(key, 0, True)
+  t0 = data['t'][0]
+  data = openData(key, it)
+  t = data['t'][0]
+  dt = t-t0
+  return data, t, dt
+
 def openData_withtime(key, it):
   data = openData(key, 0, True)
   t0 = data['t'][0]
@@ -712,7 +723,7 @@ def get_shocksStrength(df, n=3):
 #     else:
 
 
-def get_shocksLfac_v1(df, n=3):
+def get_shocksLfac(df, n=3):
   '''
   Derives shock Lorentz factor from upstream and downstream values
   cf R24a eqn. C1
@@ -1033,7 +1044,7 @@ def df_to_shocks(df):
         out.append(shlist[-1])
   return out
 
-def df_check_crossed(df, tol=50):
+def df_check_crossed(df, tol=0):
   '''
   Check which shocks have crossed their respective shells
   '''
@@ -1056,7 +1067,7 @@ def df_check_crossed(df, tol=50):
       RScr, FScr = True, True
   return RScr, FScr
       
-def zoneID(df, Ttol=.02):
+def zoneID(df, Ttol=.02, wave=False):
   '''
   Detect zones from passive tracer and shocks
   !!! MUST BE ON DATA PRODUCED WITH SHOCK DETECTION
@@ -1079,9 +1090,10 @@ def zoneID(df, Ttol=.02):
   ilist  = get_fused_interf(df)
   if RScr:
     zone[S4] = 3.
-    i4   = i_4.min()
-    wave = [item for item in ilist if i4<item[2]][0]
-    iw   = min(wave[2], i_4.max())
+    if wave:
+      i4   = i_4.min()
+      wave = [item for item in ilist if i4<item[2]][0]
+      iw   = min(wave[2], i_4.max())
     #zone[i4:iw] = 4.
       #zone[iw:i_4.max()] = 3.
   else:
@@ -1097,10 +1109,11 @@ def zoneID(df, Ttol=.02):
       zone[id_RS:i_4.max()+1] = 3.
   if FScr:
     zone[S1] = 2.
-    i1   = i_1.max()
-    wave = [item for item in ilist if i1>item[1]][-1]
-    iw   = max(wave[1], i_1.min())
-    zone[iw:i1+1] = 1.
+    if wave:
+      i1   = i_1.max()
+      wave = [item for item in ilist if i1>item[1]][-1]
+      iw   = max(wave[1], i_1.min())
+      zone[iw:i1+1] = 1.
       #zone[i_1.min():iw] = 2.
   else:
     if FS.empty: # too early for shocks

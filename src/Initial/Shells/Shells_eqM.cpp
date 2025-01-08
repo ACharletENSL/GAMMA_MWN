@@ -16,19 +16,19 @@ static double tw = 10 ;               // (s), wind injection duration
 static double R0 = 3e+6 ;             // (cm) normalization radius
 static double L = 2e+51 ;             // (erg/s) injection power
 static double theta0 = 1e-3 ;         // relat. temperature p/rho c²
-static double lfacb = 250 ;           // LF at the back of shell
-static double lfacf = 95 ;           // LF at the front of the shell
+static double lfac_max = 250 ;           // LF at the back of shell
+static double lfac_min = 95 ;           // LF at the front of the shell
 static double tfrac = 0.4 ;           // fraction of tw of the fast shell
-static double betab = sqrt(1 - pow(lfacb, -2)) ;
+static double betab = sqrt(1 - pow(lfac_max, -2)) ;
 static double Rmin = 4e4 * R0 ;       // back end of the shell
 static double Rint = Rmin + tfrac*tw*c_ ;
 static double Rmax = Rmin + tw * c_ ; // front end of the shell
 static int Ncells = 1000 ;
 static int Next = 0 ;
 static double gma1 = GAMMA_/(GAMMA_-1) ;
-static double corrf = betab * c_ * (1 + theta0*(gma1 - pow(lfacb, -2)));
-static double rhof = L/(4*M_PI*Rmin*Rmin*lfacb*lfacb*c_*c_*corrf);
-// static double rhoint = L/(4*M_PI*Rint*Rint*lfacb*lfacb*c_*c_*corrf);
+static double corrf = betab * c_ * (1 + theta0*(gma1 - pow(lfac_max, -2)));
+static double rhof = L/(4*M_PI*Rmin*Rmin*lfac_max*lfac_max*c_*c_*corrf);
+// static double rhoint = L/(4*M_PI*Rint*Rint*lfac_max*lfac_max*c_*c_*corrf);
 // static double pint = theta0*rhoint ;
 
 static void calcRho(double r, double lfac, double *rho){
@@ -74,7 +74,7 @@ int Grid::initialGeometry(){
 int Grid::initialValues(){
   cout << "Density at back of shell = " << rhof << " g cm^-3\n" ;
   double rhoint, p_int ;
-  calcRho(Rint, lfacb, &rhoint) ;
+  calcRho(Rint, lfac_max, &rhoint) ;
   p_int = theta0*rhoint ;
 
   for (int i = 0; i < ncell[MV]; ++i){
@@ -85,7 +85,7 @@ int Grid::initialValues(){
 
     if (t > tw){
       //double rho ;
-      //calcRho(Rmin, lfacb, &rho);
+      //calcRho(Rmin, lfac_max, &rho);
       c->S.prim[RHO] = 1e-3*rhof/rhoNorm ;
       c->S.prim[VV1] = betab ;
       c->S.prim[PPP] = 1e-3*p_int/rhoNorm ; //1e-3*rhof*theta0/rhoNorm ;
@@ -93,21 +93,21 @@ int Grid::initialValues(){
     }
     if (t >= tfrac*tw){
       double rho ;
-      calcRho(r, lfacb, &rho);
+      calcRho(r, lfac_max, &rho);
       c->S.prim[RHO] = rho/rhoNorm ;
       c->S.prim[VV1] = betab;//0.9*betab ;
       c->S.prim[PPP] = rho*theta0/rhoNorm ;
       c->S.prim[TR1] = 1.;
     }
     else{
-      double lfac = (lfacb-lfacf) - lfacf*cos(M_PI*t/(tfrac*tw)) ;
+      double lfac = 0.5*(lfac_max+lfac_min) - 0.5*(lfac_max-lfac_min)*cos(M_PI*t/(tfrac*tw)) ;
       double beta = sqrt(1 - pow(lfac, -2)) ;
       double rho ;
       calcRho(r, lfac, &rho);
       c->S.prim[RHO] = rho/rhoNorm ;
       c->S.prim[VV1] = beta;//0.9*beta ;
       c->S.prim[PPP] = rho*theta0/rhoNorm ;
-      c->S.prim[TR1] = 2.;
+      c->S.prim[TR1] = 1.;
     }
     
     c->S.prim[TR1+1] = 0.;
@@ -137,7 +137,7 @@ void Grid::userBoundaries(int it, double t){
   //   double rho, p;
   //   double r = c->G.x[r_]*lNorm;
 
-  //   calcRho(r, lfacb, &rho);
+  //   calcRho(r, lfac_max, &rho);
   //   //rho = 1e-3*rhof ; //*pow(r/Rmin, -2);
   //   p = rho*theta0/rhoNorm ;
   //   c->S.prim[RHO] = rho/rhoNorm;
@@ -177,7 +177,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
 void Simu::dataDump(){
 
-  if (it % 100 == 0){ grid.printCols(it, t); }
+  if (it % 50 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -189,7 +189,7 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  // if ( it > 100 ){ stop = true; }
-  if (t > 2e6){ stop = true; } // 3.33e8 BOXFIT simu
+  if ( it > 1500 ){ stop = true; }
+  // if (t > 2e5){ stop = true; } // 3.33e8 BOXFIT simu
 
 }

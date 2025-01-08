@@ -11,6 +11,7 @@ polynomial fit, get peak position
 
 from plotting_scripts_new import *
 from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
 plt.ion()
 
 cols_dic = {'RS':'r', 'FS':'b', 'RS+FS':'k', 'CD':'purple',
@@ -827,7 +828,7 @@ def plot_bhv_hybrid(dRoR=None, sh='RS', ax_in=None, **kwargs):
     plt.ylabel("$\\nu F_{\\nu}/\\nu_0 F_0$")
     plt.tight_layout()
 
-def plot_nupk(key, func='Band', ax_in=None, logT=False, theory=False, **kwargs):
+def plot_nupk(key, func='Band', ax_in=None, logT=False, slope=False, theory=False, **kwargs):
   '''
   Plots nu_pk (\bar{T}) of the observed flux
   '''
@@ -849,8 +850,19 @@ def plot_nupk(key, func='Band', ax_in=None, logT=False, theory=False, **kwargs):
     xlabel = "\\tilde{T}"
   xscale = 'log' if logT else 'linear'
 
+
+
   for nupk, name, col in zip(nupks, names, colors):
-    ax.semilogy(x[1:], nupk[1:]/env.nu0, c=col, label=name, **kwargs)
+    y = nupk/env.nu0
+    if slope:
+      logx = np.log10(x)
+      #smty = savgol_filter(y, 9, 3)
+      intp = interp1d(x, y, kind='linear')
+      logy = np.log10(y)
+      grad = np.gradient(logy, logx)
+      y = grad
+
+    ax.semilogy(x[1:], y[1:], c=col, label=name, **kwargs)
     ax.set_xscale(xscale)
     if theory:
       g, Tth, dRR, fac_nu, fac_F = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F) \
@@ -2103,28 +2115,36 @@ def analysis_hydro_thinshell(key, itmin=0, itmax=None):
     its = its[1:]
   Nf = len(its)
   istop = -1
+  skips = 0
+  calc_its = []
   bothCrossed = False
   for it in its:
-    print(f'Opening file it {it}')
     df, t, tsim = openData_withtime(key, it)
     RScr, FScr = df_check_crossed(df)
     bothCrossed = (RScr and FScr)
     if bothCrossed:
-      istop = its.index(it)
-      break
+      skips +=1
+      if skips > 10 and len(data)>0:
+        break
+      continue
+    print(f'Opening file it {it}')
+    calc_its.append(it)
     tup = df_get_all_thinshell_v1(df)
     results = [item for arr in tup for item in arr]
     results.insert(0, tsim)
     dict = {var:res for var, res in zip(varlist, results)}
     data.loc[it] = pd.Series(dict)
+    istop = its.index(it)
+    skips = 0
   
   # add delta t
-  times = data['time'].to_numpy()
-  dts = [(times[j+1]-times[j-1])/2. for j in range(1,len(times)-1)]
-  dts.insert(0, (3*times[0]-times[1])/2)
-  dts.append((3*times[-1]-times[-2])/2)
-  data.insert(1, "dt", dts)
-  data.index = its[:istop] if istop>0 else its
+  if istop >=0:
+    times = data['time'].to_numpy()
+    dts = [(times[j+1]-times[j-1])/2. for j in range(1,len(times)-1)]
+    dts.insert(0, (3*times[0]-times[1])/2)
+    dts.append((3*times[-1]-times[-2])/2)
+    data.insert(1, "dt", dts)
+    data.index = calc_its 
 
   # create csv file
   file_path = get_fpath_thinshell(key)
@@ -2188,11 +2208,11 @@ def get_rpath_thinshell(key):
 #     idShList, drList, ShStList, lfacShList, TejList, TthList, numList, LthList
 
 
-def df_get_all_thinshell_v1(df, theory=False):
+def df_get_all_thinshell_v1(df):
   '''
   Returns all quantities needed for the thin shell paper
   '''
-
+  
   RS, FS = df_get_cellsBehindShock(df)
   rCD, rho2, rho3, vCD, pCD = df_get_CDvals(df)
   iRS, rRS, drRS, rhoRS, vRS, pRS = df_get_valsAtShocks(RS)

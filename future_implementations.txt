@@ -3,6 +3,8 @@ Post-processing
     (no need to be too much of a proper software, this is a later point)
 - rewrite calculations in C/C++ with Py wrapper? Include directly with GAMMA?
 - proper Py package? Include astropy, compare with things like jetsimpy, etc.
+- extract observational signatures, see e.g. §2 of Bošnjak & Daigne 14
+
 
 - evolution of microphysics
     p already implemented, what about eps_e, eps_e, zeta?

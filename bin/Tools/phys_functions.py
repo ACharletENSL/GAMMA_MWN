@@ -559,9 +559,11 @@ def derive_Fpeak_numeric(x, dx, rho, vx, p, gmin,
 def derive_Lbol_comov(x, rho, p, R0, rhoscale, eps_e, geometry):
   ''' Bolometric luminosity in comoving frame'''
   eint = derive_Eint_comoving(rho, p, rhoscale)
+  lfac_ud = eint/(rho*rhoscale*c_**2) + 1
+  beta_ud = derive_velocity(lfac_ud)
   r = R0 if geometry == 'cartesian' else x*c_
   S = (4./3.)*pi_*r**2
-  return eps_e*eint*S*c_
+  return eps_e*eint*beta_ud*S*c_
 
 def derive_Lp_nupm(x, rho, p, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry):
   Lbol = derive_Lbol_comov(x, rho, p, R0, rhoscale, eps_e, geometry)

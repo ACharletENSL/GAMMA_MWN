@@ -633,7 +633,8 @@ def prim_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False', su
   #scatter = scatlist[1]
   if legend:
     #plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
-    f.legend(*scatter.legend_elements(), loc='center right')
+    axes[1].legend(*scatter.legend_elements(), loc='lower center', ncols=5,
+      handlelength=.1, columnspacing = 1.2)
 
 def cons_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False'):
   f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
@@ -647,6 +648,20 @@ def cons_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False'):
   f.suptitle(title)
   #scatter = scatlist[1]
   plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+
+def ID_snapshot(it, key='Last', theory=False, xscaling='R0', itoff='False'):
+  f, axes = plt.subplots(3, 1, sharex=True, figsize=(6,6), layout='constrained')
+  varlist = ['trac', 'Sd', 'zone']
+  #scatlist= []
+  for var, k, ax in zip(varlist, range(3), axes):
+    title, scatter = ax_snapshot(var, it, key, theory, ax_in=ax, xscaling=xscaling, itoff=itoff)
+    #scatlist.append(scatter)
+    if k != 2: ax.set_xlabel('')
+  
+  f.suptitle(title)
+  #scatter = scatlist[1]
+  plt.legend(*scatter.legend_elements(), bbox_to_anchor=(1.02, 0), loc='lower left', borderaxespad=0.)
+
 
 
 def rad_snapshot(it, key='Last', xscaling='n', distr='gamma'):
@@ -771,9 +786,8 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
     xlabel = '$r$'
   if yscaling in ['code', 'norm']:
     units  = get_normunits('c', 'Norm')
-  if yscaling == 'code':
-    yscale = 1.
-  elif yscaling=='norm':
+  yscale = 1.
+  if yscaling=='norm':
     if var.startswith('nu'):
       yscale = 1./env.nu0p
     elif var == 'Lp':
@@ -790,7 +804,7 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
       yscale = 1./env.u
   elif yscaling == 'CGS':
     units = units_CGS
-  yscale = get_varscaling(var, env)
+    yscale = get_varscaling(var, env)
   ylabel = (var_exp[var] + units[var]) if units[var] else var_exp[var]
 
 

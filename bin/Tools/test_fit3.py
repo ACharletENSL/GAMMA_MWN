@@ -6,6 +6,7 @@ key = sys.argv[1] if len(sys.argv) > 1 else 'sph_big'
 func = 'Band'
 plot_1stfit = False
 plot_xi = True
+fig_Reff = False
 nuobs, Tobs0, env = get_radEnv(key, forpks=True)
 path = get_contribspath(key)
 nupks, nuFnupks = get_pksnunFnu(key)
@@ -19,9 +20,14 @@ nu_facs = [1., 1./env.fac_nu]
 F_facs = [1., 1./env.fac_F]
 norms_T = [env.T0, env.T0FS]
 norms_nu = [env.nu0, env.nu0FS]
+#norms_Lp = [2*env.L0p, 4*env.L0pFS]
 norms_Lp = [env.L0p, env.L0pFS]
 norms_F = [env.F0, env.F0FS]
 
+def polar_to_cartesian(r, theta):
+  x = r * np.cos(theta)
+  y = r * np.sin(theta)
+  return x, y
 
 fig = plt.figure()
 gs = fig.add_gridspec(2, 1, hspace=0)
@@ -33,11 +39,11 @@ ax_nF.set_xlabel('$\\bar{T}_{sh}$')
 title = ''
 
 if plot_xi:
-  fig2, axs2 = plt.subplots(2, 1, sharex='all')
-  ax_xi, ax_err = axs2
+  fig2, axs2 = plt.subplots(3, 1, sharex='all')
+  ax_xi, ax_y, ax_err = axs2
   #ax_xi.set_title(f'log fitting {'ON' if withlog else 'OFF'}, effective final radius {'ON' if withReff else 'OFF'}')
   ax_xi.set_ylabel('$\\xi_{eff}$')
-  #ax_y.set_ylabel('$y_{eff}$')
+  ax_y.set_ylabel('$y_{eff}$')
   ax_err.set_ylabel('err.')
   ax_err.set_xlabel('$\\bar{T}_{sh}$')
   dummy_lst = [plt.plot([], [], ls=l, c='k')[0] for l in ['-.', '--']]
@@ -49,7 +55,7 @@ if plot_1stfit:
   # axr.set_ylabel('$R_L$')
   fig3, axs3 = plt.subplots(3, 1, sharex='all')
   ax1, ax2, ax3 = axs3
-  ax1.set_ylabel('$\\Gamma$')
+  ax1.set_ylabel('$\\Gamma/\\Gamma_0$')
   ax2.set_ylabel("$\\nu'_m/\\nu'_0$")
   ax3.set_ylabel("$L'/L'_0$")
   axs3[-1].set_xlabel('$r/R_0$')
@@ -110,7 +116,7 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs
   popt_lfac, pcov = curve_fit(fitfunc_lfac, rsh, lfac, p0=[lfac[0], lfac[-1], m0, 2],
     bounds=([0.75, 0.5, ml, 1], [1.25, 2, mu, np.inf]))
   lfacpl, lfacsph, m, s_lfac = popt_lfac
-  print(f'lfac {sh}: m = {m:.2f}, starts at {lfacpl*env.lfac:.1f}, saturates at {lfacsph*env.lfac:.1f}, s = {s_lfac:.1f}')
+  print(f'lfac {sh}: m = {-2*m:.2f}, starts at {lfacpl:.3f} gma0, saturates at {lfacsph:.3f} gma0, s = {s_lfac:.1f}')
 
 
   # fit nu'
@@ -122,7 +128,7 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs
   popt_nup, pcov = curve_fit(fitfunc_nup, rsh, nup, p0=[nup[0], nup[-1], d0, 2],
       bounds=([0.1, 0.1, dl, 1], [10, 10, du, np.inf]))
   nuppl, nupsph, d, s_nup = popt_nup
-  print(f"nup {sh}: d = {d:.2f}, starts at {nuppl:.1e} nu'_0, saturates at {nupsph:.1e} nu'_0, s = {s_nup:.1f}")
+  print(f"nup {sh}: d = {d:.2f}, starts at {nuppl:.2f} nu'_0, saturates at {nupsph:.2f} nu'_0, s = {s_nup:.1f}")
 
 
   # fit Lp
@@ -134,20 +140,29 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs
   popt_Lp, pcov = curve_fit(fitfunc_Lp, rsh, Lp, #p0=[Lp[0], Lp[-1], a0, 2],
     bounds=([0.1, 0.1, al, 1], [10, 10, au, np.inf]))
   Lppl, Lpsph, a, s_Lp = popt_Lp
-  print(f"Lp {sh}: a = {a:.2f}, starts at {Lppl:.1e} L', saturates at {Lpsph:.1e} L'0, s = {s_Lp:.1f}")
+  print(f"Lp {sh}: a = {a:.2f}, starts at {Lppl:.2f} L', saturates at {Lpsph:.2f} L'0, s = {s_Lp:.1f}")
+
+  lfac_r0 = (lfacpl**s_lfac + lfacsph**s_lfac)**(1/s_lfac)
+  nup_r0 = (nuppl**s_nup + nupsph**s_nup)**(1/s_nup)
+  Lp_r0 = (Lppl**(-s_Lp) + Lpsph**(-s_Lp))**(-1/s_Lp)
+  nu_r0 = lfac_r0*nup_r0
+  F_r0 = 3*g**2*lfac_r0*Lp_r0
+  knu0 = 1/nu_r0
+  kF0 = 1/(lfac_r0*Lp_r0)
+  nuFnu_r0 = nu_r0*F_r0
 
   def lfac_fitted(r):
-    #return fitfunc_lfac(r, *popt_lfac)
-    return fitfunc_lfac(r, 1., lfacsph/lfacpl, m, s_lfac)
+    return fitfunc_lfac(r, *popt_lfac)/lfac_r0
+    #return fitfunc_lfac(r, 1., lfacsph/lfacpl, m, s_lfac)
   def nup_fitted(r):
-    #return fitfunc_nup(r, *popt_nup)
-    return fitfunc_nup(r, 1., nupsph/nuppl, d, s_nup)
+    return fitfunc_nup(r, *popt_nup)/nup_r0
+    #return fitfunc_nup(r, 1., nupsph/nuppl, d, s_nup)
   def Lp_fitted(r):
-    #return fitfunc_Lp(r, *popt_Lp)
-    return fitfunc_Lp(r, 1., Lpsph/Lppl, a, s_Lp)
+    return fitfunc_Lp(r, *popt_Lp)/Lp_r0
+    #return fitfunc_Lp(r, 1., Lpsph/Lppl, a, s_Lp)
   if plot_1stfit:
-    ax1.semilogx(rsh, lfac*env.lfac, c=col)
-    ax1.semilogx(rsh, lfac_fitted(rsh)*lfacpl*env.lfac, c='lime', ls=':', lw=1.1)
+    ax1.semilogx(rsh, lfac, c=col)
+    ax1.semilogx(rsh, lfac_fitted(rsh)*lfacpl, c='lime', ls=':', lw=1.1)
     ax1.grid(True, which='both')
     ax2.loglog(rsh, nup, c=col)
     ax2.loglog(rsh, nup_fitted(rsh)*nuppl, c='lime', ls=':', lw=1.1)
@@ -167,16 +182,13 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs
   def xi_to_y(xi, m=0):
     return (1 + (m+1)*g**-2*xi)**(-1/(m+1))
 
-  nu_pl = lfacpl*nuppl
-  F_pl = lfacpl*Lppl
-  nuFnu_pl = nu_pl*F_pl
 
   def fit_nupk_rise(tT, knu, xi_sat, k, s, m=0):
     xi = xi_eff(tT, xi_sat, k, s, m)
     y = xi_to_y(xi, m)
     r = tT # R_L(T) = R_0 \tilde{T}
     reff = y*r
-    return  knu * nu_pl * lfac_fitted(reff)*nup_fitted(reff)/(1+xi) 
+    return  knu * nu_r0 * lfac_fitted(reff)*nup_fitted(reff)/(1+xi) 
 
   def fit_nuFnupk_rise(tT, knu, kF, xi_sat, k, s, m=0):
     ximax = tT_to_ximax(tT, m)
@@ -185,7 +197,7 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs
     r = tT # R_L(T) = R_0 \tilde{T}
     reff = r*y
     nu = fit_nupk_rise(tT, knu, xi_sat, k, s, m)
-    Fnu = kF * F_pl * ximax*(1+xi)**-3 * lfac_fitted(reff)**3*lfac_fitted(r)**-2*Lp_fitted(reff)
+    Fnu = kF * F_r0 * ximax*(1+xi)**-3 * lfac_fitted(reff)**3*lfac_fitted(r)**-2*Lp_fitted(reff)
     return nu*Fnu
 
   # to fit both functions with the same underlying physical parameters
@@ -211,11 +223,12 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs
   sigma = np.hstack((sigma, sigma))
   # params order: knu, kF, xi_sat, k, s
   popt1, pcov1 = curve_fit(partial(fit_both_rise, m=0), tT_rise, ydata_rise,
-      p0=[1., 1., 5, 0.3, 3], bounds=([0.9, 0.9, 1, 0.1, 1.], [1.1, 1.1, 10, 1, np.inf]), sigma=sigma)
+      p0=[knu0, kF0, 5, 0.3, 3], bounds=([0.8, 0.5, 1, 0.1, 1.], [1.2, 1.5, 10, 1, np.inf]), sigma=sigma)
   knu, kF, xi_sat, k, s = popt1
-  title += f'{sh}: $\\xi_{{sat}}$ = {xi_sat:.2f}, k = {k:.2f}, s = {s:.1f}, $k_\\nu$ = {knu:.2f}, $k_F$ = {kF:.2f}'
+  title += f'{sh}: $k_\\xi$ = {k:.2f}, $\\xi_{{sat}}$ = {xi_sat:.2f}, s = {s:.1f}, $k_\\nu$ = {knu:.2f}, $k_F$ = {kF:.2f}'
 
   fit_xi = xi_eff(tT[:i_f], xi_sat, k, s, m)
+  fit_y = xi_to_y(fit_xi)
   fit_nu_rise = fit_nupk_rise(tT[:i_f], *popt1)
   fit_nuFnu_rise = fit_nuFnupk_rise(tT[:i_f], *popt1)
 
@@ -259,9 +272,11 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs
   if plot_xi:
     ax_xi.loglog(Tb[:i_f], fit_xi, c=col)
     ax_xi.grid(True, which='both')
+    
+    ax_y.loglog(Tb[:i_f], fit_y, c=col)
+    ax_y.grid(True, which='both')
     ax_err.semilogx(Tb[istart:], nu_err_f, ls='-.', c=col)
     ax_err.semilogx(Tb[istart:], nuFnu_err_f, ls='--', c=col)
-    #ax_y.loglog(Tb, xi_to_y(fit_xi), c=col)
     ax_err.grid(True, which='both')
     
   ax_nu.loglog(Tb, nu*fac_nu, c=col)
@@ -272,6 +287,51 @@ for sh, col, nupk, nuFnupk, g, T0, nu0, Lp0, F0, fac_nu, fac_F, l in zip(*inputs
   ax_nF.grid(True, which='both')
   # ax_nu.axvline(Tb[i_f], c=col, ls='--', lw=.8)
   # ax_nF.axvline(Tb[i_f], c=col, ls='--', lw=.8)
+
+  if fig_Reff and (sh == 'RS'):
+    # we plot the figure with 
+    figR, axR = plt.subplots(subplot_kw={'projection': 'polar'})
+    axR.grid(False)
+    axR.set_aspect(1.0) 
+    axR.tick_params(left = False, right = False , labelleft = False,labelbottom = False, bottom = False)
+    theta = np.linspace(0, 2 * np.pi, 7000)
+    # tracer arcs de cercle R0, Rf
+    x_circ,y_circ = polar_to_cartesian(1, theta)
+    x_circ2,y_circ2 = polar_to_cartesian(tTf, theta)
+    axR.plot(x_circ, y_circ,color="k",ls="-.")
+    axR.plot(x_circ2, y_circ2,color="k",ls="-.")
+    # axR.set_xlim(-0.1,8)
+    # axR.set_ylim(-0.2,0.2)
+    axR.set_thetalim((-5/env.lfacRS, 5/env.lfacRS))
+    axR.plot(0, 0, "o",color='black',markersize=5)
+    axR.text(0.2,-0.05,"Source",fontsize=12)
+    axR.text(1.6,1.2,"$R_\\mathrm{0}$",color="black",fontsize=16)
+    axR.text(4.5,1.2,"$R_\\mathrm{f}$",color="red",fontsize=16)
+
+    e = env.betaRS
+    a0 = (env.lfacRS**2)*env.betaRS*c_*(env.T0)/env.R0
+    r2 = a0 * (1 - e**2) / (1 - e * np.cos(theta))
+    x2, y2 = polar_to_cartesian(r2, theta)
+    axR.plot(x2, y2, color="red",ls="--")
+    Reffs, thetaeffs = [], []
+
+    for tilde_T, xi, y in zip(tT[:i_f], fit_xi, fit_y):
+      # determine R_eff, theta_eff and plot point on fig
+      a = a0*tilde_T
+      reff = y*tilde_T
+      lfac = lfac_fitted(reff)*lfacpl*env.lfac
+      theta_eff = np.sqrt(xi)/lfac
+      r2 = a * (1 - e**2) / (1 - e * np.cos(theta_eff))
+      #x2, y2 = polar_to_cartesian(r2, theta_eff)
+      #axR.plot(x2, y2, 'gx')
+      Reffs.append(reff)
+      thetaeffs.append(theta_eff)
+    Reffs = np.array(Reffs)
+    thetaeffs = np.array(thetaeffs)
+    x2, y2 = polar_to_cartesian(Reffs, thetaeffs)
+    axR.plot(x2, y2, 'g')
+
+
 
 fig.suptitle(title[:-1])
 plt.show()
