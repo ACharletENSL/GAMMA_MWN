@@ -36,6 +36,104 @@ def run_fullAnalyzis(key, smoothing=False):
   extract_contribs(key, smoothing)
   write_pks(key, force=True)
 
+def plot_gmaratio(key, xscale='r', ax_in=None, logx=True, logy=True, **kwargs):
+  '''
+  Plots gma_c/gma_m ratio after one time step 
+  '''
+  env = MyEnv(key)
+  cpath = get_contribspath(key)
+
+  if not ax_in:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+  
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
+
+  for sh, col in zip(['RS', 'FS'], ['r', 'b']):
+    step = -1 if sh=='RS' else 1
+    path = cpath + f'gma_{sh}.csv'
+    data = pd.read_csv(path)
+
+    istart, iend = data['i'].iloc[0], data['i'].iloc[-1]
+
+    t, r, val = np.zeros((3, np.abs(iend-istart+1)))
+    for i, k in enumerate(range(istart, iend+1, step)):
+      dk = data.loc[data['i']==k]
+      tk, rk = dk.iloc[0][['t', 'x']]
+      gm, gM = dk[['gm', 'gM']].to_numpy().transpose()
+      t[i], r[i], val[i] = tk, rk, gM[1]/gm[0]
+
+    if xscale == 'r':
+      x = r*c_/env.R0
+    elif xscale == 't':
+      x = t/env.t0 + 1.
+    elif xscale == 'T':
+      T = (1+env.z)*(t + env.t0 - r)
+      x = (T-T[0])/env.T0
+    
+    ax.plot(x, val, c=col, **kwargs)
+  
+  if logx:
+    ax.set_xscale('log')
+  if logy:
+    ax.set_yscale('log')
+  ax.set_xlabel(xlabel)
+  ax.set_ylabel("$\\gamma_{\\rm c}/\\gamma_{\\rm m}$")
+
+def plot_gmaratiov1(key, xscale='r', ax_in=None, **kwargs):
+  '''
+  Plots the gma_c/gma_c ratio
+  '''
+  env = MyEnv(key)
+  df_RS, df_FS = get_data_splitted(key)
+  name_int = ['RS', 'FS']
+
+  if not ax_in:
+    plt.figure()
+    ax = plt.gca()
+  else:
+    ax = ax_in
+
+  for sh, df, col in zip(name_int, [df_RS, df_FS], ['r', 'b']):
+    t = df['t'] + env.t0
+    r = df['r'].to_numpy().transpose()
+    gmac, gmam = get_vars(df, ['gma_c', 'gma_m'])
+    val = gmac/gmam
+    x = t
+    xlabel = ''
+    if xscale == 'r':
+      xlabel = '$r/R_0$'
+      x = r*c_/env.R0
+    elif xscale == 't':
+      xlabel = '$t/t_0$'
+      x = t/env.t0
+    elif xscale == 'T':
+      xlabel = '$\\bar{T}$'
+      T = (1+env.z)*(t - r)
+      x = (T-env.Ts)/env.T0
+
+    ax.loglog(x[r>0], val[r>0.], label=sh, c=col, **kwargs)
+  ax.set_ylabel('$\\gamma_{\\rm c}/\\gamma_{\\rm m}$')
+  ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
+  ax.xaxis.set_minor_formatter(ticker.ScalarFormatter())
+  # ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
+  # ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
+  # ax.grid(visible=True, which='both')
+
+  if not ax_in:
+    plt.title(key)
+    plt.xlabel(xlabel)
+    plt.legend()
+    plt.tight_layout()
+
+
 def get_Rf_th(key, m, sh='RS'):
   '''
   Derives theoretical crossing radius assuming power-law for shock front 
@@ -1060,10 +1158,10 @@ def plot_Lnum(key, ax_in=None, xscale='r', comov=True):
 
   names = ['RS', 'FS']
   rlist = run_data[[f'r_{{{name}}}' for name in names]].to_numpy().transpose()
-  vallist = run_data[[f'Lth_{{{name}}}' for name in names]].to_numpy().transpose()
-  if comov:
+  vallist = run_data[[f'Lp_{{{name}}}' for name in names]].to_numpy().transpose()
+  if not comov:
     lfaclist = run_data[[f'lfac_{{{name}}}' for name in names]].to_numpy().transpose()
-    vallist /= 2*lfaclist/(1+env.z)
+    vallist *= 2*lfaclist/(1+env.z)
 
   if not ax_in:
     plt.figure()
@@ -2091,6 +2189,74 @@ def extract_contribs(key, extrapolate=True, smoothing=False):
       df = smooth_contribs(df, env)
     df.to_csv(outpath+sh+'.csv', index_label='it')
 
+def analyze_run_radiating(key, itmin=0, itmax=None):
+  '''
+  Extract datas from radiating cells (gma_max >1)
+  scaling and post-processing will be done separately
+  '''
+  df = openData(key, 0)
+  varlist = ['it', 'i', 'x', 'dx', 'rho', 'vx', 'p', 'gmin', 'gmax']
+  itRS, tRS, iRS, xRS, dxRS, rhoRS, vRS, pRS, gmRS, gMRS = [[] for i in range(10)]
+  itFS, tFS, iFS, xFS, dxFS, rhoFS, vFS, pFS, gmFS, gMFS = [[] for i in range(10)]
+
+  # analyze datafiles
+  its = dataList(key, itmin, itmax)[0:]
+  if itmin == 0:
+    its = its[1:]
+  Nf = len(its)
+  istop = -1
+  skips = 0
+  calc_its = []
+  bothCrossed = False
+  for it in its:
+    df = openData(key, it)
+    RScr, FScr = df_check_crossed(df)
+    bothCrossed = (RScr and FScr)
+    if bothCrossed:
+      skips +=1
+      if skips > 10 and len(itRS)>0:
+        break
+      continue
+    print(f'Opening file it {it}')
+    calc_its.append(it)
+    RS, FS = df_get_rads(df)
+
+    itRS.extend([it for i in range(len(RS))])
+    tRS.extend(RS['t'].to_list())
+    iRS.extend(RS['i'].to_list())
+    xRS.extend(RS['x'].to_list())
+    dxRS.extend(RS['dx'].to_list())
+    rhoRS.extend(RS['rho'].to_list())
+    vRS.extend(RS['vx'].to_list())
+    pRS.extend(RS['p'].to_list())
+    gmRS.extend(RS['gmin'].to_list())
+    gMRS.extend(RS['gmax'].to_list())
+
+    itFS.extend([it for i in range(len(FS))])
+    tFS.extend(FS['t'].to_list())
+    iFS.extend(FS['i'].to_list())
+    xFS.extend(FS['x'].to_list())
+    dxFS.extend(FS['dx'].to_list())
+    rhoFS.extend(FS['rho'].to_list())
+    vFS.extend(FS['vx'].to_list())
+    pFS.extend(FS['p'].to_list())
+    gmFS.extend(FS['gmin'].to_list())
+    gMFS.extend(FS['gmax'].to_list())
+
+  path = get_contribspath(key)
+  dicRS = {'it':itRS, 't':tRS, 'i':iRS, 'x':xRS, 'dx':dxRS, 'rho':rhoRS, 'v':vRS, 'p':pRS, 'gm':gmRS, 'gM':gMRS}
+  RSout = pd.DataFrame.from_dict(dicRS)
+  path_RS = path+'gma_RS.csv'
+  RSout.to_csv(path_RS, index=False)
+
+  dicFS = {'it':itFS, 't':tFS, 'i':iFS, 'x':xFS, 'dx':dxFS, 'rho':rhoFS, 'v':vFS, 'p':pFS, 'gm':gmFS, 'gM':gMFS}
+  FSout = pd.DataFrame.from_dict(dicFS)
+  path_FS = path+'gma_FS.csv'
+  FSout.to_csv(path_FS, index=False)
+
+  #return RSout, FSout
+
+
 def analysis_hydro_thinshell(key, itmin=0, itmax=None):
   '''
   Extract all datas from all files
@@ -2165,6 +2331,22 @@ def get_rpath_thinshell(key):
   file_path = dir_path + 'thinshell_rad.csv'
   return file_path
 
+def get_data_splitted(key):
+  file_path = get_fpath_thinshell(key)
+  run_data = pd.read_csv(file_path, index_col=0)
+  varlist_new = ['t', 'dt'] + [key[:-5] for key in run_data.keys() if 'RS' in key]
+  varlist_new = ['vx' if key=='v' else key for key in varlist_new]
+  varlist_RS = ['time', 'dt'] + [key for key in run_data.keys() if 'RS' in key]
+  varlist_FS = ['time', 'dt'] + [key for key in run_data.keys() if 'FS' in key]
+  df_RS = run_data[varlist_RS].copy(deep=True)
+  df_FS = run_data[varlist_FS].copy(deep=True)
+  df_RS.columns = varlist_new
+  df_FS.columns = varlist_new
+  df_RS.attrs['key'] = key
+  df_FS.attrs['key'] = key
+  return df_RS, df_FS
+  
+
 # def df_get_all_thinshell(df):
 #   '''
 #   Returns all quantities needed for the thin shell paper
@@ -2207,6 +2389,19 @@ def get_rpath_thinshell(key):
 #   return radList, vList, lfaclist, prsList, rhoList, idDList, \
 #     idShList, drList, ShStList, lfacShList, TejList, TthList, numList, LthList
 
+
+def df_get_rads(df):
+  '''
+  Extracts contributing cells
+  '''
+  
+  shocks = df.loc[df['Sd']==1.].loc[df['trac']>0.]
+  iL = shocks.index.min()
+  iR = shocks.index.max()
+  contribs = df.loc[iL:iR].loc[df['gmax']>1.]
+  RS = contribs.loc[df['trac']<1.5]
+  FS  = contribs.loc[df['trac']>1.5]
+  return RS, FS
 
 def df_get_all_thinshell_v1(df):
   '''

@@ -265,7 +265,7 @@ def create_fig_coolregimes(regime):
     title = 'Very fast cooling'
 
   elif regime == 'CD':
-    break_positions = [1, 100, 150]
+    break_positions = [1, 10, 15]
     break_names = ["$\\nu'_B$", "$\\nu'_m$", "$\\nu'_M$"]
     power_law_indices = [1/3, -1/2]
     plaw_names = ['1/3', '-1/2']

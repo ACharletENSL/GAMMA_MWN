@@ -42,10 +42,10 @@ static int Ntot4  = 460 ;
 static int Ncells = Ntot4 + Ntot1;
 
 // normalisation constants:
-static double rhoNorm = rho4 ;                // density normalised to CBM density
+static double rhoNorm = rho4 ;                // density normalised t
 static double lNorm = c_;                     // distance normalised to c
 static double vNorm = c_;                     // velocity normalised to c
-static double pNorm = rhoNorm*vNorm*vNorm;    // pressure normalised to rho_CMB/c^2
+static double pNorm = rhoNorm*vNorm*vNorm;    // pressure normalised to rho/c^2
 
 
 void loadParams(s_par *par){
@@ -289,7 +289,8 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 }
 
 void Simu::dataDump(){
-
+  // can we find a way to print at each new cell shock crossing?
+  // raise
   if (it % 100 == 0){ grid.printCols(it, t); }
 
 }

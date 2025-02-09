@@ -4,8 +4,8 @@ import sys
 
 key = sys.argv[1] if len(sys.argv) > 1 else 'sph_big'
 func = 'Band'
-plot_1stfit = False
-plot_xi = True
+plot_1stfit = True
+plot_xi = False
 fig_Reff = False
 nuobs, Tobs0, env = get_radEnv(key, forpks=True)
 path = get_contribspath(key)

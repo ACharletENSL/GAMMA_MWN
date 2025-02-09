@@ -65,7 +65,7 @@ var2func = {
   "tc":(derive_tcool, ['rho', 'vx', 'p', 'gmin'], ['rhoscale', 'eps_B']),
   "tc1":(derive_tc1, ['rho', 'vx', 'p'], ['rhoscale', 'eps_B']),
   "gma_m":(derive_gma_m, ['rho', 'p'], ['rhoscale', 'psyn', 'eps_e', 'xi_e']),
-  "gma_c":(derive_gma_c, ['t', 'rho', 'vx', 'p'], ['rhoscale', 'eps_B']),
+  "gma_c":(derive_gma_c, ['t', 'rho', 'vx', 'p'], ['t0', 'rhoscale', 'eps_B']),
   "nup_B":(derive_cyclotron_comoving, ['rho', 'p'], ['rhoscale', 'eps_B']),
   "nup_m":(derive_nup_m_from_gmin, ['rho', 'p', 'gmin'], ['rhoscale', 'eps_B']),
   "nu_m":(derive_nu_m_from_gmin, ['rho', 'vx', 'p', 'gmin'], ['rhoscale', 'eps_B', 'z']),

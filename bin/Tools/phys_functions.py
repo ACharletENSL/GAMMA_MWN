@@ -685,12 +685,12 @@ def derive_nup_c(t, rho, vx, p, rhoscale, eps_B):
   nup_c = nup_B*gma_c**2
   return nup_c
 
-def derive_gma_c(t, rho, vx, p, rhoscale, eps_B):
+def derive_gma_c(t, rho, vx, p, t0, rhoscale, eps_B):
   '''
   Typical Lorentz factor of cooled electrons
   '''
   lfac = derive_Lorentz(vx)
-  tdyn = t/lfac
+  tdyn = (t + t0)/lfac
   e = derive_Eint_comoving(rho, p, rhoscale)
   return 3*me_*c_/(4*sigT_*eps_B*e*tdyn)
 
