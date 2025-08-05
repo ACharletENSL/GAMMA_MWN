@@ -13,6 +13,7 @@ Functions that are pure transformation of dataframes were moved to df_funcs
 import os
 import numpy as np
 import pandas as pd
+import more_itertools as mit
 import scipy.signal as sps
 from scipy.ndimage import gaussian_filter1d
 from scipy.interpolate import make_interp_spline
@@ -135,6 +136,9 @@ def openData_withDistrib(key, it):
 
   return df
 
+def check_crossed(it, key='Last'):
+  df = openData(key, it)
+  return df_check_crossed(df)
 
 def resize_shell2sim(df, arr):
   '''
@@ -203,7 +207,7 @@ def open_raddata(key, func='Band'):
   else:
     return rfile_bool
 
-def dataList(key, itmin=0, itmax=None):
+def dataList(key, itmin=0, itmax=None, itstep=None):
 
   '''
   For a given key, return the list of iterations
@@ -225,6 +229,8 @@ def dataList(key, itmin=0, itmax=None):
   if itmin:
     imin = its.index(itmin)
     its = its[imin:]
+  if itstep:
+    its = [it for it in its if (it%itstep == 0)]
   
   return its
 
@@ -937,7 +943,6 @@ def df_get_cellBehindShock(df, shFront, n=5, m=1):
   elif shFront == 'FS':
     sh = FS
     #sign = -1
-  l = len(sh)
   for key in df.attrs.keys():
     sh.attrs[key] = df.attrs[key]
   if sh.empty:
@@ -957,7 +962,7 @@ def df_get_cellBehindShock(df, shFront, n=5, m=1):
       front.attrs[key] = df.attrs[key]
       down.attrs[key] = df.attrs[key]
     front[hdvars] = down[hdvars]
-    front['gmin'] = get_variable(front, "gma_m")
+    #front['gmin'] = get_variable(front, "gma_m")
 
     # if theory:
     #   front[anvars] = anvals
@@ -983,27 +988,6 @@ def df_to_shocks(df):
   Cleans 'false' shock at wave onset when resolution is not high enough
   '''
 
-  #ilist = get_fused_interf(df)
-  # RS = df.loc[(df['Sd'] == 1.0) & (df['trac'] > 0.99) & (df['trac'] < 1.01)]
-  # FS = df.loc[(df['Sd'] == 1.0) & (df['trac'] > 1.99) & (df['trac'] < 2.01)]
-  # RSlist = np.split(RS, np.flatnonzero(np.diff(RS.index) != 1) + 1)
-  # FSlist = np.split(FS, np.flatnonzero(np.diff(FS.index) != 1) + 1)
-  # clnRS = []
-  # for sh in RSlist:
-  #   for inter in ilist:
-  #     if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]]):
-  #       clnRS.append(sh)
-  #       break
-  # RSlist = clnRS
-  # clnFS = []
-  # for sh in FSlist:
-  #   for inter in ilist:
-  #     if intersect([sh.index.min(), sh.index.max()], [inter[1], inter[2]]):
-  #       clnFS.append(sh)
-  #       break
-  # FSlist = clnFS
-  # shocks = pd.concat([RS, FS], axis=0)
-  # shlist = RSlist + FSlist
   
   out = []
   S4 = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
@@ -1011,24 +995,18 @@ def df_to_shocks(df):
   i4b = S4.index.min()
   icd = S4.index.max()
   i1f = S1.index.max()
+
+  # separate into blocks of consecutive indices
   RSsh = df.loc[(df['Sd']==1.) & (df.index <= icd)]
-  ilist = (RSsh.index.diff() > 1).cumsum()
-  if len(ilist) <= 1:
-    RSilist = np.split(ilist, np.flatnonzero(np.diff(ilist)!=1))
-  else:
-    RSilist = np.split(ilist, np.flatnonzero(np.diff(ilist)!=1))[1:]
-  RSlist = [RSsh.iloc[iarr] for iarr in RSilist]
+  iterable = RSsh.index.to_list()
+  RSilist = [list(group) for group in mit.consecutive_groups(iterable)]
+  RSlist = [df.iloc[iarr] for iarr in RSilist]
+
   FSsh = df.loc[(df['Sd']==1.) & (df.index > icd)]
-  ilist = (FSsh.index.diff() > 1).cumsum()
-  if len(ilist) <= 1:
-    FSilist = np.split(ilist, np.flatnonzero(np.diff(ilist)!=1))
-  else:
-    FSilist = np.split(ilist, np.flatnonzero(np.diff(ilist)!=1))[1:]
-  FSlist = [FSsh.iloc[iarr] for iarr in FSilist]
-  # RSsh = S4.loc[df['Sd']==1.]
-  # RSlist = np.split(RSsh, np.flatnonzero(np.diff(RSsh.index) != 1) + 1)
-  # FSsh = S1.loc[df['Sd']==1.]
-  # FSlist = np.split(FSsh, np.flatnonzero(np.diff(FSsh.index) != 1) + 1)
+  iterable = FSsh.index.to_list()
+  FSilist = [list(group) for group in mit.consecutive_groups(iterable)]
+  FSlist = [df.iloc[iarr] for iarr in FSilist]
+
   for (front, ilims, shlist) in zip(['RS', 'FS'], [(i4b, icd), (icd, i1f)], [RSlist, FSlist]):
     iL, iR = ilims
     crossedSh = [sh for sh in shlist if ((sh.index.max()<iL) | (sh.index.min()>iR))]

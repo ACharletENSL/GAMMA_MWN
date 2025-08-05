@@ -27,7 +27,7 @@ plt.rc('ytick', labelsize=13)
 plt.rc('legend', fontsize=12) 
 plt.rcParams["figure.figsize"] = (7,7)
 plt.rcParams['savefig.dpi'] = 200
-plt.rcParams['axes.grid'] = True
+plt.rcParams['axes.grid'] = False
 formatter = ticker.ScalarFormatter(useMathText=True)
 formatter.set_scientific(True) 
 formatter.set_powerlimits((-1,1)) 
@@ -47,7 +47,7 @@ var_exp = {
   "num":"$\\nu'_m$", "nub":"$\\nu'_b$", "nuM":"$\\nu'_M$", "inj":"inj", "fc":"fc", "nu_m":"$\\nu_m$","nu_m2":"$\\nu_m$",
   "Ton":"$T_{on}$", "Tth":"$T_{\\theta,k}$", "Tej":"$T_{ej,k}$", "tc":"$t_c$", 
   "V4":"$\\Delta V^{(4)}$", "V3":"$\\Delta V^{(3)}$", "V4r":"$\\Delta V^{(4)}_c$",
-  "i":"i", 'i_sh':'i$_{sh}$', 'i_d':'i$_d$', 'ish':'i$_{sh}$'
+  "i":"i", 'i_sh':'i$_{sh}$', 'i_d':'i$_d$', 'ish':'i$_{sh}$', "syn":"syn"
   }
 units_CGS  = {
   "time":" (s)", "x":" (cm)", "dx":" (cm)", "rho":" (g cm$^{-3}$)", "vx":"", "p":" (Ba)",
@@ -55,7 +55,7 @@ units_CGS  = {
   "T":"", "h":"", "lfac":"", "u":"", "u_i":"", "zone":"", "dt":" (s)", "res":"", "Tth":" (s)", "Lbol":" (erg)",
   "Ei":" (erg cm$^{-3}$)", "Ek":" (erg cm$^{-3}$)", "M":" (g)", "Pmax":" (erg s$^{-1}$cm$^{-3}$)", "Lp":" (erg s$^{-1}$)",
   "numax":" (Hz)", "numin":" (Hz)", "B":" (G)", "gm":"", "gb":"", "gM":"", "L":" (erg s$^{-1}$) ", "Lum":" (erg s$^{-1}$) ",
-  "num":" (Hz)", "nub":" (Hz)", "nuM":" (Hz)", "inj":"", "fc":"", "tc":" (s).", "Ton":" (s)",
+  "num":" (Hz)", "nub":" (Hz)", "nuM":" (Hz)", "inj":"", "fc":"", "tc":" (s).", "Ton":" (s)", "syn":"",
   "Tth":" (s)", "Tej": " (s)", "V4":" (cm$^3$s)", "V3":" (cm$^3$)", "V4r":" (cm$^3$s)", "i":"", "nu_m":" (Hz)", "nu_m2":" (Hz)",
   }
 var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$', 'u_i':'$\\gamma\\beta$', 'u_sh':'$\\gamma\\beta$',
@@ -65,7 +65,7 @@ var_label = {'R':'$r$ (cm)', 'v':'$\\beta$', 'u':'$\\gamma\\beta$', 'u_i':'$\\ga
   'M':'$M$ (g)', 'Msh':'$M$ (g)', 'Ek':'$E_k$ (erg)', 'Ei':'$E_{int}$ (erg)',
   'E':'$E$ (erg)', 'Etot':'$E$ (erg)', 'Esh':'$E$ (erg)', 'W':'$W_{pdV}$ (erg)',
   'Rct':'$(r - ct)/R_0$ (cm)', 'D':'$\\Delta$ (cm)', 'u_i':'$\\gamma\\beta$',
-  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$', 'pdV':'$pdV$'
+  'vcd':"$\\beta - \\beta_{cd}$", 'epsth':'$\\epsilon_{th}$', 'pdV':'$pdV$', "syn":"syn"
   }
 cool_vars = ["inj", "fc", "gmin", "gmax", "trac2", "gm", "gb", "gM", "num", "nub", "nuM"]
 nonlog_var = ['u', 'trac', 'Sd', 'zone', 'trac2']
@@ -310,13 +310,13 @@ def plot_edistrib_timeseries(i, key='Last', xscaling='it', **kwargs):
 def ax_cell_timeseries(var, i, key='Last', xscaling='it', yscaling='code', ax_in=None, logt=False, logy=False, **kwargs):
   '''
   Plots a time series of var in cell i
-  Cells are counted in the shells only
+  Cells are counted from the CD
   '''
   
   env  = MyEnv(key)
-  Nshtot = env.Nsh1+env.Nsh4
-  if i > Nshtot:
-    print(f"No corresponding cell in shells, i must be lower than {Nshtot}")
+  iCD = env.Next + env.Nsh4
+  if (i > env.Nsh1) or (-i > env.Nsh4):
+    print(f"No corresponding cell in shells")
 
   if ax_in is None:
     plt.figure()
@@ -329,7 +329,7 @@ def ax_cell_timeseries(var, i, key='Last', xscaling='it', yscaling='code', ax_in
   if var in cool_vars:
     its = its[1:]
   data = np.zeros(its.shape)
-  time, y = get_cell_timevalues(key, var, i, its)
+  time, y = get_cell_timevalues(key, var, i+iCD, its)
 
   # plot 
   if xscaling == 'it':
@@ -800,8 +800,8 @@ def ax_snapshot(var, it, key='Last', theory=False, ax_in=None, itoff=False, tfor
       yscale = 1./env.Bp
     elif var in ["Tth", "Ton", "Tej"]:
       yscale = 1/env.T0
-    elif var == 'u':
-      yscale = 1./env.u
+    # elif var == 'u':
+    #   yscale = 1./env.u
   elif yscaling == 'CGS':
     units = units_CGS
     yscale = get_varscaling(var, env)

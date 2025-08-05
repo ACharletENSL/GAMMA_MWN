@@ -139,13 +139,13 @@ def get_cell_timevalues(key, var, i, its=[]):
   else:
     data = np.zeros(len(its))
   for k, it in enumerate(its):
-    print(f'Reading file {it}')
+    if not it%1000:
+      print(f'Reading file {it}')
     df, t, dt = openData_withtime(key, it)
     if cool:
       df = openData_withDistrib(key, it)
     trac = df['trac'].to_numpy()
-    i4 = np.argwhere((trac > 0.99) & (trac < 1.01))[:,0].min()
-    cell = df.iloc[i+i4]
+    cell = df.iloc[i]
     time[k] = dt
     if type(var)==list:
       for j, name in enumerate(var):

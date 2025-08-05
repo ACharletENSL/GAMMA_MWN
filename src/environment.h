@@ -53,7 +53,7 @@ enum{skip_,merge_,split_};
 #define F2     z_            // fixed dimension 2
 #define VI     1.            // interface velocity (units of CD velocity)
 #define GAMMA_ (5./3.)
-#define EOS_   IDEAL_      // carefull, GAMMA_ needs to be set to 5/3 when using SYNGE
+#define EOS_   TAUB_EOS_     // carefull, GAMMA_ needs to be set to 5/3 when using SYNGE
 #define CFL_   0.1
 
 #define MPI_ ENABLED_
@@ -62,10 +62,9 @@ enum{skip_,merge_,split_};
 #define SPATIAL_RECONSTRUCTION_ PIECEWISE_LINEAR_
 #define CIRC_REGRID_            DISABLED_
 #define SHOCK_DETECTION_        ENABLED_
-#define DETECT_SHOCK_THRESHOLD_ 0.01
-#define LOCAL_SYNCHROTRON_      DISABLED_
+#define DETECT_SHOCK_THRESHOLD_ 0.15
+#define LOCAL_SYNCHROTRON_      ENABLED_
 #define GAMMA_MAX_INIT_         (1.e8)
-#define VARIABLE_GAMMA_MAX_     DISABLED_
 #define VARIABLE_PSPEC_         DISABLED_
 
 // ---------------------------------------------------------------------------------------

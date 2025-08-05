@@ -72,6 +72,15 @@ class MyEnv:
       pass
     for name, value in zip(varlist, vallist):
       setattr(self, name, value)
+    # add scaling constants from GAMMA
+    rhoNorm = self.rhoscale
+    vNorm = c_
+    lNorm = vNorm
+    self.Nalpha_ = alpha_ / (1. / (rhoNorm * vNorm * lNorm))
+    self.Nmp_ = mp_ / (rhoNorm * lNorm**3)
+    self.Nme_ = me_ / (rhoNorm * lNorm**3)
+    self.Nqe_ = e_ / (np.sqrt(rhoNorm) * lNorm**2. * vNorm)
+    self.NsigmaT_ =  sigT_ / lNorm**2.
   
   def get_scalings(self, type):
     '''

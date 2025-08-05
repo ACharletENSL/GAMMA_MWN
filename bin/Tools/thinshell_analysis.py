@@ -11,7 +11,7 @@ polynomial fit, get peak position
 
 from plotting_scripts_new import *
 from scipy.optimize import curve_fit
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, CubicSpline
 plt.ion()
 
 cols_dic = {'RS':'r', 'FS':'b', 'RS+FS':'k', 'CD':'purple',
@@ -35,6 +35,54 @@ def run_fullAnalyzis(key, smoothing=False):
   analysis_hydro_thinshell(key)
   extract_contribs(key, smoothing)
   write_pks(key, force=True)
+
+def plot_gmas(key, n=-10, xscale='t', logx=True, logy=True, **kwargs):
+  '''
+  Plots gma_min and gma_max as function of xscale for a cell n cells away from collision
+  '''
+  
+  env = MyEnv(key)
+  cpath = get_contribspath(key)
+  sh = 'RS' if n < 0 else 'FS'
+  path = cpath + f'gma_{sh}.csv'
+  data = pd.read_csv(path)
+  gm_th, gM_th = (env.gma_m, env.gma_max) if n<0 else (env.gma_mFS, env.gma_maxFS)
+
+  Nsh = env.Nsh4 if n<0 else env.Nsh1
+  Nc = env.Next+Nsh
+  k = Nc+n
+  dk = data.loc[data['i']==k]
+  t, r, gm, gM = dk[['t', 'x', 'gmin', 'gmax']].to_numpy().transpose()
+
+  x = t
+  xlabel = ''
+  if xscale == 'r':
+    xlabel = '$r/R_0$'
+    x = r*c_/env.R0
+  elif xscale == 't':
+    xlabel = '$t/t_0$'
+    x = t/env.t0 + 1.
+  elif xscale == 'T':
+    xlabel = '$\\bar{T}$'
+    T = (1+env.z)*(t + env.t0 - r)
+    x = (T-T[0])/env.T0
+  
+  fig, ax = plt.subplots()
+  ax.plot(x, gm, label='$\\gamma_{\\rm min}$', **kwargs)
+  ax.plot(x, gM, label='$\\gamma_{\\rm max}$', **kwargs)
+  ax.hlines([gm_th, gM_th], 0, 0.2, transform=ax.get_yaxis_transform(), ls='--')
+  ax.text(0.22, gm_th, "$\\gamma_{\\rm m, inj}$", transform=ax.get_yaxis_transform())
+  ax.text(0.22, gM_th, "$\\gamma_{\\rm M, inj}$", transform=ax.get_yaxis_transform())
+  
+  if logx:
+    ax.set_xscale('log')
+  if logy:
+    ax.set_yscale('log')
+  ax.set_xlabel(xlabel)
+  ax.set_ylabel("$\\gamma_{\\rm e}$")
+  ax.legend()
+  ax.set_title(f'run {key}, cell {k}')
+  
 
 def plot_gmaratio(key, xscale='r', ax_in=None, logx=True, logy=True, **kwargs):
   '''
@@ -67,7 +115,7 @@ def plot_gmaratio(key, xscale='r', ax_in=None, logx=True, logy=True, **kwargs):
     for i, k in enumerate(range(istart, iend+1, step)):
       dk = data.loc[data['i']==k]
       tk, rk = dk.iloc[0][['t', 'x']]
-      gm, gM = dk[['gm', 'gM']].to_numpy().transpose()
+      gm, gM = dk[['gmin', 'gmax']].to_numpy().transpose()
       t[i], r[i], val[i] = tk, rk, gM[1]/gm[0]
 
     if xscale == 'r':
@@ -187,9 +235,39 @@ def write_pks(key, func='Band', force=True, detailed=True):
   df.to_csv(path+'.csv', index=False)
 
 ### plots
+def plot_combined_bhvAndNubrkRatio():
+  '''
+  Combines plot_nubrkRatio and 
+  '''
+  fig, axs = plt.subplots(1,2)
+
+  lstyles = ['-', '-.']
+  runs=['HPC_sph', 'HPC_cart']
+
+  for run, ls in zip(runs, lstyles):
+    plot_radBehav(run, func='Band', theory=False, ax_in=axs[0], pres_mode=True, ls=ls)
+  axs[0].set_xlabel("$\\nu_\\mathrm{pk}/\\nu_0$")
+  axs[0].set_ylabel("$(\\nu F_\\nu)_\\mathrm{pk}/\\nu_0F_0$")
+  axs[0].set_ylim(ymin=2e-2)
+
+  for key, l in zip(runs, lstyles):
+    plot_nubrkRatio(key, ax_in=axs[1], xscale='dR', ls=l)
+  dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in lstyles]
+  axs[1].set_xlabel('$\\Delta R/R_0$')
+  axs[1].set_ylabel('$\\nu_\\mathrm{bk}/\\nu_{1/2}$')
+  axs[1].set_xscale('log')
+  axs[1].set_yscale('log', base=10)
+  axs[1].yaxis.set_major_formatter(ticker.ScalarFormatter())
+  axs[1].yaxis.set_minor_formatter(ticker.ScalarFormatter())
+  axs[1].yaxis.set_label_position("right")
+  axs[1].yaxis.tick_right()
+  axs[1].legend(dummy_lst, ['spherical', 'hybrid'], loc='lower left')
+  plt.ticklabel_format(axis='y', style='plain')
+
+  plt.tight_layout(pad=.1)
 
 
-def plot_nuRatios_compared(keylist = ['sph_fid', 'cart_fid'], xscale='dR'):
+def plot_nuRatios_compared(keylist = ['sph_fid', 'plan_fid'], xscale='dR', interp=False):
   '''
   Compare two Delta R/ R0 plots
   '''
@@ -198,7 +276,7 @@ def plot_nuRatios_compared(keylist = ['sph_fid', 'cart_fid'], xscale='dR'):
   dummy_lst = [ax.plot([],  [], c='k', ls=l)[0] for l in lstyles]
   ax.legend(dummy_lst, ['sph.', 'hybrid'])
   for key, l in zip(keylist, lstyles):
-    plot_nubrkRatio(key, ax, xscale=xscale, ls=l)
+    plot_nubrkRatio(key, ax, xscale=xscale, interp=interp, ls=l)
   xlabel = '$\\Delta R/R_0$'
   if xscale == 'ton':
     xlabel = '$t_\\mathrm{on}/t_\\mathrm{off}$'
@@ -206,17 +284,17 @@ def plot_nuRatios_compared(keylist = ['sph_fid', 'cart_fid'], xscale='dR'):
   ax.set_ylabel('$\\nu_\\mathrm{bk}/\\nu_{1/2}$')
   ax.set_xscale('log')
   ax.set_yscale('log')
-  ax.grid(True, which='both')
+  # ax.grid(True, which='both')
   plt.tight_layout()
 
 
-def plot_nubrkRatio(key, ax_in=None, ratio=.5, dRRmin=1e-2, xscale='dR', **kwargs):
+def plot_nubrkRatio(key, ax_in=None, ratio=.5, dRRmin=1e-2, xscale='dR', interp=True, **kwargs):
   '''
   Plot ratio between frequency at break nu_bk and at nuFnu(nu_bk)/2 as a function of Delta R/R0
   '''
 
   env = MyEnv(key)
-  dRR, t_ons, nubks, nuhfs = get_nubk_nuhf(key, ratio)
+  dRR, t_ons, nubks, nuhfs = get_nubk_nuhf(key, ratio, interp=interp)
   x = dRR
   xlabel = '$\\Delta R/R_0$'
   if xscale == 'ton':
@@ -239,7 +317,7 @@ def plot_nubrkRatio(key, ax_in=None, ratio=.5, dRRmin=1e-2, xscale='dR', **kwarg
 
 
 
-def plot_nubrks_compared(keylist = ['sph_fid', 'cart_fid']):
+def plot_nubrks_compared(keylist = ['sph_fid', 'plan_fid']):
   '''
   Compare two Delta R/ R0 plots
   '''
@@ -254,13 +332,13 @@ def plot_nubrks_compared(keylist = ['sph_fid', 'cart_fid']):
   ax.set_ylim(ymin = 8e-2)
 
 
-def plot_nubknhf(key, ax_in=None, ratio=0.5, dRRmin=1e-2, xscale='dR', **kwargs):
+def plot_nubknhf(key, ax_in=None, ratio=0.5, dRRmin=1e-2, xscale='dR', interp=True, **kwargs):
   '''
   Plot frequency at break and freq at half flux 
   Can be plotted vs Delta R/R0 or ton/toff
   '''
   env = MyEnv(key)
-  dRR, t_ons, nubks, nuhfs = get_nubk_nuhf(key, ratio) 
+  dRR, t_ons, nubks, nuhfs = get_nubk_nuhf(key, ratio, interp=interp) 
   i_start = find_closest(dRR, dRRmin)
   x = dRR
   xlabel = '$\\Delta R/R_0$'
@@ -446,7 +524,7 @@ def plot_hydroPanels(key, smoothing=True, art_mode=True):
 
 
   for plotfunc, ax in zip(plotfuncs, axs):
-    plotfunc(key, ax_in=ax, smoothing=smoothing)
+    plotfunc(key, ax_in=ax, smoothing=smoothing, endval=False)
   #fig.set_figheight(6)
   # names = ['RS', '3', 'CD-', 'CD', 'CD+', '2', 'FS']
   # legnames = ['RS', '3', 'CD$_3$', 'CD', 'CD$_2$', '2', 'FS']
@@ -485,14 +563,14 @@ def plot_hydroPanels_reduced(key, smoothing=False):
   plotfuncs = [plot_lfac, plot_ShSt]
 
   for plotfunc, ax in zip(plotfuncs, axs):
-    plotfunc(key, ax_in=ax, smoothing=smoothing)
+    plotfunc(key, ax_in=ax, smoothing=smoothing, endval=True)
   fig.set_figheight(6)
   # names = ['RS', '3', 'CD', '2', 'FS']
   # dummy_col = [plt.plot([],[], c=cols_dic[name], ls='-')[0] for name in names]
   # fig.legend(dummy_col, names, handlelength=1.5, loc='upper center', ncol=len(dummy_col))
   #plt.tight_layout()
 
-def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band', logT=False):
+def plot_radPanels_t(keylist=['sph_fid', 'plan_fid'], func='Band', logT=False):
   '''
   Same as radPanel_t but to compare two or more runs
   '''
@@ -503,7 +581,7 @@ def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band', logT=False):
   axs = gs.subplots(sharex='all')
   names, colors = ['RS', 'FS'], ['r', 'b']
   lstyles = ['-', '-.']
-  runnames = ['sph', 'hybrid'] #if keylist == ['sph_fid', 'cart_fid'] else keylist
+  runnames = ['sph', 'hybrid'] #if keylist == ['sph_fid', 'plan_fid'] else keylist
   dummy_col = [plt.plot([],[], c=col, ls='-')[0] for name, col in zip(names, colors)]
   dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in lstyles]
   ylabels = ['$\\nu_\\mathrm{pk}/\\nu_0$', "$(\\nu F_\\nu)_\\mathrm{pk}/\\nu_0F_0$"]
@@ -511,7 +589,7 @@ def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band', logT=False):
   for label, plotfunc, ax in zip(ylabels, plotfuncs, axs):
     ax.set_ylabel(label)
     for key, ls in zip(keylist, lstyles):
-      #theory = True if key == 'cart_fid' else False
+      #theory = True if key == 'plan_fid' else False
       plotfunc(key, func=func, ax_in=ax, logT=logT, theory=False, ls=ls)
   #   ax.set_xscale('linear')
   # axs[-1].set_yscale('linear')
@@ -522,8 +600,8 @@ def plot_radPanels_t(keylist=['sph_fid', 'cart_fid'], func='Band', logT=False):
   axs[0].set_ylim(ymin=5e-3)
   axs[0].legend(dummy_col, names, handlelength=1.5)
   axs[1].legend(dummy_lst, runnames)
-  axs[0].grid(True, which='both')
-  axs[1].grid(True, which='both')
+  # axs[0].grid(True, which='both')
+  # axs[1].grid(True, which='both')
   plt.tight_layout()
 
 
@@ -589,9 +667,9 @@ def plot_compareAll(var, lognu=-1, logT=0, theory=False,
   pres_mode: presentation mode (only RS for bhv, colored spec shape)
   art_mode: article mode (adds hybrid Band onto syn-BPL panel)
   '''
-  runs = ['sph_fid', 'cart_fid']
+  runs = ['sph_fid', 'plan_fid']
   if HPC:
-    runs = ['HPC/'+run for run in runs]
+    runs = ['HPC_sph', 'HPC_cart']
   shapes = ['Band', 'plaw']
 
   Nr, Ns = len(runs), len(shapes)
@@ -661,6 +739,43 @@ def plot_compareAll(var, lognu=-1, logT=0, theory=False,
     plot_hybtotline(axs[-1])
 
   
+def plot_comparedVals(var, logvs, key='Last',
+  integrated=False, mFC=None, **kwargs):
+  '''
+  plot_emission with array of vals
+  '''
+
+  fig, ax = plt.subplots()
+  lstlist = ['-', '--', '-.', ':']
+  varlabel = ''
+  ylabel = '$\\nu F_\\nu/\\nu_0 F_0$'
+  if var == 'lc':
+    xlabel = '$\\bar{T}$'
+    varlabel = '$\\log_{10}\\tilde{\\nu} = '
+    def plotfunc(logv, **kwargs):
+      plot_lightcurve(key, logv, ax_in=ax, **kwargs)
+  elif var == 'sp':
+    xlabel = '$\\tilde{\\nu}$'
+    varlabel = '$\\log_{10}\\tilde{T} = '
+    def plotfunc(logv, **kwargs):
+      plot_spectrum(key, logv, ax_in=ax, **kwargs)
+  dummy_lst = []
+  dummy_names = []
+
+  for logv, l in zip(logvs, lstlist):
+    dummy_lst.append(plt.plot([],[],c='k',ls=l)[0])
+    varstr = ''
+    try:
+      varstr = f'{logv:d}'
+    except ValueError:
+      varstr = f'{logv:.1f}'
+    dummy_names.append(varlabel+varstr+'$')
+    plotfunc(logv, ls=l, **kwargs)
+
+  ax.set_xlabel(xlabel)
+  ax.set_ylabel(ylabel)
+  ax.legend(dummy_lst, dummy_names)
+  fig.tight_layout()
 
 
 def plot_comparedRad(key, lognu=-1, logT=0, theory=True):
@@ -738,7 +853,7 @@ def plot_spectrum(key, logT, func='Band',
   # for nupk, Fnupk, col in zip(nupks, Fnupks, cols):
   #   ax.scatter(nupk[iT]/env.nu0, Fnupk[iT]/env.nu0F0, c=col)
 
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
   if not ax_in:
     plt.legend()
     plt.xlabel("$\\nu/\\nu_0$")
@@ -768,7 +883,7 @@ def plot_lightcurve(key, lognu, func='Band',
     ax = plt.gca()
   else:
     ax = ax_in
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
   if theory:
     if not ax_in:
       dummy_lst = [plt.plot([],[], ls=ls, color='k')[0] for ls in ['-', '-.']]
@@ -834,7 +949,7 @@ def plot_integSpec(key, func='Band',
     plt.ylabel("$\\nu f_{\\nu}/\\nu_0 F_0 T_0$")
     plt.title(key+', '+func)
 
-def plot_bhvCompared(runs=['sph_fid', 'cart_fid'], func='Band'):
+def plot_bhvCompared(runs=['sph_fid', 'plan_fid'], func='Band'):
   fig, ax = plt.subplots()
   for run, ls in zip(runs, ['-', '-.']):
     plot_radBehav(run, func=func, theory=False, ax_in=ax, pres_mode=True, ls=ls)
@@ -843,7 +958,7 @@ def plot_bhvCompared(runs=['sph_fid', 'cart_fid'], func='Band'):
   plt.xlabel("$\\nu_\\mathrm{pk}/\\nu_0$")
   plt.ylabel("$(\\nu F_\\nu)_\\mathrm{pk}/\\nu_0F_0$")
   #plt.title('spectral behavior')
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
 
 def plot_radBehav(key, func='Band', theory=False, ax_in=None, 
     pres_mode=False, **kwargs):
@@ -857,7 +972,7 @@ def plot_radBehav(key, func='Band', theory=False, ax_in=None,
   else:
     ax = ax_in
   
-  ax.grid(True, which='both')
+  # ax.grid(True, which='both')
   names, colors = ['RS', 'FS'], ['r', 'b']
   nupks, nuFnupks = get_pksnunFnu(key)
   nuobs, Tobs, env = get_radEnv(key)
@@ -882,7 +997,7 @@ def plot_radBehav(key, func='Band', theory=False, ax_in=None,
   for k, nupk, nuFnupk, name, col in zip(range(Nit), nupks, nuFnupks, names, colors):
     ax.loglog(nupk[1:]/env.nu0, nuFnupk[1:]/env.nu0F0, c=col, label=name, **kwargs)
   
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
   # xmin = 5e-3
   # if not pres_mode:
   #   ax.set_xlim(xmin=xmin)
@@ -910,7 +1025,7 @@ def plot_bhv_hybrid(dRoR=None, sh='RS', ax_in=None, **kwargs):
   else:
     ax = ax_in
 
-  nuobs, Tobs, env = get_radEnv('cart_fid')
+  nuobs, Tobs, env = get_radEnv('plan_fid')
   g, Tth, dRR, fac_nu, fac_F, col = (env.gFS, env.T0FS, env.dRFS, env.fac_nu, env.fac_F, 'b') if sh == 'FS' else (env.gRS, env.T0, env.dRRS, 1., 1., 'r')
   tT = 1. + (Tobs - env.Ts)/Tth
   dR = dRoR if dRoR else dRR/env.R0
@@ -919,7 +1034,7 @@ def plot_bhv_hybrid(dRoR=None, sh='RS', ax_in=None, **kwargs):
   nu /= fac_nu
   nuFnu /= (fac_F*fac_nu)
   ax.loglog(nu, nuFnu, c=col, **kwargs)
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
 
   if not ax_in:
     plt.xlabel(f"$\\nu/\\nu_{{{'0,'+sh}}}$")
@@ -1246,7 +1361,7 @@ def plot_nm(key):
   axs[0].set_title(key)
   axs[-1].set_xlabel('$r/R_0$')
 
-def plot_rhop(key, rscale=2., ax_in=None, xscale='r', smoothing=True, N=kernel_size):
+def plot_rhop(key, rscale=2., ax_in=None, xscale='r', smoothing=True, endval=False, N=kernel_size):
   '''
   Plots comoving densities downstream of shocks and on both sides of the CD
   '''
@@ -1300,7 +1415,7 @@ def plot_rhop(key, rscale=2., ax_in=None, xscale='r', smoothing=True, N=kernel_s
   ax.axhline(env.rho2/env.rho3, c='b', ls='--', lw=.8)
   rscale_str = f"$(r/R_0)^{{{rscale:{'.0f' if rscale==int(rscale) else '.1f'}}}}$" if rscale else ""
   ax.set_ylabel("$\\tilde{\\rho'}$" + rscale_str)
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
 
   if not ax_in:
     plt.xlabel(xlabel)
@@ -1353,14 +1468,14 @@ def plot_gfac(key, ax_in=None, xscale='r'):
   ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
   ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
   ax.yaxis.set_minor_locator(ticker.FixedLocator([0.9, 1., 1.1, 1.2])) 
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
 
   if not ax_in:
     plt.xlabel(xlabel)
     plt.legend()
     plt.tight_layout()
 
-def plot_lfac(key, ax_in=None, smoothing=True, N=kernel_size, fit=False, ilim=30, **kwargs):
+def plot_lfac(key, ax_in=None, smoothing=True, endval=False, N=kernel_size, fit=False, ilim=30, **kwargs):
   '''
   Plots relevant Lorentz factors (in lab frame):
   Gamma_4, _d,RS, _CD, _d,FS, _1
@@ -1422,7 +1537,8 @@ def plot_lfac(key, ax_in=None, smoothing=True, N=kernel_size, fit=False, ilim=30
     ax.loglog(r[:-ilim], lfac[:-ilim], c=col, label=f'$\\Gamma_{{{name}}}$', **kwargs)
 
   ax.hlines([env.lfacRS, env.lfacFS], 0, 0.5, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls='--')
-  ax.hlines([120.3, 133.6], 0.5, 1, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls=':')
+  if endval:
+    ax.hlines([120.3, 133.6], 0.5, 1, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls=':')
 
 
   ax.set_ylabel(f"$\\Gamma$")
@@ -1431,7 +1547,7 @@ def plot_lfac(key, ax_in=None, smoothing=True, N=kernel_size, fit=False, ilim=30
   ax.xaxis.set_minor_formatter(ticker.ScalarFormatter())
   ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
   ax.yaxis.set_minor_locator(ticker.FixedLocator([110, 120, 130, 140])) 
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
   
   # names = ['RS', '3', 'CD', '2', 'FS']
   # dummy_col = [plt.plot([],[], c=cols_dic[name], ls='-')[0] for name in names]
@@ -1443,7 +1559,7 @@ def plot_lfac(key, ax_in=None, smoothing=True, N=kernel_size, fit=False, ilim=30
     #plt.legend()
     plt.tight_layout()
 
-def plot_prs(key, rscale=2., ax_in=None, smoothing=True, N=kernel_size):
+def plot_prs(key, rscale=2., ax_in=None, smoothing=True, endval=False, N=kernel_size):
   '''
   Plots pressures
   '''
@@ -1482,7 +1598,7 @@ def plot_prs(key, rscale=2., ax_in=None, smoothing=True, N=kernel_size):
   ax.set_ylim((0.69, 1.2))
   rscale_str = f"$(r/R_0)^{{{rscale:{".0f" if rscale==int(rscale) else ".1f"}}}}$" if rscale else ""
   ax.set_ylabel("$\\tilde{p}$" + rscale_str)
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
 
   if not ax_in:
     plt.xlabel("$r/R_0$")
@@ -1517,14 +1633,14 @@ def plot_lfacsh(key, ax_in=None):
             ha='left', va='center')
 
   ax.set_ylabel(f"$\\Gamma$")
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
 
   if not ax_in:
     plt.xlabel("$r/R_0$")
     plt.legend()
     plt.tight_layout()
 
-def plot_ShSt(key, ax_in=None, xscale='r', fit=False, smoothing=True, N=kernel_size, **kwargs):
+def plot_ShSt(key, ax_in=None, xscale='r', fit=False, smoothing=True, endval=False, N=kernel_size, **kwargs):
   '''
   Plots shock Lorentz factors (in lab frame)
   '''
@@ -1590,14 +1706,15 @@ def plot_ShSt(key, ax_in=None, xscale='r', fit=False, smoothing=True, N=kernel_s
     ax.loglog(x[r>0], ShSt, c=col, label=f'{name}', **kwargs)
 
   ax.hlines(planvals, 0, 0.5, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls='--')
-  ax.hlines(sphvals, 0.5, 1, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls=':')
+  if endval:
+    ax.hlines(sphvals, 0.5, 1, transform=ax.get_yaxis_transform(), colors=['r', 'b'], ls=':')
 
 
   if xscale=='T':
     ax.set_xscale('linear')
 
   ax.set_ylabel("$\\Gamma_{ud}-1$")
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
   ax.xaxis.set_major_formatter(ticker.ScalarFormatter())
   ax.xaxis.set_minor_formatter(ticker.ScalarFormatter())
   #ax.set_ylim(ymin=.95e-2)
@@ -1638,7 +1755,7 @@ def plot_relLF(key, ax_in=None):
   #ax.set_ylim(ymin=1.2)
   ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
   ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
-  ax.grid(visible=True, which='both')
+  # ax.grid(visible=True, which='both')
 
   if not ax_in:
     plt.xlabel("$r/R_0$")
@@ -1714,7 +1831,7 @@ def plot_relLF(key, ax_in=None):
   
 #   return nuFnus
 
-def get_nubk_nuhf(key, ratio=0.5, func='Band', testing=False):
+def get_nubk_nuhf(key, ratio=0.5, func='Band', interp=False, testing=False):
 
   nuobs, Tobs, env = get_radEnv(key, forpks=True)
   path = get_contribspath(key)
@@ -1722,6 +1839,15 @@ def get_nubk_nuhf(key, ratio=0.5, func='Band', testing=False):
   nupks, nuFnupks = get_pksnunFnu(key, func) # we're looking only at RS
   nupks = nupks[0]/env.nu0
   nuFnupks = nuFnupks[0]/env.nu0F0
+  nuFnupks_int = nuFnupks.copy()
+  if interp:
+    nu_steps, indices = np.unique(nupks, return_index=True)
+    nuFnu_steps = nuFnupks[indices]
+    # linear interp
+    #nuFnupks = np.interp(nupks, nu_steps, nuFnu_steps)
+    # cubic spline
+    interpolation = CubicSpline(nu_steps, nuFnu_steps)
+    nuFnupks_int = interpolation(nupks)
   if testing:
     fig, ax = plt.subplots()
     ax.loglog(nupks, nuFnupks)
@@ -1748,7 +1874,7 @@ def get_nubk_nuhf(key, ratio=0.5, func='Band', testing=False):
     Tb = (Ton - env.Ts)/env.T0
     nubk = nupks[ion]
     nuFnubk = nuFnupks[ion]
-    ihf = find_closest(nuFnupks[nupks>=nubk], ratio*nuFnubk)
+    ihf = find_closest(nuFnupks_int[nupks>=nubk], ratio*nuFnubk)
     nubks[i] = nubk
     nuhf = nupks[nupks>=nubk][ihf]
     nuhfs[i] = nuhf
@@ -1946,7 +2072,7 @@ def df_get_Fnu_thinshell(df_data, sh, nuobs, Tobs, env, func, hybrid=True):
       return Band_func(x, b1, b2)
   elif func == 'plaw':
     def S(x, b1, b2):
-      return broken_plaw_simple(x, b1, b2)
+      return broken_plaw(x, b1, b2)
   else:
     print("func must be 'Band' of 'plaw'!")
     return Fnu
@@ -2243,15 +2369,16 @@ def analyze_run_radiating(key, itmin=0, itmax=None):
     gmFS.extend(FS['gmin'].to_list())
     gMFS.extend(FS['gmax'].to_list())
 
-  path = get_contribspath(key)
-  dicRS = {'it':itRS, 't':tRS, 'i':iRS, 'x':xRS, 'dx':dxRS, 'rho':rhoRS, 'v':vRS, 'p':pRS, 'gm':gmRS, 'gM':gMRS}
+  #path = get_contribspath(key)
+  path = GAMMA_dir + f'/results/{key}/'
+  dicRS = {'it':itRS, 't':tRS, 'i':iRS, 'x':xRS, 'dx':dxRS, 'rho':rhoRS, 'vx':vRS, 'p':pRS, 'gmin':gmRS, 'gmax':gMRS}
   RSout = pd.DataFrame.from_dict(dicRS)
-  path_RS = path+'gma_RS.csv'
+  path_RS = path+'gmas_RS.csv'
   RSout.to_csv(path_RS, index=False)
 
-  dicFS = {'it':itFS, 't':tFS, 'i':iFS, 'x':xFS, 'dx':dxFS, 'rho':rhoFS, 'v':vFS, 'p':pFS, 'gm':gmFS, 'gM':gMFS}
+  dicFS = {'it':itFS, 't':tFS, 'i':iFS, 'x':xFS, 'dx':dxFS, 'rho':rhoFS, 'vx':vFS, 'p':pFS, 'gmin':gmFS, 'gmax':gMFS}
   FSout = pd.DataFrame.from_dict(dicFS)
-  path_FS = path+'gma_FS.csv'
+  path_FS = path+'gmas_FS.csv'
   FSout.to_csv(path_FS, index=False)
 
   #return RSout, FSout
@@ -2395,12 +2522,15 @@ def df_get_rads(df):
   Extracts contributing cells
   '''
   
-  shocks = df.loc[df['Sd']==1.].loc[df['trac']>0.]
-  iL = shocks.index.min()
-  iR = shocks.index.max()
+  RS = df.loc[df['Sd']==1.].loc[df['trac']<1.5]
+  FS = df.loc[df['Sd']==1.].loc[df['trac']>1.5]
+  
+  iL = RS.index.max()
+  iR = FS.index.min()
+
   contribs = df.loc[iL:iR].loc[df['gmax']>1.]
   RS = contribs.loc[df['trac']<1.5]
-  FS  = contribs.loc[df['trac']>1.5]
+  FS = contribs.loc[df['trac']>1.5]
   return RS, FS
 
 def df_get_all_thinshell_v1(df):
@@ -2427,7 +2557,7 @@ def df_get_all_thinshell_v1(df):
   TonList  = [TonRS, TonFS]
   TejList  = [TejRS, TejFS]
   TthList  = [TthRS, TthFS]
-  numList  = [0. if cell.empty else get_variable(cell, 'nu_m') for cell in [RS, FS]]
+  numList  = [0. if cell.empty else get_variable(cell, 'nu_m2') for cell in [RS, FS]]
   LthList  = [0. if cell.empty else get_variable(cell, 'Lth') for cell in [RS, FS]]
   LpList   = [0. if cell.empty else get_variable(cell, 'Lp') for cell in [RS, FS]]
 
@@ -2513,6 +2643,8 @@ def plot_atfronts(key, var, xscale='r', plaw=False, ax_in=None):
 
 
 # smoothing procedure
+
+
 def smoothing_rollave(arr, N):
   '''
   Smooth array with a rolling average of size N

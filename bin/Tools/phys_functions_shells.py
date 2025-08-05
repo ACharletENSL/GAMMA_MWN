@@ -9,6 +9,7 @@ in the colliding shells situation
 # Imports
 from phys_functions import *
 from phys_constants import *
+from scipy.special import gamma
 
 # basic parameters (will be modified later/read from file/function inputs)
 # start from phys params : (L, u, ton) pairs + toff OR num params (rho, u, D0) pairs + R0
@@ -50,6 +51,7 @@ def shells_complete_setup(env):
     env.D04 = env.t4*env.beta4*c_#*(1+env.R0/env.lfac4**2)
   
   env.Nsh4 = int(np.floor(env.Nsh1*env.D04/env.D01))
+  env.Ntot = 2*env.Next + env.Nsh1 + env.Nsh4
   env.V0 = (4/3.)*pi_*((env.R0+env.D01)**3 - (env.R0-env.D04)**3)
   env.dr4 = env.D04/env.Nsh4
   env.dr1 = env.D01/env.Nsh1
@@ -83,6 +85,8 @@ def shells_add_analytics(env):
   '''
 
   env.f      = env.rho4/env.rho1
+  env.a_u    = env.u4/env.u1
+  env.chi    = env.D01 / env.D04
   env.u21    = derive_u_in1(env.u1, env.u4, env.f)
   env.u34    = env.u21/np.sqrt(env.f)
   env.lfac21 = derive_Lorentz_from_proper(env.u21)
@@ -108,6 +112,7 @@ def shells_add_analytics(env):
   env.D2f    = derive_shellwidth_crosstime(env.D01, env.lfac1, env.lfac, env.lfac21)
   env.Ei2f   = derive_Eint_crosstime(env.M1, env.u, env.lfac21)
   env.Ek2f   = derive_Ek_crosstime(env.M1, env.lfac)
+  env.eff_1  = env.Ei2f/env.Ek1
 
   env.betaRS = derive_betaRS(env.u4, env.u34, env.u)
   env.lfacRS = derive_Lorentz(env.betaRS)
@@ -116,7 +121,7 @@ def shells_add_analytics(env):
   env.D3f    = derive_shellwidth_crosstime(env.D04, env.lfac4, env.lfac, env.lfac34)
   env.Ei3f   = derive_Eint_crosstime(env.M4, env.u, env.lfac34)
   env.Ek3f   = derive_Ek_crosstime(env.M4, env.lfac)
-
+  env.eff_4  = env.Ei3f/env.Ek4
 
   # rarefaction waves
   T2     = env.p_sh/(env.rho2*c_**2)
@@ -133,7 +138,8 @@ def shells_add_analytics(env):
   env.tRFm2 = env.D2f / (c_*(env.beta-env.betaRFm2))
   env.tRFm3 = (env.beta-env.betaRS)*(env.tFS+env.tRFm2)/(env.betaRS-env.betaRFm3)
 
-  # thermal efficiencies
+  # global thermal efficiency
+  env.eff_th = env.eff_1 * env.t1/(env.t1+env.t4) + env. eff_4 * env.t4/(env.t1+env.t4)
   #add_weightfactors(env)
 
 def shells_add_radNorm(env, z=1., dL=2e28):
@@ -142,12 +148,11 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   Minu paper equations G11, 15, 17
   ''' 
   env.z = z
-  a_u = env.u4/env.u1
-  env.u34 = derive_proper_from_Lorentz(env.lfac34)
-  beta34 = derive_velocity(env.lfac34)
+  #env.u34 = derive_proper_from_Lorentz(env.lfac34)
+  env.beta34 = derive_velocity(env.lfac34)
   env.u21 = derive_proper_from_Lorentz(env.lfac21)
-  beta21 = derive_velocity(env.lfac21)
-  Hau = (env.lfac34-1) * env.u34 / (1+a_u**2)
+  env.beta21 = derive_velocity(env.lfac21)
+  Hau = (env.lfac34-1) * env.u34 / (1+env.a_u**2)
   L = ((env.Ek1/env.t1)+(env.Ek4/env.t4))/2
   Gp = (env.psyn-2)/(env.psyn-1)
   Wp = 2./Gp
@@ -159,7 +164,8 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.BpFS = np.sqrt(8.*pi_*env.eps_B*env.eint2p)
   env.gma_m = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac34-1)
   env.gma_mFS = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac21-1)
-  env.gma_Max = 1e8
+  env.gma_max = np.sqrt(3*e_/(sigT_*env.Bp))
+  env.gma_maxFS = np.sqrt(3*e_/(sigT_*env.BpFS))
   env.nuBp = e_*env.Bp/(2.*pi_*me_*c_)
   env.nuBpFS = e_*env.BpFS/(2.*pi_*me_*c_)
   env.nu0p = env.gma_m**2 * env.nuBp
@@ -194,7 +200,8 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   # ratio_lum = (ratio_freq**(-1))*(ratio_bol)
   env.fac_nu = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**2
   env.fac_F  = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**-2 * \
-      (derive_velocity(env.lfac34)/derive_velocity(env.lfac21)) #* (env.eps_rad/env.eps_radFS)
+      (env.beta34/env.beta21) #* (env.eps_rad/env.eps_radFS)
+  env.slope_mid = np.log10(env.fac_F*env.fac_nu)/np.log10(env.fac_nu)
   env.fac_Lp = env.fac_F
   env.fac_T  = ((env.lfacFS/env.lfacRS)**2)*(env.betaFS/env.betaRS)*((1+env.betaFS)/(1+env.betaRS))
   env.nu0pFS = env.nu0p / env.fac_nu
@@ -210,11 +217,13 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   # final radii and times
   env.dRRS = env.tRS*env.betaRS*c_
   env.RfRS = env.R0 + env.dRRS
+  env.RfRS0 = env.RfRS/env.R0
   env.TRS  = (1+env.z)*(env.t0+env.tRS-env.RfRS/c_)
   env.tTfRS = env.RfRS/env.R0
 
   env.dRFS = env.tFS*env.betaFS*c_
   env.RfFS = env.R0 + env.dRFS
+  env.RfFS0 = env.RfFS/env.R0
   env.TFS  = (1+env.z)*(env.t0+env.tFS-(env.R0+env.betaFS*env.tFS*c_)/c_)
   env.tTfFS = env.RfFS/env.R0
   
@@ -238,6 +247,9 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.dV01 = 4*pi_*env.R0**2*(env.D01/env.Nsh1)
   env.dEp0 = env.eps_e*(env.lfac34-1)*c_**2*env.lfac*env.dV04*env.rho4/(Wp*env.nu0p)
   env.dEp0FS = env.eps_e*(env.lfac21-1)*c_**2*env.lfac*env.dV01*env.rho1/(Wp*env.nu0pFS)
+
+  # some more useful values for rad calculations
+  env.Gammap = - gamma(1/3.-env.psyn)*gamma(env.psyn)/gamma(1/3.)
 
 def shells_snapshot_fromenv(env, r, t):
   '''
@@ -332,9 +344,8 @@ def get_rfscenario(env):
   chi5 = 1./(s4mRS*(1. + shmRS/RSmRFm3)*((1./FSms1) + lfacratio21/shmRFm2))
 
   # which case?
-  chi = env.D01 / env.D04
   critlines = [chi1, chi2, chi3, chi4, chi5]
-  case = np.searchsorted(critlines, chi) + 1
+  case = np.searchsorted(critlines, env.chi) + 1
 
   return case
 

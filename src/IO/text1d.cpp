@@ -181,6 +181,17 @@ void Grid::printCols(int it, double t){
     int nactd = ntrack-2*ngst;
     #if LOCAL_SYNCHROTRON_ == ENABLED_
       Cdump[i].radiation_apply_trac2gammae();
+      // if ((i-ngst==450) and (Cdump[i].S.prim[TR1+1]<0.9) and (Cdump[i].S.prim[SD]>0.9)){
+      //   double rho = Cdump[i].S.prim[RHO];
+      //   double p = Cdump[i].S.prim[PPP];
+      //   double gma = Cdump[i].S.gamma();
+      //   double h = 1 + p*gma/(gma-1.)/rho;
+      //   double eps = rho * (h-1.) / gma;
+      //   double eB = eps_B_ * eps;
+      //   double B2 = 8.*PI*eB;
+      //   double syn = Nalpha_ * B2 ;
+      //   cout << "syn cooling = " << syn << ", gmax = " << Cdump[i].S.prim[GMX] << "\n";
+      // }
       fprintf(fout, "%1.15le %d %d %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le %1.15le\n", 
         t,
         nactd,

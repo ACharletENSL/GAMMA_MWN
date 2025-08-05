@@ -220,12 +220,14 @@
     double p   = S.prim[PPP];
     double psyn = S.prim[PSN];
     double gma = S.gamma();
+    // cout << "adiab gma = " << gma << "\n" ;
     double h   = 1.+p*gma/(gma-1.)/rho; // ideal gas EOS (TBC)
     double eps = rho*(h-1.)/gma;
     double ee = eps_e_ * eps;
     double ne = zeta_ * rho / Nmp_;
     double lfac_av = ee / (ne * Nme_);
-    double gammaMin = 1. + ((psyn-2.) / (psyn-1.) *lfac_av);
+    double gammaMin = ((psyn-2.) / (psyn-1.) *lfac_av);
+    // cout << "gma_min = " << gammaMin << "\n" ;
 
     return(gammaMin);
 
@@ -238,10 +240,14 @@
     double gma = S.gamma();
     double h = 1 + p*gma/(gma-1.)/rho;
     double eps = rho*(h-1.)/ gma;
-    double eB = eps_B_ * eps;
-    double B = sqrt(8.*PI*eB);
+    double eB = eps_B_ * eps * mp_ / (Nmp_*c_) ;
+    double B2 = 8.*PI*eB ;
+    double B = sqrt(B2);
+    // cout << "B field = " << B << "\n" ;
     double gammaMax2 = 3. * qe_ / (sigmaT_ * B);
     double gammaMax = sqrt(gammaMax2);
+    // cout << "gma_max = " << gammaMax << "\n" ;
+    // cout << "syn cooling " << alpha_ * B2 * gammaMax2 << "\n";
 
     return(gammaMax);
   }
@@ -284,12 +290,16 @@
     double *psyn = &S.prim[PSN];
     double *trac = &S.prim[TR1+1];
 
-    
-    if (isShocked and (S.prim[TR1+1]<=0.1)){
+    //if (isShocked and (S.prim[TR1+1]<=0.1)){
+    if (isShocked) {
+      // cout << nde_id << "\n" ;
       if (pspec>*psyn or std::isnan(*psyn)) *psyn = pspec;
       *gmax = radiation_gammae2trac(gammaMaxInit(S), S) / (lfac*rho);
       *gmin = radiation_gammae2trac(gammaMinInit(S), S) / (lfac*rho);
-      *trac = 1.;
+      if (S.prim[TR1+1]<=0.1){
+        *trac = 1.;
+      }
+
     }
     // if (*gmax <= 0. or ::isnan(*gmax)) *gmax = lim;
     // if (*gmin <= 0. or ::isnan(*gmin)) *gmin = lim;
@@ -311,6 +321,14 @@
     double eps = rho * (h-1.) / gma;
     double eB = eps_B_ * eps;
     double B = sqrt(8.*PI*eB);
+
+    // 2 ghost cells
+    // if ((nde_id == 452) and (S.prim[TR1+1]>0.9)){
+    //   double syn = Nalpha_ * B*B ;
+    //   double gmax = S.prim[GMX] * (lfac*rho) ;
+    //   double gmaxOut = radiation_trac2gammae(gmax, S) ;
+    //   cout << "syn cooling = " << syn << ", gmax = " << gmaxOut << "\n";
+    // }
 
     double dgma = Nalpha_ * pow(rho, 4./3.) * B*B * G.dV * dt;
     S.cons[GMX] += dgma;

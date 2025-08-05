@@ -36,6 +36,7 @@ def intersect(a, b):
   return bool(aL in range(bL, bR+1) or aR in range(bL, bR+1))
 
 
+
 def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
   '''
   Powerlaw with index a0 to g1, -a1 between g1 and g2, -a2 between g2 and g3
@@ -52,6 +53,14 @@ def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
     elif x < g2: return (x/g1)**(-a1)
     elif x < g3: return ((g2/g1)**(-a1))*(x/g2)**(-a2)
     else: return 0.#((g2/g1)**(-a1))*(g3/g2)**(-a2)*(x/g3)**(-a3)
+
+def broken_plaw_basic(x, b1=-0.5, b2=-1.25):
+  if x<= 1:
+    return x**b1
+  else:
+    return x**b2
+
+broken_plaw = vectorize(broken_plaw_basic)
 
 @jit(nopython=True)
 def broken_plaw_simple(x, b1=-0.5, b2=-1.25):
@@ -258,6 +267,14 @@ def derive_cs_fromT(T, EoS='TM'):
   cs2 = derive_cs2_fromT(T, EoS)
   return np.sqrt(cs2)
 
+def derive_Eint_lab(x, dx, rho, vx, p, R0, rhoscale, geometry):
+  '''
+  Total internal energy of a cell
+  '''
+  ei = derive_Eint(rho, vx, p, rhoscale)
+  V3 = derive_3volume(x, dx, R0, geometry)
+  return ei*V3
+
 def derive_Eint(rho, v, p, rhoscale):
   '''
   Internal energy density in lab frame
@@ -330,10 +347,18 @@ def derive_velocity_from_proper(u):
 
 def derive_Ekin(rho, v, rhoscale):
   '''
-  Kinetic energy in lab frame from density and velocity
+  Kinetic energy density in lab frame from density and velocity
   '''
   lfac = derive_Lorentz(v)
   return (lfac-1)*lfac*rho*rhoscale*c_**2
+
+def derive_Ekin_lab(x, dx, rho, vx, p, R0, rhoscale, geometry):
+  '''
+  Total kinetic energy of a cell
+  '''
+  ek = derive_Ekin(rho, vx, rhoscale)
+  V3 = derive_3volume(x, dx, R0, geometry)
+  return ek*V3
 
 def derive_Ekin_fromproper(rho, u):
   '''
@@ -375,6 +400,15 @@ def derive_normTime(r, beta, mu=1):
   '''
   return (1-beta*mu)*r
 
+def derive_Pmax(rho, p, rhoscale, eps_B, xi_e):
+  '''
+  Max emissivity of electrons in a cell
+  '''
+  B = derive_B_comoving(rho, p, rhoscale, eps_B)
+  ne = xi_e*derive_n(rho, rhoscale)
+  fac = (4./3) * sigT_*me_*c_**2/(3*e_)
+  return fac*ne*B
+
 def derive_max_emissivity(rho, p, gmin, gmax, rhoscale, eps_B, psyn, xi_e):
   '''
   Returns maximal emissivity used for normalisation, from Ayache et al. 2022
@@ -397,6 +431,13 @@ def derive_xiDN(gmin, gmax, p):
   
   return np.where(gmax<1., 0., np.where(gmin<1., xiDN(gmin, gmax, p), 1.))
 
+def derive_Ne(x, dx, vx, rho, R0, rhoscale, geometry):
+  '''
+  Number of electrons
+  '''
+  n = derive_n(rho, rhoscale)
+  V3p = derive_3vol_comoving(x, dx, vx, R0, geometry)
+  return n*V3p
 
 def derive_n(rho, rhoscale):
   '''
@@ -470,20 +511,20 @@ def derive_tcool_comoving(rho, p, gma, rhoscale, eps_B):
   eint = derive_Eint_comoving(rho, p, rhoscale)
   return 3*me_*c_/(4*sigT_*eint*eps_B*gma)
 
-def derive_Ppmax_noprefac(rho, p, rhoscale, eps_B):
+def derive_Ppmax_noprefac(rho, p, rhoscale, eps_B, xi_e):
   B = derive_B_comoving(rho, p, rhoscale, eps_B)
   ne = xi_e*derive_n(rho, rhoscale)
   fac = sigT_ * me_ * c_**2 / e_
   return fac * ne * B
 
-def derive_Epnu_FC(x, dx, dt, rho, p, R0, rhoscale, eps_B, geometry):
+def derive_Epnu_FC(x, dx, dt, rho, p, R0, rhoscale, eps_B, xi_e, geometry):
   V4 = derive_4volume(x, dx, dt, R0, geometry)
-  Pmax = ((psyn-1)/(2*psyn))*derive_Ppmax_noprefac(rho, p, rhoscale, eps_B)
+  Pmax = ((psyn-1)/(2*psyn))*derive_Ppmax_noprefac(rho, p, rhoscale, eps_B, xi_e)
   return V4*Pmax
 
-def derive_Epnu_SC(x, dx, dt, rho, p, R0, rhoscale, eps_B, geometry):
+def derive_Epnu_SC(x, dx, dt, rho, p, R0, rhoscale, psyn, eps_B, xi_e, geometry):
   V4 = derive_4volume(x, dx, dt, R0, geometry)
-  Pmax = (4*(psyn-1)/(3*(3*psyn-1)))*derive_Ppmax_noprefac(rho, p, rhoscale, eps_B)
+  Pmax = (4*(psyn-1)/(3*(3*psyn-1)))*derive_Ppmax_noprefac(rho, p, rhoscale, eps_B, xi_e)
   return V4*Pmax
 
 def derive_Epnu_vFC(x, dx, rho, vx, p, gmin,
@@ -593,6 +634,7 @@ def derive_obsLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn,
 def derive_obsTimes(tsim, r, beta, t0, z):
   '''
   Derive the relevant times in observer frame to calculate flux
+  returns Ton, Tth, Tej
   Ton : onset time
   Tth : angular time (comes from Doppler beaming)
   Tej : effective ejection time
@@ -694,6 +736,13 @@ def derive_gma_c(t, rho, vx, p, t0, rhoscale, eps_B):
   e = derive_Eint_comoving(rho, p, rhoscale)
   return 3*me_*c_/(4*sigT_*eps_B*e*tdyn)
 
+def derive_syn_cooling(rho, p, rhoscale, eps_B):
+  '''
+  Synchrotron cooling
+  '''
+  ei = derive_Eint_comoving(rho, p, rhoscale)
+  B2 = 8*pi_*eps_B*ei
+  return alpha_*B2
 
 def derive_gma_m(rho, p, rhoscale, psyn, eps_e, xi_e):
   '''
@@ -708,6 +757,19 @@ def derive_gma_m(rho, p, rhoscale, psyn, eps_e, xi_e):
   ee  = eps_e*ei
   Gp  = (psyn-2.)/(psyn-1.)
   return Gp*ee/(ne*me)
+
+def derive_gma_M(rho, p, rhoscale, eps_B):
+  '''
+  Return max Lorentz factor of an accelerated electron distribution
+  '''
+  # gma = derive_adiab(rho, p)
+  # h   = 1+p*gma/(gma-1.)/rho
+  # ei  = rho*(h-1)/gma
+  # eB  = eps_B*ei
+  # B = np.sqrt(8.*pi_*eB)
+  B = derive_B_comoving(rho, p, rhoscale, eps_B)
+  gmaM2 = 3*e_/(sigT_*B)
+  return np.sqrt(gmaM2)
 
 def derive_edistrib(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
   '''
