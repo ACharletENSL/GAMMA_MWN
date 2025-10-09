@@ -425,35 +425,7 @@ def open_thinshellObs_data(key, mFC_arr=[False, False]):
   return dataRS, dataFS
 
 
-def df_replaceShocked_withDownHydro(df, n=6, m=2):
-  '''
-  Returns dataframe giving shocked cells the hydro values downstream of them
-  '''
 
-  hdvars = ['dx', 'rho', 'vx', 'p', 'D', 'sx', 'tau']
-  iCD = df.loc[df['trac']>1.5].index.min() - 1
-
-  # identify shocked cells in data and group them by consecutive indices
-  shockedCells = df.loc[df['Sd']==1.]
-  indices = shockedCells.index.to_list()
-  ilist = [list(group) for group in mit.consecutive_groups(indices)]
-  shocks = [df.iloc[iarr] for iarr in ilist]
-
-  # for each shock, identify downstream cell and replace values with it
-  for sh in shocks:
-    iL, iR = sh.index.min(), sh.index.max()
-    rhoL, rhoR = df.at[iL-1, 'rho'], df.at[iR+1, 'rho']
-    if rhoL < rhoR: # RS type shock
-      i_f = iL
-      i_d = min(iR + len(sh) + n, iCD - m) + 1
-    else:  # FS type shock
-      i_f = iR
-      i_d = max(iL - len(sh) - n, iCD + m + 1)
-    iL, iR = min(i_f, i_d), max(i_f, i_d)
-    down_values = df.iloc[i_d][hdvars].to_numpy()
-    indices = [i for i in range(iL, iR+1)]
-    df.loc[indices, hdvars] = down_values
-  return df
 
 def analyze_hydro2rad(key, itmin=0, itmax=None, preinject=False):
   '''
@@ -1679,8 +1651,7 @@ def DeltaEnup(tnu_arr, cell_0, cell, cell_next, env):
   
 def DeltaEnup_v2(tnu_arr, cell_0, cell, cell_next, env):
   '''
-  Delta E'_{\nu'} spectrum in fast cooling case between cell and cell_next
-  in units K P'_{e, max} t'_c
+  Delta E'_{\nu'} spectrum between cell and cell_next in units K P'_{e, max} t'_c
   mix and match between integral forms and integrated
   '''
 

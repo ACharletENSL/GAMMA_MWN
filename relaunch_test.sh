@@ -1,6 +1,7 @@
 #!/bin/sh
 
-rm -f results/Last/*
+rm -rf results/Last
+mkdir -p results/Last
 python setup.py
 make -B
 cp -f ./phys_input.ini ./results/Last/

@@ -79,6 +79,30 @@ def shells_complete_setup(env):
   env.Theta1 = env.p1/(env.rho1*c_**2)
   env.Theta4 = env.p4/(env.rho4*c_**2)
 
+def shells_rescale_input(env, scalefac):
+  '''
+  Rescale by multiplying radius by 10^scalefac
+  '''
+  to_rescale = ['R0', 't0', 't1', 't4', 'toff', 'D01', 'D04',
+    'dr1', 'dr4', 'rho1', 'rho4', 'rhoscale', 'p1', 'p4', 'V0']
+  if scalefac:
+    sc = 10**scalefac
+    for key in to_rescale:
+      if ('t' in key) or ('R' in key) or ('D' in key) or ('d' in key):
+        val = getattr(env, key)
+        val *= sc
+        setattr(env, key, val)
+      elif ('rho' in key) or ('p' in key):
+        val = getattr(env, key)
+        val /= sc**2
+        setattr(env, key, val)
+      elif ('V' in key):
+        val = getattr(env, key)
+        val *= sc**3
+        setattr(env, key, val)
+  else:
+    pass
+
 def shells_add_analytics(env):
   '''
   Completes environment class with analytical values
@@ -188,8 +212,8 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   Pfac = (4./3.) * (4*(env.psyn-1)/(3*env.psyn-1)) * (16*me_*c_**2*sigT_/(18*pi_*e_))
   env.Pmax0 = Pfac * env.Bp * env.xi_e * (env.rho3/mp_)
   env.Pmax0FS = Pfac * env.BpFS * env.xi_e * (env.rho2/mp_)
-  env.tc = 3*me_*c_*env.lfac/(4*sigT_*env.eint3p*env.eps_B*env.gma_m)
-  env.tcFS = 3*me_*c_*env.lfac/(4*sigT_*env.eint2p*env.eps_B*env.gma_mFS)
+  env.tc = 3*me_*c_*env.lfac/(4*sigT_*env.eint3p*env.eps_B)
+  env.tcFS = 3*me_*c_*env.lfac/(4*sigT_*env.eint2p*env.eps_B)
 
   # for the FS
   # ratio_1 = (env.lfac34+1)/(env.lfac21+1)

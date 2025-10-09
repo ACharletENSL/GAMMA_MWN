@@ -305,8 +305,12 @@ def derive_epint(rho, p):
 
 
 def derive_B_comoving(rho, p, rhoscale, eps_B=1/3.):
+  B2 = derive_B2_comoving(rho, p, rhoscale, eps_B)
+  return np.sqrt(B2)
+
+def derive_B2_comoving(rho, p, rhoscale, eps_B):
   e = derive_Eint_comoving(rho, p, rhoscale)
-  return np.sqrt(8*pi_*eps_B*e)
+  return 8*pi_*eps_B*e
 
 # Velocity and related
 def derive_Lorentz(v):
@@ -399,6 +403,22 @@ def derive_normTime(r, beta, mu=1):
   Normalization time Ttheta
   '''
   return (1-beta*mu)*r
+
+def derive_Pnum(x, dx, rho, vx, p, rhoscale, R0, eps_B, xi_e, psyn, geometry):
+  '''
+  Normalization of emitted power by a p-law distribution in slow cooling
+  '''
+  Pmax_e = derive_Pmax(rho, p, rhoscale, eps_B, xi_e)
+  V3p = derive_3vol_comoving(x, dx, vx, R0, geometry)
+  return ((psyn-1)/(3*psyn-1))*V3p*Pmax_e
+
+def derive_Pemax(rho, p, rhoscale, eps_B, xi_e):
+  '''
+  Max emissivity of a single electron
+  '''
+  B = derive_B_comoving(rho, p, rhoscale, eps_B)
+  fac = (4./3) * sigT_*me_*c_**2/(3*e_)
+  return fac*B
 
 def derive_Pmax(rho, p, rhoscale, eps_B, xi_e):
   '''
@@ -651,7 +671,7 @@ def derive_obsEjTime(t, r, beta, t0, z):
   '''
   Ejection time in observer's frame
   '''
-  Ton, Tr, Tej = derive_obsTimes(t, r, beta, t0, z)
+  Ton, Tth, Tej = derive_obsTimes(t, r, beta, t0, z)
   return Tej
 
 def derive_obsOnTime(t, r, beta, t0, z):
@@ -676,6 +696,16 @@ def derive_cyclotron_comoving(rho, p, rhoscale, eps_B):
   nup_B = e_*B/(2*pi_*me_*c_)
   return nup_B
 
+def derive_cyclotron(rho, vx, p, rhoscale, eps_B, z):
+  '''
+  Cyclotron frequency
+  '''
+  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
+  D = derive_DopplerRed_los(vx, z)
+  nu_B = nup_B*D
+  return nu_B
+
+
 def derive_DopplerRed_los(vx, z):
   '''
   Derive Doppler + redshift factor along the line of sight
@@ -683,6 +713,48 @@ def derive_DopplerRed_los(vx, z):
   lfac = derive_Lorentz(vx)
   D = 1/(lfac*(1-vx))
   return D/(1+z)
+
+def derive_gma_c(rho, p, R0, lfac0, rhoscale, eps_B):
+  '''
+  (generalized) cooling Lorentz factor gma_c
+  '''
+  tc = 1/derive_syn_cooling(rho, p, rhoscale, eps_B)
+  tdyn = R0/(lfac0*c_)
+  return tc/tdyn
+
+def derive_nup_c(rho, p, R0, lfac0, rhoscale, eps_B):
+  '''
+  Comoving cooling freq
+  '''
+
+  gma_c = derive_gma_c(rho, p, R0, lfac0, rhoscale, eps_B)
+  nup_c = derive_nup_from_gma(rho, p, gma_c, rhoscale, eps_B)
+  return nup_c
+
+def derive_nu_c(rho, vx, p, R0, lfac0, rhoscale, eps_B, z):
+  '''
+  Cooling freq
+  '''
+  gma_c = derive_gma_c(rho, p, R0, lfac0, rhoscale, eps_B)
+  nu_c = derive_nu_from_gma(rho, vx, p, gma_c, rhoscale, eps_B, z)
+  return nu_c
+
+
+def derive_nup_from_gma(rho, p, gma, rhoscale, eps_B):
+  '''
+  Derive comoving frequency from e- Lorentz factor
+  '''
+  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
+  nup = nup_B*gma**2
+  return nup
+
+def derive_nu_from_gma(rho, vx, p, gma, rhoscale, eps_B, z):
+  '''
+  Derive frequency from e- Lorentz factor
+  '''
+  D = derive_DopplerRed_los(vx, z)
+  nup = derive_nup_from_gma(rho, p, gma, rhoscale, eps_B)
+  return D*nup
 
 def derive_nu_m(rho, vx, p, rhoscale, psyn, eps_B, eps_e, xi_e, z):
   '''
@@ -693,21 +765,6 @@ def derive_nu_m(rho, vx, p, rhoscale, psyn, eps_B, eps_e, xi_e, z):
   nu_m = nup_m*D
   return nu_m
 
-def derive_nu_m_from_gmin(rho, vx, p, gmin, rhoscale, eps_B, z):
-  '''
-  Derive peak frequency, with Lorentz factor pre-determined
-  '''
-  D = derive_DopplerRed_los(vx, z)
-  nup_m = derive_nup_m_from_gmin(rho, p, gmin, rhoscale, eps_B)
-  return D*nup_m
-
-def derive_nup_m_from_gmin(rho, p, gmin, rhoscale, eps_B):
-  '''
-  Derive comoving peak frequency, with Lorentz factor pre-determined
-  '''
-  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
-  nup_m = nup_B*gmin**2
-  return nup_m
 
 def derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
   '''
@@ -718,23 +775,23 @@ def derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
   nup_m = nup_B*gma_m**2
   return nup_m
 
-def derive_nup_c(t, rho, vx, p, rhoscale, eps_B):
-  '''
-  Comoving cooling frequency
-  '''
-  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
-  gma_c = derive_gma_c(t, rho, vx, p, rhoscale, eps_B)
-  nup_c = nup_B*gma_c**2
-  return nup_c
+# def derive_nup_c(t, rho, vx, p, rhoscale, eps_B):
+#   '''
+#   Comoving cooling frequency
+#   '''
+#   nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
+#   gma_c = derive_gma_c(t, rho, vx, p, rhoscale, eps_B)
+#   nup_c = nup_B*gma_c**2
+#   return nup_c
 
-def derive_gma_c(t, rho, vx, p, t0, rhoscale, eps_B):
-  '''
-  Typical Lorentz factor of cooled electrons
-  '''
-  lfac = derive_Lorentz(vx)
-  tdyn = (t + t0)/lfac
-  e = derive_Eint_comoving(rho, p, rhoscale)
-  return 3*me_*c_/(4*sigT_*eps_B*e*tdyn)
+# def derive_gma_c(t, rho, vx, p, t0, rhoscale, eps_B):
+#   '''
+#   Typical Lorentz factor of cooled electrons
+#   '''
+#   lfac = derive_Lorentz(vx)
+#   tdyn = (t + t0)/lfac
+#   e = derive_Eint_comoving(rho, p, rhoscale)
+#   return 3*me_*c_/(4*sigT_*eps_B*e*tdyn)
 
 def derive_syn_cooling(rho, p, rhoscale, eps_B):
   '''

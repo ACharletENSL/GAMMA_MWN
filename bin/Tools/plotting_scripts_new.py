@@ -12,12 +12,15 @@ import matplotlib as mpl
 mpl.use('tkagg')
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.transforms as transforms
+from matplotlib.collections import PatchCollection
 from matplotlib import ticker
 from environment import *
 from run_analysis import *
 from data_IO import *
 from phys_functions_shells import *
 from scipy import integrate
+from math import floor, log10
 
 # matplotlib options
 # --------------------------------------------------------------------------------------------------
@@ -92,6 +95,73 @@ def get_varscaling(var, env):
     var_scale = 1.
   return var_scale
 
+# create legends according to arguments
+def create_legend_colors(ax, names, colors, **kwargs):
+  dummy_col = [ax.plot([], [], c=col, ls='-')[0] for col in colors]
+  legend = ax.legend(dummy_col, names, **kwargs)
+  return legend
+
+def create_legend_styles(ax, names, styles, **kwargs):
+  dummy_lst = [ax.plot([], [], c='k', ls=l)[0] for l in styles]
+  legend = ax.legend(dummy_lst, names, **kwargs)
+  return legend
+
+# transform axs to put text (or anything)
+def transx(ax):
+  return transforms.blended_transform_factory(ax.transAxes, ax.transData)
+def transy(ax):
+  return transforms.blended_transform_factory(ax.transData, ax.transAxes)
+
+### create multicolored legend elements
+# use by (colors1 is an array of colors strings)
+# # h, l = ax.get_legend_handles_labels()
+# # h.append(MulticolorPatch(colors1))
+# # l.append("a nice multicolor legend patch")
+# # ax.legend(h, l, handler_map={MulticolorPatch: MulticolorPatchHandler()})
+
+# define an object that will be used by the legend
+class MulticolorPatch(object):
+    def __init__(self, colors):
+        self.colors = colors
+        
+# define a handler for the MulticolorPatch object
+class MulticolorPatchHandler(object):
+    def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+        width, height = handlebox.width, handlebox.height
+        patches = []
+        for i, c in enumerate(orig_handle.colors):
+            patches.append(plt.Rectangle([width/len(orig_handle.colors) * i - handlebox.xdescent, 
+                                          -handlebox.ydescent],
+                           width / len(orig_handle.colors),
+                           height, 
+                           facecolor=c, 
+                           edgecolor='none'))
+
+        patch = PatchCollection(patches,match_original=True)
+
+        handlebox.add_artist(patch)
+        return patch
+
+# to transform python formating into power of 10 in LaTeX
+def sci_notation(num, decimal_digits=1, precision=None, exponent=None):
+    """
+    Returns a string representation of the scientific
+    notation of the given number formatted for use with
+    LaTeX or Mathtext, with specified number of significant
+    decimal digits and precision (number of decimal digits
+    to show). The exponent to be used can also be specified
+    explicitly.
+    """
+    if num == 0.:
+      return "$0$"
+    if exponent is None:
+        exponent = int(floor(log10(abs(num))))
+    coeff = round(num / float(10**exponent), decimal_digits)
+    if precision is None:
+        precision = decimal_digits
+    sci = r"${0:.{2}f}\cdot10^{{{1:d}}}$".format(coeff, exponent, precision)
+    sci = sci.replace(f"1.{'0'*decimal_digits}\\cdot", "")
+    return sci
 
 # Cells timelapse plots
 # --------------------------------------------------------------------------------------------------

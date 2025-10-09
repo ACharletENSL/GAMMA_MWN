@@ -8,7 +8,7 @@ import matplotlib.cm as cm
 import matplotlib.transforms as transforms
 import matplotlib.colors as colors
 from plotting_scripts_new import *
-from hydro2rad_syn import *
+from hydro2rad_syn_v1 import *
 
 # List of figures to do
 ## Article

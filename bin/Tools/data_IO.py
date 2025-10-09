@@ -177,7 +177,7 @@ def get_runatts(key):
         rhoNorm = value
       elif name == 'geometry':
         geometry = value
-  return mode, runname, rhoNorm, geometry
+  return [mode, runname, rhoNorm, geometry]
 
 def open_rundata(key):
 
@@ -908,6 +908,40 @@ def df_get_shDown(df, n=3, m=2):
   for cell in [RSd, FSd]:
     cell['gmin'] = get_variable(cell, 'gma_m')
   return RSd, FSd
+
+def df_replaceShocked_withDownHydro(df, n=5, m=1):
+  '''
+  Returns dataframe giving shocked cells the hydro values downstream of them
+  '''
+
+  hdvars = ['dx', 'rho', 'vx', 'p', 'D', 'sx', 'tau']
+  iCD = df.loc[df['trac']>1.5].index.min() - 1
+  out = df.copy()
+
+  # identify shocked cells in data and group them by consecutive indices
+  shockedCells = df.loc[df['Sd']==1.]
+  indices = shockedCells.index.to_list()
+  ilist = [list(group) for group in mit.consecutive_groups(indices)]
+  shocks = [df.iloc[iarr] for iarr in ilist]
+
+  # for each shock, identify downstream cell and replace values with it
+  for sh in shocks:
+    iL, iR = sh.index.min(), sh.index.max()
+    rhoL, rhoR = df.at[iL-1, 'rho'], df.at[iR+1, 'rho']
+    if rhoL < rhoR: # RS type shock
+      i_f = iL
+      i_d = min(iR + len(sh), iCD - m)
+      i_m = min(i_d + n, iCD - m)
+    else:  # FS type shock
+      i_f = iR
+      i_d = max(iL - len(sh), iCD + m + 1)
+      i_m = max(i_d - n, iCD + m + 1)
+
+    iL, iR = min(i_f, i_m), max(i_f, i_m)
+    down_values = df.iloc[[i_d, i_m]][hdvars].to_numpy().mean(axis=0)
+    indices = [i for i in range(iL, iR+1)]
+    out.loc[indices, hdvars] = down_values
+  return out
 
 def df_get_cellsBehindShock(df, n=5):
   return [df_get_cellBehindShock(df, sh, n) for sh in ['RS', 'FS']]
