@@ -528,12 +528,14 @@ def approx_bhvbrk(dRoR, key='cart_fid', sh='RS'):
   tT = 1. + (Tobs - env.Ts)/Tth
   tTf = 1. + dRoR
 
-def approx_bhv_hybrid(tTi, tTfi, gi):
+def approx_bhv_hybrid(tTi, tTfi, gi, d1=1, d2=1, p1=3, p2=0.5):
   '''
   Returns nu_pk, nu_pk F_{nu_pk} from hybrid approach, based on fits from R24
+  d1, d2: exponents for nu_pk before and after break
+  p1, p2: exponents for (nu*F_nu)_pk before and after break
   '''
-  nu = approx_nupk_hybrid(tTi, tTfi, gi)
-  nuFnu = approx_nupkFnupk_hybrid(tTi, tTfi, gi)
+  nu = approx_nupk_hybrid(tTi, tTfi, gi, d1=d1, d2=d2)
+  nuFnu = approx_nupkFnupk_hybrid(tTi, tTfi, gi, p1=p1, p2=p2)
   return nu, nuFnu
 
 def nupk_approx(tT, tTf, d1, d2):
@@ -545,16 +547,18 @@ def nupkFnupk_approx(tT, tTf, p1, p2):
   [lambda x: 1 - x**-p1, lambda x: (1 - tTf**-p1)*(x/tTf)**-p2])
    
 
-def approx_nupkFnupk_hybrid(tTi, tTfi, gi):
+def approx_nupkFnupk_hybrid(tTi, tTfi, gi, p1=3, p2=0.5):
   '''
   Peak flux (peak of nu F_nu) of a shock front with respect to its normalized time
   tTfi = R_{f,i}/R_0
+  p1: exponent before break (default=3)
+  p2: exponent after break (default=0.5 for increasing F_pk with decreasing nu_pk)
   '''
 
   def f(x):
     tTeff = tT_eff1(x, gi)
-    return 1 - tTeff**-3
-  return np.piecewise(tTi, [tTi<=tTfi, tTi>tTfi], [lambda x: f(x), lambda x: f(tTfi)*tT_eff2(x, tTfi, gi)**-3])
+    return 1 - tTeff**-p1
+  return np.piecewise(tTi, [tTi<=tTfi, tTi>tTfi], [lambda x: f(x), lambda x: f(tTfi)*tT_eff2(x, tTfi, gi)**-p2])
 
 def approx_nupk_hybrid(tTi, tTfi, gi, d1=1, d2=1):
   '''
