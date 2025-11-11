@@ -567,10 +567,10 @@ def derive_Epnu_thsh(x, dx, rho, vx, p,
   '''
   Wp = 2*((psyn-1)/(psyn-2))
   lfac = derive_Lorentz(vx)
-  V3 = derive_3volume(x, dx, R0, geometry)
+  V3p = derive_3vol_comoving(x, dx, vx, R0, geometry)
   nup_m = derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e)
   epe = eps_e * derive_Eint_comoving(rho, p, rhoscale)
-  Epnu = lfac * V3 * epe / (Wp * nup_m)
+  Epnu = V3p * epe / (Wp * nup_m)
   return Epnu
 
 def derive_Lum(r, dr, rho, vx, p, gmin, R0, rhoscale, psyn, eps_B, eps_e, geometry):

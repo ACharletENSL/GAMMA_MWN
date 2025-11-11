@@ -16,5 +16,10 @@ me_   = 9.10938291e-28          # g: electron mass
 rme_  = e_*c_**2                # electron rest-mass
 h_    = 6.62607004e-27          # cm2.g.s-1: Planck constant 
 h_eV_ = 4.135667696e-15         # conversion factor Hz -> eV
+kB_   = 1.380649e-16            # erg.K-1
 sigT_ = 6.652457318e-25         # cm2: Thomson cross-section
 alpha_= 1.29251816e-09          # sigmaT_/6 pi_me_c_ (Van Eerten+2010)
+
+### Normalization of spectral shape R(x) 
+# cf Finke et al. 2009 eqns 18 - 20
+norm_R_ = 1.0751412667993323

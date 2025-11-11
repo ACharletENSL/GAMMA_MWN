@@ -31,6 +31,7 @@ plt.rc('legend', fontsize=12)
 plt.rcParams["figure.figsize"] = (7,7)
 plt.rcParams['savefig.dpi'] = 200
 plt.rcParams['axes.grid'] = False
+plt.rcParams['savefig.directory'] = ''#os.chdir(GAMMA_dir+'/bin/Tools/figures')
 formatter = ticker.ScalarFormatter(useMathText=True)
 formatter.set_scientific(True) 
 formatter.set_powerlimits((-1,1)) 

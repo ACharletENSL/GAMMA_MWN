@@ -14,7 +14,8 @@ from scipy.special import gamma
 # basic parameters (will be modified later/read from file/function inputs)
 # start from phys params : (L, u, ton) pairs + toff OR num params (rho, u, D0) pairs + R0
 
-def shells_complete_setup(env):
+
+def shells_complete_setup(env, scalefac):
   '''
   Completes environment class with missing information
   '''
@@ -50,6 +51,16 @@ def shells_complete_setup(env):
     #env.D04 = (env.t4/env.toff)*env.R0
     env.D04 = env.t4*env.beta4*c_#*(1+env.R0/env.lfac4**2)
   
+  # rescaling by scaling lengthscale
+  sc = 10**scalefac
+  env.toff = sc*env.toff
+  env.t0 = sc*env.t0
+  env.R0 = sc*env.R0
+  env.t1 = sc*env.t1
+  env.t4 = sc*env.t4
+  env.D01 = sc*env.D01
+  env.D04 = sc*env.D04
+  
   env.Nsh4 = int(np.floor(env.Nsh1*env.D04/env.D01))
   env.Ntot = 2*env.Next + env.Nsh1 + env.Nsh4
   env.V0 = (4/3.)*pi_*((env.R0+env.D01)**3 - (env.R0-env.D04)**3)
@@ -79,29 +90,29 @@ def shells_complete_setup(env):
   env.Theta1 = env.p1/(env.rho1*c_**2)
   env.Theta4 = env.p4/(env.rho4*c_**2)
 
-def shells_rescale_input(env, scalefac):
-  '''
-  Rescale by multiplying radius by 10^scalefac
-  '''
-  to_rescale = ['R0', 't0', 't1', 't4', 'toff', 'D01', 'D04',
-    'dr1', 'dr4', 'rho1', 'rho4', 'rhoscale', 'p1', 'p4', 'V0']
-  if scalefac:
-    sc = 10**scalefac
-    for key in to_rescale:
-      if ('t' in key) or ('R' in key) or ('D' in key) or ('d' in key):
-        val = getattr(env, key)
-        val *= sc
-        setattr(env, key, val)
-      elif ('rho' in key) or ('p' in key):
-        val = getattr(env, key)
-        val /= sc**2
-        setattr(env, key, val)
-      elif ('V' in key):
-        val = getattr(env, key)
-        val *= sc**3
-        setattr(env, key, val)
-  else:
-    pass
+# def shells_rescale_input(env, scalefac):
+#   '''
+#   Rescale by multiplying radius by 10^scalefac
+#   '''
+#   to_rescale = ['R0', 't0', 't1', 't4', 'toff', 'D01', 'D04',
+#     'dr1', 'dr4', 'rho1', 'rho4', 'rhoscale', 'p1', 'p4', 'V0']
+#   if scalefac:
+#     sc = 10**scalefac
+#     for key in to_rescale:
+#       if ('t' in key) or ('R' in key) or ('D' in key) or ('d' in key):
+#         val = getattr(env, key)
+#         val *= sc
+#         setattr(env, key, val)
+#       elif ('rho' in key) or ('p' in key):
+#         val = getattr(env, key)
+#         val /= sc**2
+#         setattr(env, key, val)
+#       elif ('V' in key):
+#         val = getattr(env, key)
+#         val *= sc**3
+#         setattr(env, key, val)
+#   else:
+#     pass
 
 def shells_add_analytics(env):
   '''
@@ -148,10 +159,10 @@ def shells_add_analytics(env):
   env.eff_4  = env.Ei3f/env.Ek4
 
   # rarefaction waves
-  T2     = env.p_sh/(env.rho2*c_**2)
-  betas2 = derive_cs_fromT(T2)
-  T3     = env.p_sh/(env.rho3*c_**2)
-  betas3 = derive_cs_fromT(T3)
+  env.T2     = env.p_sh/(env.rho2*c_**2)
+  betas2     = derive_cs_fromT(env.T2)
+  env.T3     = env.p_sh/(env.rho3*c_**2)
+  betas3     = derive_cs_fromT(env.T3)
   env.betaRFm2 = (env.beta-betas2)/(1-env.beta*betas2)
   env.betaRFp2 = (env.beta+betas2)/(1+env.beta*betas2)
   env.betaRFm3 = (env.beta-betas3)/(1-env.beta*betas3)
@@ -199,7 +210,9 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.Lbolp = (4/3.) * env.eps_e * env.eps_rad * (4*pi_*env.R0**2) * c_**3 * \
      (env.lfac34-1)*env.u34 * env.rho4 
   env.L0p = env.Lbolp / (Wp*env.nu0p)
+  env.L0p_Rshape = (2/3)*env.Lbolp/(env.nu0p*norm_R_)
   env.L0 = 2*env.lfac*env.L0p
+  env.L0_Rshape = 2*env.lfac*env.L0p_Rshape
 
   env.nu0 = 2.*env.lfac*env.nu0p/(1+z)
   env.T0 = (1+z) * (env.R0/c_) * ((1-env.betaRS)/env.betaRS)

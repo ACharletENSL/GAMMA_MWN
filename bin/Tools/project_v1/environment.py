@@ -13,7 +13,7 @@ import os
 import numpy as np
 from scipy.optimize import fsolve
 from phys_constants import *
-from phys_functions_shells import shells_complete_setup, shells_rescale_input, shells_add_analytics, shells_add_radNorm
+from phys_functions_shells import shells_complete_setup, shells_add_analytics, shells_add_radNorm
 
 default_path = str(Path().absolute().parents[1] / 'phys_input.ini')
 Initial_path = str(Path().absolute().parents[1] / 'src/Initial/')
@@ -64,8 +64,7 @@ class MyEnv:
     varlist = []
     vallist = []
     if self.mode == 'shells':
-      shells_complete_setup(self)
-      shells_rescale_input(self, scalefac)
+      shells_complete_setup(self, scalefac)
       shells_add_analytics(self)
       shells_add_radNorm(self)
     elif self.mode == 'MWN':
