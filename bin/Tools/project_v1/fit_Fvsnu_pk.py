@@ -24,18 +24,47 @@ import argparse
 # ---------------------------
 # Model building blocks
 # ---------------------------
-def smooth_BPL(R, X_pl, X_sph, alpha, beta, s=1.0):
+def smooth_BPL_decreasing(R, X_pl, X_sph, alpha, s=1.0):
     """
-    Smooth broken power-law (Eq. 13 from Charlet et al. 2025):
-    X(R) = [(X_pl * R^alpha)^s + (X_sph * R^beta)^s]^(1/s)
+    Smooth broken power-law for DECREASING quantities (like Γ_d).
+    Follows test_fit4.py fitfunc_lfac with m < 0.
+    
+    X(R) = [(X_pl * R^alpha)^s + X_sph^s]^(1/s)
+    
+    At R << R_transition: X ≈ X_pl * R^alpha (decreasing since alpha < 0)
+    At R >> R_transition: X ≈ X_sph (saturates to constant)
+    """
+    term_pl = (X_pl * (R**alpha))**s
+    term_sp = X_sph**s
+    return (term_pl + term_sp)**(1.0/s)
 
-    At R << R_transition: X ≈ X_pl * R^alpha
-    At R >> R_transition: X ≈ X_sph * R^beta
+def smooth_BPL_increasing(R, X_pl, X_sph, alpha, s=1.0):
     """
-    R_ratio = R  # R is already normalized to R_0
-    term_pl = np.abs(X_pl * (R_ratio**alpha))**s
-    term_sp = np.abs(X_sph * (R_ratio**beta))**s
-    return np.sign(X_pl) * (term_pl + term_sp)**(1.0/s)
+    Smooth broken power-law for INCREASING quantities (like L').
+    Follows test_fit4.py fitfunc_Lp with a > 0.
+    
+    X(R) = [(X_pl * R^alpha)^-s + X_sph^-s]^(-1/s)
+    
+    At R << R_transition: X ≈ X_pl * R^alpha (increasing since alpha > 0)
+    At R >> R_transition: X ≈ X_sph (saturates to constant)
+    """
+    term_pl = (X_pl * (R**alpha))**(-s)
+    term_sp = X_sph**(-s)
+    return (term_pl + term_sp)**(-1.0/s)
+
+def smooth_BPL_nuprime(R, Xpl_times_R, X_sph, d, s=1.0):
+    """
+    Smooth broken power-law for ν'_m * R (follows test_fit4.py fitfunc_rnup).
+    Then we divide by R to get ν'_m.
+    
+    ν'_m(R) * R = [(Xpl * R^d)^s + Xsph^s]^(1/s)
+    
+    At R << R_transition: ν'_m ≈ Xpl * R^(d-1) 
+    At R >> R_transition: ν'_m ≈ Xsph / R
+    """
+    term_pl = (Xpl_times_R * (R**d))**s
+    term_sp = X_sph**s
+    return (term_pl + term_sp)**(1.0/s) / R
 
 def model_curve(Rgrid, theta):
     """
@@ -59,19 +88,19 @@ def model_curve(Rgrid, theta):
      k_nu, k_F, g, s_blend) = theta
 
     # Γ_d(R): downstream Lorentz factor (Eq. 14 in paper)
-    alpha_G = -m_gamma/2.0  # Small-R behavior
-    beta_G = 0.0            # Asymptotic constant at large R
-    Gamma_d = smooth_BPL(Rgrid, G_pl, G_sph, alpha_G, beta_G, s=s_blend)
+    # Decreasing function: starts at G_pl, saturates to G_sph
+    alpha_G = -m_gamma/2.0  # Small-R behavior (negative for decreasing)
+    Gamma_d = smooth_BPL_decreasing(Rgrid, G_pl, G_sph, alpha_G, s=s_blend)
 
     # ν'_m(R): comoving peak frequency (Eq. 15)
-    alpha_nu = d_nu         # Small-R power law
-    beta_nu = -1.0          # Large-R decay (spherical effects)
-    nu_prime = smooth_BPL(Rgrid, nu_pl, nu_sph, alpha_nu, beta_nu, s=s_blend)
+    # This follows the ν'_m * R formulation from test_fit4.py
+    # d_nu is the power law index for ν'_m * R
+    nu_prime = smooth_BPL_nuprime(Rgrid, nu_pl, nu_sph, d_nu, s=s_blend)
 
     # L'_ν'(R): comoving luminosity (Eq. 16)
-    alpha_L = a_L           # Small-R power law
-    beta_L = 1.0            # Large-R scaling
-    L_prime = smooth_BPL(Rgrid, L_pl, L_sph, alpha_L, beta_L, s=s_blend)
+    # Increasing function: starts at L_pl, saturates to L_sph
+    alpha_L = a_L           # Small-R power law (positive for increasing)
+    L_prime = smooth_BPL_increasing(Rgrid, L_pl, L_sph, alpha_L, s=s_blend)
 
     # Effective angle ξ_eff (Section 3.4, related to EATS geometry)
     # ξ = (Γθ)² where θ is angle from line of sight
@@ -86,9 +115,14 @@ def model_curve(Rgrid, theta):
     # ν_pk = k_ν * 2Γ_d * ν'_m / (1 + ξ)
     nu_pk = k_nu * (2.0 * Gamma_d * nu_prime) / (1.0 + xi_eff)
 
-    # Observed peak flux (Eq. 18 style)
-    # F_pk ∝ g² * (Γ/(1+ξ))³ * L' / Γ²
-    flux_pk = k_F * (g**2) * ((Gamma_d/(1.0 + xi_eff))**3) * L_prime / (Gamma_d**2 + 1e-30)
+    # Observed peak flux (from test_fit4.py fit_nuFnupk_rise, line 181-183)
+    # F_pk ∝ (ξ_max/(g²+ξ_max)) * y^-2 * (1+ξ)^-4 * Γ_eff^4 * Γ_L^-2 * ν'_m * L'
+    # where y = (1 + ξ/g²)^-1 for m=0 case
+    # Simplified: F_pk ∝ g² * (ξ_max/(g²+ξ_max)) * (Γ/(1+ξ))^4 * L' * ν' / Γ²
+    xi_max = (g**2) * (np.maximum(Rgrid, 1.0) - 1.0)
+    # Factor of 3 for normalization (Fs = 3*F0 from test_fit4.py line 183)
+    flux_pk = k_F * 3.0 * (g**2) * (xi_max/(g**2 + xi_max)) * \
+              ((Gamma_d/(1.0 + xi_eff))**4) * nu_prime * L_prime / (Gamma_d**2 + 1e-30)
 
     return nu_pk, flux_pk
 
