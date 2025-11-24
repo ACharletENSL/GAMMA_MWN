@@ -115,7 +115,8 @@ def get_Fnu_vFC(cell, nuobs, Tobs, env, norm=True):
   nub = nuobs/get_variable(cell, "nu_m2", env)
   F = get_variable(cell, 'Lth', env)
   if norm:
-    F /= 3 * (env.L0 if (cell.trac < 1.5) else env.L0FS)
+    # Normalize by L0/3 (not 3*L0) to match F0 = zdl*L0/3
+    F /= (env.L0 if (cell.trac < 1.5) else env.L0FS) / 3
   else:
     F *= env.zdl
 
