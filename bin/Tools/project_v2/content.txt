@@ -1,0 +1,17 @@
+project_v1 contains far too much redundancy and useless functions, this is a code cleanup before attempting a proper refactoring
+
+What needs to be present:
+1. be able to reproduce work from paper I
+    - snapshots
+    - downstream values and shock strength
+    - time series
+    - fit downstream values with bplaw
+    - peak modeling
+    - radiation from a shocked cell
+    - contribution from all shocked cells
+2. add new work
+    - cell history
+    - add electron distribution (injection + cooling with history)
+    - cell contribution to radiation
+
+plotting can be added later tbh

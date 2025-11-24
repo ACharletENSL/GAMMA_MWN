@@ -1,7 +1,7 @@
 from thinshell_analysis import *
 import sys
 
-key = sys.argv[1] if len(sys.argv) > 1 else 'sph_big'
+key = sys.argv[1] if len(sys.argv) > 1 else 'HPC_sph'
 func = 'Band'
 plot_1stfit = True
 nuobs, Tobs, env = get_radEnv(key)
