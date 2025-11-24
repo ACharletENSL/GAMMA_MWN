@@ -64,7 +64,8 @@ def get_radiation_vFC(key, front='RS', norm=True,
 
   if (not exists) or (not samesize):
     nu, T, env = obs_arrays(key, False, Tmax, NT, lognu_min, lognu_max, Nnu)
-    z, nu0, T0 = (1, env.nu0FS, env.T0FS) if (front == 'RS') else (4, env.nu0, env.T0)
+    # FIXED: RS has trac~4, FS has trac~1, so normalization should match
+    z, nu0, T0 = (4, env.nu0, env.T0) if (front == 'RS') else (1, env.nu0FS, env.T0FS)
     data = open_rundata(key, z)
     nF = run_nuFnu_vFC(data, nu, T, env, norm)
     if norm:
