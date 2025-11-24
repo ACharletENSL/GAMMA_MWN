@@ -34,14 +34,15 @@ def get_peaks_from_data(key, front='RS'):
   '''
 
   env = MyEnv(key)
-  NT = env.Nsh4 if front == 'RS' else env.Nsh1
-  nu, T, nF = get_radiation_vFC(key, front, norm=True, NT=NT, Nnu=500)
+  NT = env.Nsh4 if (front == 'RS') else env.Nsh1
+  nu, T, nF = get_radiation_vFC(key, front=front, norm=True, NT=NT, Nnu=500)
   NT = len(T)
   nu_pk, nF_pk = np.zeros((2, NT))
   for j in range(NT):
-    i = np.argmax(nF[j])
+    nF_t = nF[j]
+    i = np.argmax(nF_t)
     nu_pk[j] += nu[i]
-    nF_pk[j] += nF[j][i]
+    nF_pk[j] += nF_t[i]
   return nu_pk, nF_pk
 
 
@@ -64,7 +65,7 @@ def get_radiation_vFC(key, front='RS', norm=True,
 
   if (not exists) or (not samesize):
     nu, T, env = obs_arrays(key, False, Tmax, NT, lognu_min, lognu_max, Nnu)
-    z, nu0, T0 = (1, env.nu0FS, env.T0FS) if (front == 'RS') else (4, env.nu0, env.T0)
+    z, nu0, T0 = (4, env.nu0, env.T0) if (front == 'RS') else (1, env.nu0FS, env.T0FS)
     data = open_rundata(key, z)
     nF = run_nuFnu_vFC(data, nu, T, env, norm)
     if norm:
