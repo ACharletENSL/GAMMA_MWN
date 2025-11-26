@@ -90,29 +90,6 @@ def shells_complete_setup(env, scalefac):
   env.Theta1 = env.p1/(env.rho1*c_**2)
   env.Theta4 = env.p4/(env.rho4*c_**2)
 
-# def shells_rescale_input(env, scalefac):
-#   '''
-#   Rescale by multiplying radius by 10^scalefac
-#   '''
-#   to_rescale = ['R0', 't0', 't1', 't4', 'toff', 'D01', 'D04',
-#     'dr1', 'dr4', 'rho1', 'rho4', 'rhoscale', 'p1', 'p4', 'V0']
-#   if scalefac:
-#     sc = 10**scalefac
-#     for key in to_rescale:
-#       if ('t' in key) or ('R' in key) or ('D' in key) or ('d' in key):
-#         val = getattr(env, key)
-#         val *= sc
-#         setattr(env, key, val)
-#       elif ('rho' in key) or ('p' in key):
-#         val = getattr(env, key)
-#         val /= sc**2
-#         setattr(env, key, val)
-#       elif ('V' in key):
-#         val = getattr(env, key)
-#         val *= sc**3
-#         setattr(env, key, val)
-#   else:
-#     pass
 
 def shells_add_analytics(env):
   '''
@@ -222,6 +199,9 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.nu0F0 = env.nu0*env.F0
   env.tL0 = (3*env.lfac0*env.dr4/(c_*env.T0))*env.L0p
 
+  env.nu0RS = env.nu0
+  env.Fs_RS = env.Fs
+
   Pfac = (4./3.) * (4*(env.psyn-1)/(3*env.psyn-1)) * (16*me_*c_**2*sigT_/(18*pi_*e_))
   env.Pmax0 = Pfac * env.Bp * env.xi_e * (env.rho3/mp_)
   env.Pmax0FS = Pfac * env.BpFS * env.xi_e * (env.rho2/mp_)
@@ -246,6 +226,7 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.L0pFS = env.L0p / env.fac_F
   env.L0FS  = env.L0 / env.fac_F
   env.F0FS  = env.F0 / env.fac_F
+  env.Fs_FS = 3.*env.F0FS
   env.nu0F0FS = env.nu0FS*env.F0FS
   env.T0FS  = (1+z) * (env.R0/c_) * ((1-env.betaFS)/env.betaFS)
   env.tL0FS = (3*env.lfac0*env.dr1/(c_*env.T0FS))*env.L0pFS

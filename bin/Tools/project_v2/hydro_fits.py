@@ -6,7 +6,8 @@ Fits hydro quantities
 '''
 
 import numpy as np
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, brentq
+from scipy.integrate import quad
 
 from phys_constants import c_
 from phys_functions import smooth_bpl, init_slope, logslope
@@ -97,3 +98,57 @@ def get_fitting_smoothBPL(x, array, beta=None, **kwargs):
     
   popt, pcov = curve_fit(fitfunc, x, array, **kwargs)
   return popt
+
+
+
+# Find the final crossing radius, knowing the function for \Gamma(R)
+def crossing_radius_fromfit(m, lfac2_sph, env, s=2., reverse=True):
+    '''
+    Computes the final crossing radius for a shock front, in unit R0
+      m:          power-law index
+      lfac2_sph:  shocked region Gamma^2 at large radius
+      g:          Gamma_sh/Gamma_d
+      s:          smoothing parameter (default 2.0)
+      reverse:    boolean, True for RS (default)
+    '''
+
+    # inputs from fit are given for \Gamma^2
+    a, lfac_sph = -m/2., np.sqrt(lfac2_sph)
+
+    R0, lfac0 = env.R0, env.lfac0
+    shell, front = ('4', 'RS') if reverse else ('1', 'FS')
+    D0, beta_i = [getattr(env, name+shell) for name in ['D0', 'beta']]
+    frontParams1, frontParams2 = ['g', 'Rf', 'nu0'], ['Fs']
+    g, Rf_th, nu0 = [getattr(env, name+front) for name in frontParams1]
+    Fs = getattr(env, 'Fs_'+front)
+    # find an upper limit
+    R_up = Rf_th
+    while func_root(R_up, D0, R0, beta_i, a, lfac0, lfac_sph, g, s, reverse) <= 0.:
+        R_up *= 1.5
+    
+    Rf = brentq(func_root, R0, R_up, args=(D0, R0, beta_i, a, lfac0, lfac_sph, g, s, reverse))
+    return Rf/env.R0
+
+def func_Gamma(r, m, lfac0, lfac_sph, g, s):
+    '''Gamma_sh as a function of r=R/R0'''
+    Gamma_d = lfac0*smooth_bpl(r, lfac_sph, -0.5*m, 0.0, s)
+    return Gamma_d/g
+
+def integrand(r, beta_i, m, lfac0, lfac_sph, g, s, reverse):
+    Gamma_sh = func_Gamma(r, m, lfac0, lfac_sph, g, s)
+    beta_sh = np.sqrt(1. - 1/(Gamma_sh*Gamma_sh))
+    if reverse:     # RS
+        integrand = 1.0 - beta_sh / beta_i
+    else:           # FS
+        integrand = 1.0 - beta_i / beta_sh
+    return integrand
+
+def cumulative(R, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse):
+    if R <= R0:
+        return 0.
+    val, _ = quad(integrand, R0, R, args=(beta_i, m, lfac0, lfac_sph, g, s, reverse))
+    return val
+
+def func_root(R, D0, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse):
+    return cumulative(R, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse) - D0
+

@@ -16,6 +16,17 @@ def thinshell_radiation(key, z, nuobs, Tobs):
 
 # Extracting hydro data
 #### Thinshell approx: only cells downstream are interesting
+def critical_radii(key, z):
+  '''
+    Rc:     power-law behavior to constant transition (Tsph)
+    Rf:     crossing time
+  '''
+  m, x_sph = extract_plaws(key, z)[0]
+  Rc = x_sph**(-1/m)
+  Rf = get_Rcrossing(key, z)
+  return Rc, Rf
+
+
 def critical_times(key, z, k=0.5):
   '''
   Important normalized observed times for peak modelization:
@@ -23,13 +34,11 @@ def critical_times(key, z, k=0.5):
     Tf:     crossing time
     Tsat:   saturation of effective angle contribution from beaming
   '''
+  Rc, Rf = critical_radii(key, z)
+  Tf = Rf**(m+1)
+  Tc = Rc**(m+1)
   env = MyEnv(key)
-  m, x_sph = extract_plaws(key, z)[0]
   g2 = (env.gRS if z == 4 else env.gFS)**2
-  rf = get_Rcrossing(key, z)
-  Tf = rf**(m+1)
-  rc = x_sph**(-1/m)
-  Tc = rc**(m+1)
   Tsat = 1 + (m+1)/(g2*k)
   return Tc, Tf, Tsat
   
@@ -51,8 +60,8 @@ def get_Rcrossing(key, z):
   '''
   data = open_rundata(key, z)
   env = MyEnv(key)
-  rf = data.iloc[-1].x * c_ / env.R0
-  return rf
+  Rf = data.iloc[-1].x * c_ / env.R0
+  return Rf
 
 def analyze_run(key, itmin=0, itmax=None,
     cells=[1, 2, 3, 4], savefile=True):

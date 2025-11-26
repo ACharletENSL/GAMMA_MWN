@@ -18,6 +18,16 @@ from numba import jit, prange, vectorize
 def logslope(x1, y1, x2, y2):
   return (np.log10(y2)-np.log10(y1))/(np.log10(x2)-np.log10(x1))
 
+def logslope_arr(x, y):
+  '''
+  Slope of np.arrays
+  '''
+  logx = np.log(x)
+  logy = np.log(y)
+  s = np.gradient(logy, logx)
+  return s
+
+
 def init_slope(x, y, i_smp=20):
   return logslope(x[0], y[0], x[i_smp], y[i_smp])
 
