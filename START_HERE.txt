@@ -1,0 +1,149 @@
+╔════════════════════════════════════════════════════════════════════════╗
+║                                                                        ║
+║           PARAMETER SPACE EXPLORATION TOOLKIT FOR GAMMA                ║
+║                                                                        ║
+║                         START HERE                                     ║
+║                                                                        ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+Hi! This toolkit helps you explore the parameter space of u1 and u4/u1
+ratio by running multiple GAMMA simulations and collecting results.
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ QUICK START (3 commands)                                               │
+└────────────────────────────────────────────────────────────────────────┘
+
+1. Verify setup:
+   $ ls -l bin/GAMMA && mkdir -p results/Last
+
+2. Run quick test (4 simulations):
+   $ python run_quick_exploration.py
+
+3. Run full exploration:
+   $ python parameter_space_exploration.py
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ WHAT YOU GET                                                           │
+└────────────────────────────────────────────────────────────────────────┘
+
+✓ parameter_space_results.csv
+  → Complete table of all results
+  → Columns: u1, u4, ratio, fitting parameters for FS and RS
+  → Ready to analyze in Python/R/Excel
+
+✓ results/u1_X_ratio_Y/ directories
+  → Individual simulation outputs
+  → Analysis files and modified phys_input.ini
+
+✓ Automated analysis using get_hydrofits_shell
+  → Lorentz factor fits
+  → Shock strength fits  
+  → Power-law parameters
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ FILES IN THIS TOOLKIT                                                  │
+└────────────────────────────────────────────────────────────────────────┘
+
+SCRIPTS:
+  parameter_space_exploration.py     Main exploration script
+  run_quick_exploration.py           Quick test (4 simulations)
+  visualize_parameter_space.py       Plot generation tool
+  run_exploration_example.sh         Interactive bash script
+
+DOCUMENTATION:
+  PARAMETER_SPACE_QUICKSTART.md      Quick start guide (READ FIRST!)
+  parameter_exploration_README.md    Complete documentation
+  FILES_OVERVIEW.txt                 Detailed file descriptions
+  START_HERE.txt                     This file
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ TYPICAL WORKFLOW                                                       │
+└────────────────────────────────────────────────────────────────────────┘
+
+1. TEST: python run_quick_exploration.py
+   → 4 simulations, ~30-60 minutes
+   → Verifies everything works
+
+2. CONFIGURE: Edit parameter_space_exploration.py
+   → Set u1_values = np.array([50, 100, 150, 200])
+   → Set u4_u1_ratios = np.array([1.0, 1.5, 2.0, 3.0])
+
+3. RUN: python parameter_space_exploration.py
+   → Runs all combinations
+   → Creates parameter_space_results.csv
+
+4. VISUALIZE: python visualize_parameter_space.py
+   → Generates plots in parameter_space_plots/
+
+5. ANALYZE: Load parameter_space_results.csv
+   → Use Python, R, Excel, or your favorite tool
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ WHAT THE SCRIPT DOES                                                   │
+└────────────────────────────────────────────────────────────────────────┘
+
+For each (u1, u4/u1 ratio) combination:
+  1. Modify phys_input.ini
+  2. Run GAMMA simulation
+  3. Analyze using get_hydrofits_shell from project_v2/run_analysis
+  4. Extract fitting parameters
+  5. Save to CSV
+
+Results include:
+  • Forward Shock (FS) fits
+  • Reverse Shock (RS) fits
+  • Lorentz factor parameters
+  • Shock strength parameters
+  • Power-law indices
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ EXAMPLE OUTPUT                                                         │
+└────────────────────────────────────────────────────────────────────────┘
+
+parameter_space_results.csv:
+
+u1   u4   ratio  FS_lfac2_fit_alpha  RS_lfac2_fit_alpha  ...
+100  150  1.5    -0.234              -0.189              ...
+100  200  2.0    -0.221              -0.198              ...
+200  300  1.5    -0.245              -0.201              ...
+200  400  2.0    -0.238              -0.195              ...
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ NEED HELP?                                                             │
+└────────────────────────────────────────────────────────────────────────┘
+
+→ Quick start: Read PARAMETER_SPACE_QUICKSTART.md
+→ Full details: Read parameter_exploration_README.md
+→ File info: Read FILES_OVERVIEW.txt
+→ GAMMA help: Read README.md
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ PREREQUISITES                                                          │
+└────────────────────────────────────────────────────────────────────────┘
+
+✓ GAMMA compiled (./bin/GAMMA)
+✓ Python 3 with numpy, pandas, scipy
+✓ Directory results/Last exists
+✓ MPI installed (for GAMMA)
+
+Check with:
+  $ ls -l bin/GAMMA
+  $ python -c "import numpy, pandas, scipy"
+  $ which mpirun
+
+┌────────────────────────────────────────────────────────────────────────┐
+│ READY TO START?                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+
+Run the quick test first:
+  $ python run_quick_exploration.py
+
+Or use the interactive script:
+  $ bash run_exploration_example.sh
+
+Or dive into the documentation:
+  $ cat PARAMETER_SPACE_QUICKSTART.md
+
+Good luck with your parameter space exploration! 🚀
+
+═══════════════════════════════════════════════════════════════════════
