@@ -12,7 +12,7 @@
 #include "../../simu.h"
 
 // geometry: cartesian or spherical
-static int GEOMETRY_  = 1 ;           // 1 for cartesian, 1 for spherical
+static int GEOMETRY_  = 1 ;           // 0 for cartesian, 1 for spherical
 
 // set CBM parameters
 static double n0      = 1.;           // cm-3:    CBM number density
@@ -21,25 +21,28 @@ static double Theta0  = 5e-05 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 7.646969993871554e-12 ;     // comoving density of front shell
+static double rho1 = 4.667291079080062e-12 ;     // comoving density of front shell
 static double u1   = 1e+02 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 13635.984645157108 ;
+static double p1   = 52172.890295344296 ;
 static double D01  = 2997774695.012281 ;     // spatial extension of front shell
-static double rho4 = 3.034415815956067e-13 ;     // comoving density of back shell
-static double u4   = 5e+02 ;          // proper velocity of back shell
-static double p4   = 13635.984645157108 ;
-static double D04  = 2997918584.1688275 ;     // spatial extension of back shell
+static double rho4 = 1.1610033862318822e-12 ;     // comoving density of back shell
+static double u4   = 2e+02 ;          // proper velocity of back shell
+static double p4   = 52172.890295344296 ;
+static double D04  = 2997887106.645374 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 0.05 ;           // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 62458385920034.375 ;
+static double R_0     = 79947153684166.38 ;
 static int Nsh1   = 450 ;
 static int Ntot1  = 460 ;
 static int Nsh4   = 450 ;
 static int Ntot4  = 460 ;
 static int Ncells = Ntot4 + Ntot1;
+
+// additional time after stopping condition
+static const double EXTRA_TIME = 5e2;
 
 // normalisation constants:
 static double rhoNorm = rho4 ;                // density normalised t
@@ -291,7 +294,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 void Simu::dataDump(){
   // can we find a way to print at each new cell shock crossing?
   // raise
-  if (it % 10 == 0){ grid.printCols(it, t); }
+  if (it % 100 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -303,7 +306,38 @@ void Simu::runInfo(){
 
 void Simu::evalEnd(){
 
-  if ( it > 50000 ){ stop = true; }
-  //if (t > 3.33e8){ stop = true; } // 3.33e8 BOXFIT simu
+  static bool conditionMet = false;
+  static double t_conditionMet = -1.;
+
+  bool anyShockedTracer = false;
+  
+  #if SHOCK_DETECTION_ == ENABLED_
+    for (int i = grid.iLbnd+1; i <= grid.iRbnd-1; ++i){
+      Cell *c = &grid.Ctot[i];
+      if (c->S.prim[TR1] > 0. && c->isShocked){
+        anyShockedTracer = true;
+        break;
+      }
+    }
+    
+    if (!anyShockedTracer && !conditionMet && it > 100){
+      conditionMet = true;
+      t_conditionMet = t;
+      if (worldrank == 0){
+        printf("Stopping condition met at it=%ld, t=%le. Running for Δt=%le more...\n", 
+               it, t, EXTRA_TIME);
+      }
+    }
+    
+    if (conditionMet && (t - t_conditionMet >= EXTRA_TIME)){
+      if (worldrank == 0){
+        printf("Stopping: Completed extra time at it=%ld, t=%le\n", it, t);
+      }
+      stop = true;
+      return;
+    }
+  #endif
+
+  if (it > 50000){ stop = true; }
 
 }
