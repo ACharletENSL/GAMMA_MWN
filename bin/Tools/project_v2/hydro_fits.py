@@ -75,10 +75,10 @@ def get_hydrofits_shell(data, i_set=400):
   # popt = [X_sph, alpha, s]
   bounds_lfac = ([1., min(0.5*m0, 2*m0), 2.], [2., max(0.5*m0, 2*m0), 200])
   bounds_ShSt = ([0.5, 5.*n0, 1.], [1., .5*n0, 20])
-  popt_lfac = get_fitting_smoothBPL(r_, lfac2_, beta=0., bounds=bounds_lfac)
+  popt_lfac2 = get_fitting_smoothBPL(r_, lfac2_, beta=0., bounds=bounds_lfac)
   popt_ShSt = get_fitting_smoothBPL(r_, ShSt_, beta=0., bounds=bounds_ShSt)
   
-  return popt_lfac, popt_ShSt
+  return popt_lfac2, popt_ShSt
 
 
 def get_fitting_smoothBPL(x, array, beta=None, **kwargs):

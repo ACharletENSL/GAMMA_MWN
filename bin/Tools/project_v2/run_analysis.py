@@ -3,6 +3,8 @@ Analyzing a run (extracting hydro, producing radiation..)
 '''
 
 from IO import *
+from phys_constants import *
+from hydro_fits import get_hydrofits_shell
 
 def thinshell_radiation(key, z, nuobs, Tobs):
   '''
@@ -14,6 +16,44 @@ def thinshell_radiation(key, z, nuobs, Tobs):
 
 # Extracting hydro data
 #### Thinshell approx: only cells downstream are interesting
+def critical_times(key, z, k=0.5):
+  '''
+  Important normalized observed times for peak modelization:
+    Tc:     power-law behavior to constant transition
+    Tf:     crossing time
+    Tsat:   saturation of effective angle contribution from beaming
+  '''
+  env = MyEnv(key)
+  m, x_sph = extract_plaws(key, z)[0]
+  g2 = (env.gRS if z == 4 else env.gFS)**2
+  rf = get_Rcrossing(key, z)
+  Tf = rf**(m+1)
+  rc = x_sph**(-1/m)
+  Tc = rc**(m+1)
+  Tsat = 1 + (m+1)/(g2*k)
+  return Tc, Tf, Tsat
+  
+
+def extract_plaws(key, z):
+  '''
+  Returns the fitting parameters for downstream LF and shock strength
+  '''
+
+  data = open_rundata(key, z)
+  popt_lfac2, popt_ShSt = get_hydrofits_shell(data)
+  x_lf, m, s_lf = popt_lfac2
+  x_sh, n, s_sh = popt_ShSt
+  return [-m, x_lf], [-n, x_sh]
+
+def get_Rcrossing(key, z):
+  '''
+  Get final radius of the shock front at crossing, in units R0
+  '''
+  data = open_rundata(key, z)
+  env = MyEnv(key)
+  rf = data.iloc[-1].x * c_ / env.R0
+  return rf
+
 def analyze_run(key, itmin=0, itmax=None,
     cells=[1, 2, 3, 4], savefile=True):
   '''
