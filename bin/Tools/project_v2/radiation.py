@@ -6,6 +6,7 @@ Produce emission
 '''
 
 from IO import *
+from phys_constants import *
 from phys_functions import Band_func
 
 ##### Standard obs frequency and time arrays
@@ -25,57 +26,7 @@ def obs_arrays(key, normed=False,
     return nuobs, Tobs, env
 
 
-##### Peak frequency and flux (normalized data)
-def get_peaks_from_data(key, front='RS'):
-  '''
-  Obtain peak frequency and flux from simulated data, in normalized units
-  from front ('RS' or 'FS')
-  
-  '''
-
-  env = MyEnv(key)
-  NT = env.Nsh4 if (front == 'RS') else env.Nsh1
-  nu, T, nF = get_radiation_vFC(key, front=front, norm=True, NT=NT, Nnu=500)
-  NT = len(T)
-  nu_pk, nF_pk = np.zeros((2, NT))
-  for j in range(NT):
-    nF_t = nF[j]
-    i = np.argmax(nF_t)
-    nu_pk[j] += nu[i]
-    nF_pk[j] += nF_t[i]
-  return nu_pk, nF_pk
-
-
 ##### From extracted time data
-def get_radiation_vFC(key, front='RS', norm=True,
-  Tmax=5, NT=450, lognu_min=-3, lognu_max=2, Nnu=500):
-  '''
-  \nu F_\nu (\nu, T) from front ('RS' or 'FS')
-  Create file with normalized observed frequency, time and flux
-  '''
-
-  fpath = get_radfile_thinshell(key, front)
-  exists = os.path.isfile(fpath)
-  samesize = True
-  if exists:
-    obs = np.load(fpath)
-    nu, T, nF = obs['nu'], obs['T'], obs['nF']
-    if (len(nu) != Nnu) or (len(T) != NT):
-      samesize = False
-
-  if (not exists) or (not samesize):
-    nu, T, env = obs_arrays(key, False, Tmax, NT, lognu_min, lognu_max, Nnu)
-    z, nu0, T0 = (4, env.nu0, env.T0) if (front == 'RS') else (1, env.nu0FS, env.T0FS)
-    data = open_rundata(key, z)
-    nF = run_nuFnu_vFC(data, nu, T, env, norm)
-    if norm:
-      nu /= nu0
-      T = (T - env.Ts)/T0
-      np.savez(fpath, nu=nu, T=T, nF=nF)
-  return nu, T, nF
-
-
-
 def run_nuFnu_vFC(data, nuobs, Tobs, env, norm=True):
   '''
   Derive \nu F_\nu from a shock front across its history
@@ -112,8 +63,15 @@ def get_Fnu_vFC(cell, nuobs, Tobs, env, norm=True):
   # normalizations
   Ton, Tth, Tej = get_variable(cell, 'obsT', env)
   T = (Tobs - Tej)/Tth   # \tilde{T}
-  nub = nuobs/get_variable(cell, "nu_m2", env)
+  num = get_variable(cell, "nu_m2", env)
   F = get_variable(cell, 'Lth', env)
+  if env.geometry == 'cartesian':
+    # add geometrical scalings to planar simulation
+    rfac = cell.x * c_ / env.R0
+    num /= rfac
+    F   *= rfac 
+  nub = nuobs/num
+
   if norm:
     F /= (env.L0 if (cell.trac < 1.5) else env.L0FS) / 3
   else:

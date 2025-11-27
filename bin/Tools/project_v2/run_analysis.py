@@ -3,6 +3,7 @@ Analyzing a run (extracting hydro, producing radiation..)
 '''
 
 from IO import *
+from radiation import *
 from phys_constants import *
 from hydro_fits import get_hydrofits_shell
 
@@ -63,8 +64,10 @@ def get_Rcrossing(key, z):
   Rf = data.iloc[-1].x * c_ / env.R0
   return Rf
 
+
+### Extract hydro data
 def analyze_run(key, itmin=0, itmax=None,
-    cells=[1, 2, 3, 4], savefile=True):
+    cells=[1, 2, 3, 4], savefile=True, noOut=False):
   '''
   Analyze a run, returning pandas dataframes one for each cell
   1: downstream FS, 2: CD in S2, 3: CD in S3, 4: downstream RS
@@ -112,4 +115,58 @@ def analyze_run(key, itmin=0, itmax=None,
     dfs.append(df)
     if savefile:
       df.to_csv(fpaths[i])
-  return dfs
+  if not noOut:
+    return dfs
+
+
+### Produce radiation and peaks
+def get_radiation_vFC(key, front='RS', norm=True,
+  Tmax=5, NT=450, lognu_min=-3, lognu_max=2, Nnu=500):
+  '''
+  \nu F_\nu (\nu, T) from front ('RS' or 'FS')
+  Create file with normalized observed frequency, time and flux
+  '''
+
+  fpath = get_radfile_thinshell(key, front)
+  exists = os.path.isfile(fpath)
+  samesize = True
+  if exists:
+    obs = np.load(fpath)
+    nu, T, nF = obs['nu'], obs['T'], obs['nF']
+    if (len(nu) != Nnu) or (len(T) != NT):
+      samesize = False
+
+  if (not exists) or (not samesize):
+    nu, T, env = obs_arrays(key, False, Tmax, NT, lognu_min, lognu_max, Nnu)
+    z, nu0, T0 = (4, env.nu0, env.T0) if (front == 'RS') else (1, env.nu0FS, env.T0FS)
+    data = open_rundata(key, z)
+    if type(data) == bool:
+      analyze_run(key, savefile=True, noOut=True)
+      data = open_rundata(key, z)
+    nF = run_nuFnu_vFC(data, nu, T, env, norm)
+    if norm:
+      nu /= nu0
+      T = (T - env.Ts)/T0
+      np.savez(fpath, nu=nu, T=T, nF=nF)
+  return nu, T, nF
+
+
+def get_peaks_from_data(key, front='RS'):
+  '''
+  Obtain peak frequency and flux from simulated data, in normalized units
+  from front ('RS' or 'FS')
+  
+  '''
+
+  env = MyEnv(key)
+  NT = env.Nsh4 if (front == 'RS') else env.Nsh1
+  nu, T, nF = get_radiation_vFC(key, front=front, norm=True, NT=NT, Nnu=500)
+  NT = len(T)
+  nu_pk, nF_pk = np.zeros((2, NT))
+  for j in range(NT):
+    nF_t = nF[j]
+    i = np.argmax(nF_t)
+    nu_pk[j] += nu[i]
+    nF_pk[j] += nF_t[i]
+  return nu_pk, nF_pk
+
