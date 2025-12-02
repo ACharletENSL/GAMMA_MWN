@@ -102,53 +102,98 @@ def get_fitting_smoothBPL(x, array, beta=None, **kwargs):
 
 
 # Find the final crossing radius, knowing the function for \Gamma(R)
-def crossing_radius_fromfit(m, lfac2_sph, env, s=2., reverse=True):
+def crossing_radius_fromfit(D0, beta_i, lfac0, m, lfac2_sph, g, s=2):
     '''
     Computes the final crossing radius for a shock front, in unit R0
-      m:          power-law index
+      D0:         initial shell width, in units R0
+      beta_i:     velocity of the shell
+      lfac0:      shocked region Gamma at collision
+      m:          power-law index for Gamma^2
       lfac2_sph:  shocked region Gamma^2 at large radius
       g:          Gamma_sh/Gamma_d
       s:          smoothing parameter (default 2.0)
-      reverse:    boolean, True for RS (default)
     '''
 
-    # inputs from fit are given for \Gamma^2
-    a, lfac_sph = -m/2., np.sqrt(lfac2_sph)
+    # inputs from fit are given for \Gamma_d^2
+    lfac_sh0, a, lfac_sph = lfac0/g, -m/2., np.sqrt(lfac2_sph)/g
 
-    R0, lfac0 = env.R0, env.lfac0
-    shell, front = ('4', 'RS') if reverse else ('1', 'FS')
-    D0, beta_i = [getattr(env, name+shell) for name in ['D0', 'beta']]
-    frontParams1, frontParams2 = ['g', 'Rf', 'nu0'], ['Fs']
-    g, Rf_th, nu0 = [getattr(env, name+front) for name in frontParams1]
-    Fs = getattr(env, 'Fs_'+front)
-    # find an upper limit
-    R_up = Rf_th
-    while func_root(R_up, D0, R0, beta_i, a, lfac0, lfac_sph, g, s, reverse) <= 0.:
-        R_up *= 1.5
+    # RS or FS
+    beta_sh0 = np.sqrt(1 - lfac_sh0**-2)
+    reverse = (beta_sh0 < beta_i)
+
+    def func_Gamma(x):
+      '''
+      Lorentz factor of the shock front with x=R/R0
+      '''
+      Gamma_sh = lfac_sh0 * smooth_bpl(x, lfac_sph, a, 0, s)
+      return Gamma_sh
+
+    def integrand(x):
+      '''
+      Function to integrate
+      '''
+      Gamma_sh = func_Gamma(x)
+      beta_sh = np.sqrt(1. - Gamma_sh**(-2))
+      if reverse:   # RS
+        return 1.0 - beta_sh / beta_i
+      else:         # FS
+        return 1.0 - beta_i / beta_sh
     
-    Rf = brentq(func_root, R0, R_up, args=(D0, R0, beta_i, a, lfac0, lfac_sph, g, s, reverse))
-    return Rf/env.R0
+    def cumulative(x):
+      '''
+      Integral
+      '''
+      if x <= 1: return 0.
+      val, _  = quad(integrand, 1., x,)
+      return val
+    
+    def func_root(x):
+      return cumulative - D0
+    
+    # find an upper limit to bracket root finding
+    x_up = 3.
+    while func_root(x_up) <= 0.:
+      x_up *= 1.5
+    
+    x_f = brentq(func_root, 1, x_up)
+    return x_f
 
-def func_Gamma(r, m, lfac0, lfac_sph, g, s):
-    '''Gamma_sh as a function of r=R/R0'''
-    Gamma_d = lfac0*smooth_bpl(r, lfac_sph, -0.5*m, 0.0, s)
-    return Gamma_d/g
 
-def integrand(r, beta_i, m, lfac0, lfac_sph, g, s, reverse):
-    Gamma_sh = func_Gamma(r, m, lfac0, lfac_sph, g, s)
-    beta_sh = np.sqrt(1. - 1/(Gamma_sh*Gamma_sh))
-    if reverse:     # RS
-        integrand = 1.0 - beta_sh / beta_i
-    else:           # FS
-        integrand = 1.0 - beta_i / beta_sh
-    return integrand
 
-def cumulative(R, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse):
-    if R <= R0:
-        return 0.
-    val, _ = quad(integrand, R0, R, args=(beta_i, m, lfac0, lfac_sph, g, s, reverse))
-    return val
+    # R0 = env.R0
+    # shell, front = ('4', 'RS') if reverse else ('1', 'FS')
+    # D0, beta_i = [getattr(env, name+shell) for name in ['D0', 'beta']]
+    # frontParams1, frontParams2 = ['g', 'Rf', 'nu0'], ['Fs']
+    # g, Rf_th, nu0 = [getattr(env, name+front) for name in frontParams1]
+    # Fs = getattr(env, 'Fs_'+front)
+    # # find an upper limit
+    # R_up = Rf_th
+    # while func_root(R_up, D0, R0, beta_i, a, lfac0, lfac_sph, g, s, reverse) <= 0.:
+    #     R_up *= 1.5
+    
+    # Rf = brentq(func_root, R0, R_up, args=(D0, R0, beta_i, a, lfac0, lfac_sph, g, s, reverse))
+    # return Rf/env.R0
 
-def func_root(R, D0, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse):
-    return cumulative(R, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse) - D0
+# def func_Gamma(r, m, lfac0, lfac_sph, g, s):
+#     '''Gamma_sh as a function of r=R/R0'''
+#     Gamma_d = lfac0*smooth_bpl(r, lfac_sph, -0.5*m, 0.0, s)
+#     return Gamma_d/g
+
+# def integrand(r, beta_i, m, lfac0, lfac_sph, g, s, reverse):
+#     Gamma_sh = func_Gamma(r, m, lfac0, lfac_sph, g, s)
+#     beta_sh = np.sqrt(1. - 1/(Gamma_sh*Gamma_sh))
+#     if reverse:     # RS
+#         integrand = 1.0 - beta_sh / beta_i
+#     else:           # FS
+#         integrand = 1.0 - beta_i / beta_sh
+#     return integrand
+
+# def cumulative(R, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse):
+#     if R <= R0:
+#         return 0.
+#     val, _ = quad(integrand, R0, R, args=(beta_i, m, lfac0, lfac_sph, g, s, reverse))
+#     return val
+
+# def func_root(R, D0, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse):
+#     return cumulative(R, R0, beta_i, m, lfac0, lfac_sph, g, s, reverse) - D0
 

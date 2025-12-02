@@ -7,8 +7,42 @@ following Rahaman et al. 2024a,b and Charlet et al. 2025
 '''
 
 import numpy as np
+from phys_functions import smooth_bpl
 
-def peaks_model_R24(T, au, dR):
+def g2_from_au(au):
+  '''
+  Ratios of downstream L.F. to shock front L.F., squared
+  '''
+
+  # R24b (I1), ratio between \Gamma and \Gamma_1
+  K = np.sqrt(2)*au / np.sqrt(1 + au*au)
+
+  # relative LF in UR regime (Sari & Piran 95, Eq 3)
+  G21 = .5 * (1./K + K)
+  G34 = .5 * (au/K + K/au)
+
+  # plug this in R24a eqns (C2) and (C5)
+  # use UR approx beta = 1 - 1/(2*Gamma**2)
+  qF = 1/(4*G21*K)
+  gFS2 = (K*K*qF - 1)/(qF - 1)
+  qR = 4*G34*K/au
+  gRS2 = (qR - K*K/(au*au))/(qR - 1)
+  return gFS2, gRS2
+  
+
+def tontoff_to_dRR0_R24(t_ratio, au, reverse=True):
+  '''
+  Converts the crossed radius by the shock in units R0
+    into the ratio of activity time over off time for the source
+  R24b eqn (I1)
+  '''
+  au2 = au*au
+  g2 = g2_from_au(au)[1 if reverse else 0]
+  dR = 2 * ((au2 - 1)/((au2 + 1)*g2 - 2*au))
+  return dR
+
+
+def peaks_model_R24(T, au, dR, reverse=True):
   '''
   Peak frequency and flux with normalized observed time \tilde{T}
   collision of ultrarelativistic cold shells, R24b eqns (9) - (10)
@@ -17,11 +51,11 @@ def peaks_model_R24(T, au, dR):
       type np.ndarray, replace "np.where" by if/else if you prefer a float as input
     au:         a_u, proper velocity contrast
     dR:         \Delta R_f/R_0, distance crossed by the shock front, units R_0
+    reverse:    boolean, True if we model a reverse shock
   '''
 
-  # shock front L.F. to downstream L.F. ratio
-  g = np.sqrt(2) * au / np.sqrt(1 + au*au)
-  g2 = g*g
+  # downstream L.F. to shock front L.F. ratio
+  g2 = g2_from_au(au)[1 if reverse else 0]
 
   # normalized times 
   # T1/2: T_eff,1/2
@@ -50,7 +84,7 @@ def peaks_model_R24(T, au, dR):
 
   return nu, nF
 
-def peaks_model_plaws(T, au, dR, m, n, k=0.5):
+def peaks_model_plaws(T, au, dR, m, n, k=0.5, reverse=True):
   '''
   Peak frequency and flux with normalized observed time \tilde{T}
   collision of ultrarelativistic cold shells
@@ -73,8 +107,7 @@ def peaks_model_plaws(T, au, dR, m, n, k=0.5):
   d = -(1. + 2.5*n)
 
   # shock front L.F. to downstream L.F. ratio
-  g = np.sqrt(2) * au / np.sqrt(1 + au*au)
-  g2 = g*g
+  g2 = g2_from_au(au)[1 if reverse else 0]
   g2m = g2/(m+1)
 
   # effective angle
@@ -113,8 +146,7 @@ def peaks_model_plaws(T, au, dR, m, n, k=0.5):
 
 def peaks_model_C25(T, au, dR,
     m, lfac2_sph, n, Sh_sph,
-    k=0.5, xi_effmax=2., s=2.,
-    reverse=True):
+    k=0.5, xi_effmax=2., s=2., reverse=True):
   '''
   Peak frequency and flux with normalized observed time \tilde{T}
   based on the fitting method in Charlet et al. 2025
@@ -123,7 +155,7 @@ def peaks_model_C25(T, au, dR,
       ! be careful with normalization, radial and angular time are different now ! 
       type np.ndarray, replace "np.where" by if/else if you prefer a float as input
     au:         a_u, proper velocity contrast
-    dR:         \Delta R_f/R_0, distance crossed by the shock front, units R_0
+    dR:         distance crossed by the shock front, in units R0
   additional parameters (will be replaced by a lookup table)
     m:          power-law index, \Gamma^2 \propto R^-m
     lfac2_sph:  large R/R0 value of (\Gamma/\Gamma_0)^2
@@ -139,6 +171,10 @@ def peaks_model_C25(T, au, dR,
   ### lookup table (or empirical law) for m, n, and the _sph vars
   ############################################################### 
 
+  # shock front L.F. to downstream L.F. ratio
+  g2 = g2_from_au(au)[1 if reverse else 0]
+  g2m = g2/(m+1)
+
   # power-law indices and (normalized) large R values
   #    for frequency and luminosity
   a =  1. + 1.5*n
@@ -147,16 +183,9 @@ def peaks_model_C25(T, au, dR,
   nu_sph = Sh_sph**(1.5)
   L_sph = 1/np.sqrt(Sh_sph)
 
-  # shock front L.F. to downstream L.F. ratio
-  g = np.sqrt(2) * au / np.sqrt(1 + au*au)
-  g2 = g*g
-  g2m = g2/(m+1)
 
-  # Crossing time (functions outputs Rf/R0 \approx Tf)
-  # TO DO 1: rewrite crossing_radius_fromfit to be fully normalized
-  # TO DO 2: try and look for a consistent calculation of Tf
-  # but for now Oth order
-  Tf = crossing_radius_fromfit(m, lfac2_sph, env, s, reverse=True)
+  # Crossing time
+  Tf = (1. + dR)
 
   def effective_angle(T):
     # EATS size, contributing angle, effective angle and radius
@@ -181,21 +210,22 @@ def peaks_model_C25(T, au, dR,
     # peak frequency and flux (up to crossing time)
     Dop = Gamma_d / (1 + xi_eff)
     nu_pk = Dop * nu_prime
-    F_nu_pk = g2 * xi_max * (Dop**3) * L_prime / (Gamma_d_RL**2)
-    return nu_pk, F_nu_pk
+    Fnu_pk = g2 * xi_max * (Dop**3) * L_prime / (Gamma_d_RL**2)
+    return nu_pk, Fnu_pk
   
   # High latitude emission
   def nuFnu_HLE(T):
-    nu_pkf, F_nu_pkf = nu_Fnu_rise(Tf)
+    nu_pkf, Fnu_pkf = nuFnu_rise(Tf)
     _, _, y_eff_f =  effective_angle(Tf)
     r_f = y_eff_f * Tf
     Gamma_f = smooth_bpl(r_f, lfac_sph, -0.5*m, 0.0, s)
     T_hle  = 1. + (T - 1.) * (Gamma_f**2)
     T_hle0 = 1. + (Tf - 1.) * (Gamma_f**2)
     T_hle /= T_hle0
+    #T_hle = T/Tf
     nu_pk = nu_pkf / T_hle
-    F_nu_pk = F_nu_pkf / (T_hle**2)
-    return nu_pk, F_nu_pk
+    Fnu_pk = Fnu_pkf / (T_hle**2)
+    return nu_pk, Fnu_pk
 
-  nu_pk, F_nu_pk = np.where(T<=Tf, nu_Fnu_rise(T), nu_Fnu_HLE(T))
-  return nu_pk, F_nu_pk
+  nu_pk, Fnu_pk = np.where(T<=Tf, nuFnu_rise(T), nuFnu_HLE(T))
+  return nu_pk, Fnu_pk

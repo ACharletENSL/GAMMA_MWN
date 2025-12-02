@@ -5,7 +5,7 @@ Analyzing a run (extracting hydro, producing radiation..)
 from IO import *
 from radiation import *
 from phys_constants import *
-from hydro_fits import get_hydrofits_shell
+from hydro_fits import get_hydrofits_shell, replace_withfit
 
 def thinshell_radiation(key, z, nuobs, Tobs):
   '''
@@ -170,3 +170,81 @@ def get_peaks_from_data(key, front='RS'):
     nF_pk[j] += nF_t[i]
   return nu_pk, nF_pk
 
+
+def analyze_nubk(key):
+  '''
+  nu_bk/nu_hf vs Delta R/R0 and ton/toff
+  Recalculates flux to avoids array size mismatch + better precision
+  '''
+
+  
+  z = 4  # add analysis for FS later
+  filepath = get_radfile_activity(key, 'RS')
+  env = MyEnv(key)
+  beta = getattr(env, f'beta{z}')
+  data = open_rundata(key, z)
+  data = replace_withfit(data)
+  data = data.drop_duplicates(subset='i', keep='first')
+  df0 = openData(key, 0)
+
+  # crossed radius by the shock and corresponding ton/toff
+  dR = (data.x * c_/env.R0) - 1.
+  indices = data.i.astype(int).to_list()
+  x0 = df0.loc[df0['i'].isin(indices)].to_numpy()
+  ton = ((env.R0 - (x0 * c_))/(c_ * env.beta4))/env.toff
+  
+  # arrays of obs time and frequency only near peaks
+  Nj = len(data)
+  last = data.iloc[-1]
+  Tlast = last.t + env.t0 - last.x
+  lognu_min = np.log10(get_variable(last, "nu_m2", env)/env.nu0) - 1
+  Tmax = ((Tlast + env.Ts)/env.T0) * 2
+  nuobs, Tobs, env = obs_arrays(key, normed=False,
+    Tmax=Tmax, NT=Nj, lognu_min=lognu_min, lognu_max=1, Nnu=500)
+  nub = nuobs/env.nu0
+
+  # calculate flux
+  nF = run_nuFnu_vFC(data, nuobs, Tobs, env, norm=True)
+  # find peaks
+  nu_pk, nF_pk = np.zeros((2, Nj))
+  for j in range(Nj):
+    nF_t = nF[j]
+    i = np.argmax(nF_t)
+    nu_pk[j] += nub[i]
+    nF_pk[j] += nF_t[i]
+
+  nu_bk, nu_hf = np.zeros((2, Nj))
+
+  # for j in range(Nj):
+  #   row = data.iloc[j]
+  #   # radius crossed by the shock when reaching the shell
+  #   i = row.i.astype(int)
+  #   dR[j] += (row.x * c_/env.R0) - 1.
+  #   # corresponding launch time by the source
+  #   ton[j] += (env.R0 - (df0.at[i, 'x'] * c_))/(c_ * env.beta4)
+  #   ton[j] /= env.toff
+  #   # add flux contribution
+  #   nF += nub * get_Fnu_vFC(row, nuobs, Tobs, env, norm=True)
+  #   # find peak flux and corresponding freq in the current obs. flux
+  
+  # for j in range(Nj):
+  #   nF_t = nF[j]
+  #   i = np.argmax(nF_t)
+  #   nu_pk[j] = nub[i]
+  #   nF_pk[j] = nF_t[i]
+
+  for j in range(Nj):
+    Ton = get_variable(data.iloc[j], 'Ton', env)
+    ion = np.searchsorted(Tobs, Ton)
+    nu_bk[j] += nu_pk[ion]
+    imax = np.argmax(nF[j])
+    nu_Fmax = nu_pk[imax]
+    nF_bk = nF_pk[imax]
+    i_hf = np.searchsorted(nF_pk[nu_pk>nu_Fmax], .5*nF_bk)
+    nu_hf[j] += nu_pk[nu_pk>nu_bk][i_hf]
+  
+  nu_bkhf = nu_bk / nu_hf
+
+  np.savez(filepath, dR=dR, ton=ton, nu_bkhf=nu_bkhf)
+  return dR, ton, nu_bk, nu_hf, nu_pk, nF_pk
+    

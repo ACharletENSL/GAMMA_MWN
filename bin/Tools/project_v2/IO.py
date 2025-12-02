@@ -324,3 +324,14 @@ def get_radfile_thinshell(key, front):
   dir_path = GAMMA_dir + '/results/%s/' % (key)
   file_path = dir_path + f"radiation_vFC_{front}.npz"
   return file_path
+
+def get_radfile_activity(key, front):
+  '''
+  Returns path of file containing frequency ratio and corresponding
+    crossed radii and activity time
+  front: string  'RS' or 'FS'
+  '''
+
+  dir_path = GAMMA_dir + '/results/%s/' % (key)
+  file_path = dir_path + f"source_activity_{front}.npz"
+  return file_path
