@@ -21,13 +21,13 @@ def main():
   for aum in au_arr:
     au = aum+1
     print(f'Running simulation with a_u = {au:.2f}')
-    name = f"sweep_au={au:.2f}"
+    name = f"au={au:.2f}"
     update_input(au)
     subprocess.call("./HPC_launch.sh", shell=True)
     #subprocess.call("./local_launch.sh", shell=True)
     while(check_simRunning()):
-      time.wait(60)
-    print('Run finished, moving in results/' + name)
+      time.sleep(60)
+    print('Run finished, moving in results/sweep/' + name)
     move_results(name)
 
 
@@ -82,7 +82,7 @@ def move_results(name):
   Moves simulated data from the results/last folder into results/<name>
   '''
   name = name.strip("'\"") 
-  path = os.path.join('results/', name)
+  path = os.path.join('results/sweep/', name)
 
   subprocess.run(['mv', 'results/Last', path])
   subprocess.call("mkdir -p results/Last", shell=True)

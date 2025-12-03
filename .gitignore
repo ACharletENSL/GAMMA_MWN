@@ -3,6 +3,7 @@
 # server jobs file & config
 #submit.sh
 #src/Initial/Shells/Shells.cpp
+phys_input.ini
 
 # outputs
 *.out
