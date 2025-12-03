@@ -8,6 +8,7 @@ Produce emission
 from IO import *
 from phys_constants import *
 from phys_functions import Band_func
+from hydro_fits import replace_withfit
 
 ##### Standard obs frequency and time arrays
 def obs_arrays(key, normed=False,
@@ -41,6 +42,7 @@ def run_nuFnu_vFC(data, nuobs, Tobs, env, norm=True):
     nu0 = (env.nu0 if (trac < 1.5) else env.nu0FS)
   else:
     nu0 = 1.
+  data = replace_withfit(data)
   # take only contributions from the first time step where downstream cell is shocked 
   data = data.drop_duplicates(subset='i', keep='first')
   for j, cell in data.iterrows():

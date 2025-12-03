@@ -6,30 +6,37 @@ Launches simulations to perform a parameter space sweep
 '''
 
 
-
+import time
 from setup import *
 
 # values of a_u - 1 to perform sweep
 #au_arr = np.logspace(-1, 1.5)
 au_arr = [1, 4]
 def_u1 = 100
+waittime = 60 # default wait time between checks
 
 def main():
-  subprocess.call("./HPC_setup.sh", shell=True)
+  # load modules
+  subprocess.call("source ~/.bashrc", shell=True)
   for aum in au_arr:
-    update_input(aum)
+    au = aum+1
+    print(f'Running simulation with a_u = {au:.2f}')
+    name = f"sweep_au={au:.2f}"
+    update_input(au)
     subprocess.call("./HPC_launch.sh", shell=True)
+    #subprocess.call("./local_launch.sh", shell=True)
+    while(check_simRunning()):
+      time.wait(60)
+    print('Run finished, moving in results/' + name)
+    move_results(name)
 
 
-
-
-def update_input(aum):
+def update_input(au):
   '''
   Updates the phys_input.ini file with new value of u4
   '''
 
   file = 'phys_input.ini'
-  au = 1+aum
   u1 = def_u1
   # find value for u1
   with open(file, 'r') as f:
@@ -54,9 +61,9 @@ def update_input(aum):
   with open(file, 'w') as outf:
     outf.writelines(f'{s}\n' for s in out_lines)
 
-def check_simFinished():
+def check_simRunning():
   '''
-  Check if job is finished by checking the queue
+  Check if job is still running by checking the queue
   '''
 
   # HPC Python version is 3.6
@@ -66,14 +73,20 @@ def check_simFinished():
 
   if not result.stdout.strip():
     # if empty output, no jobs are currently running
-    return True
-  else:
     return False
+  else:
+    return True
 
 def move_results(name):
   '''
   Moves simulated data from the results/last folder into results/<name>
   '''
+  name = name.strip("'\"") 
+  path = os.path.join('results/', name)
 
-  subprocess.call(f"mv results/Last results/{name}", shell=True)
+  subprocess.run(['mv', 'results/Last', path])
   subprocess.call("mkdir -p results/Last", shell=True)
+
+
+if __name__ == "__main__":
+    main()

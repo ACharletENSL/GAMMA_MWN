@@ -5,7 +5,7 @@ Analyzing a run (extracting hydro, producing radiation..)
 from IO import *
 from radiation import *
 from phys_constants import *
-from hydro_fits import get_hydrofits_shell, replace_withfit
+from hydro_fits import get_hydrofits_shell, replace_withfit, extrapolate_early
 
 def thinshell_radiation(key, z, nuobs, Tobs):
   '''
@@ -183,8 +183,9 @@ def analyze_nubk(key):
   env = MyEnv(key)
   beta = getattr(env, f'beta{z}')
   data = open_rundata(key, z)
-  data = replace_withfit(data)
+  #data = replace_withfit(data)
   data = data.drop_duplicates(subset='i', keep='first')
+  data = extrapolate_early(data, env)
   df0 = openData(key, 0)
 
   # crossed radius by the shock and corresponding ton/toff
@@ -240,7 +241,7 @@ def analyze_nubk(key):
     imax = np.argmax(nF[j])
     nu_Fmax = nu_pk[imax]
     nF_bk = nF_pk[imax]
-    i_hf = np.searchsorted(nF_pk[nu_pk>nu_Fmax], .5*nF_bk)
+    i_hf = np.searchsorted(nF_pk[nu_pk>nu_bk], .5*nF_bk) - 1
     nu_hf[j] += nu_pk[nu_pk>nu_bk][i_hf]
   
   nu_bkhf = nu_bk / nu_hf

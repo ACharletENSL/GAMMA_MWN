@@ -11,7 +11,7 @@ from scipy.integrate import quad
 
 from phys_constants import c_
 from phys_functions import smooth_bpl, init_slope, logslope
-from IO import get_vars
+from IO import get_variable, get_vars
 from environment import MyEnv
 
 def replace_withfit(data, i_set=400):
@@ -47,6 +47,33 @@ def replace_withfit(data, i_set=400):
   out.loc[:i_set, 'v'] = v
   out.loc[:i_set, 'p'] = p/(env.rhoscale*c_*c_)
   return out
+
+def extrapolate_early(data_in, env, nsamp=10, it_s=300):
+  '''
+  Old method of replacing early data
+  '''
+
+  data = data_in.copy()
+  data['lfac'] = get_variable(data, 'lfac', env)
+  indices = data.index[data.index >= it_s].astype(int).to_list()[:nsamp]
+  toreplace = data.loc[data.index < it_s]
+  sample = data.loc[indices]
+  ref = sample.iloc[0]
+
+  # replace rho, v, p
+  x = sample.x.to_numpy()
+  for name in ['rho', 'lfac', 'p']:
+    val = sample[name].to_numpy()
+    # get plaw with r
+    a = logslope(x[0], val[0], x[-1], val[-1])
+    # replace values assuming this plaw
+    for i, row in toreplace.iterrows():
+      dr = row.x/ref.x
+      data.loc[i,name] = ref[name] * (dr**a)
+  for i, row in toreplace.iterrows():
+    data.loc[i, 'vx'] = 1. - (data.loc[i].lfac)**-2
+
+  return data
 
 def get_hydrofits_shell(data, i_set=400):
   '''

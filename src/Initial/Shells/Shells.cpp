@@ -21,20 +21,20 @@ static double Theta0  = 5e-05 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 4.667291079080062e-12 ;     // comoving density of front shell
+static double rho1 = 7.646969993871554e-12 ;     // comoving density of front shell
 static double u1   = 1e+02 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 52172.890295344296 ;
+static double p1   = 13635.984645157108 ;
 static double D01  = 2997774695.012281 ;     // spatial extension of front shell
-static double rho4 = 1.1610033862318822e-12 ;     // comoving density of back shell
-static double u4   = 2e+02 ;          // proper velocity of back shell
-static double p4   = 52172.890295344296 ;
-static double D04  = 2997887106.645374 ;     // spatial extension of back shell
+static double rho4 = 3.034415815956067e-13 ;     // comoving density of back shell
+static double u4   = 5e+02 ;          // proper velocity of back shell
+static double p4   = 13635.984645157108 ;
+static double D04  = 2997918584.1688275 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 0.05 ;           // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 79947153684166.38 ;
+static double R_0     = 62458385920034.375 ;
 static int Nsh1   = 450 ;
 static int Ntot1  = 460 ;
 static int Nsh4   = 450 ;
@@ -311,6 +311,8 @@ void Simu::evalEnd(){
 
   bool anyShockedTracer = false;
   
+  if ( it > 400 ){ stop = true; }
+  
   #if SHOCK_DETECTION_ == ENABLED_
     for (int i = grid.iLbnd+1; i <= grid.iRbnd-1; ++i){
       Cell *c = &grid.Ctot[i];
@@ -338,6 +340,5 @@ void Simu::evalEnd(){
     }
   #endif
 
-  if (it > 50000){ stop = true; }
 
 }
