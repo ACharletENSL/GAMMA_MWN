@@ -39,6 +39,12 @@ ifeq ($(HOME), /u/g/rwe22)
 	LFLAGS = -L/usr/local/lib -fopenmp -lgsl -lgslcblas -lm	#run this line on distant
 	IFLAGS = -I/usr/local/include -I/usr/include -I/usr/lib/openmpi/include
 else
+ifeq ($(HOME), /home/arthurc)
+	CXX      = mpicxx
+	CXXFLAGS = -Wall -Wextra -std=c++11 -O3 -fopenmp
+	LFLAGS   = -fopenmp -lgsl -lgslcblas -lm
+	IFLAGS   =
+else
 ifeq ($(OS_NAME), linux)
 	#CXX      = mpiicpc -mt_mpi
   #CXXFLAGS = -Wall -Wextra -std=c++11 -O3 -qopenmp
@@ -69,6 +75,7 @@ else
 	LFLAGS = -L/usr/local/lib -fopenmp -lgsl -lm -L/prefix/el8/software/gcc-8.5.0/gsl-2.7.1-g2z66xwa/lib	#run this line on local
 	IFLAGS = -I/usr/local/include -I/usr/include 
 # 	IFLAGS = -I/usr/local/include -I/usr/include -I/usr/include/hdf5/serial
+endif
 endif
 endif
 endif

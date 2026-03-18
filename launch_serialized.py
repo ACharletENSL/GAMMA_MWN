@@ -17,34 +17,38 @@ logau_arr[np.abs(logau_arr)<1e-2] = 0
 #logau_arr = [0, np.log10(4)]
 def_u1 = 100
 waittime = 60 # default wait time between checks
+ONHPC = ('arthurc' in os.environ['HOME'])
+delete = False
 
 def main():
-  # load modules
-  arg = sys.argv[1]
-  delete = (arg == '-d')
-  if delete:
+  if delete and (not ONHPC):
+    clean = True
     print("Data will be deleted after each run")
-  subprocess.call("source ~/.bashrc", shell=True)
+  if ONHPC:
+    # load modules
+    subprocess.call("source ~/.bashrc", shell=True)
   for log_au in logau_arr:
-    run_n_analyze(log_au, delete)
+    run_n_analyze(log_au)
+    if clean:
+      print("Deleting data")
+      os.popen('rm -rf results/' + key)
   join_extracted()
 
-def run_n_analyze(log_au, delete=False):
+def run_n_analyze(log_au):
   au = 1 + 10**log_au
   print(f'Running simulation with log a_u - 1 = {log_au:.1f} (a_u = {au:.2f})')
   name = f"log_au={log_au:.1f}"
   update_input(au)
-  os.popen("./local_launch.sh").read()
-  # subprocess.call("./HPC_launch.sh", shell=True)
-  # while(check_simRunning()):
-  #   time.sleep(60)
+  if ONHPC:
+    subprocess.call("./HPC_launch.sh", shell=True)
+    while(check_simRunning()):
+      time.sleep(60)
+  else:
+    os.popen("./local_launch.sh").read()
   print('Run finished, moving in results/sweep_' + name)
   move_results(name)
   key = 'sweep_'+name
   extract_fittingData(key, log_au)
-  if delete:
-    print("Deleting data")
-    os.popen('rm -rf results/' + key)
 
 def update_input(au):
   '''

@@ -3,7 +3,7 @@
 # server jobs file & config
 #submit.sh
 #src/Initial/Shells/Shells.cpp
-phys_input.ini
+#phys_input.ini
 
 # outputs
 *.out
@@ -18,5 +18,5 @@ bin/Tools/__pycache__
 bin/Tools/__pycache__/*
 bin/GAMMA
 notes_encours.txt
-Makefile
-relaunch_test.sh
+#Makefile
+#relaunch_test.sh
