@@ -17,7 +17,7 @@ from analysis_hydro import extract_data_thinshell
 from peak_modeling import peaks_function_fromFit
 
 ### Extract peaks and save
-def extract_fittingData(key):
+def extract_fittingData(key, log_au):
   '''
   Extract data behind shock fronts from a sim, save in files
   '''
@@ -42,8 +42,7 @@ def extract_fittingData(key):
     N = getattr(env, f'Nsh{z}')
     analyzed = get_anglefits(data, NT=2*N, Nnu=300, returnAll=True)
     analyzed = np.hstack(analyzed)
-    logau = np.log10(env.a_u - 1.)
-    analyzed = np.insert(analyzed, 0, logau)
+    analyzed = np.insert(analyzed, 0, log_au)
     np.savetxt(fname, analyzed)
 
 # get the fits for xi (effective angle approx)

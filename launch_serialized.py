@@ -41,7 +41,7 @@ def run_n_analyze(log_au, delete=False):
   print('Run finished, moving in results/sweep_' + name)
   move_results(name)
   key = 'sweep_'+name
-  extract_fittingData(key)
+  extract_fittingData(key, log_au)
   if delete:
     print("Deleting data")
     os.popen('rm -rf results/' + key)
