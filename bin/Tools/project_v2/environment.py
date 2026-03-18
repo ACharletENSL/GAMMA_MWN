@@ -21,6 +21,35 @@ cwd = os.getcwd().split('/')
 iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
 GAMMA_dir = '/'.join(cwd[:iG+1])
 
+
+##### Updating the environment and fetching variables
+# changing one input variable
+def update_env(name, value, env):
+  '''
+  Update environment after changing one (or more) of the 'input' variables
+    (variables defined in phys_input.ini)
+    name and value can be lists or arrays
+  '''
+  name_isarr = ((type(name) == list) or (type(name) == np.ndarray))
+  value_isarr = ((type(value) == list) or (type(value) == np.ndarray))
+  if (name_isarr and value_isarr):
+    for n, v in zip(name, value):
+      setattr(env, n, v)
+  else:
+    setattr(env, name, value)
+  shells_complete_setup(env, 0.)
+  shells_add_analytics(env)
+  shells_add_radNorm(env)
+
+def fetch_value_updated(name, name_var, value_var, env):
+  '''
+  Get the new value of quantity 'name' after updating the env
+  '''
+  update_env(name_var, value_var, env)
+  value = getattr(env, name)
+  return value
+
+# rescaling
 def get_physfile(key):
   '''
   Returns path of phys_input file of the corresponding results folder
@@ -33,6 +62,7 @@ def get_physfile(key):
   else:
     return GAMMA_dir + "/phys_input.ini"
 
+##### Environment class containing all analytics
 class MyEnv:
   def __init__(self, key, scalefac=0.):
     path = get_physfile(key)
@@ -43,7 +73,7 @@ class MyEnv:
     '''
     Reads GAMMA/phys_input.ini file and puts value in the MyEnv class
     '''
-    strinputs = ['mode', 'runname', 'rhoNorm', 'geometry']
+    strinputs = ['mode', 'runname', 'rhoNorm', 'geometry', 'stop']
     intinputs = ['Ncells', 'itmax']
     with open(path, 'r') as f:
       lines = f.read().splitlines()

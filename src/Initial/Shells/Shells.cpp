@@ -21,28 +21,28 @@ static double Theta0  = 5e-05 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 7.646969993871554e-12 ;     // comoving density of front shell
-static double u1   = 1e+02 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 13635.984645157108 ;
+static double rho1 = 7.005160447504102e-12 ;     // comoving density of front shell
+static double u1   = 100.000000 ;          // proper velocity (gamma*beta) of front shell
+static double p1   = 25369.370805040846 ;
 static double D01  = 2997774695.012281 ;     // spatial extension of front shell
-static double rho4 = 3.034415815956067e-13 ;     // comoving density of back shell
-static double u4   = 5e+02 ;          // proper velocity of back shell
-static double p4   = 13635.984645157108 ;
-static double D04  = 2997918584.1688275 ;     // spatial extension of back shell
+static double rho4 = 5.645446369654745e-13 ;     // comoving density of back shell
+static double u4   = 351.000000 ;          // proper velocity of back shell
+static double p4   = 25369.370805040846 ;
+static double D04  = 2997912413.271118 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 0.05 ;           // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 62458385920034.375 ;
-static int Nsh1   = 450 ;
-static int Ntot1  = 460 ;
-static int Nsh4   = 450 ;
-static int Ntot4  = 460 ;
+static double R_0     = 65256895100398.47 ;
+static int Nsh1   = 500 ;
+static int Ntot1  = 520 ;
+static int Nsh4   = 500 ;
+static int Ntot4  = 520 ;
 static int Ncells = Ntot4 + Ntot1;
 
-// additional time after stopping condition
-static const double EXTRA_TIME = 5e2;
+// additional time after stopping condition, 10% of theoretical crossing time
+static double EXTRA_TIME = 359.54211364771953 ;
 
 // normalisation constants:
 static double rhoNorm = rho4 ;                // density normalised t
@@ -294,7 +294,7 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 void Simu::dataDump(){
   // can we find a way to print at each new cell shock crossing?
   // raise
-  if (it % 100 == 0){ grid.printCols(it, t); }
+  if (it % 50 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -311,7 +311,8 @@ void Simu::evalEnd(){
 
   bool anyShockedTracer = false;
   
-  if ( it > 400 ){ stop = true; }
+  if ( t > 10786 ){ stop = true; }
+  //  if ( it > 100000 ){ stop = true; }
   
   #if SHOCK_DETECTION_ == ENABLED_
     for (int i = grid.iLbnd+1; i <= grid.iRbnd-1; ++i){

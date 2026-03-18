@@ -12,7 +12,7 @@ from plotting_scripts_new import *
 import scipy.integrate as spi
 from scipy.special import gamma, hyp2f1
 from scipy.optimize import brentq
-from betainc import betai
+#from betainc import betai
 plt.ion()
 np.seterr(all='raise')
 
@@ -1051,17 +1051,17 @@ def instant_Pnu_anlfunc_gmaf(tt, tnu, gm, gM, p=2.5):
   Pnu *= tnu**(1/3)
   return Pnu
 
-def Pfunc_integ_gmaf(tt, gmin, gmax, p):
-  '''
-  Analytical integration of dn/d\gma P(\gma) over \gma_f
-  '''
-  return tt**(p-1/3.) * (Bfunc_gmaf(gmax, tt, p) - Bfunc_gmaf(gmin, tt, p))
+# def Pfunc_integ_gmaf(tt, gmin, gmax, p):
+#   '''
+#   Analytical integration of dn/d\gma P(\gma) over \gma_f
+#   '''
+#   return tt**(p-1/3.) * (Bfunc_gmaf(gmax, tt, p) - Bfunc_gmaf(gmin, tt, p))
 
-def Bfunc_gmaf(gma, tt, p):
-  '''
-  Incomplete beta function that appears when integrating over gma_f
-  '''
-  return betai(1/3.-p, p-1, gma*tt)
+# def Bfunc_gmaf(gma, tt, p):
+#   '''
+#   Incomplete beta function that appears when integrating over gma_f
+#   '''
+#   return betai(1/3.-p, p-1, gma*tt)
 
 def func_gmaf(gma, tt, p):
   '''
@@ -1228,11 +1228,11 @@ def Pfunc_integ_gmai(tt, gma_l, gma_u, p):
   '''
   return (-1)**(-p) * tt**(p-1/3) * (Bfunc_gmai(gma_u, tt, p) - Bfunc_gmai(gma_l, tt, p))
   
-def Bfunc_gmai(gma, tt, p):
-  '''
-  Incomplete beta function that appears when integrating over gma_i
-  '''
-  return betai(p-1, 5./3., -1./(gma*tt))
+# def Bfunc_gmai(gma, tt, p):
+#   '''
+#   Incomplete beta function that appears when integrating over gma_i
+#   '''
+#   return betai(p-1, 5./3., -1./(gma*tt))
 
 def func_gmai(gma, tt, p):
   '''

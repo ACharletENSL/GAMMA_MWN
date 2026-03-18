@@ -7,29 +7,44 @@ Launches simulations to perform a parameter space sweep
 
 
 import time
+import glob
 from setup import *
+from analysis_thinshell import extract_fittingData
 
 # values of a_u - 1 to perform sweep
-#au_arr = np.logspace(-1, 1.5)
-au_arr = [1, 4]
+logau_arr = np.arange(-0.5, 0.5, 0.1)
+logau_arr[np.abs(logau_arr)<1e-2] = 0
+#logau_arr = [0, np.log10(4)]
 def_u1 = 100
 waittime = 60 # default wait time between checks
 
 def main():
   # load modules
+  arg = sys.argv[1]
+  delete = (arg == '-d')
+  if delete:
+    print("Data will be deleted after each run")
   subprocess.call("source ~/.bashrc", shell=True)
-  for aum in au_arr:
-    au = aum+1
-    print(f'Running simulation with a_u = {au:.2f}')
-    name = f"au={au:.2f}"
-    update_input(au)
-    subprocess.call("./HPC_launch.sh", shell=True)
-    #subprocess.call("./local_launch.sh", shell=True)
-    while(check_simRunning()):
-      time.sleep(60)
-    print('Run finished, moving in results/sweep/' + name)
-    move_results(name)
+  for log_au in logau_arr:
+    run_n_analyze(log_au, delete)
+  join_extracted()
 
+def run_n_analyze(log_au, delete=False):
+  au = 1 + 10**log_au
+  print(f'Running simulation with log a_u - 1 = {log_au:.1f} (a_u = {au:.2f})')
+  name = f"log_au={log_au:.1f}"
+  update_input(au)
+  os.popen("./local_launch.sh").read()
+  # subprocess.call("./HPC_launch.sh", shell=True)
+  # while(check_simRunning()):
+  #   time.sleep(60)
+  print('Run finished, moving in results/sweep_' + name)
+  move_results(name)
+  key = 'sweep_'+name
+  extract_fittingData(key)
+  if delete:
+    print("Deleting data")
+    os.popen('rm -rf results/' + key)
 
 def update_input(au):
   '''
@@ -82,11 +97,33 @@ def move_results(name):
   Moves simulated data from the results/last folder into results/<name>
   '''
   name = name.strip("'\"") 
-  path = os.path.join('results/sweep/', name)
+  path = 'results/sweep_' + name
+  if os.path.isdir(path):
+    subprocess.call(['rm', '-rf', path])
 
   subprocess.run(['mv', 'results/Last', path])
   subprocess.call("mkdir -p results/Last", shell=True)
 
+def join_extracted():
+  '''
+  Join the extracted data from the sweep in one table
+  '''
+  varnames = ['log_aum', 'Tf', 't_max', \
+    'lfac2_inf', 'lfac2_alp', 'lfac2_s', \
+    'ShSt_inf', 'ShSt_alp', 'ShSt_s', \
+    'L_inf', 'L_alp', 'L_s', \
+    'nu_inf', 'nu_alp', 'nu_s', \
+    'k', 'xi_sat', 'xi_s']
+  header = "\t".join(varnames)
+  folder = './extracted_data/'
+  for front in ['FS', 'RS']:
+    search_exp = folder + 'sweep*' + front + '.out'
+    files = glob.glob(search_exp)
+    arrays = [np.loadtxt(f) for f in files]
+    table = np.stack(arrays)
+    table = table[table[:, 0].argsort()]
+    np.savetxt("./extracted_data/fullsweep_au_"+front+".csv",
+      table, delimiter='\t', header=header, comments='')
 
 if __name__ == "__main__":
     main()

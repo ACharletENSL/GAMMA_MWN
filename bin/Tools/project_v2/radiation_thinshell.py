@@ -2,29 +2,16 @@
 # @Author: acharlet
 
 '''
-Produce emission
+Produce emission from hydro data in the thinshell regime
+Contains:
+  - run_nuFnu_vFC
+  - get_Fnu_vFC
 '''
 
 from IO import *
 from phys_constants import *
-from phys_functions import Band_func
-from hydro_fits import replace_withfit
+from phys_functions import Band_func, smooth_bpl0
 
-##### Standard obs frequency and time arrays
-def obs_arrays(key, normed=False,
-    Tmax=5, NT=450, lognu_min=-3, lognu_max=2, Nnu=200):
-  '''
-  Returns arrays of observed times and frequencies
-  '''
-  env = MyEnv(key)
-  nub = np.logspace(lognu_min, lognu_max, Nnu)
-  T = np.geomspace(1, Tmax+1, NT)
-  if normed:
-    return nub, T, env
-  else:
-    nuobs = nub * env.nu0
-    Tobs = env.Ts + (T - 1) * env.T0
-    return nuobs, Tobs, env
 
 
 ##### From extracted time data
@@ -42,13 +29,13 @@ def run_nuFnu_vFC(data, nuobs, Tobs, env, norm=True):
     nu0 = (env.nu0 if (trac < 1.5) else env.nu0FS)
   else:
     nu0 = 1.
-  data = replace_withfit(data)
   # take only contributions from the first time step where downstream cell is shocked 
+  tnu = nuobs/nu0
   data = data.drop_duplicates(subset='i', keep='first')
   for j, cell in data.iterrows():
     if cell.x > 0.:
       F = get_Fnu_vFC(cell, nuobs, Tobs, env, norm)
-      nF_step = (nuobs/nu0) * F
+      nF_step = tnu * F
     nF += nF_step
   return nF 
 
@@ -92,8 +79,3 @@ def get_Fnu_vFC(cell, nuobs, Tobs, env, norm=True):
   Fnu += np.where(T>=1, F * S(nub*T) / (T*T), 0.)
   return Fnu
 
-def get_Fnu_distrib(cell, nuobs, Tobs, env, norm=True):
-  '''
-  Derive Fnu for a cell with an electron distribution
-  nuobs: ndarray, Tobs: float
-  '''

@@ -12,7 +12,7 @@ from pathlib import Path
 import os
 import numpy as np
 import sys
-sys.path.insert(1, 'bin/Tools/project_v1')
+sys.path.insert(1, 'bin/Tools/project_v2')
 from environment import MyEnv
 
 Initial_path = str(Path().absolute() / 'src/Initial/')
@@ -99,8 +99,8 @@ def update_Makefile(env):
 def update_simFile(filepath, env):
   gridvars = {
     'rhoNorm':env.rhoNorm, 'Nsh1':env.Nsh1, 'Ntot1':env.Nsh1+env.Next,
-    'Nsh4':env.Nsh4, 'Ntot4':env.Nsh4+env.Next,
-    'itmax':env.itmax, 'geometry':env.geometry
+    'Nsh4':env.Nsh4, 'Ntot4':env.Nsh4+env.Next, 'stop':env.stop,
+    'itmax':env.itmax, 'EXTRA_TIME':0.1*env.tmax, 'geometry':env.geometry
   }
   physvars = {}
   if env.mode == 'MWN':
@@ -128,7 +128,8 @@ def update_simFile(filepath, env):
           line = line.replace(l[4], '1' if env.geometry=='spherical' else '0')
         if var in vars2update:
           if var in ['lfacwind', 'u1', 'u4']:
-            line = line.replace(l[4], f'{vars2update[l[2]]:.0e}')
+            val = vars2update[l[2]]
+            line = line.replace(l[4], f'{val:{"f" if np.log10(val)<6 else ".2e"}}')
           elif var == 'm_fade':
             line = line.replace(l[4], f'{vars2update[l[2]]:.1f}')
           elif var.startswith('N'):
@@ -138,8 +139,27 @@ def update_simFile(filepath, env):
           else:
             line = line.replace(l[4], f'{vars2update[l[2]]}')
       if 'if ( it >' in line:
-        l = line.split()
-        line = line.replace(l[4], f'{int(env.itmax):d}')
+        if (env.stop != 'it'):
+          # make sure stopping with it is commented
+          if ('//' not in line):
+            line = line[:2] + '//  ' + line[2:]
+        else:
+          # make sure stopping with it is uncommented
+          if ('//' in line):
+            line = line.replace('// ', '')
+          l = line.split()
+          line = line.replace(l[4], f'{int(env.itmax):d}')
+      if 'if ( t >' in line:
+        if (env.stop != 'time'):
+          # make sure stopping with time is commented
+          if ('//' not in line):
+            line = line[:2] + '//  ' + line[2:]
+        else:
+          # make sure stopping with time is uncommented
+          if ('//' in line):
+            line = line.replace('// ', '')
+          l = line.split()
+          line = line.replace(l[4], f'{int(3*env.tmax):d}')
       elif 'grid.printCols' in line:
         l = line.split()
         line = line.replace(l[3], f'{int(env.itdump):d}')

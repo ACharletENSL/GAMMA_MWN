@@ -5,6 +5,7 @@ Reading and writing data
 # Imports
 # --------------------------------------------------------------------------------------------------
 import os
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import more_itertools as mit
@@ -17,6 +18,9 @@ cwd = os.getcwd().split('/')
 iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
 GAMMA_dir = '/'.join(cwd[:iG+1])
 
+def get_dirpath(key):
+  return GAMMA_dir + '/results/%s/' % (key)
+
 # opening snapshots
 ##### opening file
 def get_physfile(key):
@@ -24,7 +28,7 @@ def get_physfile(key):
   Returns path of phys_input file of the corresponding results folder
   '''
   
-  dir_path = GAMMA_dir + '/results/%s/' % (key)
+  dir_path = get_dirpath(key)
   file_path = dir_path + "phys_input.ini"
   if os.path.isfile(file_path):
     return file_path
@@ -266,7 +270,7 @@ def dataList(key, itmin=0, itmax=None, itstep=None):
   '''
 
   its = []
-  dir_path = GAMMA_dir + '/results/%s/' % (key)
+  dir_path = get_dirpath(key)
   for path in os.scandir(dir_path):
     if path.is_file:
       fname = path.name
@@ -285,23 +289,64 @@ def dataList(key, itmin=0, itmax=None, itstep=None):
     its = [it for it in its if (it%itstep == 0)]
   return its
 
+def get_cellfile(key, k):
+  '''
+  Returns path of file with data of cell k and boolean for its existence
+  '''
+  dir_path = get_dirpath(key)
+  file_path = dir_path + f'cells/{k:04d}.csv'
+  file_bool = os.path.isfile(file_path)
+  return file_path, file_bool
+
+def open_celldata(key, k):
+  '''
+  Returns a pandas dataframe with the extracted data from cell k
+  '''
+  dfile_path, dfile_bool = get_cellfile(key, k)
+  mode, runname, rhoNorm, geometry = get_runatts(key)
+  if dfile_bool:
+    df = pd.read_csv(dfile_path, index_col=0)
+    df.attrs['key'] = key
+    df.attrs['mode']    = mode
+    df.attrs['runname'] = runname 
+    df.attrs['rhoNorm'] = rhoNorm
+    df.attrs['geometry'] = geometry
+    return df
+  else:
+    return dfile_bool
+
+def get_fitsfile(key, z):
+  path = GAMMA_dir+'/extracted_data/'
+  fname = path + key + '_'
+  front = 'FS' if z == 1 else 'RS'
+  path = fname+front+'.out'
+  return path
+
+def open_fits(key, z):
+  fname = get_fitsfile(key, z)
+  Tf, t_max, *rest = np.loadtxt(fname)
+  popts = [np.array(rest[i:i+3]) for i in range(0, 15, 3)]
+  popt_lfac2, popt_ShSt, popt_nu, popt_L, popt_xi = popts
+  return Tf, t_max, popt_lfac2, popt_ShSt, popt_nu, popt_L, popt_xi
+
 
 def get_runfile(key, z):
   '''
   Returns path of file with analyzed datas over the run and boolean for its existence
   '''
 
-  dir_path = GAMMA_dir + '/results/%s/' % (key)
-  #file_path = dir_path + "extracted_data.txt"
+  dir_path = get_dirpath(key)
   file_path = dir_path + f'run_data_{z}.csv'
   file_bool = os.path.isfile(file_path)
   return file_path, file_bool
 
 def open_rundata(key, z):
   '''
-  returns a pandas dataframe with the extracted data
+  Returns a pandas dataframe with the extracted data from zone z
   '''
 
+  dir_path = get_dirpath(key)
+  fold_exist = os.path.isdir(dir_path)
   dfile_path, dfile_bool = get_runfile(key, z)
   mode, runname, rhoNorm, geometry = get_runatts(key)
   if dfile_bool:
@@ -321,7 +366,7 @@ def get_radfile_thinshell(key, front):
   front: string  'RS' or 'FS'
   '''
   
-  dir_path = GAMMA_dir + '/results/%s/' % (key)
+  dir_path = get_dirpath(key)
   file_path = dir_path + f"radiation_vFC_{front}.npz"
   return file_path
 
@@ -332,6 +377,6 @@ def get_radfile_activity(key, front):
   front: string  'RS' or 'FS'
   '''
 
-  dir_path = GAMMA_dir + '/results/%s/' % (key)
+  dir_path = get_dirpath(key)
   file_path = dir_path + f"source_activity_{front}.npz"
   return file_path

@@ -53,13 +53,10 @@ def shells_complete_setup(env, scalefac):
   
   # rescaling by scaling lengthscale
   sc = 10**scalefac
-  env.toff = sc*env.toff
-  env.t0 = sc*env.t0
-  env.R0 = sc*env.R0
-  env.t1 = sc*env.t1
-  env.t4 = sc*env.t4
-  env.D01 = sc*env.D01
-  env.D04 = sc*env.D04
+  for name in ['toff', 't0', 'R0', 't1', 't4', 'D01', 'D04']:
+    val = getattr(env, name)
+    newval = sc * val
+    setattr(env, name, newval)
   
   env.Nsh4 = int(np.floor(env.Nsh1*env.D04/env.D01))
   env.Ntot = 2*env.Next + env.Nsh1 + env.Nsh4
@@ -134,6 +131,8 @@ def shells_add_analytics(env):
   env.Ei3f   = derive_Eint_crosstime(env.M4, env.u, env.lfac34)
   env.Ek3f   = derive_Ek_crosstime(env.M4, env.lfac0)
   env.eff_4  = env.Ei3f/env.Ek4
+
+  env.tmax = max(env.tRS, env.tFS)
 
   # rarefaction waves
   env.T2     = env.p_sh/(env.rho2*c_**2)
@@ -223,6 +222,8 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.fac_T  = ((env.lfacFS/env.lfacRS)**2)*(env.betaFS/env.betaRS)*((1+env.betaFS)/(1+env.betaRS))
   env.nu0pFS = env.nu0p / env.fac_nu
   env.nu0FS = env.nu0 / env.fac_nu
+  env.LbolpFS = (4/3.) * env.eps_e * env.eps_rad * (4*pi_*env.R0**2) * c_**3 * \
+     (env.lfac21-1)*env.u21 * env.rho1 
   env.L0pFS = env.L0p / env.fac_F
   env.L0FS  = env.L0 / env.fac_F
   env.F0FS  = env.F0 / env.fac_F

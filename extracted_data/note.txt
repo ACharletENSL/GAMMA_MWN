@@ -1,0 +1,2 @@
+arrays are order as data is outputted by project_v2/analysis_thinshell.py:get_anglefits
+au, Tf, t_max, popt_lfac2, popt_ShSt, popt_nu, popt_L, popt_xi

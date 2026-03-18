@@ -58,6 +58,14 @@ def smooth_bpl(x, x_b, alpha, beta, s=1.):
   term_b = (x_b * x**beta)**s
   return (term_a + term_b)**(1./s)
 
+def smooth_bpl0(x, x_b, alpha, s=1.):
+  '''
+  Same as smooth_bpl but beta=0
+  '''
+  return smooth_bpl(x, x_b, alpha, 0., s)
+
+
+
 def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
   '''
   Powerlaw with index a0 to g1, -a1 between g1 and g2, -a2 between g2 and g3
@@ -219,12 +227,24 @@ def derive_enthalpy(rho, p, EoS='TM'):
   return 1. + T*gma/(gma-1.)
 
 def derive_adiab(rho, p):
+  adb = derive_adiab_TM(rho, p)
+  return adb
+
+def derive_adiab_TM(rho, p):
   '''
   Adiabatic index, following Taub-Matthews EoS
   '''
   T = p/rho
   gma = (1./6.)*(8. - 3.*T + np.sqrt(4. + 9.*T*T))
   return gma
+
+def derive_adiab_Ryu(rho, p):
+  '''
+  Adiabatic index, following Ryu et al 2006 EoS
+  '''
+  T = p/rho
+  a = 3*T + 1
+  return (4*a+1)/(3*a)
 
 def derive_adiab_fromT_Ryu(T):
   '''
@@ -315,6 +335,17 @@ def derive_Eint_comoving(rho, p, rhoscale):
   gma  = derive_adiab_fromT_TM(T)
   return p/(gma-1.)
 
+def derive_Eint_comoving_R2(x, rho, p, R0, rhoscale):
+  '''
+  Internal energy density in comoving frame, rescaled by (R/R0)^2
+  '''
+  R = x * c_ / R0
+  rho = rho*rhoscale*c_**2
+  p = p*rhoscale*c_**2
+  T = derive_temperature(rho, p)
+  gma  = derive_adiab_fromT_TM(T)
+  return p*R**2/(gma-1.)
+
 def derive_epint(rho, p):
   '''
   Internal energy in comoving frame in code units
@@ -331,6 +362,15 @@ def derive_shockStrength(rho, p, rhoscale):
   ei = derive_Eint_comoving(rho, p, rhoscale)
   ShSt = ei/(rho*rhoscale*c_**2)
   return ShSt
+
+def derive_relatvel_ud(rho, p, rhoscale):
+  '''
+  Relative velocity between up and donwstream
+  '''
+  
+  lfac_ud = derive_shockStrength(rho, p, rhoscale) + 1
+  beta_ud = derive_velocity(lfac_ud)
+  return beta_ud
 
 
 def derive_B_comoving(rho, p, rhoscale, eps_B=1/3.):
@@ -352,6 +392,7 @@ def derive_velocity(lfac):
   '''
   Velocity (beta) from Lorentz factor
   '''
+  #return (lfac**2 - 1.)/lfac
   return np.sqrt(1. - lfac**-2)
 
 def derive_proper(v):
@@ -458,6 +499,15 @@ def derive_Pmax(rho, p, rhoscale, eps_B, xi_e):
   fac = (4./3) * sigT_*me_*c_**2/(3*e_)
   return fac*ne*B
 
+def derive_Lmax(rho, vx, p, dtp, rhoscale, eps_B, xi_e):
+  '''
+  Maximal luminosity in source frame
+  '''
+  lfac = derive_Lorentz(vx)
+  Pmax = derive_Pmax(rho, p, rhoscale, eps_B, xi_e)
+  Lmax = 2*lfac*Pmax*dtp
+  return Lmax
+
 def derive_max_emissivity(rho, p, gmin, gmax, rhoscale, eps_B, psyn, xi_e):
   '''
   Returns maximal emissivity used for normalisation, from Ayache et al. 2022
@@ -539,11 +589,12 @@ def derive_rad4volume(x, dx, rho, vx, p, dt, gma, rhoscale, eps_B, R0, geometry=
   delt = np.where(tcool<dt, tcool, dt)
   return dV * delt
 
-def derive_tc1(rho, vx, p, rhoscale, eps_B):
+def derive_tc1(rho, p, rhoscale, eps_B):
   '''
-  Synchrotron cooling time of an electron at non-relativistic energy, in source frame
+  Synchrotron cooling time of an electron at non-relativistic energy, in comoving frame
   '''
-  return derive_tcool(rho, vx, p, 1., rhoscale, eps_B)
+  tc1 = 1/derive_syn_cooling(rho, p, rhoscale, eps_B)
+  return tc1
 
 def derive_tcool(rho, vx, p, gma, rhoscale, eps_B):
   '''
@@ -594,13 +645,20 @@ def derive_Epnu_thsh(x, dx, rho, vx, p,
   '''
   Total emitted energy per unit frequency of a 4D cell in very fast cooling
   '''
-  Wp = 2*((psyn-1)/(psyn-2))
-  lfac = derive_Lorentz(vx)
   V3p = derive_3vol_comoving(x, dx, vx, R0, geometry)
+  ep_nu_m = derive_ep_nu_m_VFC(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e)
+  Epnu = V3p * ep_nu_m
+  return Epnu
+
+def derive_ep_nu_m_VFC(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
+  '''
+  Energy per unit volume emitted by accelerated electrons in very fast cooling regime
+  '''
+  Wp = 2*((psyn-1)/(psyn-2))
   nup_m = derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e)
   epe = eps_e * derive_Eint_comoving(rho, p, rhoscale)
-  Epnu = V3p * epe / (Wp * nup_m)
-  return Epnu
+  ep_nu_m =  epe / (Wp * nup_m)
+  return ep_nu_m
 
 def derive_Lum(r, dr, rho, vx, p, gmin, R0, rhoscale, psyn, eps_B, eps_e, geometry):
   '''
@@ -610,6 +668,7 @@ def derive_Lum(r, dr, rho, vx, p, gmin, R0, rhoscale, psyn, eps_B, eps_e, geomet
   lfac = derive_Lorentz(vx)
   L0 = (2*vx*lfac**2/r) * Epnu
   return L0
+
 
 def derive_Lum_thinshell(r, dr, rho, vx, p, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry):
   '''
@@ -646,6 +705,7 @@ def derive_Fpeak_numeric(x, dx, rho, vx, p, gmin,
   L = (d2/(2*x)) * Epnu
   return zdl * L
 
+
 def derive_Lbol_comov(x, rho, p, R0, rhoscale, eps_e, geometry):
   ''' Bolometric luminosity in comoving frame'''
   eint = derive_Eint_comoving(rho, p, rhoscale)
@@ -679,6 +739,7 @@ def derive_obsLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn,
   Lp = derive_localLum(rho, vx, p, x, dx, dt, gmin, gmax, gma, rhoscale, eps_B, psyn, xi_e, R0, geometry)
   lfac = derive_Lorentz(vx)
   return 2*lfac*Lp
+
 
 def derive_obsTimes(tsim, r, beta, t0, z):
   '''
@@ -803,6 +864,25 @@ def derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
   gma_m = derive_gma_m(rho, p, rhoscale, psyn, eps_e, xi_e)
   nup_m = nup_B*gma_m**2
   return nup_m
+
+def derive_nu_M(rho, vx, p, rhoscale, eps_B, z):
+  '''
+  Peak frequency of the electron distribution, in observer frame
+  '''
+  D = derive_DopplerRed_los(vx, z)
+  nup_M = derive_nup_M(rho, p, rhoscale, eps_B)
+  nu_M = nup_M*D
+  return nu_M
+
+
+def derive_nup_M(rho, p, rhoscale, eps_B):
+  '''
+  Peak frequency of the electron distribution, in comoving frame
+  '''
+  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
+  gma_M = derive_gma_M(rho, p, rhoscale, eps_B)
+  nup_M = nup_B*gma_M**2
+  return nup_M
 
 # def derive_nup_c(t, rho, vx, p, rhoscale, eps_B):
 #   '''

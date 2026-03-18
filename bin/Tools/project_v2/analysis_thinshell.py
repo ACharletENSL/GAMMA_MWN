@@ -1,127 +1,112 @@
 '''
-Analyzing a run (extracting hydro, producing radiation..)
+Analyze emission in the thinshell approximation
+Contains:
+  - get_radiation_vFC
+  - get_peaks_from_data
+  - analyze_nubk
 '''
 
+from scipy.optimize import least_squares
+
 from IO import *
-from radiation import *
+from obs_functions import *
+from radiation_thinshell import *
 from phys_constants import *
-from hydro_fits import get_hydrofits_shell, replace_withfit, extrapolate_early
+from fits_hydro import *
+from analysis_hydro import extract_data_thinshell
+from peak_modeling import peaks_function_fromFit
 
-def thinshell_radiation(key, z, nuobs, Tobs):
+### Extract peaks and save
+def extract_fittingData(key):
   '''
-  Derives observed flux from shock front (z=4: RS, z=1: FS)
-    in thinshell approximation
+  Extract data behind shock fronts from a sim, save in files
   '''
-  return 0.
 
+  # small utilitary to unpack results
+  def foo(item):
+    try:
+      return item[0]
+    except:
+      return item
 
-# Extracting hydro data
-#### Thinshell approx: only cells downstream are interesting
-def critical_radii(key, z):
-  '''
-    Rc:     power-law behavior to constant transition (Tsph)
-    Rf:     crossing time
-  '''
-  m, x_sph = extract_plaws(key, z)[0]
-  Rc = x_sph**(-1/m)
-  Rf = get_Rcrossing(key, z)
-  return Rc, Rf
-
-
-def critical_times(key, z, k=0.5):
-  '''
-  Important normalized observed times for peak modelization:
-    Tc:     power-law behavior to constant transition
-    Tf:     crossing time
-    Tsat:   saturation of effective angle contribution from beaming
-  '''
-  Rc, Rf = critical_radii(key, z)
-  Tf = Rf**(m+1)
-  Tc = Rc**(m+1)
-  env = MyEnv(key)
-  g2 = (env.gRS if z == 4 else env.gFS)**2
-  Tsat = 1 + (m+1)/(g2*k)
-  return Tc, Tf, Tsat
   
-
-def extract_plaws(key, z):
-  '''
-  Returns the fitting parameters for downstream LF and shock strength
-  '''
-
-  data = open_rundata(key, z)
-  popt_lfac2, popt_ShSt = get_hydrofits_shell(data)
-  x_lf, m, s_lf = popt_lfac2
-  x_sh, n, s_sh = popt_ShSt
-  return [-m, x_lf], [-n, x_sh]
-
-def get_Rcrossing(key, z):
-  '''
-  Get final radius of the shock front at crossing, in units R0
-  '''
-  data = open_rundata(key, z)
   env = MyEnv(key)
-  Rf = data.iloc[-1].x * c_ / env.R0
-  return Rf
+  zs = [1, 4]
+  extract_data_thinshell(key, cells=zs, noOut=True)
+  for z, front in zip(zs, ['FS', 'RS']):
+    data = open_rundata(key, z)
+    # drop rows with x == 0
+    data = data.loc[~(data['x'] == 0.)]
+    data.attrs['key'] = key
+    fname = get_fitsfile(key, z)
+    N = getattr(env, f'Nsh{z}')
+    analyzed = get_anglefits(data, NT=2*N, Nnu=300, returnAll=True)
+    analyzed = np.hstack(analyzed)
+    logau = np.log10(env.a_u - 1.)
+    analyzed = np.insert(analyzed, 0, logau)
+    np.savetxt(fname, analyzed)
 
+# get the fits for xi (effective angle approx)
+def get_anglefits(data, Tmax=5, NT=450, Nnu=200, returnAll=False,
+  i_set=1000, dfindex=True):
 
-### Extract hydro data
-def analyze_run(key, itmin=0, itmax=None,
-    cells=[1, 2, 3, 4], savefile=True, noOut=False):
-  '''
-  Analyze a run, returning pandas dataframes one for each cell
-  1: downstream FS, 2: CD in S2, 3: CD in S3, 4: downstream RS
-  if savefile, writes it in a corresponding .csv file
-  !!! if itmin != 0, starts at first iteration AFTER itmin
-  '''
+  nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], NT=NT, Nnu=Nnu)
+  t_max = data.iloc[-1].t
+  front = 'RS' if data.iloc[0].trac < 1.5 else 'FS'
+  g = getattr(env, 'g'+front)
+  g2 = g*g
 
-  fpaths = [get_runfile(key, z)[0] for z in cells]
-  df0 = openData(key, it=0)
-  varlist = df0.keys().to_list()
-  varlist.insert(1, 'dt')
-  varlist.insert(0, 'it')
-  its = np.array(dataList(key, itmin, itmax))
-  if itmin:
-    its = [it for it in its if i>itmin]
-  Nc = len(cells)
-  Nj = len(its)
-  Nk = len(varlist)
-  datas = np.zeros((Nc, Nj, Nk))
-  dics = [{} for i in range(Nc)]
-  dfs = []
-  for j, it in enumerate(its):
-    if it % 100 == 0:
-      print(f"Analyzing file of it = {it}")
-    df, t = openData_withtime(key, it)
-    for i, z in enumerate(cells):
-      cell = df_get_frontsnCD(df, z)
-      if cell.empty:
-        values = np.zeros(Nk)
-        values[0:2] = it, t
-      else:
-        values = cell.to_numpy(copy=True)
-        # leave room for dt
-        values = np.insert(values, 1, 0.)
-        values = np.insert(values, 0, it)
-      datas[i, j] += values
+  # fits from hydro
+  print('Fitting procedure')
+  d_fit = cellsBehindShock_fromData(data)
+  popt_lfac2, popt_ShSt, _ = get_hydrofits_shell(data, i_set, dfindex)
+  popt_nu, popt_L = get_radfits_shell(d_fit)
 
-  # add dt
-  for i, z in enumerate(cells):
-    t = datas[i,:,1]
-    dt = np.gradient(t)
-    datas[i,:,2] += dt
-    dics[i] = {varlist[k]:datas[i,:,k] for k in range(Nk)}
-    df = pd.DataFrame.from_dict(dics[i]).set_index('it')
-    dfs.append(df)
-    if savefile:
-      df.to_csv(fpaths[i])
-  if not noOut:
-    return dfs
+  # break time
+  Tmax0 = Tmax
+  Tobsf = get_variable(d_fit.iloc[-1], 'Ton', env)
+  i_f = np.searchsorted(Tobs, Tobsf)
+  # in case chosen Tmax is too low
+  while i_f == len(Tobs):
+    Tmax += Tmax0
+    nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], Tmax=Tmax, NT=NT, Nnu=Nnu)
+    i_f = np.searchsorted(Tobs, Tobsf)
+  T = 1 + (Tobs - env.Ts)/env.T0
+  Tf = T[i_f]
+
+  # get peaks
+  tnu = nuobs/env.nu0
+  print('Calculating peaks of ' + front)
+  nF = run_nuFnu_vFC(d_fit, nuobs, Tobs, env)
+  nupk_data, nFpk_data = extract_peaks(tnu, nF)
+  print('Done')
+
+  # peaks function
+  func_peaks = peaks_function_fromFit(Tf, g2, popt_lfac2, popt_nu, popt_L)
+
+  # fitting procedure
+  def residuals(params, T, nupk_data, nFpk_data):
+    k, xi_sat, s = params
+    nupk_model, nFpk_model = func_peaks(T, k, xi_sat, s)
+    r1 = nupk_model - nupk_data
+    r2 = nFpk_model - nFpk_data  
+    return np.concatenate([r1, r2])
+
+  p0 = [0.3, 6., 2.]
+  bounds = ([0.01, 0.1, 0.1], [10., 100., 200.])
+  res = least_squares(residuals, p0, bounds=bounds, args=(T, nupk_data, nFpk_data))
+  popt_xi = res.x
+
+  if returnAll:
+    return Tf, t_max, popt_lfac2, popt_ShSt, popt_nu, popt_L, popt_xi
+  else:
+    return popt_xi
 
 
 ### Produce radiation and peaks
 def get_radiation_vFC(key, front='RS', norm=True,
-  Tmax=5, NT=450, lognu_min=-3, lognu_max=2, Nnu=500):
+  T_max=5, lognu_min=-3, lognu_max=2, NT=450, Nnu=500,
+  noOut=False):
   '''
   \nu F_\nu (\nu, T) from front ('RS' or 'FS')
   Create file with normalized observed frequency, time and flux
@@ -143,15 +128,30 @@ def get_radiation_vFC(key, front='RS', norm=True,
     if type(data) == bool:
       analyze_run(key, savefile=True, noOut=True)
       data = open_rundata(key, z)
+    data = replace_early_withfit(data)
     nF = run_nuFnu_vFC(data, nu, T, env, norm)
     if norm:
       nu /= nu0
       T = (T - env.Ts)/T0
-      np.savez(fpath, nu=nu, T=T, nF=nF)
-  return nu, T, nF
+    np.savez(fpath, nu=nu, T=T, nF=nF)
+  if not noOut:
+    return nu, T, nF
+  
 
+def extract_peaks(nu, nF):
+  '''
+  Extract the peaks of nuFnu
+  '''
+  NT = nF.shape[0]
+  nu_pk, nF_pk = np.zeros((2, NT))
+  for j in range(NT):
+    nF_t = nF[j]
+    i = np.argmax(nF_t)
+    nu_pk[j] += nu[i]
+    nF_pk[j] += nF_t[i]
+  return nu_pk, nF_pk
 
-def get_peaks_from_data(key, front='RS'):
+def get_peaks_from_data(key, front='RS', withT=False):
   '''
   Obtain peak frequency and flux from simulated data, in normalized units
   from front ('RS' or 'FS')
@@ -162,13 +162,11 @@ def get_peaks_from_data(key, front='RS'):
   NT = env.Nsh4 if (front == 'RS') else env.Nsh1
   nu, T, nF = get_radiation_vFC(key, front=front, norm=True, NT=NT, Nnu=500)
   NT = len(T)
-  nu_pk, nF_pk = np.zeros((2, NT))
-  for j in range(NT):
-    nF_t = nF[j]
-    i = np.argmax(nF_t)
-    nu_pk[j] += nu[i]
-    nF_pk[j] += nF_t[i]
-  return nu_pk, nF_pk
+  nu_pk, nF_pk = extract_peaks(nu, nF)
+  if withT:
+    return T + 1., nu_pk, nF_pk
+  else:
+    return nu_pk, nF_pk
 
 
 def analyze_nubk(key):
@@ -183,9 +181,9 @@ def analyze_nubk(key):
   env = MyEnv(key)
   beta = getattr(env, f'beta{z}')
   data = open_rundata(key, z)
-  #data = replace_withfit(data)
+  data = replace_early_withfit(data)
   data = data.drop_duplicates(subset='i', keep='first')
-  data = extrapolate_early(data, env)
+  #data = extrapolate_early(data, env)
   df0 = openData(key, 0)
 
   # crossed radius by the shock and corresponding ton/toff
