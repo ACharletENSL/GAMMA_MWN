@@ -64,6 +64,20 @@ def smooth_bpl0(x, x_b, alpha, s=1.):
   '''
   return smooth_bpl(x, x_b, alpha, 0., s)
 
+def smooth_bpl_apy(x, A, x_b, alpha, beta, s):
+  '''
+  as defined in astropy
+  s > 0
+  '''
+  s = max(np.abs(s), 1e-3)
+  q = (alpha - beta)*s
+  y = x/x_b
+  low = y**(-alpha)
+  high = (.5 * (1. + y**(1/s)))**q
+  return A * low * high
+
+def smooth_bpl0_apy(x, A, x_b, alpha, s):
+  return smooth_bpl_apy(x, A, x_b, alpha, 0., s)
 
 
 def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
@@ -372,6 +386,22 @@ def derive_relatvel_ud(rho, p, rhoscale):
   beta_ud = derive_velocity(lfac_ud)
   return beta_ud
 
+def derive_lfac_ud(vx, vx_u):
+  '''
+  Relative Lorentz factor between downstream and upstream
+  cell is taken downstream, must have vx_u saved
+  '''
+  lfac_d = derive_Lorentz(vx)
+  lfac_u = derive_Lorentz(vx_u)
+  return lfac_u * lfac_d * (1 - vx_u * vx)
+
+def derive_lfac_ud_minus1(vx, vx_u):
+  '''
+  Same as lfac_ud but - 1
+  '''
+  lfac_d = derive_Lorentz(vx)
+  lfac_u = derive_Lorentz(vx_u)
+  return lfac_u * lfac_d * (1 - vx_u * vx) - 1.
 
 def derive_B_comoving(rho, p, rhoscale, eps_B=1/3.):
   B2 = derive_B2_comoving(rho, p, rhoscale, eps_B)
@@ -705,6 +735,20 @@ def derive_Fpeak_numeric(x, dx, rho, vx, p, gmin,
   L = (d2/(2*x)) * Epnu
   return zdl * L
 
+def derive_Lbol_comov_new(x, rho, vx, p, vx_u, R0, rhoscale, eps_e, geometry):
+  ''' Bolometric luminosity in comoving frame'''
+  eint = derive_Eint_comoving(rho, p, rhoscale)
+  lfac_ud = derive_lfac_ud(vx, vx_u)
+  beta_ud = derive_velocity(lfac_ud)
+  r = R0 if geometry == 'cartesian' else x*c_
+  S = (4./3.)*pi_*r**2
+  return eps_e*eint*beta_ud*S*c_
+
+def derive_Lp_nupm_new(x, rho, vx, p, vx_u, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry):
+  Lbol = derive_Lbol_comov_new(x, rho, vx, p, vx_u, R0, rhoscale, eps_e, geometry)
+  nup_m = derive_nup_m_new(rho, vx, p, vx_u, rhoscale, psyn, eps_B, eps_e, xi_e)
+  Wp = 2*(psyn-1)/(psyn-2)
+  return Lbol/(Wp*nup_m)
 
 def derive_Lbol_comov(x, rho, p, R0, rhoscale, eps_e, geometry):
   ''' Bolometric luminosity in comoving frame'''
@@ -846,6 +890,15 @@ def derive_nu_from_gma(rho, vx, p, gma, rhoscale, eps_B, z):
   nup = derive_nup_from_gma(rho, p, gma, rhoscale, eps_B)
   return D*nup
 
+def derive_nu_m_new(rho, vx, p, vx_u, rhoscale, psyn, eps_B, eps_e, xi_e, z):
+  '''
+  Peak frequency of the electron distribution, in observer frame
+  '''
+  D = derive_DopplerRed_los(vx, z)
+  nup_m = derive_nup_m_new(rho, vx, p, vx_u, rhoscale, psyn, eps_B, eps_e, xi_e)
+  nu_m = nup_m*D
+  return nu_m
+
 def derive_nu_m(rho, vx, p, rhoscale, psyn, eps_B, eps_e, xi_e, z):
   '''
   Peak frequency of the electron distribution, in observer frame
@@ -855,6 +908,14 @@ def derive_nu_m(rho, vx, p, rhoscale, psyn, eps_B, eps_e, xi_e, z):
   nu_m = nup_m*D
   return nu_m
 
+def derive_nup_m_new(rho, vx, p, vx_u, rhoscale, psyn, eps_B, eps_e, xi_e):
+  '''
+  Peak frequency of the electron distribution, in comoving frame
+  '''
+  nup_B = derive_cyclotron_comoving(rho, p, rhoscale, eps_B)
+  gma_m = derive_gma_m_new(vx, vx_u, psyn, eps_e, xi_e)
+  nup_m = nup_B*gma_m**2
+  return nup_m
 
 def derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
   '''
@@ -923,6 +984,15 @@ def derive_gma_m(rho, p, rhoscale, psyn, eps_e, xi_e):
   ee  = eps_e*ei
   Gp  = (psyn-2.)/(psyn-1.)
   return Gp*ee/(ne*me)
+
+def derive_gma_m_new(vx, vx_u, psyn, eps_e, xi_e):
+  '''
+  Minimum Lorentz factor of accelerated electron distribution
+  '''
+  lfac_ud = derive_lfac_ud(vx, vx_u)
+  Gp = (psyn-2.)/(psyn-1.)
+  return (mp_/me_) * Gp * (eps_e/xi_e) * (lfac_ud - 1.)
+
 
 def derive_gma_M(rho, p, rhoscale, eps_B):
   '''

@@ -42,8 +42,8 @@ else
 ifeq ($(HOME), /home/arthurc)
 	CXX      = mpicxx
 	CXXFLAGS = -Wall -Wextra -std=c++11 -O3 -fopenmp
-	LFLAGS   = -fopenmp -lgsl -lgslcblas -lm
-	IFLAGS   =
+	LFLAGS   = -fopenmp -L$(GSL_ROOT)/lib -lgsl -lgslcblas -lm
+	IFLAGS   = -I$(GSL_ROOT)/include
 else
 ifeq ($(OS_NAME), linux)
 	#CXX      = mpiicpc -mt_mpi

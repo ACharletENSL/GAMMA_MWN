@@ -5,6 +5,7 @@ Reading and writing data
 # Imports
 # --------------------------------------------------------------------------------------------------
 import os
+import glob
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -20,6 +21,12 @@ GAMMA_dir = '/'.join(cwd[:iG+1])
 
 def get_dirpath(key):
   return GAMMA_dir + '/results/%s/' % (key)
+
+def list_keys():
+  res_dir = GAMMA_dir + '/results/'
+  key_list = glob.glob(res_dir+'*')
+  keys = [key.replace(res_dir, '') for key in key_list]
+  return keys
 
 # opening snapshots
 ##### opening file
@@ -180,7 +187,7 @@ def df_get_CDcell(df, z, n=1):
 def df_get_cellsBehindShock(df, n=5):
   return [df_get_cellBehindShock(df, sh, n) for sh in ['RS', 'FS']]
 
-def df_get_cellBehindShock(df, shFront, n=5, m=1):
+def df_get_cellBehindShock(df, shFront, n=5, m=1, up=3):
   '''
   Return a cell object with radiative values & position taken at shock front
   and hydro values taken downstream (n cells after shock)
@@ -193,11 +200,11 @@ def df_get_cellBehindShock(df, shFront, n=5, m=1):
     return out
 
   hdvars = ['dx', 'rho', 'vx', 'p', 'D', 'sx', 'tau']
-  sign = 1
   iCD = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)].index.max()
   RS, FS = df_to_shocks(df)
   if shFront == 'RS':
     sh = RS
+    up = -up
   elif shFront == 'FS':
     sh = FS
   for key in df.attrs.keys():
@@ -220,6 +227,10 @@ def df_get_cellBehindShock(df, shFront, n=5, m=1):
       front.attrs[key] = df.attrs[key]
       down.attrs[key] = df.attrs[key]
     front[hdvars] = down[hdvars]
+
+    # save upstream velocity for shock strength
+    vx_u = df.iloc[i+up]['vx']
+    front['vx_u'] = vx_u
     return front
 
    
@@ -322,13 +333,54 @@ def get_fitsfile(key, z):
   path = fname+front+'.out'
   return path
 
-def open_fits(key, z):
+def open_fits(key, z, l=4):
+  '''
+  l the typical length of popt
+  '''
   fname = get_fitsfile(key, z)
-  Tf, t_max, *rest = np.loadtxt(fname)
-  popts = [np.array(rest[i:i+3]) for i in range(0, 15, 3)]
-  popt_lfac2, popt_ShSt, popt_nu, popt_L, popt_xi = popts
-  return Tf, t_max, popt_lfac2, popt_ShSt, popt_nu, popt_L, popt_xi
+  logau, Tf, t_max, *rest = np.loadtxt(fname)
+  # params per variable
+  groups = [4, 4, 4, 4, 3]
+  popts = []
+  i = 0
+  for n in groups:
+    popts.append(np.array(rest[i:i+n]))
+    i += n
+  popt_lfac, popt_ShSt, popt_nu, popt_L = popts
+  return Tf, t_max, popt_lfac, popt_ShSt, popt_nu, popt_L, popt_xi
 
+def join_extracted(noPks=False):
+  '''
+  Join the extracted data from the sweep in one table
+  '''
+  prefix = ['log_aum']
+  varnames_1 = [] if noPks else ['Tf', 't_max']
+  varnames_2 = [name+'_'+s for name in ['lfac', 'ShSt', 'nu', 'L']
+      for s in ['A', 'x_b', 'alpha', 's']]
+  varnames_3 = ['xi_' + s for s in ['k', 'sat', 's']]
+  varnames = prefix + varnames_1 + varnames_2 + varnames_3
+  header = "\t".join(varnames)
+  N = len(varnames)
+  folder = './extracted_data/'
+  for front in ['FS', 'RS']:
+    search_exp = folder + 'sweep*' + front + '.out'
+    files = glob.glob(search_exp)
+    arr0 = np.loadtxt(files[0])
+    if len(arr0) != N:
+      print(f'Header length {N} != array length {len(arr0)}')
+      return 0.
+    arrays = [np.loadtxt(f) for f in files]
+    table = np.stack(arrays)
+    table = table[table[:, 0].argsort()]
+    fmt = '%2f, ' + ','.join(['%10f']*(N-1)) 
+    np.savetxt("./extracted_data/fullsweep_au_"+front+".csv",
+      table, delimiter='\t', header=header, comments='')
+
+def open_sweep(front):
+  path = GAMMA_dir+'/extracted_data/'
+  fname = path + 'fullsweep_au_' + front +'.csv'
+  df = pd.read_csv(fname, sep='\t')
+  return df
 
 def get_runfile(key, z):
   '''

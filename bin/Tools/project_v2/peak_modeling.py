@@ -18,8 +18,28 @@ Contains:
 '''
 
 import numpy as np
-from phys_functions import smooth_bpl, smooth_bpl0
+import os
+import pandas as pd
+from fits_hydro import fits_from_au
+from scipy.interpolate import interp1d
 from scipy.optimize import brentq, least_squares
+from scipy.integrate import quad
+
+from phys_functions import *
+
+
+def ratios_RSvFS_from_au(au):
+  G21, G34 = relLfac_from_au(au)
+  b21 = derive_velocity(G21)
+  b34 = derive_velocity(G34)
+  gFS2, gRS2 = g2_from_au(au)
+
+  ratio_T = (gRS2/gFS2)
+  fac1 = np.sqrt((G34/G21)*((G21+1)/(G34+1)))
+  fac2 = ((G34-1)/(G21-1))**2
+  ratio_nu = fac1 * fac2
+  ratio_F = fac1 * (b34/b21) / fac2
+  return ratio_T, ratio_nu, ratio_F
 
 def g2_from_au(au):
   '''
@@ -104,36 +124,90 @@ def peaks_model_R24(T, au, dR, g2):
   return nu, nF
 
 ##### From fitted functions
-# end goal is flux_fromFit(au, DeltaR/R0)
-def peaks_fromfits(T, Tf, g2, popt_lfac2, popt_nu, popt_L, popt_xi):
+def flux_model_C25(T_b, nu_b, au, dRRS, dRFS, alpha=-0.5, beta=-1.25):
+  '''
+  Return flux using the built model with time
+    time T_b is normalized to angular time of RS at R0
+    frequency nu_b is normalized to peak frequency of the RS
+    resulting flux is normalized relative to the peak RS flux
+  '''
+
+  # RS
+  tT = 1 + T_b
+  nupks_RS, nFpks_RS = peaks_model_C25(tT, au, dRRS, reverse=True)
+  F_RS = np.zeros((len(T_b), len(nu_b)))
+  for i, (nupk, nFpk) in enumerate(zip(nupks_RS, nFpks_RS)):
+    Fpk = nFpk/nupk
+    nu = nu_b/nupk
+    F = Fpk * Band_func(nu, alpha, beta)
+    F_RS[i] = F
+  
+  # FS
+  ratio_T, ratio_nu, ratio_F = ratios_RSvFS_from_au(au)
+  tT_FS = 1 + T_b * ratio_T
+  nupks_FS, nFpks_FS = peaks_model_C25(tT_FS, au, dRFS, reverse=False)
+  nupks_FS /= ratio_nu
+  nFpks_FS /= (ratio_F*ratio_nu)
+  F_FS = np.zeros((len(T_b), len(nu_b)))
+  for i, (nupk, nFpk) in enumerate(zip(nupks_FS, nFpks_FS)):
+    Fpk = nFpk/nupk
+    nu = nu_b/nupk
+    F = Fpk * Band_func(nu, alpha, beta)
+    F_FS[i] = F
+  
+  F_tot = F_RS + F_FS
+  return F_tot
+
+
+def peaks_model_C25(T, au, dR, reverse=True):
+  '''
+  Return normalized peak energy and flux at peak,
+    using a table of functions built with a_u 
+  '''
+  front, i_g = ('RS', 1) if reverse else ('FS', 0)
+  g2 = g2_from_au(au)[i_g]
+  popt_lfac, _, popt_nu, popt_L, popt_xi = fits_from_au(au, front)
+  #Tf = 1 + dR
+  Tf = Tf_from_dR(dR, popt_lfac)
+
+  nupk, nFpk = peaks_fromfits(T, Tf, g2, popt_lfac, popt_nu, popt_L, popt_xi)
+  return nupk, nFpk
+
+def Tf_from_dR(dR, popt_lfac):
+  '''
+  Final observed time (normalized) from the crossed radius (normalized)
+  '''
+  integrand = lambda x: 1. / smooth_bpl0_apy(x, *popt_lfac)**2
+  result, _ = quad(integrand, 1., 1. + dR)
+  return 1. + result
+
+def peaks_fromfits(T, Tf, g2, popt_lfac, popt_nu, popt_L, popt_xi):
   '''
   Produce F_\nu (T) from the fitting parameters
   T is normalized time tilde(T)
   '''
-  k, xi_sat, s = popt_xi
-  func_peaks = peaks_function_fromFit(Tf, g2, popt_lfac2, popt_nu, popt_L)
-  nupk, nFpk = func_peaks(T, *popt_xi)
+  func_peaks = peaks_function_fromFit(Tf, g2, popt_lfac, popt_nu, popt_L)
+  nupk, nFpk = func_peaks(T, popt_xi)
   return nupk, nFpk
 
 
-def peaks_function_fromFit(Tf, g2, popt_lfac2, popt_nu, popt_L):
+def peaks_function_fromFit(Tf, g2, popt_lfac, popt_nu, popt_L):
 
   # intermediate functions for flux calc
   def func_Gma(x):
-    Gma2 = smooth_bpl0(x, *popt_lfac2)
-    Gma = np.sqrt(Gma2)
+    Gma = smooth_bpl0_apy(x, *popt_lfac)
     return Gma
   def func_nu(x):
-    nuR = smooth_bpl0(x, *popt_nu)
+    nuR = smooth_bpl0_apy(x, *popt_nu)
     return nuR/x
   def func_Lbol(x):
-    L = smooth_bpl0(x, *popt_L)
+    L = smooth_bpl0_apy(x, *popt_L)
     return L
   
-  def func_rise(T, k, xi_sat, s):
+  def func_rise(T, k, xi_sat=10, s_eats=10):
     x_L = T
-    t = g2*(T-1)
-    xi_max = (t**(-s) + xi_sat**(-s))**(-1/s)
+    t = np.maximum(g2*(T-1), 1e-10)
+    xi_max = (t**(-s_eats) + xi_sat**(-s_eats))**(-1/s_eats)
     xi_eff = k*xi_max
     x_eff = x_L/(1+xi_eff/g2)
     Dop = func_Gma(x_eff)/(1+xi_eff)
@@ -141,143 +215,23 @@ def peaks_function_fromFit(Tf, g2, popt_lfac2, popt_nu, popt_L):
     nFpk = 3*xi_max*Dop**4*func_Lbol(x_eff)/func_Gma(x_L)**2
     return nupk, nFpk
   
-  def func_HLE(T, k, xi_sat, s, nupk_f, nFpk_f):
+  def func_HLE(T, k, xi_sat, s_eats, nupk_f, nFpk_f):
     '''T is T/Tf'''
     Teff = (1-g2) + g2*T
     nupk = nupk_f / Teff
     nFpk = nFpk_f / Teff**3
     return nupk, nFpk
   
-
-  def func_peaks(T, k, xi_sat, s):
+  def func_peaks(T, popt_xi):
     mask1 = (T <= Tf)
     mask2 = ~mask1
     nupk, nFpk = np.empty_like(T), np.empty_like(T)
-    nupk[mask1], nFpk[mask1] = func_rise(T[mask1], k, xi_sat, s)
-    rise_f = np.array(func_rise(Tf, k, xi_sat, s))
+    nupk[mask1], nFpk[mask1] = func_rise(T[mask1], *popt_xi)
+    rise_f = np.array(func_rise(Tf, *popt_xi))
     nupk_f, nFpk_f = rise_f[0], rise_f[1]
-    HLE_f = np.array([func_HLE(Tf, k, xi_sat, s, nupk_f, nFpk_f)])
-    nupk[mask2], nFpk[mask2] = func_HLE(T[mask2]/Tf, k, xi_sat, s, nupk_f, nFpk_f)
-      #+ rise_f - HLE_f[:, np.newaxis]
+    HLE_f = np.array([func_HLE(Tf, *popt_xi, nupk_f, nFpk_f)])
+    nupk[mask2], nFpk[mask2] = func_HLE(T[mask2]/Tf, *popt_xi, nupk_f, nFpk_f)
     return nupk, nFpk
-
   return func_peaks
-
-def peaks_model_C25(T, au, dR,
-    m, lfac2_sph, n, Sh_sph,
-    k=0.5, xi_sat=2., s=2.):
-  '''
-  Peak frequency and flux with normalized observed time \tilde{T}
-  based on the fitting method in Charlet et al. 2025
-  parameters:
-    T:          \tilde[T} = (T - T_ej,eff)/T_R, normalized observed time
-      ! be careful with normalization, radial and angular time are different now ! 
-      type np.ndarray, replace "np.where" by if/else if you prefer a float as input
-    au:         a_u, proper velocity contrast
-    dR:         distance crossed by the shock front, in units R0
-  additional parameters (will be replaced by a lookup table)
-    m:          power-law index, \Gamma^2 \propto R^-m
-    lfac2_sph:  large R/R0 value of (\Gamma/\Gamma_0)^2
-    n:          power-law index, L'_bol \propto R^-n
-    Sh_sph:     large R/R0 value of \Gamma_{ud-1} (normalized to value at R0)
-  optional parameters:
-    k:          effective angle xi_eff over maximal contributing angle of EATS xi_max
-    xi_sat:     max value of xi_max (order unity)
-    s:          smoothing parameter
-  '''
-
-  ########################## upcoming  ########################## 
-  ### lookup table (or empirical law) for m, n, and the _sph vars
-  ############################################################### 
-
-  # shock front L.F. to downstream L.F. ratio
-  g2 = g2_from_au(au)[1]
-  g2m = g2/(m+1)
-
-  # Crossing time
-  Tf = (1. + dR)
-
-  # Rise and HLE with T as function of the input parameters
-  def func_rise(T):
-    return peaks_rise(T, g2, m, n, lfac2_sph, Sh_sph, k, xi_sat, s)
-  _, _, y_eff_f =  effective_angle(Tf, g2, m, k, xi_sat, s)
-  nu_pkf, Fnu_pkf = func_rise(Tf)
-  def func_HLE(T):
-    return peaks_HLE(T, Tf, g2, y_eff_f, nu_pkf, Fnu_pkf)
-
-  rise = (T <= Tf)
-  nu_pk, Fnu_pk = np.where(rise, func_rise(T), func_HLE(T))
-
-  return nu_pk, Fnu_pk
-
-def freqs_model_C25(au, dR,
-    m, lfac2_sph, n, Sh_sph,
-    k=0.145, xi_sat=5., s=2.):
-  '''
-  Get the \nu_bk / \nu_{1/2} as a function of \Delta R / R0
-  '''
-  g2 = g2_from_au(au)[1]
-  Tf = (1 + dR)
-
-  def func_nuFnu(T):
-    nu_pk, Fnu_pk = peaks_rise(T, g2, m, n, lfac2_sph, Sh_sph, k, xi_sat, s)
-    return nu_pk * Fnu_pk
-
-  nu_bk, Fnu_bk = peaks_rise(Tf, g2, m, n, lfac2_sph, Sh_sph, k, xi_sat, s)
-  nF_bk = nu_bk*Fnu_bk
-
-  def func_root(T):
-    return func_nuFnu(T) - 0.5*nF_bk
-  T_hf = brentq(func_root, 1, 1.5*Tf)
-
-  nu_hf, F_hf = peaks_rise(T_hf, g2, m, n, lfac2_sph, Sh_sph, k, xi_sat, s)
-  return nu_bk, nu_hf
-
-
-
-#### Intermediate quantities for peak frequency and flux
-def effective_angle(T, g2, m, k, xi_sat, s):
-  '''EATS size, contributing angle, effective angle and radius'''
-  g2m = g2/(m+1)
-  EATS = g2m * (T - 1.0)
-  xi_max = (EATS**(-s) + xi_sat**(-s))**(-1.0/s)
-  xi_eff = k*xi_max
-  y_eff  = (1. + xi_eff/g2m)**(-1/(m+1))
-  return xi_max, xi_eff, y_eff
-
-def peaks_rise(T, g2, m, n, lfac2_sph, Sh_sph, k, xi_sat, s):
-  '''Rising part of the observed flux'''
-
-  # power-law indices and (normalized) large R values
-  #    for frequency and luminosity
-  a =  1. + 1.5*n
-  d = -(1. + 2.5*n)
-  lfac_sph = np.sqrt(lfac2_sph)
-  nu_sph = Sh_sph**(1.5)
-  L_sph = 1/np.sqrt(Sh_sph)
-  
-  xi_max, xi_eff, y_eff = effective_angle(T, g2, m, k, xi_sat, s)
-  r_eff = y_eff * T
-
-  # LF, comoving frequency, and luminosity at effective radius, normalized
-  Gamma_d = smooth_bpl0(r_eff, lfac_sph, -0.5*m, s)
-  Gamma_d_RL = smooth_bpl0(T, lfac_sph, -0.5*m, s)
-  nu_prime = smooth_bpl(r_eff, nu_sph, d, -1.0, s)
-  L_prime = smooth_bpl(r_eff, L_sph, a, 1.0, s)
-
-  # peak frequency and flux (up to crossing time)
-  Dop = Gamma_d / (1 + xi_eff)
-  nu_pk = Dop * nu_prime
-  # factor 3 absorbed in normalization
-  Fnu_pk = g2 * xi_max * (Dop**3) * L_prime / (Gamma_d_RL**2)
-  return nu_pk, Fnu_pk
-  
-def peaks_HLE(T, Tf, g2, y_eff_f, nu_pkf, Fnu_pkf):
-  '''High latitude emission'''
-  r_f = y_eff_f * Tf
-  T_hle = (1 - g2) + g2 * T/Tf
-  nu_pk = nu_pkf / T_hle
-  Fnu_pk = Fnu_pkf / (T_hle**2)
-  return nu_pk, Fnu_pk
 
 

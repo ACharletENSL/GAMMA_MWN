@@ -14,6 +14,7 @@ from phys_constants import *
 from fits_hydro import get_hydrofits_shell
 
 
+
 # Extracting hydro data
 #### Thinshell approx: only cells downstream are interesting
 def get_critical_radii(key, z):
@@ -49,9 +50,9 @@ def get_plaws_hydro(key, z):
   '''
 
   data = open_rundata(key, z)
-  popt_lfac2, popt_ShSt = get_hydrofits_shell(data)
-  x_lf, m, s_lf = popt_lfac2
-  x_sh, n, s_sh = popt_ShSt
+  popt_lfac, popt_ShSt, _, _, _ = get_hydrofits_shell(data)
+  x_lf, m, s_lf = popt_lfac
+  x_sh, n, o, s_sh = popt_ShSt
   return [-m, x_lf], [-n, x_sh]
 
 def get_Rcrossing(key, z):
@@ -87,6 +88,8 @@ def extract_data_thinshell(key, itmin=0, itmax=None,
   varlist = df0.keys().to_list()
   varlist.insert(1, 'dt')
   varlist.insert(0, 'it')
+  varlist.append('vx_u')
+
   its = np.array(dataList(key, itmin, itmax))
   if itmin:
     its = [it for it in its if i>itmin]
@@ -106,17 +109,21 @@ def extract_data_thinshell(key, itmin=0, itmax=None,
         values = np.zeros(Nk)
         values[0:2] = it, t
       else:
-        values = cell.to_numpy(copy=True)
-        # leave room for dt
-        values = np.insert(values, 1, 0.)
-        values = np.insert(values, 0, it)
+        # values = cell.to_numpy(copy=True)
+        # # leave room for dt
+        # values = np.insert(values, 1, 0.)
+        # values = np.insert(values, 0, it)
+        # cell_vals = cell.reindex(varlist[2:]).to_numpy()
+        # values = np.concatenate([[it, 0.], cell_vals])
+        cell_vals = cell.reindex(varlist[3:]).to_numpy()   # skip 'dt', start from 'nact'
+        values = np.concatenate([[it, t, 0.], cell_vals])  # values[1]=t, values[2]=0 (dt placeholder)
       datas[i, j] += values
 
   # add dt
   for i, z in enumerate(cells):
     t = datas[i,:,1]
     dt = np.gradient(t)
-    datas[i,:,2] += dt
+    datas[i,:,2] = dt
     dics[i] = {varlist[k]:datas[i,:,k] for k in range(Nk)}
     df = pd.DataFrame.from_dict(dics[i]).set_index('it')
     dfs.append(df)

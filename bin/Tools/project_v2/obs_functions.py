@@ -47,6 +47,16 @@ def obs_arrays_peakcentred(key, normed=False,
 
 
 ##### Normalizations
+def normalize_time(Tobs, z, env):
+  T0 = env.T0FS if z==1 else env.T0
+  T = (Tobs - env.Ts)/T0 + 1
+  return T
+
+def normalize_freq(nuobs, z, env):
+  nu0 = env.nu0FS if z==1 else env.nu0
+  nu = nuobs/nu0
+  return nu
+
 def Tobs_to_tildeT(Tobs, cell, env):
   '''
   Normalizes observed time

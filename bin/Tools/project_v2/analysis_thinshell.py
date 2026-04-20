@@ -21,29 +21,33 @@ def extract_fittingData(key, log_au):
   '''
   Extract data behind shock fronts from a sim, save in files
   '''
-
-  # small utilitary to unpack results
-  def foo(item):
-    try:
-      return item[0]
-    except:
-      return item
-
   
+  extract_data_thinshell(key, cells=[1, 4], noOut=True)
+  extract_fits(key, logau)
+
+
+def extract_fits(key, logau, output=False, noPks=False):
   env = MyEnv(key)
-  zs = [1, 4]
-  extract_data_thinshell(key, cells=zs, noOut=True)
-  for z, front in zip(zs, ['FS', 'RS']):
+  outs = []
+  for z, front in zip([1, 4], ['FS', 'RS']):
     data = open_rundata(key, z)
     # drop rows with x == 0
     data = data.loc[~(data['x'] == 0.)]
     data.attrs['key'] = key
     fname = get_fitsfile(key, z)
     N = getattr(env, f'Nsh{z}')
-    analyzed = get_anglefits(data, NT=2*N, Nnu=300, returnAll=True)
-    analyzed = np.hstack(analyzed)
-    analyzed = np.insert(analyzed, 0, log_au)
-    np.savetxt(fname, analyzed)
+    if noPks:
+      popt_lfac, popt_ShSt, _, popt_nu, popt_L = get_hydrofits_shell_new(data)
+      analyzed = popt_lfac, popt_ShSt, popt_nu, popt_L
+    else:
+      analyzed = get_anglefits(data, NT=2*N, Nnu=300,
+        returnAll=True)
+    outs.append(analyzed)
+    out = np.hstack(analyzed)
+    out = np.insert(out, 0, logau)
+    np.savetxt(fname, out)
+  if output:
+    return outs
 
 # get the fits for xi (effective angle approx)
 def get_anglefits(data, Tmax=5, NT=450, Nnu=200, returnAll=False,
@@ -51,15 +55,16 @@ def get_anglefits(data, Tmax=5, NT=450, Nnu=200, returnAll=False,
 
   nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], NT=NT, Nnu=Nnu)
   t_max = data.iloc[-1].t
-  front = 'RS' if data.iloc[0].trac < 1.5 else 'FS'
+  key = data.attrs['key']
+  fastshell = (data.iloc[0].trac < 1.5)
+  front = 'RS' if fastshell else 'FS'
   g = getattr(env, 'g'+front)
   g2 = g*g
 
   # fits from hydro
   print('Fitting procedure')
-  d_fit = cellsBehindShock_fromData(data)
-  popt_lfac2, popt_ShSt, _ = get_hydrofits_shell(data, i_set, dfindex)
-  popt_nu, popt_L = get_radfits_shell(d_fit)
+  popt_lfac, popt_ShSt, _, popt_nu, popt_L = get_hydrofits_shell_new(data)
+  d_fit = cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max, fastshell=fastshell)
 
   # break time
   Tmax0 = Tmax
@@ -70,7 +75,7 @@ def get_anglefits(data, Tmax=5, NT=450, Nnu=200, returnAll=False,
     Tmax += Tmax0
     nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], Tmax=Tmax, NT=NT, Nnu=Nnu)
     i_f = np.searchsorted(Tobs, Tobsf)
-  T = 1 + (Tobs - env.Ts)/env.T0
+  T = 1 + (Tobs - env.Ts)/(env.T0 if fastshell else env.T0FS)
   Tf = T[i_f]
 
   # get peaks
@@ -81,23 +86,26 @@ def get_anglefits(data, Tmax=5, NT=450, Nnu=200, returnAll=False,
   print('Done')
 
   # peaks function
-  func_peaks = peaks_function_fromFit(Tf, g2, popt_lfac2, popt_nu, popt_L)
+  func_peaks = peaks_function_fromFit(Tf, g2, popt_lfac, popt_nu, popt_L)
 
   # fitting procedure
   def residuals(params, T, nupk_data, nFpk_data):
-    k, xi_sat, s = params
-    nupk_model, nFpk_model = func_peaks(T, k, xi_sat, s)
+    
+    nupk_model, nFpk_model = func_peaks(T, params)
     r1 = nupk_model - nupk_data
     r2 = nFpk_model - nFpk_data  
     return np.concatenate([r1, r2])
 
-  p0 = [0.3, 6., 2.]
-  bounds = ([0.01, 0.1, 0.1], [10., 100., 200.])
-  res = least_squares(residuals, p0, bounds=bounds, args=(T, nupk_data, nFpk_data))
+  # k, xi_sat, s_eats
+  p0 = [0.3, 5, 5]
+  bounds = ([1e-5, 0.1, 1],[1, 10, 100])
+  res = least_squares(residuals, p0, bounds=bounds,
+    #args=(T, nupk_data, nFpk_data))
+    args=(T[1:], nupk_data[1:], nFpk_data[1:]))
   popt_xi = res.x
 
   if returnAll:
-    return Tf, t_max, popt_lfac2, popt_ShSt, popt_nu, popt_L, popt_xi
+    return Tf, t_max, popt_lfac, popt_ShSt, popt_nu, popt_L, popt_xi
   else:
     return popt_xi
 
@@ -127,7 +135,7 @@ def get_radiation_vFC(key, front='RS', norm=True,
     if type(data) == bool:
       analyze_run(key, savefile=True, noOut=True)
       data = open_rundata(key, z)
-    data = replace_early_withfit(data)
+    data = cellsBehindShock_fromData(data)
     nF = run_nuFnu_vFC(data, nu, T, env, norm)
     if norm:
       nu /= nu0
@@ -180,9 +188,7 @@ def analyze_nubk(key):
   env = MyEnv(key)
   beta = getattr(env, f'beta{z}')
   data = open_rundata(key, z)
-  data = replace_early_withfit(data)
-  data = data.drop_duplicates(subset='i', keep='first')
-  #data = extrapolate_early(data, env)
+  data = cellsBehindShock_fromData(data)
   df0 = openData(key, 0)
 
   # crossed radius by the shock and corresponding ton/toff

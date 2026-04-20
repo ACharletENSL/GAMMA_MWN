@@ -10,17 +10,19 @@ import time
 import glob
 from setup import *
 from analysis_thinshell import extract_fittingData
+from IO import join_extracted
 
 # values of a_u - 1 to perform sweep
-logau_arr = np.arange(-0.5, 0.5, 0.1)
+logau_arr = np.arange(-0.6, 0.6, 0.1)
 logau_arr[np.abs(logau_arr)<1e-2] = 0
 #logau_arr = [0, np.log10(4)]
 def_u1 = 100
 waittime = 60 # default wait time between checks
 ONHPC = ('arthurc' in os.environ['HOME'])
-delete = False
+delete = True
 
 def main():
+  clean = False
   if delete and (not ONHPC):
     clean = True
     print("Data will be deleted after each run")
@@ -28,16 +30,20 @@ def main():
     # load modules
     subprocess.call("source ~/.bashrc", shell=True)
   for log_au in logau_arr:
-    run_n_analyze(log_au)
+    name = f"log_au={log_au:.1f}"
+    key = 'sweep_'+name
+    au = 1 + 10**log_au
+    print(f'Running simulation with log a_u - 1 = {log_au:.1f} (a_u = {au:.2f})')
+    run_sim(au)
+    print('Run finished, moving in results/sweep_' + name)
+    move_results(name)
+    extract_fittingData(key, log_au)
     if clean:
       print("Deleting data")
-      os.popen('rm -rf results/' + key)
+      os.popen('rm -f results/' + key + '/phys*.out')
   join_extracted()
 
-def run_n_analyze(log_au):
-  au = 1 + 10**log_au
-  print(f'Running simulation with log a_u - 1 = {log_au:.1f} (a_u = {au:.2f})')
-  name = f"log_au={log_au:.1f}"
+def run_sim(au):
   update_input(au)
   if ONHPC:
     subprocess.call("./HPC_launch.sh", shell=True)
@@ -45,10 +51,6 @@ def run_n_analyze(log_au):
       time.sleep(60)
   else:
     os.popen("./local_launch.sh").read()
-  print('Run finished, moving in results/sweep_' + name)
-  move_results(name)
-  key = 'sweep_'+name
-  extract_fittingData(key, log_au)
 
 def update_input(au):
   '''
@@ -108,26 +110,6 @@ def move_results(name):
   subprocess.run(['mv', 'results/Last', path])
   subprocess.call("mkdir -p results/Last", shell=True)
 
-def join_extracted():
-  '''
-  Join the extracted data from the sweep in one table
-  '''
-  varnames = ['log_aum', 'Tf', 't_max', \
-    'lfac2_inf', 'lfac2_alp', 'lfac2_s', \
-    'ShSt_inf', 'ShSt_alp', 'ShSt_s', \
-    'L_inf', 'L_alp', 'L_s', \
-    'nu_inf', 'nu_alp', 'nu_s', \
-    'k', 'xi_sat', 'xi_s']
-  header = "\t".join(varnames)
-  folder = './extracted_data/'
-  for front in ['FS', 'RS']:
-    search_exp = folder + 'sweep*' + front + '.out'
-    files = glob.glob(search_exp)
-    arrays = [np.loadtxt(f) for f in files]
-    table = np.stack(arrays)
-    table = table[table[:, 0].argsort()]
-    np.savetxt("./extracted_data/fullsweep_au_"+front+".csv",
-      table, delimiter='\t', header=header, comments='')
 
 if __name__ == "__main__":
     main()
