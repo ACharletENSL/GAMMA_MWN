@@ -10,14 +10,16 @@ import time
 import glob
 from setup import *
 from analysis_thinshell import extract_fittingData
-from IO import join_extracted
+from IO import join_extracted, check_done_logau, logau_to_key
 
 # values of a_u - 1 to perform sweep
-logau_arr = np.arange(-0.6, 0.6, 0.1)
-logau_arr[np.abs(logau_arr)<1e-2] = 0
+#logau_arr = np.arange(-0.6, 0.6, 0.1)
+#logau_arr[np.abs(logau_arr)<1e-2] = 0
+#logau_arr = np.arange(0.6, 1.6, 0.1)
+logau_arr = np.arange(-1, -0.5, 0.1)
 #logau_arr = [0, np.log10(4)]
 def_u1 = 100
-waittime = 60 # default wait time between checks
+waittime = 60 # default wait time between checksx
 ONHPC = ('arthurc' in os.environ['HOME'])
 delete = True
 
@@ -30,8 +32,7 @@ def main():
     # load modules
     subprocess.call("source ~/.bashrc", shell=True)
   for log_au in logau_arr:
-    name = f"log_au={log_au:.1f}"
-    key = 'sweep_'+name
+    key = logau_to_key(log_au)
     au = 1 + 10**log_au
     print(f'Running simulation with log a_u - 1 = {log_au:.1f} (a_u = {au:.2f})')
     run_sim(au)
@@ -43,6 +44,13 @@ def main():
       os.popen('rm -f results/' + key + '/phys*.out')
   join_extracted()
 
+def analyze_all():
+  logau_done = check_done_logau()
+  for logau in logau_done:
+    key = logau_to_key(log_au)
+    extract_fittingData(key, log_au)
+  join_extracted()
+
 def run_sim(au):
   update_input(au)
   if ONHPC:
@@ -50,7 +58,7 @@ def run_sim(au):
     while(check_simRunning()):
       time.sleep(60)
   else:
-    os.popen("./local_launch.sh").read()
+    subprocess.run("./local_launch.sh", shell=True)
 
 def update_input(au):
   '''

@@ -11,7 +11,8 @@ from IO import get_variable
 
 ##### Standard obs frequency and time arrays
 def obs_arrays(key, normed=False,
-    Tmax=5, NT=450, lognu_min=-3, lognu_max=2, Nnu=200):
+    Tmax=5, NT=450,
+    lognu_min=-3, lognu_max=2, Nnu=200):
   '''
   Returns arrays of observed times and frequencies
   '''

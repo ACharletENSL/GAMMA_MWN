@@ -21,20 +21,20 @@ static double Theta0  = 5e-05 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 3.7633656621091716e-12 ;     // comoving density of front shell
+static double rho1 = 1.5493269455171256e-13 ;     // comoving density of front shell
 static double u1   = 100.000000 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 54985.797408219485 ;
-static double D01  = 2997774695.012281 ;     // spatial extension of front shell
-static double rho4 = 1.223599011368166e-12 ;     // comoving density of back shell
-static double u4   = 175.000000 ;          // proper velocity of back shell
-static double p4   = 54985.797408219485 ;
-static double D04  = 2997875635.491209 ;     // spatial extension of back shell
+static double p1   = 4826.898855291773 ;
+static double D01  = 14988873475.061403 ;     // spatial extension of front shell
+static double rho4 = 1.0741298563811074e-13 ;     // comoving density of back shell
+static double u4   = 120.000000 ;          // proper velocity of back shell
+static double p4   = 4826.898855291773 ;
+static double D04  = 14989102454.08904 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 0.05 ;           // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 89032227846074.23 ;
+static double R_0     = 196236102936306.66 ;
 static int Nsh1   = 500 ;
 static int Ntot1  = 520 ;
 static int Nsh4   = 500 ;
@@ -42,7 +42,7 @@ static int Ntot4  = 520 ;
 static int Ncells = Ntot4 + Ntot1;
 
 // additional time after stopping condition, 10% of theoretical crossing time
-static double EXTRA_TIME = 476.0168327164897 ;
+static double EXTRA_TIME = 5046.886995567802 ;
 
 // normalisation constants:
 static double rhoNorm = rho4 ;                // density normalised t
@@ -311,7 +311,7 @@ void Simu::evalEnd(){
 
   bool anyShockedTracer = false;
   
-   if ( t > 14280 ){ stop = true; }
+   if ( t > 151406 ){ stop = true; }
   //   if ( it > 500 ){ stop = true; }
   
   #if SHOCK_DETECTION_ == ENABLED_

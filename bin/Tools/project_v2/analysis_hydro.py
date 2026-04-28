@@ -75,7 +75,7 @@ def get_tcrossing(key, z):
 
 ### Extract hydro data
 def extract_data_thinshell(key, itmin=0, itmax=None,
-    cells=[1, 2, 3, 4], savefile=True, noOut=False):
+    cells=[1, 4], savefile=True, noOut=False):
   '''
   Analyze a run, returning pandas dataframes one for each interface
   1: downstream FS, 2: CD in S2, 3: CD in S3, 4: downstream RS

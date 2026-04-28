@@ -268,9 +268,18 @@ def df_to_shocks(df):
     else:
       fronts = [sh for sh in shlist if ((sh.index.min()>=iL) & (sh.index.max()<=iR))]
       if front == 'RS':
-        out.append(shlist[0])
+        def pjump(sh):
+          pL = df.iloc[sh.index.min() - 1].p
+          pR = df.iloc[sh.index.max() + 1].p
+          return pR/pL
       else:
-        out.append(shlist[-1])
+        def pjump(sh):
+          pL = df.iloc[sh.index.min() - 1].p
+          pR = df.iloc[sh.index.max() + 1].p
+          return pL/pR
+      pjumps = [pjump(sh) for sh in fronts]
+      i_max = pjumps.index(max(pjumps))
+      out.append(fronts[i_max])
   return out
 
 # opening sims
@@ -361,7 +370,7 @@ def join_extracted(noPks=False):
   varnames = prefix + varnames_1 + varnames_2 + varnames_3
   header = "\t".join(varnames)
   N = len(varnames)
-  folder = './extracted_data/'
+  folder = GAMMA_dir + '/extracted_data/'
   for front in ['FS', 'RS']:
     search_exp = folder + 'sweep*' + front + '.out'
     files = glob.glob(search_exp)
@@ -373,7 +382,7 @@ def join_extracted(noPks=False):
     table = np.stack(arrays)
     table = table[table[:, 0].argsort()]
     fmt = '%2f, ' + ','.join(['%10f']*(N-1)) 
-    np.savetxt("./extracted_data/fullsweep_au_"+front+".csv",
+    np.savetxt(folder + "fullsweep_au_"+front+".csv",
       table, delimiter='\t', header=header, comments='')
 
 def open_sweep(front):
@@ -381,6 +390,15 @@ def open_sweep(front):
   fname = path + 'fullsweep_au_' + front +'.csv'
   df = pd.read_csv(fname, sep='\t')
   return df
+
+def logau_to_key(log_au):
+  key = 'sweep_' + f"log_au={log_au:.1f}"
+  return key
+
+def check_done_logau():
+  folders = glob.glob(GAMMA_dir + "/results/sweep_log_au=*")
+  done_logau = np.array(sorted([float(f.split("=")[1]) for f in folders]))
+  return done_logau
 
 def get_runfile(key, z):
   '''

@@ -124,40 +124,15 @@ def peaks_model_R24(T, au, dR, g2):
   return nu, nF
 
 ##### From fitted functions
-def flux_model_C25(T_b, nu_b, au, dRRS, dRFS, alpha=-0.5, beta=-1.25):
+def peaks_model_C25_fromTf(T, au, Tf, reverse=True):
   '''
-  Return flux using the built model with time
-    time T_b is normalized to angular time of RS at R0
-    frequency nu_b is normalized to peak frequency of the RS
-    resulting flux is normalized relative to the peak RS flux
+  Same as peaks_model_C25 but takes Tf instead of dR
   '''
-
-  # RS
-  tT = 1 + T_b
-  nupks_RS, nFpks_RS = peaks_model_C25(tT, au, dRRS, reverse=True)
-  F_RS = np.zeros((len(T_b), len(nu_b)))
-  for i, (nupk, nFpk) in enumerate(zip(nupks_RS, nFpks_RS)):
-    Fpk = nFpk/nupk
-    nu = nu_b/nupk
-    F = Fpk * Band_func(nu, alpha, beta)
-    F_RS[i] = F
-  
-  # FS
-  ratio_T, ratio_nu, ratio_F = ratios_RSvFS_from_au(au)
-  tT_FS = 1 + T_b * ratio_T
-  nupks_FS, nFpks_FS = peaks_model_C25(tT_FS, au, dRFS, reverse=False)
-  nupks_FS /= ratio_nu
-  nFpks_FS /= (ratio_F*ratio_nu)
-  F_FS = np.zeros((len(T_b), len(nu_b)))
-  for i, (nupk, nFpk) in enumerate(zip(nupks_FS, nFpks_FS)):
-    Fpk = nFpk/nupk
-    nu = nu_b/nupk
-    F = Fpk * Band_func(nu, alpha, beta)
-    F_FS[i] = F
-  
-  F_tot = F_RS + F_FS
-  return F_tot
-
+  front, i_g = ('RS', 1) if reverse else ('FS', 0)
+  g2 = g2_from_au(au)[i_g]
+  popt_lfac, _, popt_nu, popt_L, popt_xi = fits_from_au(au, front)
+  nupk, nFpk = peaks_fromfits(T, Tf, g2, popt_lfac, popt_nu, popt_L, popt_xi)
+  return nupk, nFpk
 
 def peaks_model_C25(T, au, dR, reverse=True):
   '''

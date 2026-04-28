@@ -11,6 +11,7 @@ HPC_launch.sh
 results/*
 *.png
 bin/Tools/figures/*
+extracted_data/*
 
 # compiled files
 *.o

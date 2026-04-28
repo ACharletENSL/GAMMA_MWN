@@ -23,7 +23,7 @@ def extract_fittingData(key, log_au):
   '''
   
   extract_data_thinshell(key, cells=[1, 4], noOut=True)
-  extract_fits(key, logau)
+  extract_fits(key, log_au)
 
 
 def extract_fits(key, logau, output=False, noPks=False):
@@ -50,7 +50,7 @@ def extract_fits(key, logau, output=False, noPks=False):
     return outs
 
 # get the fits for xi (effective angle approx)
-def get_anglefits(data, Tmax=5, NT=450, Nnu=200, returnAll=False,
+def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False,
   i_set=1000, dfindex=True):
 
   nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], NT=NT, Nnu=Nnu)
@@ -98,7 +98,7 @@ def get_anglefits(data, Tmax=5, NT=450, Nnu=200, returnAll=False,
 
   # k, xi_sat, s_eats
   p0 = [0.3, 5, 5]
-  bounds = ([1e-5, 0.1, 1],[1, 10, 100])
+  bounds = ([1e-5, 0.1, 1e-3],[1, 10, 100])
   res = least_squares(residuals, p0, bounds=bounds,
     #args=(T, nupk_data, nFpk_data))
     args=(T[1:], nupk_data[1:], nFpk_data[1:]))
@@ -112,7 +112,7 @@ def get_anglefits(data, Tmax=5, NT=450, Nnu=200, returnAll=False,
 
 ### Produce radiation and peaks
 def get_radiation_vFC(key, front='RS', norm=True,
-  T_max=5, lognu_min=-3, lognu_max=2, NT=450, Nnu=500,
+  Tmax=5, lognu_min=-3, lognu_max=2, NT=450, Nnu=500,
   noOut=False):
   '''
   \nu F_\nu (\nu, T) from front ('RS' or 'FS')
@@ -129,7 +129,8 @@ def get_radiation_vFC(key, front='RS', norm=True,
       samesize = False
 
   if (not exists) or (not samesize):
-    nu, T, env = obs_arrays(key, False, Tmax, NT, lognu_min, lognu_max, Nnu)
+    nu, T, env = obs_arrays(key, normed=False, Tmax=Tmax, NT=NT,
+      lognu_min=lognu_min, lognu_max=lognu_max, Nnu=Nnu)
     z, nu0, T0 = (4, env.nu0, env.T0) if (front == 'RS') else (1, env.nu0FS, env.T0FS)
     data = open_rundata(key, z)
     if type(data) == bool:
