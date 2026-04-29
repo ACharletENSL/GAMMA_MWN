@@ -13,15 +13,12 @@ from analysis_thinshell import extract_fittingData
 from IO import join_extracted, check_done_logau, logau_to_key
 
 # values of a_u - 1 to perform sweep
-#logau_arr = np.arange(-0.6, 0.6, 0.1)
-#logau_arr[np.abs(logau_arr)<1e-2] = 0
-#logau_arr = np.arange(0.6, 1.6, 0.1)
-logau_arr = np.arange(-1, -0.5, 0.1)
-#logau_arr = [0, np.log10(4)]
+#logau_arr = np.arange(-1, -0.5, 0.1)
+logau_arr = [1.2, 1.3, 1.4, 1.5]
 def_u1 = 100
 waittime = 60 # default wait time between checksx
 ONHPC = ('arthurc' in os.environ['HOME'])
-delete = True
+delete = False
 
 def main():
   clean = False
@@ -37,7 +34,7 @@ def main():
     print(f'Running simulation with log a_u - 1 = {log_au:.1f} (a_u = {au:.2f})')
     run_sim(au)
     print('Run finished, moving in results/' + key)
-    move_results(name)
+    move_results(key)
     extract_fittingData(key, log_au)
     if clean:
       print("Deleting data")
@@ -54,6 +51,7 @@ def analyze_all():
 def run_sim(au):
   update_input(au)
   if ONHPC:
+    subprocess.call('chmod +x HPC_launch.sh', shell=True)
     subprocess.call("./HPC_launch.sh", shell=True)
     while(check_simRunning()):
       time.sleep(60)
@@ -106,12 +104,12 @@ def check_simRunning():
   else:
     return True
 
-def move_results(name):
+def move_results(key):
   '''
-  Moves simulated data from the results/last folder into results/<name>
+  Moves simulated data from the results/last folder into results/<key>
   '''
-  name = name.strip("'\"") 
-  path = 'results/sweep_' + name
+  #name = name.strip("'\"") 
+  path = 'results/' + key
   if os.path.isdir(path):
     subprocess.call(['rm', '-rf', path])
 
