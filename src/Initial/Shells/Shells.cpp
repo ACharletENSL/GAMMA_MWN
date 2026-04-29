@@ -308,12 +308,14 @@ void Simu::evalEnd(){
 
   static bool conditionMet = false;
   static double t_conditionMet = -1.;
+  static int noShockCount = 0;
+  static const int NO_SHOCK_REQUIRED = 100;
 
   bool anyShockedTracer = false;
-  
+
    if ( t > 151406 ){ stop = true; }
   //   if ( it > 500 ){ stop = true; }
-  
+
   #if SHOCK_DETECTION_ == ENABLED_
     for (int i = grid.iLbnd+1; i <= grid.iRbnd-1; ++i){
       Cell *c = &grid.Ctot[i];
@@ -322,8 +324,14 @@ void Simu::evalEnd(){
         break;
       }
     }
-    
-    if (!anyShockedTracer && !conditionMet && it > 100){
+
+    if (anyShockedTracer){
+      noShockCount = 0;
+    } else if (it > 100){
+      noShockCount++;
+    }
+
+    if (noShockCount >= NO_SHOCK_REQUIRED && !conditionMet){
       conditionMet = true;
       t_conditionMet = t;
       if (worldrank == 0){

@@ -46,7 +46,7 @@ def main():
 
 def analyze_all():
   logau_done = check_done_logau()
-  for logau in logau_done:
+  for log_au in logau_done:
     key = logau_to_key(log_au)
     extract_fittingData(key, log_au)
   join_extracted()
