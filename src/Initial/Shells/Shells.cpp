@@ -261,10 +261,9 @@ void Grid::userBoundaries(int it, double t){
     Cell *c = &Ctot[i];
     double r   = c->G.x[x_] * lNorm;
     double rho = cont * rho4 * pow(r / R4, -2.);
-    double p   = Theta0 * rho * c_ * c_;
     c->S.prim[RHO]   = rho / rhoNorm;
     c->S.prim[VV1]   = beta4;
-    c->S.prim[PPP]   = p / pNorm;
+    c->S.prim[PPP]   = p4 / pNorm;
     c->S.prim[TR1]   = 0.;
     c->S.prim[TR1+1] = 0.;
   }
@@ -301,9 +300,16 @@ void Cell::user_regridVal(double *res){
 
 void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
-  UNUSED(*rho);
+  // UNUSED(*rho);
   UNUSED(uu);
-  UNUSED(*p);
+  // UNUSED(*p);
+
+  // Added a density floor to avoid numerical errors
+  double rho_floor = cont * rho4 / rhoNorm * 1.e-6;
+  double p_floor   = Theta0 * rho_floor * c_ * c_ / pNorm;
+
+  if (*rho < rho_floor) *rho = rho_floor;
+  if (*p   < p_floor)   *p   = p_floor;
 
   return;
 }

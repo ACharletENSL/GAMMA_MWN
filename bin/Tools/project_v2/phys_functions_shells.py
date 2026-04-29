@@ -113,6 +113,7 @@ def shells_add_analytics(env):
   env.beta = env.u/env.lfac0
   env.rho2 = 4.*env.lfac21*env.rho1
   env.p_sh = (4./3.) * env.u21**2 * env.rho1 * c_**2
+  env.p_shsc = env.p_sh / (env.rhoscale * c_**2)
   env.rho3 = 4.*env.lfac34*env.rho4
   env.rho2_sc = env.rho2/env.rhoscale
   env.rho3_sc = env.rho3/env.rhoscale
