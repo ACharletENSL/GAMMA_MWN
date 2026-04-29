@@ -21,20 +21,20 @@ static double Theta0  = 5e-05 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 1.5493269455171256e-13 ;     // comoving density of front shell
+static double rho1 = 1.6519483888892247e-12 ;     // comoving density of front shell
 static double u1   = 100.000000 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 4826.898855291773 ;
+static double p1   = 167.5345017236583 ;
 static double D01  = 14988873475.061403 ;     // spatial extension of front shell
-static double rho4 = 1.0741298563811074e-13 ;     // comoving density of back shell
-static double u4   = 120.000000 ;          // proper velocity of back shell
-static double p4   = 4826.898855291773 ;
-static double D04  = 14989102454.08904 ;     // spatial extension of back shell
+static double rho4 = 3.728145454674869e-15 ;     // comoving density of back shell
+static double u4   = 2095.000000 ;          // proper velocity of back shell
+static double p4   = 167.5345017236583 ;
+static double D04  = 14989621192.374691 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 0.05 ;           // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 196236102936306.66 ;
+static double R_0     = 60096919383510.76 ;
 static int Nsh1   = 500 ;
 static int Ntot1  = 520 ;
 static int Nsh4   = 500 ;
@@ -42,7 +42,7 @@ static int Ntot4  = 520 ;
 static int Ncells = Ntot4 + Ntot1;
 
 // additional time after stopping condition, 10% of theoretical crossing time
-static double EXTRA_TIME = 5046.886995567802 ;
+static double EXTRA_TIME = 1673.4985677162244 ;
 
 // normalisation constants:
 static double rhoNorm = rho4 ;                // density normalised t
@@ -252,6 +252,23 @@ void Grid::userBoundaries(int it, double t){
   UNUSED(it);
   UNUSED(t);
 
+  /*
+  R^-2 density profile in ghost cells for stability at high Lorentz
+  */
+  double R4 = R_0 - D04;
+
+  for (int i = 0; i <= iLbnd; ++i){
+    Cell *c = &Ctot[i];
+    double r   = c->G.x[x_] * lNorm;
+    double rho = cont * rho4 * pow(r / R4, -2.);
+    double p   = Theta0 * rho * c_ * c_;
+    c->S.prim[RHO]   = rho / rhoNorm;
+    c->S.prim[VV1]   = beta4;
+    c->S.prim[PPP]   = p / pNorm;
+    c->S.prim[TR1]   = 0.;
+    c->S.prim[TR1+1] = 0.;
+  }
+
 }
 
 int Grid::checkCellForRegrid(int j, int i){
@@ -313,7 +330,7 @@ void Simu::evalEnd(){
 
   bool anyShockedTracer = false;
 
-   if ( t > 151406 ){ stop = true; }
+   if ( t > 50204 ){ stop = true; }
   //   if ( it > 500 ){ stop = true; }
 
   #if SHOCK_DETECTION_ == ENABLED_

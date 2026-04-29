@@ -36,7 +36,7 @@ def main():
     au = 1 + 10**log_au
     print(f'Running simulation with log a_u - 1 = {log_au:.1f} (a_u = {au:.2f})')
     run_sim(au)
-    print('Run finished, moving in results/sweep_' + name)
+    print('Run finished, moving in results/' + key)
     move_results(name)
     extract_fittingData(key, log_au)
     if clean:
