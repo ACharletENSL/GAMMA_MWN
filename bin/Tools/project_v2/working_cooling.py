@@ -611,7 +611,16 @@ def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.
   K0 = norm_plaw_distrib(cell0.gmin, cell0.gmax, env.psyn)
   Tarr = np.atleast_1d(np.asarray(Tobs, dtype=float))
   Fnu = np.zeros((Tarr.size, np.size(nuobs)))
-  for j in range(len(cell)):
+  # frequency-band cut (same criterion as get_Fnu_cell): 
+  # drop steps that will not contribute to observed flux
+  # margin of 10 because we use exact syn instead of sharp cut at gmax
+  _BAND_MARGIN = 10.
+  nu_B0 = get_variable(cell0, 'nu_B', env)
+  gmax_cut = max(1., np.sqrt(np.min(nuobs)/(nu_B0*_BAND_MARGIN)))
+  gmax_arr = cell.gmax.to_numpy()
+  N = gmax_arr.size
+  jcut = min(max(N - np.searchsorted(gmax_arr[::-1], gmax_cut, side='right'), 1), N)
+  for j in range(jcut):
     step = cell.iloc[j]
     Ton = get_variable(step, 'obsT', env)[0]               # onset (tT=1)
     # only Tarr >= Ton receives flux: slice instead of computing + masking

@@ -17,6 +17,7 @@ Contains:
 '''
 
 import numpy as np
+from numba import njit
 from cooling_distribution import norm_plaw_distrib, distrib_plaw_cooled, \
   gamma_synCooled, split_hydrostep
 from IO import get_variable
@@ -46,10 +47,11 @@ def syn_emiss_exact(gma, tnu):
     out = np.where(tnu < 1., 0., func_R(x)/norm_R_)
   return out if out.ndim else float(out)
 
-def func_R(x):
+def _func_R_exact(x):
   '''
   R function see eqns (18) to (20) in Finke, Dermer & Böttcher 2008
-  Vectorized: accepts scalar or ndarray.
+  Vectorized: accepts scalar or ndarray. Piecewise reference implementation;
+  func_R below is a tabulated fast path built from this.
   '''
   x = np.asarray(x, dtype=float)
   xs = np.where(x > 0., x, 1.)   # safe placeholder, branches masked by select
@@ -62,6 +64,50 @@ def func_R(x):
          10**np.polyval(coeffs_abv1[::-1], y)],
         default=.5*pi_*(1.-99./(162.*xs))*np.exp(-xs))
   return R if R.ndim else float(R)
+
+# Precompute func_R once on a dense log grid and evaluate by log-log interpolation
+# in a fused numba kernel, replacing the per-call np.select + 2 polyval + log10.
+# Outside the grid we use analytic asymptotes
+_R_XMIN, _R_XMAX, _R_NGRID = 1e-6, 60., 8192
+_R_xgrid = np.geomspace(_R_XMIN, _R_XMAX, _R_NGRID)
+_R_logR  = np.ascontiguousarray(np.log(_func_R_exact(_R_xgrid)))
+_R_LOGXMIN = np.log(_R_XMIN)
+_R_INV_DLOG = (_R_NGRID - 1) / np.log(_R_XMAX / _R_XMIN)   # uniform log spacing
+
+@njit(cache=True)
+def _func_R_kernel(xf, logxmin, inv_dlog, logR, xmin, xmax):
+  '''
+  R(x) on a flat array: uniform-log-grid direct-index log-log blend, with the
+  analytic low-x power law / high-x exp tail outside [xmin, xmax]. x<=0 -> 0.
+  '''
+  ng = logR.size
+  out = np.zeros(xf.size)
+  for i in range(xf.size):
+    xi = xf[i]
+    if xi <= 0.:
+      continue
+    elif xi < xmin:
+      out[i] = 1.80842 * xi**(1./3.)
+    elif xi > xmax:
+      out[i] = 0.5*np.pi*(1. - 99./(162.*xi))*np.exp(-xi)
+    else:
+      u = (np.log(xi) - logxmin) * inv_dlog
+      i0 = int(u)
+      if i0 > ng - 2:
+        i0 = ng - 2
+      f = u - i0
+      out[i] = np.exp((1.-f)*logR[i0] + f*logR[i0+1])
+  return out
+
+def func_R(x):
+  '''
+  R function (Finke, Dermer & Böttcher 2008 eqns 18-20), tabulated log-log fast
+  path over _func_R_exact. Vectorized: accepts scalar or ndarray of any shape.
+  '''
+  x = np.asarray(x, dtype=float)
+  xf = np.ascontiguousarray(np.atleast_1d(x).ravel())
+  out = _func_R_kernel(xf, _R_LOGXMIN, _R_INV_DLOG, _R_logR, _R_XMIN, _R_XMAX)
+  return float(out[0]) if x.ndim == 0 else out.reshape(x.shape)
 
 
 # Contribution from a cell
@@ -122,9 +168,6 @@ def get_Fnu_step(nuobs, Tobs, step, K0, env, Ng=20, norm=True, width_tol=1.1):
   lfac = get_variable(step, 'lfac', env)
   tT = Tobs_to_tildeT(Tobs, step, env)
   nuobs = np.asarray(nuobs, dtype=float)
-  # high-latitude EATS: at tilde-T the Doppler is D/tilde-T, so the fixed observed
-  # nuobs probes a higher comoving frequency nu' = nuobs * tilde-T / D. This is the
-  # spectral softening S(tilde-T nuobs/nu0); the flux curvature stays tilde-T^-2.
   if np.ndim(Tobs) > 0:
     tT = np.asarray(tT)
     # outer-product fast path: nup[i,j] = tT[i] * (nuobs/D)[j], tT^-2 folded in
@@ -194,8 +237,6 @@ def get_Lnu_interp(nup, step, K0, env, Ng=20, norm=True, width_tol=1.1, n_grid=3
     out = np.where(pos_in, np.exp(logL).reshape(nup.shape), 0.)
   return out
 
-from numba import njit
-
 @njit(cache=True)
 def _outer_loglog_blend(logL_grid, u, s, w):
   '''
@@ -256,8 +297,8 @@ def get_Lnu_outer(nub, tT, step, K0, env, Ng=20, norm=True, width_tol=1.1,
 def get_epnu(tnu_arr, step, K0, env, Ng=20, width_tol=1.1,
     func_cooling=gamma_synCooled, func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact):
   '''
-  Delta e'_\nu' of a step (assuming constant P'_\nu' in the bin)
-    as a function of \nu'/\nu'_B
+  Delta e'_nu' of a step (assuming constant P'_nu' in the bin)
+    as a function of nu'/nu'_B
   K0 as variable because it depends on initial gma_min/max of the distrib
   Accepts tnu_arr of any shape (e.g. 2D (T, nu) for the EATS-shifted grid): the
   kernels operate per-tnu, so we flatten, compute, then reshape back.
@@ -295,7 +336,7 @@ def Pnu_instant_bins(tnu_arr, gmas_arr, env,
       func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact):
   '''
   Energy per unit freq per unit volume and time at normalized time tt
-    as a function of \nu'/\nu'_B, in units P'_e,max
+    as a function of nu'/nu'_B, in units P'_e,max
   from an array of logarithmic bins in gma
   ''' 
   p = env.psyn
@@ -311,8 +352,8 @@ def Pnu_instant(tnu_arr, gmin, gmax, env, Ng=20,
       func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact):
   '''
   Energy per unit freq per unit volume and time at normalized time tt
-    as a function of \nu'/\nu'_B, in units P'_e,max
-  Separates the range \gamma_min/max into log bins for calculation
+    as a function of nu'/nu'_B, in units P'_e,max
+  Separates the range gamma_min/max into log bins for calculation
   '''
   p = env.psyn
   gmas_arr = np.geomspace(gmin, gmax, Ng)
