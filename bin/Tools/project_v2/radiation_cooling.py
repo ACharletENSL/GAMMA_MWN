@@ -35,35 +35,33 @@ def syn_emiss_exact(gma, tnu):
   '''
   "exact" synchrotron emission function from Crusius & Schlikeiser (1986)
   for an electron with LF gma at tnu = nu'/nu'_B, nu'_B=e*B/(2*pi_*me_*c_)
-  
+  norm_R_ = ∫R(x)dx ~ 1.075, determined numerically
+  Vectorized: gma and tnu can be scalars or broadcastable arrays.
   '''
+  gma = np.asarray(gma, dtype=float)
+  tnu = np.asarray(tnu, dtype=float)
   # underflows in np.exp will be treated as 0.
-  np.seterr(under='ignore')
-  if tnu < 1.:
-    return 0.
-  else:
-    x = (2*tnu)/(3*gma**2)
-    return func_R(x)
+  with np.errstate(under='ignore'):
+    x = (2.*tnu)/(3.*gma**2)
+    out = np.where(tnu < 1., 0., func_R(x)/norm_R_)
+  return out if out.ndim else float(out)
 
 def func_R(x):
   '''
   R function see eqns (18) to (20) in Finke, Dermer & Böttcher 2008
+  Vectorized: accepts scalar or ndarray.
   '''
-  y = np.log10(x)
-  if x < 0.01:
-    R = 1.80842*x**(1./3.)
-    return R
-  elif (x>=0.01) and (x<1):
-    A0, A1, A2, A3, A4, A5 = coeffs_bel1
-    logR = A0 + A1*y + A2*y**2 + A3*y**3 + A4*y**4 + A5*y**5
-    return 10**(logR)
-  elif (x>=1) and (x<10):
-    A0, A1, A2, A3, A4, A5 = coeffs_abv1
-    logR = A0 + A1*y + A2*y**2 + A3*y**3 + A4*y**4 + A5*y**5
-    return 10**(logR)
-  else:
-    R = .5*pi_*(1-99/(162*x))*np.exp(-x)
-    return R
+  x = np.asarray(x, dtype=float)
+  xs = np.where(x > 0., x, 1.)   # safe placeholder, branches masked by select
+  y = np.log10(xs)
+  with np.errstate(under='ignore', over='ignore'):
+    R = np.select(
+        [x < 0.01, x < 1., x < 10.],
+        [1.80842*xs**(1./3.),
+         10**np.polyval(coeffs_bel1[::-1], y),
+         10**np.polyval(coeffs_abv1[::-1], y)],
+        default=.5*pi_*(1.-99./(162.*xs))*np.exp(-xs))
+  return R if R.ndim else float(R)
 
 
 # Contribution from a cell
@@ -121,13 +119,25 @@ def get_Fnu_step(nuobs, Tobs, step, K0, env, Ng=20, norm=True, width_tol=1.1):
   '''
   
   D = get_variable(step, "Dop", env)
-  nup = nuobs/D
   lfac = get_variable(step, 'lfac', env)
   tT = Tobs_to_tildeT(Tobs, step, env)
-  Fnu = get_Lnu_comov(nup, step, K0, env, Ng, norm, width_tol)
-  Fnu *= 2*lfac * tT**-2
+  nuobs = np.asarray(nuobs, dtype=float)
+  # high-latitude EATS: at tilde-T the Doppler is D/tilde-T, so the fixed observed
+  # nuobs probes a higher comoving frequency nu' = nuobs * tilde-T / D. This is the
+  # spectral softening S(tilde-T nuobs/nu0); the flux curvature stays tilde-T^-2.
+  if np.ndim(Tobs) > 0:
+    tT = np.asarray(tT)
+    # outer-product fast path: nup[i,j] = tT[i] * (nuobs/D)[j], tT^-2 folded in
+    with np.errstate(divide='ignore'):
+      w = np.where(tT > 0., tT, 1.)**-2
+    Fnu = get_Lnu_outer(nuobs/D, tT, step, K0, env, Ng, norm, width_tol,
+                        row_weight=w)
+  else:
+    nup = nuobs * tT / D
+    Lnu = get_Lnu_interp(nup, step, K0, env, Ng, norm, width_tol)
+    Fnu = tT**-2 * Lnu  # * 2 * lfac
   if norm:
-    Fnu /= 2*env.lfac0
+    Fnu /= (2*env.lfac0/3)    # /3 because F0 = zdL * 2 lfac0 * L0 / 3
   else:
     Fnu *= env.zdl
   return Fnu
@@ -152,8 +162,96 @@ def get_Lnu_comov(nup, step, K0, env, Ng=20, norm=True, width_tol=1.1):
   Lnu *= rsc * V3p/Ttz
 
   if norm:
-    Lnu /= env.L0p_Rshape
+    Lnu /= (env.L0p if step.trac < 1.5 else env.L0pFS)
   return Lnu
+
+def get_Lnu_interp(nup, step, K0, env, Ng=20, norm=True, width_tol=1.1, n_grid=300):
+  '''
+  get_Lnu_comov evaluated over an arbitrary-shape nup grid (e.g. the 2D (T, nu)
+  EATS-shifted grid from get_Fnu_step), via a 1D log-grid in nup + log-log
+  interpolation. Lnu is a smooth 1D function of nup, so this is exact within each
+  power-law segment and avoids the full (T x nu) kernel evaluation.
+  1D inputs (scalar Tobs) are evaluated directly so those results are unchanged.
+  '''
+  nup = np.asarray(nup, dtype=float)
+  if nup.ndim < 2 or nup.size <= n_grid:
+    return get_Lnu_comov(nup, step, K0, env, Ng, norm, width_tol)
+  out = np.zeros(nup.shape)
+  # nup <= 0 comes from Tobs < Tej (tT < 0): unphysical, no emission there.
+  # Build the interpolation grid from the positive values only, else the
+  # geomspace bounds go negative and the whole grid silently turns to NaN.
+  pos_in = nup > 0.
+  if not pos_in.any():
+    return out
+  nup_grid = np.geomspace(nup[pos_in].min(), nup[pos_in].max(), n_grid)
+  Lnu_grid = get_Lnu_comov(nup_grid, step, K0, env, Ng, norm, width_tol)
+  pos = Lnu_grid > 0.
+  if pos.sum() >= 2:
+    # log-log interp; below the lowest positive node (sub-nu'_B) Lnu -> 0
+    logL = np.interp(np.log(np.where(pos_in, nup, 1.)).ravel(),
+                     np.log(nup_grid[pos]), np.log(Lnu_grid[pos]),
+                     left=-np.inf, right=-np.inf)
+    out = np.where(pos_in, np.exp(logL).reshape(nup.shape), 0.)
+  return out
+
+from numba import njit
+
+@njit(cache=True)
+def _outer_loglog_blend(logL_grid, u, s, w):
+  '''
+  out[i, j] = w[i] * exp(linear blend of logL_grid at fractional index u[j]+s[i])
+  Fused gather/blend/exp/scale kernel of get_Lnu_outer (indices in range by
+  construction there).
+  '''
+  n_grid = logL_grid.size
+  out = np.empty((s.size, u.size))
+  for i in range(s.size):
+    si, wi = s[i], w[i]
+    for j in range(u.size):
+      idx = si + u[j]
+      i0 = int(idx)
+      if i0 > n_grid - 2:
+        i0 = n_grid - 2
+      f = idx - i0
+      out[i, j] = wi * np.exp((1.-f)*logL_grid[i0] + f*logL_grid[i0+1])
+  return out
+
+def get_Lnu_outer(nub, tT, step, K0, env, Ng=20, norm=True, width_tol=1.1,
+    n_grid=300, row_weight=None):
+  '''
+  Lnu evaluated at nup[i, j] = tT[i] * nub[j] (the EATS-shifted grid of
+  get_Fnu_step), exploiting the outer-product structure: log-log interpolation
+  on the same uniform-in-log grid as get_Lnu_interp, but the interp positions
+  are an outer sum of two 1D logs - no full-grid log, multiply or binary
+  search. Rows with tT <= 0 (Tobs < Tej) get 0. Same semantics/nodes as
+  get_Lnu_interp to float precision.
+  row_weight: optional per-row factor folded into the kernel (e.g. tT^-2).
+  '''
+  nub = np.asarray(nub, dtype=float)
+  tT = np.atleast_1d(np.asarray(tT, dtype=float))
+  out = np.zeros((tT.size, nub.size))
+  pos_t = tT > 0.
+  if not pos_t.any():
+    return out
+  lo = tT[pos_t].min() * nub.min()
+  hi = tT[pos_t].max() * nub.max()
+  nup_grid = np.geomspace(lo, hi, n_grid)
+  Lnu_grid = get_Lnu_comov(nup_grid, step, K0, env, Ng, norm, width_tol)
+  pos = Lnu_grid > 0.
+  if pos.sum() < 2:
+    return out
+  # -800: exp() underflows to exactly 0, avoids -inf arithmetic in the blend
+  logL_grid = np.full(n_grid, -800.)
+  logL_grid[pos] = np.log(Lnu_grid[pos])
+  dlog = np.log(hi/lo)/(n_grid - 1)
+  u = np.log(nub/lo)/dlog                       # (nu,) in [0, n_grid-1]
+  s = np.log(tT[pos_t])/dlog                    # (T+,)
+  if row_weight is None:
+    w = np.ones(s.size)
+  else:
+    w = np.asarray(row_weight, dtype=float)[pos_t]
+  out[pos_t] = _outer_loglog_blend(logL_grid, u, s, w)
+  return out
 
 def get_epnu(tnu_arr, step, K0, env, Ng=20, width_tol=1.1,
     func_cooling=gamma_synCooled, func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact):
@@ -161,11 +259,16 @@ def get_epnu(tnu_arr, step, K0, env, Ng=20, width_tol=1.1,
   Delta e'_\nu' of a step (assuming constant P'_\nu' in the bin)
     as a function of \nu'/\nu'_B
   K0 as variable because it depends on initial gma_min/max of the distrib
+  Accepts tnu_arr of any shape (e.g. 2D (T, nu) for the EATS-shifted grid): the
+  kernels operate per-tnu, so we flatten, compute, then reshape back.
   '''
   p   = env.psyn
+  tnu_arr = np.asarray(tnu_arr, dtype=float)
+  shape_in = tnu_arr.shape
+  tnu_flat = tnu_arr.ravel()
   gmin, gmax = step.gmin, step.gmax
   if gmax <= 1.:
-    return np.zeros(tnu_arr.shape)
+    return np.zeros(shape_in)
   gma_keys = [key for key in step.keys() if 'gm' in key]
   Pmax = get_variable(step, "Pmax", env)
   K = K0
@@ -177,15 +280,15 @@ def get_epnu(tnu_arr, step, K0, env, Ng=20, width_tol=1.1,
     K = 1
     gma_mn = np.sqrt(gmin*gmax)
     #gma_mn = gmin
-    enu = np.array([func_emiss(gma_mn, tnu) for tnu in tnu_arr])
+    enu = np.asarray(func_emiss(gma_mn, tnu_flat))
   else:
     if len(gma_keys) > 2:
       gmas_arr = step[gma_keys].to_numpy(copy=True)
-      enu = Pnu_instant_bins(tnu_arr, gmas_arr, env, func_distrib, func_emiss)
+      enu = Pnu_instant_bins(tnu_flat, gmas_arr, env, func_distrib, func_emiss)
     else:
-      enu = Pnu_instant(tnu_arr, gmin, gmax, env, Ng, func_distrib, func_emiss)
+      enu = Pnu_instant(tnu_flat, gmin, gmax, env, Ng, func_distrib, func_emiss)
   enu *= xi_N*K*step['dtp']*Pmax
-  return enu
+  return enu.reshape(shape_in)
 
 
 def Pnu_instant_bins(tnu_arr, gmas_arr, env,
@@ -193,21 +296,16 @@ def Pnu_instant_bins(tnu_arr, gmas_arr, env,
   '''
   Energy per unit freq per unit volume and time at normalized time tt
     as a function of \nu'/\nu'_B, in units P'_e,max
-  from an array of logarithmic bins
+  from an array of logarithmic bins in gma
   ''' 
   p = env.psyn
   gmax = gmas_arr[-1]
-  def func(gma, tnu):
-    return func_distrib(gma, p, 1/gmax)*func_emiss(gma, tnu)
-  
-  Pnu = np.zeros(tnu_arr.shape)
-  # center values in bins for calculation
+  # center values in bins for calculation; vectorized over (bins, tnu)
   gmas_ctr = np.sqrt(gmas_arr[:-1] * gmas_arr[1:])
   dgmas = np.diff(gmas_arr)
-  for i, tnu in enumerate(tnu_arr):
-    for gma, dgma in zip(gmas_ctr, dgmas):
-      Pnu[i] += func(gma, tnu)*dgma
-  return Pnu
+  dP = func_distrib(gmas_ctr[:, None], p, 1/gmax) \
+      * func_emiss(gmas_ctr[:, None], tnu_arr[None, :])
+  return np.sum(dP * dgmas[:, None], axis=0)
 
 def Pnu_instant(tnu_arr, gmin, gmax, env, Ng=20,
       func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact):
@@ -217,16 +315,11 @@ def Pnu_instant(tnu_arr, gmin, gmax, env, Ng=20,
   Separates the range \gamma_min/max into log bins for calculation
   '''
   p = env.psyn
-  def func(gma, tnu):
-    return func_distrib(gma, p, 1/gmax)*func_emiss(gma, tnu)
-
-  Pnu = np.zeros(tnu_arr.shape)
   gmas_arr = np.geomspace(gmin, gmax, Ng)
-
-  for i, tnu in enumerate(tnu_arr):
-    dP_arr = [func(gma, tnu) for gma in gmas_arr]
-    Pnu[i] = np.trapezoid(dP_arr, gmas_arr)
-  return Pnu
+  # vectorized over (gma, tnu)
+  dP = func_distrib(gmas_arr[:, None], p, 1/gmax) \
+      * func_emiss(gmas_arr[:, None], tnu_arr[None, :])
+  return np.trapezoid(dP, gmas_arr, axis=0)
 
 
 # Analytic constant-hydro case

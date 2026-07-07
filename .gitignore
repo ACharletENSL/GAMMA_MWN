@@ -10,14 +10,14 @@ HPC_launch.sh
 *.out
 results/*
 *.png
+*.npz
 bin/Tools/figures/*
 extracted_data/*
 
 # compiled files
 *.o
 *.pyc
-bin/Tools/__pycache__
-bin/Tools/__pycache__/*
+*__pycache__*
 bin/GAMMA
 notes_encours.txt
 #Makefile

@@ -10,6 +10,7 @@ to generate setup et scale plots
 # --------------------------------------------------------------------------------------------------
 from pathlib import Path
 import os
+import copy
 import numpy as np
 from scipy.optimize import fsolve
 from phys_constants import *
@@ -24,22 +25,60 @@ GAMMA_dir = '/'.join(cwd[:iG+1])
 
 ##### Updating the environment and fetching variables
 # changing one input variable
-def update_env(name, value, env):
+def update_env(name, value=None, env=None):
   '''
   Update environment after changing one (or more) of the 'input' variables
     (variables defined in phys_input.ini)
-    name and value can be lists or arrays
+    - single variable:  update_env('u1', 12., env)
+    - several at once:   update_env(['u1', 'u4'], [12., 24.], env)
+    - several at once:   update_env({'u1': 12., 'u4': 24.}, env=env)
   '''
-  name_isarr = ((type(name) == list) or (type(name) == np.ndarray))
-  value_isarr = ((type(value) == list) or (type(value) == np.ndarray))
-  if (name_isarr and value_isarr):
-    for n, v in zip(name, value):
-      setattr(env, n, v)
+  if isinstance(name, dict):
+    updates = name
   else:
-    setattr(env, name, value)
+    name_isarr = ((type(name) == list) or (type(name) == np.ndarray))
+    value_isarr = ((type(value) == list) or (type(value) == np.ndarray))
+    if (name_isarr and value_isarr):
+      updates = dict(zip(name, value))
+    else:
+      updates = {name: value}
+  for n, v in updates.items():
+    setattr(env, n, v)
+  # drop derived geometry so shells_complete_setup re-derives it from the
+  # primary inputs: R0 from t0 (itself from toff), D0i from ti. Otherwise the
+  # 'if A and not B' guards keep the stale values when u1/u4 change.
+  derived = {'R0': 'toff', 'D01': 't1', 'D04': 't4'}
+  for name, primary in derived.items():
+    if hasattr(env, primary) and hasattr(env, name):
+      delattr(env, name)
   shells_complete_setup(env, 0.)
   shells_add_analytics(env)
   shells_add_radNorm(env)
+  env.add_code_norms()   # rhoscale changed -> code-unit constants change
+
+def rescale_proper_velocities(factor, env):
+  '''
+  Rescale the proper velocities u1, u4 by 'factor', keeping their ratio
+    a_u = u4/u1 (and everything else) constant.
+  Returns a new environment object, leaving the input env untouched.
+  '''
+  new_env = copy.deepcopy(env)
+  update_env({'u1': new_env.u1 * factor, 'u4': new_env.u4 * factor}, env=new_env)
+  return new_env
+
+def rescale_hydro(alpha, zeta, env):
+  '''
+  Granot (2012) hydrodynamic unit-rescaling of a fixed physical solution:
+    lengths & times x alpha, energy & mass x zeta  (=> rho, p x zeta*alpha^-3,
+    velocities/Lorentz factors invariant). Returns a new env; input untouched.
+  Composes with rescale_proper_velocities (disjoint inputs: u1,u4 vs toff,t1,t4,L).
+  '''
+  new_env = copy.deepcopy(env)
+  update_env({'toff': new_env.toff * alpha,
+              't1':   new_env.t1   * alpha,
+              't4':   new_env.t4   * alpha,
+              'L':    new_env.L    * zeta / alpha}, env=new_env)
+  return new_env
 
 def fetch_value_updated(name, name_var, value_var, env):
   '''
@@ -54,7 +93,9 @@ def get_physfile(key):
   '''
   Returns path of phys_input file of the corresponding results folder
   '''
-  
+  # allow passing a literal existing file path (e.g. a rescaled temp input)
+  if os.path.isfile(key):
+    return key
   dir_path = GAMMA_dir + '/results/%s/' % (key)
   file_path = dir_path + "phys_input.ini"
   if os.path.isfile(file_path):
@@ -102,7 +143,13 @@ class MyEnv:
       pass
     for name, value in zip(varlist, vallist):
       setattr(self, name, value)
-    # add scaling constants from GAMMA
+    self.add_code_norms()
+
+  def add_code_norms(self):
+    '''
+    Scaling constants from GAMMA code units; must be refreshed
+    whenever rhoscale changes (e.g. after update_env on u1/u4)
+    '''
     rhoNorm = self.rhoscale
     vNorm = c_
     lNorm = vNorm

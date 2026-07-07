@@ -11,8 +11,8 @@ from IO import get_variable
 
 ##### Standard obs frequency and time arrays
 def obs_arrays(key, normed=False,
-    Tmax=5, NT=450,
-    lognu_min=-3, lognu_max=2, Nnu=200):
+    Tmax=5, NT=500,
+    lognu_min=-3, lognu_max=2, Nnu=250):
   '''
   Returns arrays of observed times and frequencies
   '''
@@ -27,14 +27,14 @@ def obs_arrays(key, normed=False,
     return nuobs, Tobs, env
   
 def obs_arrays_peakcentred(key, normed=False,
-    Tmax=5, NT=450, Nnu=200):
+    Tmax=5, NT=500, Nnu=300):
   '''
   like obs_arrays but around spectral peaks
   '''
   env = MyEnv(key)
   nuRS, nuFS = env.nu0, env.nu0FS
   lognu_FS = np.log10(env.nu0FS/env.nu0)
-  lognu_min = min(lognu_FS, 1) - 2.
+  lognu_min = min(lognu_FS, 1) - (np.log10(Tmax)+1)
   lognu_max = max(lognu_FS, 1) + 0.5
 
   nub = np.logspace(lognu_min, lognu_max, Nnu)

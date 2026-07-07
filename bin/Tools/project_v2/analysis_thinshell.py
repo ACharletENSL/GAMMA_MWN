@@ -14,19 +14,32 @@ from radiation_thinshell import *
 from phys_constants import *
 from fits_hydro import *
 from analysis_hydro import extract_data_thinshell
-from peak_modeling import peaks_function_fromFit
+from peak_modeling import build_peaks_functions_xi
 
 ### Extract peaks and save
-def extract_fittingData(key, log_au):
+def extract_all_withlogau(withHydro=True, nCD=1, nSH=5, noPrint=True):
+  logau_arr = check_done_logau()
+  keys = [logau_to_key(logau) for logau in logau_arr]
+  for key in keys:
+    extract_fittingData(key, withHydro=withHydro, nCD=nCD, nSH=nSH, noPrint=noPrint)
+  join_extracted(keys)
+
+def extract_fittingData(key, withHydro=True, nCD=1, nSH=5, noPrint=True):
   '''
   Extract data behind shock fronts from a sim, save in files
   '''
   
-  extract_data_thinshell(key, cells=[1, 4], noOut=True)
-  extract_fits(key, log_au)
+  print('Analyzing run ' + key)
+  if withHydro:
+    print('Extracting hydro data')
+    extract_data_thinshell(key, cells=[1, 4], 
+        nCD=nCD, nSH=nSH, noOut=True, noPrint=noPrint)
+  env = MyEnv(key)
+  log_au = np.round(np.log10(env.a_u - 1.), 1)
+  extract_fits(key, log_au, noPrint=noPrint)
 
 
-def extract_fits(key, logau, output=False, noPks=False):
+def extract_fits(key, logau, output=False, noPks=False, noPrint=False):
   env = MyEnv(key)
   outs = []
   for z, front in zip([1, 4], ['FS', 'RS']):
@@ -37,11 +50,10 @@ def extract_fits(key, logau, output=False, noPks=False):
     fname = get_fitsfile(key, z)
     N = getattr(env, f'Nsh{z}')
     if noPks:
-      popt_lfac, popt_ShSt, _, popt_nu, popt_L = get_hydrofits_shell_new(data)
-      analyzed = popt_lfac, popt_ShSt, popt_nu, popt_L
+      analyzed = get_hydrofits_shell_new(data)
     else:
       analyzed = get_anglefits(data, NT=2*N, Nnu=300,
-        returnAll=True)
+        returnAll=True, noPrint=noPrint)
     outs.append(analyzed)
     out = np.hstack(analyzed)
     out = np.insert(out, 0, logau)
@@ -50,8 +62,7 @@ def extract_fits(key, logau, output=False, noPks=False):
     return outs
 
 # get the fits for xi (effective angle approx)
-def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False,
-  i_set=1000, dfindex=True):
+def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False, noPrint=False):
 
   nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], NT=NT, Nnu=Nnu)
   t_max = data.iloc[-1].t
@@ -62,8 +73,9 @@ def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False,
   g2 = g*g
 
   # fits from hydro
-  print('Fitting procedure')
-  popt_lfac, popt_ShSt, _, popt_nu, popt_L = get_hydrofits_shell_new(data)
+  if not noPrint:
+    print('Fitting procedure')
+  popt_lfac, popt_ShSt, popt_nu, popt_L = get_hydrofits_shell_new(data)
   d_fit = cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max, fastshell=fastshell)
 
   # break time
@@ -77,16 +89,19 @@ def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False,
     i_f = np.searchsorted(Tobs, Tobsf)
   T = 1 + (Tobs - env.Ts)/(env.T0 if fastshell else env.T0FS)
   Tf = T[i_f]
+  
+  # peaks function
+  func_peaks = build_peaks_functions_xi(Tf, g2, popt_lfac, popt_nu, popt_L)
 
   # get peaks
-  tnu = nuobs/env.nu0
-  print('Calculating peaks of ' + front)
-  nF = run_nuFnu_vFC(d_fit, nuobs, Tobs, env)
+  tnu = nuobs/(env.nu0 if fastshell else env.nu0FS)
+  if not noPrint:
+    print('Calculating peaks of ' + front)
+  nF = run_nuFnu_vFC(nuobs, Tobs, d_fit, env)
   nupk_data, nFpk_data = extract_peaks(tnu, nF)
-  print('Done')
+  if not noPrint:
+    print('Done')
 
-  # peaks function
-  func_peaks = peaks_function_fromFit(Tf, g2, popt_lfac, popt_nu, popt_L)
 
   # fitting procedure
   def residuals(params, T, nupk_data, nFpk_data):
@@ -134,10 +149,10 @@ def get_radiation_vFC(key, front='RS', norm=True,
     z, nu0, T0 = (4, env.nu0, env.T0) if (front == 'RS') else (1, env.nu0FS, env.T0FS)
     data = open_rundata(key, z)
     if type(data) == bool:
-      analyze_run(key, savefile=True, noOut=True)
+      extract_data_thinshell(key, cells=[z], savefile=True, noOut=True)
       data = open_rundata(key, z)
     data = cellsBehindShock_fromData(data)
-    nF = run_nuFnu_vFC(data, nu, T, env, norm)
+    nF = run_nuFnu_vFC(nu, T, data, env, norm)
     if norm:
       nu /= nu0
       T = (T - env.Ts)/T0
@@ -209,7 +224,7 @@ def analyze_nubk(key):
   nub = nuobs/env.nu0
 
   # calculate flux
-  nF = run_nuFnu_vFC(data, nuobs, Tobs, env, norm=True)
+  nF = run_nuFnu_vFC(nuobs, Tobs, data, env, norm=True)
   # find peaks
   nu_pk, nF_pk = np.zeros((2, Nj))
   for j in range(Nj):
@@ -229,7 +244,7 @@ def analyze_nubk(key):
   #   ton[j] += (env.R0 - (df0.at[i, 'x'] * c_))/(c_ * env.beta4)
   #   ton[j] /= env.toff
   #   # add flux contribution
-  #   nF += nub * get_Fnu_vFC(row, nuobs, Tobs, env, norm=True)
+  #   nF += nub * get_Fnu_vFC(nuobs, Tobs, row, env, norm=True)
   #   # find peak flux and corresponding freq in the current obs. flux
   
   # for j in range(Nj):

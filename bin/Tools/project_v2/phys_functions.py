@@ -12,6 +12,7 @@ import numpy as np
 import math
 from phys_constants import *
 from numba import jit, prange, vectorize
+from scipy.signal import savgol_filter
 
 # General functions
 # --------------------------------------------------------------------------------------------------
@@ -27,6 +28,12 @@ def logslope_arr(x, y):
   s = np.gradient(logy, logx)
   return s
 
+def savgol_smooth(array, window=7, polyorder=3):
+  window = max(window, polyorder + 2)  # savgol constraint
+  if window % 2 == 0:
+    window += 1  # savgol requires odd window
+  out = savgol_filter(array, window, polyorder)
+  return out
 
 def init_slope(x, y, i_smp=20):
   return logslope(x[0], y[0], x[i_smp], y[i_smp])
@@ -66,15 +73,17 @@ def smooth_bpl0(x, x_b, alpha, s=1.):
 
 def smooth_bpl_apy(x, A, x_b, alpha, beta, s):
   '''
-  as defined in astropy
+  as defined in astropy, evaluated in log-space so the smoothing term never
+  overflows (large |ln y|/s): equivalent to A * y**-alpha * (.5(1+y**(1/s)))**((alpha-beta)s).
   s > 0
   '''
+  if abs(alpha - beta) < 1e-12:
+    return A * (x/x_b)**(-alpha)  # = A when alpha = 0
   s = max(np.abs(s), 1e-3)
   q = (alpha - beta)*s
-  y = x/x_b
-  low = y**(-alpha)
-  high = (.5 * (1. + y**(1/s)))**q
-  return A * low * high
+  ln_y = np.log(x/x_b)
+  # log(1 + y**(1/s)) = logaddexp(0, ln_y/s), stable at both extremes
+  return A * np.exp(-alpha * ln_y + q * (np.log(0.5) + np.logaddexp(0., ln_y / s)))
 
 def smooth_bpl0_apy(x, A, x_b, alpha, s):
   return smooth_bpl_apy(x, A, x_b, alpha, 0., s)
@@ -149,6 +158,8 @@ def Band_func_v2(x_arr, b1=-0.5, b2=-1.25):
 
 
 def Band_func_basic(x, b1=-0.5, b2=-1.25):
+  if x <= 0.:
+    return 0.
   b  = b1-b2
   xb = b/(1+b1)
   if x<= xb:
@@ -200,7 +211,7 @@ def derive_resolution(x, dx):
 def prim2cons(rho, u, p):
   '''
   Primitive to conservative
-  /!\ in code units, and u is proper velocity
+  !!! in code units, and u is proper velocity
   '''
   lfac = derive_Lorentz_from_proper(u)
   D = lfac*rho
@@ -223,6 +234,11 @@ def derive_temperature(rho, p):
   Relativistic temperature from density and pressure
   '''
   return p/rho
+
+def derive_polytropic(rho, p):
+  adb = derive_adiab(rho, p)
+  cons = p / rho**adb
+  return cons
 
 def derive_enthalpy(rho, p, EoS='TM'):
   '''
@@ -371,7 +387,7 @@ def derive_epint(rho, p):
 
 def derive_shockStrength(rho, p, rhoscale):
   '''
-  Shock strength \Gamma_ud - 1 = e'_int / rho_d c^2 
+  Shock strength Gamma_ud - 1 = e'_int / rho_d c^2 
   '''
   ei = derive_Eint_comoving(rho, p, rhoscale)
   ShSt = ei/(rho*rhoscale*c_**2)
@@ -422,8 +438,7 @@ def derive_velocity(lfac):
   '''
   Velocity (beta) from Lorentz factor
   '''
-  return (lfac**2 - 1.)/lfac
-  #return np.sqrt(1. - lfac**-2)
+  return np.sqrt(1. - lfac**-2)
 
 def derive_proper(v):
   '''
@@ -512,22 +527,22 @@ def derive_Pnum(x, dx, rho, vx, p, rhoscale, R0, eps_B, xi_e, psyn, geometry):
   V3p = derive_3vol_comoving(x, dx, vx, R0, geometry)
   return ((psyn-1)/(3*psyn-1))*V3p*Pmax_e
 
-def derive_Pemax(rho, p, rhoscale, eps_B, xi_e):
+def derive_Pemax(rho, p, rhoscale, eps_B):
   '''
-  Max emissivity of a single electron
+  Max emissivity of a single electron,
+    assumes P_nu' ~ (nu'/nu'_syn)^(1/3) for nu'<=nu'_syn, then 0
   '''
   B = derive_B_comoving(rho, p, rhoscale, eps_B)
-  fac = (4./3) * sigT_*me_*c_**2/(3*e_)
+  fac = (2./3) * sigT_*me_*c_**2/(3*e_)
   return fac*B
 
 def derive_Pmax(rho, p, rhoscale, eps_B, xi_e):
   '''
   Max emissivity of electrons in a cell
   '''
-  B = derive_B_comoving(rho, p, rhoscale, eps_B)
+  Pe = derive_Pemax(rho, p, rhoscale, eps_B)
   ne = xi_e*derive_n(rho, rhoscale)
-  fac = (4./3) * sigT_*me_*c_**2/(3*e_)
-  return fac*ne*B
+  return ne*Pe
 
 def derive_Lmax(rho, vx, p, dtp, rhoscale, eps_B, xi_e):
   '''
@@ -737,12 +752,20 @@ def derive_Fpeak_numeric(x, dx, rho, vx, p, gmin,
 
 def derive_Lbol_comov_new(x, rho, vx, p, vx_u, R0, rhoscale, eps_e, geometry):
   ''' Bolometric luminosity in comoving frame'''
-  eint = derive_Eint_comoving(rho, p, rhoscale)
+  # eint = derive_Eint_comoving(rho, p, rhoscale)
+  # lfac_ud = derive_lfac_ud(vx, vx_u)
+  # beta_ud = derive_velocity(lfac_ud)
+  # r = R0 if geometry == 'cartesian' else x*c_
+  # S = (4./3.)*pi_*r**2
+  # return eps_e*eint*beta_ud*S*c_
   lfac_ud = derive_lfac_ud(vx, vx_u)
   beta_ud = derive_velocity(lfac_ud)
   r = R0 if geometry == 'cartesian' else x*c_
-  S = (4./3.)*pi_*r**2
-  return eps_e*eint*beta_ud*S*c_
+  S = 4.*pi_*r**2
+  dMdt = (rho * rhoscale) * (beta_ud/3.) * c_ * S
+  Lbol = eps_e * (lfac_ud - 1) * dMdt * c_**2
+  return Lbol
+
 
 def derive_Lp_nupm_new(x, rho, vx, p, vx_u, R0, rhoscale, psyn, eps_B, eps_e, xi_e, geometry):
   Lbol = derive_Lbol_comov_new(x, rho, vx, p, vx_u, R0, rhoscale, eps_e, geometry)
@@ -792,7 +815,7 @@ def derive_obsTimes(tsim, r, beta, t0, z):
   Ton : onset time
   Tth : angular time (comes from Doppler beaming)
   Tej : effective ejection time
-  /!\ r in units c /!\ (function to be used by data_IO:get_variable)
+  !!! r in units c !!! (function to be used by data_IO:get_variable)
   '''
   t = tsim + t0 
   #lfac = derive_Lorentz(beta)
@@ -917,6 +940,15 @@ def derive_nup_m_new(rho, vx, p, vx_u, rhoscale, psyn, eps_B, eps_e, xi_e):
   nup_m = nup_B*gma_m**2
   return nup_m
 
+def derive_nup_m_sc(x, rho, vx, p, vx_u, R0, rhoscale, psyn, eps_B, eps_e, xi_e):
+  '''
+  nu'_m x (R/R0)
+  '''
+  sc = x * c_ / R0 
+  nup_m = derive_nup_m_new(rho, vx, p, vx_u, rhoscale, psyn, eps_B, eps_e, xi_e)
+  nup_m_sc = nup_m * sc
+  return nup_m_sc
+
 def derive_nup_m(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
   '''
   Peak frequency of the electron distribution, in comoving frame
@@ -998,14 +1030,11 @@ def derive_gma_M(rho, p, rhoscale, eps_B):
   '''
   Return max Lorentz factor of an accelerated electron distribution
   '''
-  # gma = derive_adiab(rho, p)
-  # h   = 1+p*gma/(gma-1.)/rho
-  # ei  = rho*(h-1)/gma
-  # eB  = eps_B*ei
-  # B = np.sqrt(8.*pi_*eB)
+
   B = derive_B_comoving(rho, p, rhoscale, eps_B)
-  gmaM2 = 3*e_/(sigT_*B)
-  return np.sqrt(gmaM2)
+  gmaM2 = 6*pi_*e_/(sigT_*B)
+  gmaM = np.sqrt(gmaM2)
+  return gmaM
 
 def derive_edistrib(rho, p, rhoscale, psyn, eps_B, eps_e, xi_e):
   '''

@@ -9,16 +9,19 @@ Launches simulations to perform a parameter space sweep
 import time
 import glob
 from setup import *
+from analysis_hydro import extract_data_thinshell
 from analysis_thinshell import extract_fittingData
 from IO import join_extracted, check_done_logau, logau_to_key
 
 # values of a_u - 1 to perform sweep
-#logau_arr = np.arange(-1, -0.5, 0.1)
-logau_arr = [1.2, 1.3, 1.4, 1.5]
-def_u1 = 100
+a = np.arange(-1., 1.6, 0.1)
+#logau_arr = np.where(np.abs(a)<1e-4, 0., a)
+logau_arr = [1.5]
+def_u1 = 10
+nSH = 3  # cells downstream of shock for sampling
 waittime = 60 # default wait time between checksx
 ONHPC = ('arthurc' in os.environ['HOME'])
-delete = False
+delete = True
 
 def main():
   clean = False
@@ -35,11 +38,12 @@ def main():
     run_sim(au)
     print('Run finished, moving in results/' + key)
     move_results(key)
-    extract_fittingData(key, log_au)
+    #extract_fittingData(key, log_au)
+    extract_data_thinshell(key, cells=[1, 4], nSH=nSH, noOut=True)
     if clean:
       print("Deleting data")
       os.popen('rm -f results/' + key + '/phys*.out')
-  join_extracted()
+  #join_extracted()
 
 def analyze_all():
   logau_done = check_done_logau()
@@ -82,7 +86,7 @@ def update_input(au):
       if line:
         l = line.split()
         if l[0] == 'u4':
-          line = line.replace(l[1], f'{u4:.0f}')
+          line = line.replace(l[1], f'{u4:.2f}')
       out_lines.append(line)
 
   with open(file, 'w') as outf:

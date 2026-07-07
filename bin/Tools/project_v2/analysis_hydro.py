@@ -75,7 +75,7 @@ def get_tcrossing(key, z):
 
 ### Extract hydro data
 def extract_data_thinshell(key, itmin=0, itmax=None,
-    cells=[1, 4], savefile=True, noOut=False):
+    cells=[1, 4], nCD=1, nSH=5, savefile=True, noOut=False, noPrint=False):
   '''
   Analyze a run, returning pandas dataframes one for each interface
   1: downstream FS, 2: CD in S2, 3: CD in S3, 4: downstream RS
@@ -100,11 +100,12 @@ def extract_data_thinshell(key, itmin=0, itmax=None,
   dics = [{} for i in range(Nc)]
   dfs = []
   for j, it in enumerate(its):
-    if it % 1000 == 0:
-      print(f"Analyzing file of it = {it}")
+    if not noPrint:
+      if it % 1000 == 0:
+        print(f"Analyzing file of it = {it}")
     df, t = openData_withtime(key, it)
     for i, z in enumerate(cells):
-      cell = df_get_frontsnCD(df, z)
+      cell = df_get_frontsnCD(df, z, nCD=nCD, nSH=nSH)
       if cell.empty:
         values = np.zeros(Nk)
         values[0:2] = it, t
@@ -156,7 +157,7 @@ def extract_data_cells(key, klist, itmin=0, itmax=None,
   dics_arr = [{var:np.zeros(len(its)) for var in varlist} for k in klist]
   
   for j, it in enumerate(its):
-    if not (it%100):
+    if not (it%1000):
       print(f'Opening file it {it}')
     df = openData(key, it)
     for i, k in enumerate(klist):
@@ -172,7 +173,7 @@ def extract_data_cells(key, klist, itmin=0, itmax=None,
   if savefile:
     for k, out_k in zip(klist, out_arr):
       cellfile, _ = get_cellfile(key, k)
-      out_k.to_csv(cellfile, index=it)
+      out_k.to_csv(cellfile, index=True)
   
   if not noOut:
     return out_arr

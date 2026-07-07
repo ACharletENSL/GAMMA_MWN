@@ -336,11 +336,12 @@ def open_celldata(key, k):
     return dfile_bool
 
 def get_fitsfile(key, z):
-  path = GAMMA_dir+'/extracted_data/'
-  fname = path + key + '_'
+  # path = GAMMA_dir+'/extracted_data/'
+  # fname = path + key + '_'
+  path = get_dirpath(key) 
   front = 'FS' if z == 1 else 'RS'
-  path = fname+front+'.out'
-  return path
+  fname = path + 'fit_' + front+'.out'
+  return fname
 
 def open_fits(key, z, l=4):
   '''
@@ -358,7 +359,7 @@ def open_fits(key, z, l=4):
   popt_lfac, popt_ShSt, popt_nu, popt_L = popts
   return Tf, t_max, popt_lfac, popt_ShSt, popt_nu, popt_L, popt_xi
 
-def join_extracted(noPks=False):
+def join_extracted(keys, noPks=False):
   '''
   Join the extracted data from the sweep in one table
   '''
@@ -371,9 +372,11 @@ def join_extracted(noPks=False):
   header = "\t".join(varnames)
   N = len(varnames)
   folder = GAMMA_dir + '/extracted_data/'
-  for front in ['FS', 'RS']:
-    search_exp = folder + 'sweep*' + front + '.out'
-    files = glob.glob(search_exp)
+  # for front in ['FS', 'RS']:
+  #   search_exp = folder + 'sweep*' + front + '.out'
+  #   files = glob.glob(search_exp)
+  for front, z in zip(['RS', 'FS'], [4, 1]):
+    files = [get_fitsfile(key, z) for key in keys]
     arr0 = np.loadtxt(files[0])
     if len(arr0) != N:
       print(f'Header length {N} != array length {len(arr0)}')

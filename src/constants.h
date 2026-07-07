@@ -24,7 +24,7 @@
 // emissivity parameters: (values from Rahaman et al. 2023)
 #define p_          2.5         // slope of electron population
 #define eps_e_      0.3333333333333333    // constribution to electron acceleration
-#define eps_B_      0.3333333333333333    // contribution to magnetic field
+#define eps_B_      0.1    // contribution to magnetic field
 #define zeta_       0.01        // fraction of accelerated electrons
 #define acc_eff_    1.          // acceleration efficiency
 #define theta_      M_PI/2.     // electron pitch angle 

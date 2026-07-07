@@ -186,7 +186,7 @@ def time_binning_cooling(cell, env, end_val, end_cond='tt',
     # when splitting a complete cell history according to cooling
     gmax0 = get_variable(cell, "gma_M", env)
   if end_cond == 'tt':
-    gmax_end = func_cooling(tt_max, gmax0)
+    gmax_end = func_cooling(end_val, gmax0)
   elif end_cond == 'gmax':
     gmax_end = end_val
   else:
@@ -207,10 +207,9 @@ def time_binning_cooling(cell, env, end_val, end_cond='tt',
   tt_arr += tt0
   dtp_arr = dtt_arr * tcp
   dt_arr = dtp_arr * lfac
-  tp_arr = np.insert(np.cumsum(dtp_arr[:-1]), 0, 0.) + tp0
   t_arr = np.insert(np.cumsum(dt_arr[:-1]), 0, 0.) + t0
 
-  return t_arr, dt_arr, tp_arr, dtp_arr, tt_arr, dtt_arr
+  return t_arr, dt_arr, dtp_arr, tt_arr, dtt_arr
 
 
 # Creating and evolving the electron distribution
@@ -412,7 +411,7 @@ def split_hydrostep(cell, env, r_ref=1.2, Nmin=2, Nmax=20,
   '''
 
   tt_max = cell.dtt
-  time_arrays = time_binning_cooling(cell, tt_max, env, r_ref, Nmin, Nmax, func_cooling)
+  time_arrays = time_binning_cooling(cell, env, tt_max, 'tt', r_ref, Nmin, Nmax, func_cooling)
   t_arr, dt_arr, tp_arr, dtp_arr, tt_arr, dtt_arr = time_arrays
   N = len(t_arr)
 

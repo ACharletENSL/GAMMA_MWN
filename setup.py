@@ -17,11 +17,18 @@ from environment import MyEnv
 
 Initial_path = str(Path().absolute() / 'src/Initial/')
 
-def main():
+def main(alpha=1., zeta=1.):
   # update .cpp file and copies phys_input.ini in the results folder
   # to come: add file check and automatic moving results in new folder
-  env = MyEnv('./phys_input.ini')
-  
+  # alpha, zeta: Granot (2012) hydro unit-rescaling of the inputs before setup,
+  # so the launched sim reproduces the fiducial rescaled a posteriori with
+  # environment.rescale_hydro(alpha, zeta, env) (see rescale_input below)
+  # always write the (possibly identity) rescaled input to a temp file, so the
+  # setup below and the copy into results/Last both use the same, consistent
+  # inputs (identity when alpha=zeta=1)
+  rescale_input(alpha, zeta, dst='./phys_input_temp.ini')
+  env = MyEnv('./phys_input_temp.ini')
+
   if env.mode == 'shells':
     simfile = Initial_path + '/Shells/Shells.cpp'
   elif mode == 'MWN':
@@ -29,8 +36,44 @@ def main():
   update_simFile(simfile, env)
   update_Makefile(env)
   update_envFile(env)
-  subprocess.call("cp -f ./phys_input.ini ./results/Last/", shell=True)
+  subprocess.call("mv ./phys_input_temp.ini ./results/Last/phys_input.ini", shell=True)
   #run_name = get_runName("./phys_input.ini")
+
+def rescale_input(alpha, zeta, src='./phys_input.ini', dst='./phys_input.ini'):
+  '''
+  Granot (2012) hydrodynamic unit-rescaling of the phys_input.ini parameters,
+  so a sim launched from the result equals the original rescaled a posteriori
+  with environment.rescale_hydro(alpha, zeta, env). Scales dimensional inputs:
+    length/time (toff,t0,t1,t4,R0,D01,D04) x alpha
+    energy      (Ek1,Ek4)                  x zeta
+    power       (L)                        x zeta/alpha
+    density/pressure (rho1,rho4,p1,p4)     x zeta*alpha**-3
+  Velocities (u1,u4) and dimensionless params (Theta0, rhoContr, eps_*, ...)
+  are left untouched. Comments/layout preserved; only active lines edited.
+  In place by default; pass a pristine src (e.g. results/<key>/phys_input.ini)
+  to avoid compounding rescalings.
+  '''
+  factors = {
+    'toff':alpha, 't0':alpha, 't1':alpha, 't4':alpha, 'R0':alpha, 'D01':alpha, 'D04':alpha,
+    'Ek1':zeta, 'Ek4':zeta,
+    'L':zeta/alpha,
+    'rho1':zeta*alpha**-3, 'rho4':zeta*alpha**-3, 'p1':zeta*alpha**-3, 'p4':zeta*alpha**-3,
+  }
+  out_lines = []
+  with open(src, 'r') as f:
+    inFile = f.read().splitlines()
+    for line in inFile:
+      if line and not line.startswith('#'):
+        head, sep, tail = line.partition('#')
+        l = head.split()
+        if len(l) >= 2 and l[0] in factors:
+          newval = eval(l[1]) * factors[l[0]]
+          newhead = head.replace(l[1], '%.12g' % newval, 1)
+          line = newhead + (sep + tail if sep else '')
+      out_lines.append(line)
+  with open(dst, 'w') as outf:
+    outf.writelines(f'{s}\n' for s in out_lines)
+  print(f'rescale_input: alpha={alpha:g}, zeta={zeta:g}  ({src} -> {dst})')
 
 def update_envFile(env):
   '''
@@ -179,4 +222,19 @@ def get_runName(filename):
   return runName
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(
+      description='Prepare a GAMMA run from phys_input.ini, optionally applying a '
+                  'Granot (2012) hydro unit-rescaling (alpha: length-time, zeta: mass-energy) '
+                  'to the inputs first.')
+    parser.add_argument('--alpha', type=float, default=1., help='length-time rescaling factor (default 1)')
+    parser.add_argument('--zeta',  type=float, default=1., help='mass-energy rescaling factor (default 1)')
+    parser.add_argument('--src', default=None,
+      help='pristine phys_input.ini to rescale FROM (avoids compounding); '
+           'defaults to in-place ./phys_input.ini')
+    args = parser.parse_args()
+    if (args.alpha != 1. or args.zeta != 1.) and args.src:
+      rescale_input(args.alpha, args.zeta, src=args.src)
+      main()  # inputs already rescaled from pristine src
+    else:
+      main(alpha=args.alpha, zeta=args.zeta)

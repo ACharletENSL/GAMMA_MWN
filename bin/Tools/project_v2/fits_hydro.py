@@ -21,7 +21,7 @@ from IO import *
 from environment import MyEnv
 
 
-def fits_from_au(au, front='RS', l=4):
+def fits_from_au(au, front='RS'):
   '''
   Returns parameters for lfac, ShSt, nu'_m*R, L_bol from any value of a_u
   l is the length of the fitting parameters
@@ -58,7 +58,7 @@ def cellsBehindShock_fromData(data, N_in=None):
   t_max = data.iloc[-1].t
 
   # get fit
-  popt_lfac, popt_ShSt, _, _, _ = get_hydrofits_shell_new(data)
+  popt_lfac, popt_ShSt, _, _ = get_hydrofits_shell_new(data)
   attrs = {key:data.attrs[key] for key in data.attrs.keys()}
   df = cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max,
     N_in=N_in, fastshell=fastshell, attrs=attrs)
@@ -116,7 +116,7 @@ def reconstruct_data(t_max, env, fastshell, popt_lfac, popt_ShSt, N_in=None):
       G_sorted = G_vals
       t_sorted = t_vals
   else:
-      raise RuntimeError("G(t) not monotonic")
+      raise RuntimeError("G(t) not monotonic, popt_lfac = ", popt_lfac)
   t_of_G = CubicSpline(G_sorted, t_sorted)
   t_hit = t_of_G(init_rads)
   t_hit[0] = 0.
@@ -147,10 +147,11 @@ def reconstruct_data(t_max, env, fastshell, popt_lfac, popt_ShSt, N_in=None):
 
   # add the passive tracer and cell index (useful in some calcs)
   trac = np.ones(t_hit.shape)
-  cells_i = np.arange(N) + env.Next
-  if not fastshell:   # shell 1
-    trac *= 2.
-    cells_i += env.Nsh4
+  if fastshell:
+    cells_i = np.flip(np.arange(N)) + env.Next
+  else:
+    trac *= 2
+    cells_i = np.arange(N) + env.Next + env.Nsh4
 
   return t_hit, cells_i, R, dx, rho, vx, lfac, p, trac
 
@@ -235,31 +236,112 @@ def get_hydrofits_shell_new(data):
   '''
   env = MyEnv(data.attrs['key'])
   trac = data.iloc[0].trac
-  ShSt0, nu0, L0 = (
-    (env.lfac34 - 1, env.nu0p, env.Lbolp) if (trac < 1.5)
-    else (env.lfac21 - 1, env.nu0pFS, env.LbolpFS)
+  ShSt0, nu0, L0, R_cr = (
+    (env.lfac34 - 1, env.nu0p, env.Lbolp, env.R_cr4) if (trac < 1.5)
+    else (env.lfac21 - 1, env.nu0pFS, env.LbolpFS, env.R_cr1)
   )
-  norms = [env.lfac0, ShSt0, env.beta, nu0, L0]
-  names = ['lfac', 'ShSt', 'vx', 'nup_m2', 'Lbol']
-  x = data.x.to_numpy() * c_/env.R0
+  norms = [env.lfac0, ShSt0, nu0, L0]
+  names = ['lfac', 'ShSt', 'nup_m2', 'Lbol']
+  # start data analysis once the shock has fully crossed 1st shell
+  x = data.x.to_numpy() * c_/ env.R0
+  x_ = x[x >= 1.]
   popt_out = []
   for name, norm in zip(names, norms):
     val = get_variable(data, name, env)/norm
-    noBeta = True #if (name == 'lfac') else False
+    val_ = val[x >= 1]
+    #beta = 0. #if (name == 'lfac') else None
     if 'nu' in name:
-      val *= x
-    popt = get_fitting_smoothBPL_v2(x, val, noBeta=noBeta)
+      val_ *= x_
+    popt = get_fitting_smoothBPL_new(x_, val_)
+    #popt = get_fitting_smoothBPL_v2(x_, val_, beta=beta, initBreak=True)
     popt_out.append(popt)
   return popt_out
+
+
+def find_fitting_boundaries(x, y, cr_offset=6, crit_fac=1.5):
+  '''
+  Indices to trim y data for fitting
+    artifact at beginning corresponds to numerical settling
+    artifact at end corresponds to the shock reaching noisy region at end of shell
+  Smooth data with savgol before this
+  '''
+
+  # numerical settling: a single peak
+  dy = np.gradient(y, x)
+  sign_changes = np.where(np.diff(np.sign(dy)))[0]
+  i0 = sign_changes[0]
+  if i0 == 0: i0 = sign_changes[1]
+  i0 += cr_offset  # offset from shock crossing to allow for settling
+
+  # final artifact: 
+  # select when second derivative goes above a mean value
+  l = int(len(y)/4)
+  d2y = np.gradient(dy, x)
+  crit = crit_fac * np.abs(d2y[i0+l:i0+2*l]).max()
+  try:
+    indices = np.where((np.abs(d2y[i0:]) > crit) & (x[i0:] > x[-1]/2))[0]
+    i1 = indices[0] + i0
+  except IndexError:
+    # no indices verify this, that can happen from no end of data artifact
+    i1 = -1
+  return i0, i1
+
+
+def get_fitting_smoothBPL_new(x, y, cleanData=True,
+    window=7, polyorder=3, i_s=15, const_threshold=1e-3, beta=0.,
+    fitfunc=smooth_bpl_apy):
+  '''
+  Fits data with a smoothly joined broken power law
+  beta: if None, the second segment slope is a free parameter;
+    if a number, it is held fixed at that value (beta=0 => constant second segment)
+  '''
+
+  if beta is None:
+    func = fitfunc
+  else:
+    func = lambda x, A, x_b, alpha, s: fitfunc(x, A, x_b, alpha, beta, s)
+
+  x_, y_ = x, y
+  if cleanData:
+    # some smoothing before anything
+    window = max(window, polyorder + 2)  # savgol constraint
+    if window % 2 == 0:
+      window += 1  # savgol requires odd window
+    y_ = savgol_filter(y, window, polyorder)
+    mask = y_ > 0
+    x_, y_ = x[mask], y_[mask]
+    i0, i1 = find_fitting_boundaries(x_, y_)
+    x_, y_ = x_[i0:i1], y_[i0:i1]
   
+  p0, bounds = get_p0_bounds(x_, y_, i_s=i_s, beta=beta)
+  try:
+    # generous maxfev: on short x-ranges (no break in range) the BPL parameters
+    # are near-degenerate and the default budget is exceeded before converging.
+    # xtol/ftol = 1e-5 stops the crawl along the flat valley early: the anchored
+    # profile changes by < ~1e-5 while the worst fits go ~100x faster
+    # x_scale='jac' conditions the mixed-scale parameter vector (A, x_b, slopes, s)
+    popt, _ = curve_fit(func, x_, y_, p0=p0, bounds=bounds, maxfev=20000,
+                        xtol=1e-5, ftol=1e-5, x_scale='jac')
+    if abs(popt[2]) <= const_threshold:    # near constant
+      popt[2] = 0.
+    return popt
+  except ValueError as e:
+    print(f"Error occurred: {e}")
+    print("p0: ", p0)
+    print("lower bound: ", bounds[0])
+    print("upper bounds: ", bounds[1])
+    #print('ValueError with init. guesses: ', func(1.,*p0))
+    return p0
+
 def get_fitting_smoothBPL_v2(x, y, i_s=15, i_end=20,
-    noBeta=False, initBreak=True,
-    fitfuncs=(smooth_bpl_apy, smooth_bpl0_apy)):
+    beta=None, initBreak=True,
+    fitfunc=smooth_bpl_apy):
   '''
   Fit data with a smoothly joined broken power law
   i_s: number of points for slope sampling
   i_end: number of last points to exclude from fit
-  if noBeta=True, second segment is a constant
+  beta: if None, the second segment slope is a free parameter;
+    if a number, it is held fixed at that value (beta=0 => constant second segment)
   if initBreak = True, the initial peak/dip is detected and taken out
   '''
 
@@ -278,12 +360,12 @@ def get_fitting_smoothBPL_v2(x, y, i_s=15, i_end=20,
     window += 1  # savgol requires odd window
   y_ = savgol_filter(y_, window, polyorder)
   
-  if noBeta:
-    func = fitfuncs[1]
+  if beta is None:
+    func = fitfunc
   else:
-    func = fitfuncs[0]
-  
-  p0, bounds = get_p0_bounds(x_, y_, i_s=i_s, noBeta=noBeta)
+    func = lambda x, A, x_b, alpha, s: fitfunc(x, A, x_b, alpha, beta, s)
+
+  p0, bounds = get_p0_bounds(x_, y_, i_s=i_s, beta=beta)
   x_, y_ = x_[:-i_end], y_[:-i_end]
   try:
     popt, _ = curve_fit(func, x_, y_, p0=p0, bounds=bounds)
@@ -296,46 +378,65 @@ def get_fitting_smoothBPL_v2(x, y, i_s=15, i_end=20,
     #print('ValueError with init. guesses: ', func(1.,*p0))
     return p0
 
-def get_p0_bounds(x_, y_, i_s=15, noBeta=False):
+def get_p0_bounds(x_, y_, i_s=15, beta=None):
   '''
   New version accomodating for the astropy form
   x_ and y_ start when data is settled, x_[0]~1.3
+  beta: if None, the second segment slope is a free parameter;
+    if a number, it is held fixed at that value and dropped from p0/bounds
   '''
   ### priors
   # s ~ transition size in decades around x_b
   s = 0.5
-  # transition should be close to 1 by construction
-  # x_b0 = x_[0]
-  # x_bs = x_b0**(-1/s)
-  x_b0, x_bs = 1., 1.
-  # slopes at x = 1 and at the end of dataset (typically x <= 10) 
-  a_eff = logslope(x_[0], y_[0], x_[i_s], y_[i_s])
-  y_end = y_[-20:-5].mean()
-  i_b0 = np.searchsorted(x_, 2.*x_[-1]/3.)
-  beta0 = 0. if noBeta else logslope(x_[i_b0], y_[i_b0], x_[-10], y_end)
-  # slope at x << 1
-  alpha0 = - a_eff * (1 + x_bs) - beta0 * x_bs
-  # amplitude
-  A0 = A_implied(x_[0], y_[0], x_b0, alpha0, beta0, s)
-  # final
+
+  # --- x_b: geometric center of the data range ---
+  x_b0 = float(np.sqrt(x_[0] * x_[-1]))
+  i_b0 = int(np.clip(np.searchsorted(x_, x_b0), 5, len(x_) - 6))
+  # -6 to avoid savgol smoothing artifacts
+
+  # --- slopes: read off the segments x_b actually separates ---
+  # pre-break  : y ~ x^(-alpha) on [x_[0], x_b0]
+  # post-break : y ~ x^(-beta)  on [x_b0, x_[-1]]
+  alpha0 = -logslope(x_[0], y_[0], x_[i_b0], y_[i_b0])
+  y_end  = y_[-20:-5].mean()
+  beta0  = -logslope(x_[i_b0], y_[i_b0], x_[-10], y_end) if beta is None else beta
+  # clamp the slope priors into the allowed window, else the +-2 box around
+  # them inverts against the slope caps below ("Each lower bound must be
+  # strictly less than each upper bound"). Caps at +-30: cells in the
+  # back-edge rarefaction decay with real slopes of ~15-25.
+  alpha0 = float(np.clip(np.nan_to_num(alpha0), -30., 30.))
+  if beta is None:
+    beta0 = float(np.clip(np.nan_to_num(beta0), -30., 30.))
+
+  # --- A: value at the break (smooth_bpl_apy(x_b, A, ...) = A by construction) ---
+  A0 = float(y_[i_b0])
+
   p0 = [A0, x_b0, alpha0, beta0, s]
 
-  ### bounds
-  x_low, x_up = 1e-2, 100*x_[-1]
-  s_low, s_up = 1e-3, 3
-  a_low, a_up = alpha0 - 2., alpha0 + 2.
-  b_low, b_up = beta0 - 2., beta0 + 2.
-  # for amplitude, take the range of y as a factor on prior
-  y_eff = x_[0]**(-a_eff) * y_[0]  # value at x = 1
-  range = max(y_eff/y_end, y_end/y_eff)
-  A_low, A_up = A0/range, A0*range
-  bounds = ([A_low, x_low, a_low, b_low, s_low], 
-              [A_up, x_up, a_up, b_up, s_up])
+  # --- bounds ---
+  # x_b must live inside the data so the fit can't fake a step at the edge
+  x_low = x_[0] + 0.1 * (x_[-1] - x_[0])
+  x_up  = x_[-1]
+  # cap slopes so a noisy segment can't drive alpha to ±60
+  a_low, a_up = max(alpha0 - 2., -30.), min(alpha0 + 2., 30.)
+  b_low, b_up = max(beta0  - 2., -30.), min(beta0  + 2., 30.)
+  # s_low ≥ 0.05  ⇒  1/s ≤ 20  ⇒  no y**(1/s) overflow in smooth_bpl_apy
+  s_low, s_up = 0.05, 3.
+  # A near a real data value — modest spread is enough
+  A_low, A_up = A0 / 5., A0 * 5.
+
+  bounds = ([A_low, x_low, a_low, b_low, s_low],
+              [A_up,  x_up,  a_up,  b_up,  s_up])
+
   
-  if noBeta:
+  if beta is not None:
     for arr in [p0, *bounds]:
       del arr[-2]
-  
+
+  # make sure p0 inside of bounds
+  for i in range(len(p0)):
+    p0[i] = float(np.clip(p0[i], bounds[0][i], bounds[1][i]))
+
   return p0, bounds
 
 def A_implied(x_val, y_val, x_b, alpha, beta, s):
@@ -528,15 +629,15 @@ def propagation_normalized_fromfit(tau_max, popt_beta):
   return sol
   
 
-def propagation_from_fit(t_max, R0, lfac0, popt_lfac):
+def propagation_from_fit(t_max, R0, lfac0, popt_lfac, fitfunc=smooth_bpl0_apy):
   '''
-  Constructs the (t, R) graph knowing \Gamma^2(R) over time t_max
+  Constructs the (t, R) graph knowing Gamma(R) over time t_max
     t_max is counted starting from t0
   '''
 
   def func_beta(R):
     x = R/R0
-    Gamma = lfac0 * smooth_bpl0_apy(x, *popt_lfac)
+    Gamma = lfac0 * fitfunc(x, *popt_lfac)
     Gamma2 = Gamma**2
     return np.sqrt(Gamma2 - 1.) / np.sqrt(Gamma2)  # stable: avoids 1 - 1/Gamma^2 cancellation
   

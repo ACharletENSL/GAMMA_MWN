@@ -39,17 +39,13 @@ def shells_complete_setup(env, scalefac):
 
   # add D0 if ton and vice-versa
   if Ain_keys_butnotB('D01', 't1'):
-    #env.t1  = (env.D01/env.R0)*env.toff
     env.t1 = env.D01/(env.beta1*c_)
   elif Ain_keys_butnotB('t1', 'D01'):
-    #env.D01 = (env.t1/env.toff)*env.R0
-    env.D01 = env.t1*env.beta1*c_#*(1+env.R0/env.lfac1**2)
+    env.D01 = env.t1*env.beta1*c_
   if Ain_keys_butnotB('D04', 't4'):
-    #env.t4  = (env.D04/env.R0)*env.toff
     env.t4  = env.D04/(env.beta4*c_)
   elif Ain_keys_butnotB('t4', 'D04'):
-    #env.D04 = (env.t4/env.toff)*env.R0
-    env.D04 = env.t4*env.beta4*c_#*(1+env.R0/env.lfac4**2)
+    env.D04 = env.t4*env.beta4*c_
   
   # rescaling by scaling lengthscale
   sc = 10**scalefac
@@ -64,6 +60,16 @@ def shells_complete_setup(env, scalefac):
   env.dr4 = env.D04/env.Nsh4
   env.dr1 = env.D01/env.Nsh1
 
+  if 'L' in env.__dict__.keys():
+    env.Ek1 = env.L * env.t1
+    V1c2     = 4.*pi_*env.R0**2*env.D01*c_**2
+    env.rho1 = (env.Ek1/(env.lfac1-1))/(V1c2*env.lfac1)
+    env.Ek4 = env.L * env.t4
+    V4c2     = 4.*pi_*env.R0**2*env.D04*c_**2
+    env.rho4 = (env.Ek4/(env.lfac4-1))/(V4c2*env.lfac4)
+  else:
+    env.L = env.Ek4 / env.t4
+  
   # add rho if Ek and vice-versa
   if Ain_keys_butnotB('Ek1', 'rho1'):
     V1c2     = 4.*pi_*env.R0**2*env.D01*c_**2
@@ -97,6 +103,7 @@ def shells_add_analytics(env):
 
   env.f      = env.rho4/env.rho1
   env.a_u    = env.u4/env.u1
+  env.log_aum= np.log10(env.a_u - 1) 
   env.chi    = env.D01 / env.D04
   env.u21    = derive_u_in1(env.u1, env.u4, env.f)
   env.u34    = env.u21/np.sqrt(env.f)
@@ -127,6 +134,8 @@ def shells_add_analytics(env):
   env.Ei2f   = derive_Eint_crosstime(env.M1, env.u, env.lfac21)
   env.Ek2f   = derive_Ek_crosstime(env.M1, env.lfac0)
   env.eff_1  = env.Ei2f/env.Ek1
+  env.t_cr1  = env.dr1/env.betaFS
+  env.R_cr1  = env.t_cr1*env.beta1
 
   env.betaRS = derive_betaRS(env.u4, env.u34, env.u)
   env.lfacRS = derive_Lorentz(env.betaRS)
@@ -136,6 +145,9 @@ def shells_add_analytics(env):
   env.Ei3f   = derive_Eint_crosstime(env.M4, env.u, env.lfac34)
   env.Ek3f   = derive_Ek_crosstime(env.M4, env.lfac0)
   env.eff_4  = env.Ei3f/env.Ek4
+  env.t_cr4  = env.dr4/env.betaRS
+  env.R_cr4  = env.t_cr4*env.beta4
+
 
   env.tmax = max(env.tRS, env.tFS)
 
@@ -179,9 +191,11 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.Bp = np.sqrt(8.*pi_*env.eps_B*env.eint3p)
   env.BpFS = np.sqrt(8.*pi_*env.eps_B*env.eint2p)
   env.gma_m = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac34-1)
+  env.gma_c = 6*pi_*me_*c_*env.lfac0/(sigT_*env.Bp**2*env.tRS)
   env.gma_mFS = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac21-1)
-  env.gma_max = np.sqrt(3*e_/(sigT_*env.Bp))
-  env.gma_maxFS = np.sqrt(3*e_/(sigT_*env.BpFS))
+  env.gma_cFS = 6*pi_*me_*c_*env.lfac0/(sigT_*env.BpFS**2*env.tFS)
+  env.gma_max = np.sqrt(6*pi_*e_/(sigT_*env.Bp))
+  env.gma_maxFS = np.sqrt(6*pi_*e_/(sigT_*env.BpFS))
   env.nuBp = e_*env.Bp/(2.*pi_*me_*c_)
   env.nuBpFS = e_*env.BpFS/(2.*pi_*me_*c_)
   env.nu0p = env.gma_m**2 * env.nuBp
@@ -191,9 +205,7 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.Lbolp = (4/3.) * env.eps_e * env.eps_rad * (4*pi_*env.R0**2) * c_**3 * \
      (env.lfac34-1)*env.u34 * env.rho4 
   env.L0p = env.Lbolp / (Wp*env.nu0p)
-  env.L0p_Rshape = (2/3)*env.Lbolp/(env.nu0p*norm_R_)
   env.L0 = 2*env.lfac0*env.L0p
-  env.L0_Rshape = 2*env.lfac0*env.L0p_Rshape
 
   env.nu0 = 2.*env.lfac0*env.nu0p/(1+z)
   env.T0 = (1+z) * (env.R0/c_) * ((1-env.betaRS)/env.betaRS)
@@ -274,6 +286,15 @@ def shells_add_radNorm(env, z=1., dL=2e28):
 
   # some more useful values for rad calculations
   env.Gammap = - gamma(1/3.-env.psyn)*gamma(env.psyn)/gamma(1/3.)
+
+  # deceleration radii, Hascoët et al. 2012 eqn (41) and estimates of A
+  s_cst = 0
+  A_cst = 5.e11 # g.cm^-1
+  s_wnd = 2
+  A_wnd = 1e3 * mp_ # g cm^-3
+  env.Rdec_cst = ((3-s_cst)*(env.Ek1+env.Ek4) / (4*pi_*env.lfac0**2*A_cst*c_**2))**(1/(3-s_cst))
+  env.Rdec_wnd = ((3-s_wnd)*(env.Ek1+env.Ek4) / (4*pi_*env.lfac0**2*A_wnd*c_**2))**(1/(3-s_wnd))
+
 
 def shells_snapshot_fromenv(env, r, t):
   '''

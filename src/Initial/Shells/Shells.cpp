@@ -21,20 +21,20 @@ static double Theta0  = 5e-05 ;   //          Theta0 = p/(rho*c^2)
 static double p0      = Theta0*rho0*c_*c_;
 
 // set shells parameters
-static double rho1 = 1.6519483888892247e-12 ;     // comoving density of front shell
+static double rho1 = 4.667291079080062e-18 ;     // comoving density of front shell
 static double u1   = 100.000000 ;          // proper velocity (gamma*beta) of front shell
-static double p1   = 167.5345017236583 ;
-static double D01  = 14988873475.061403 ;     // spatial extension of front shell
-static double rho4 = 3.728145454674869e-15 ;     // comoving density of back shell
-static double u4   = 2095.000000 ;          // proper velocity of back shell
-static double p4   = 167.5345017236583 ;
-static double D04  = 14989621192.374691 ;     // spatial extension of back shell
+static double p1   = 0.05217289029534429 ;
+static double D01  = 299777469501.2281 ;     // spatial extension of front shell
+static double rho4 = 1.161003386231882e-18 ;     // comoving density of back shell
+static double u4   = 200.000000 ;          // proper velocity of back shell
+static double p4   = 0.05217289029534429 ;
+static double D04  = 299788710664.5374 ;     // spatial extension of back shell
 static double beta1= u1/sqrt(1+u1*u1);
 static double beta4= u4/sqrt(1+u4*u4);
 static double cont = 0.05 ;           // density contrast between shell and ext medium
 
 // box size
-static double R_0     = 60096919383510.76 ;
+static double R_0     = 7994715368416638.0 ;
 static int Nsh1   = 500 ;
 static int Ntot1  = 520 ;
 static int Nsh4   = 500 ;
@@ -42,7 +42,7 @@ static int Ntot4  = 520 ;
 static int Ncells = Ntot4 + Ntot1;
 
 // additional time after stopping condition, 10% of theoretical crossing time
-static double EXTRA_TIME = 1673.4985677162244 ;
+static double EXTRA_TIME = 43128.61421747681 ;
 
 // normalisation constants:
 static double rhoNorm = rho4 ;                // density normalised t
@@ -145,11 +145,11 @@ int Grid::initialValues(){
       double gma = 5./3.;
 
       if (r <= R4){
-        double rho = cont*rho4*pow(r/R4, -2.);
+        //double rho = cont*rho4*pow(r/R4, -2.);
         //double p   = p4*pow(r/R4, -2*gma);
-        c->S.prim[RHO] = rho/rhoNorm;
+        c->S.prim[RHO] = cont*rho4/rhoNorm;
         c->S.prim[VV1] = beta4;
-        c->S.prim[PPP] = p4/pNorm;
+        c->S.prim[PPP] = cont*p4/pNorm;
         c->S.prim[TR1] = 0.;
       }
       if ((r >= R4) and (r <= R_0)){
@@ -167,11 +167,11 @@ int Grid::initialValues(){
         c->S.prim[TR1] = 2.;
       }
       if (r > R1){
-        double rho = cont*rho1*pow(r/R1, -2.);
+        //double rho = cont*rho1*pow(r/R1, -2.);
         //double p   = p1*pow(r/R1, -2*gma);
-        c->S.prim[RHO] = rho/rhoNorm;
+        c->S.prim[RHO] = cont*rho1/rhoNorm;
         c->S.prim[VV1] = beta1;
-        c->S.prim[PPP] = p1/pNorm;
+        c->S.prim[PPP] = cont*p1/pNorm;
         c->S.prim[TR1] = 0.;
       }
     }
@@ -187,58 +187,6 @@ void Grid::userKinematics(int it, double t){
   UNUSED(it);
   UNUSED(t);
 
-  // // DEFAULT VALUES
-  // //double vIn  = 1.;
-  // //double vOut = 1.;
-  // //double vb = vOut;
-
-  // // check if rarefaction wave(s) too close to boundary
-  // int iout = iRbnd-1;
-  // int iin  = iLbnd+1;
-  // double rout = Ctot[iout].G.x[r_];
-  // double rin  = Ctot[iin].G.x[r_];
-  // double rlimL = rin + 0.02 * (rout-rin);
-  // double rlimR = rin + 0.98 * (rout-rin);
-
-  // // left boundary
-  // int ia = iin;
-  // double rcand = rin;
-  // Cell c = Ctot[ia];
-  // double pcand = c.S.prim[PPP];
-  // double ptemp;
-  // while (rcand < rlimL){
-  //   ia++;
-  //   c = Ctot[ia];
-  //   rcand = c.G.x[r_];
-  //   ptemp = std::max(c.S.prim[PPP], pcand);
-  //   pcand = ptemp;
-  // }
-  // if (pcand >= 10.*p4/pNorm){
-  //   for (int n = 0; n < ngst; ++n){
-  //     int    iL = n;
-  //     Itot[iL].v = 0.9;
-  // }
-  // }
-  
-  // // right boundary
-  // ia = iout;
-  // rcand = rout;
-  // c = Ctot[ia];
-  // pcand = c.S.prim[PPP];
-  // while (rcand > rlimR){
-  //   ia--;
-  //   c = Ctot[ia];
-  //   rcand = c.G.x[r_];
-  //   ptemp = std::max(c.S.prim[PPP], pcand);
-  //   pcand = ptemp;
-  // }
-  // if (pcand >= 10.*p1/pNorm){
-  //   //std::cout << "Shell edge too close to sim edge";
-  //   for (int n = 0; n < ngst; ++n){
-  //     int    iR = ntrack-2-n;
-  //     Itot[iR].v = 1.1;
-  //   }
-  // }
 }
 
 void Cell::userSourceTerms(double dt){
@@ -251,22 +199,6 @@ void Grid::userBoundaries(int it, double t){
 
   UNUSED(it);
   UNUSED(t);
-
-  /*
-  R^-2 density profile in ghost cells for stability at high Lorentz
-  */
-  double R4 = R_0 - D04;
-
-  for (int i = 0; i <= iLbnd; ++i){
-    Cell *c = &Ctot[i];
-    double r   = c->G.x[x_] * lNorm;
-    double rho = cont * rho4 * pow(r / R4, -2.);
-    c->S.prim[RHO]   = rho / rhoNorm;
-    c->S.prim[VV1]   = beta4;
-    c->S.prim[PPP]   = p4 / pNorm;
-    c->S.prim[TR1]   = 0.;
-    c->S.prim[TR1+1] = 0.;
-  }
 
 }
 
@@ -300,24 +232,24 @@ void Cell::user_regridVal(double *res){
 
 void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 
-  // UNUSED(*rho);
+  UNUSED(*rho);
   UNUSED(uu);
-  // UNUSED(*p);
+  UNUSED(*p);
 
+  /*
   // Added a density floor to avoid numerical errors
   double rho_floor = cont * rho4 / rhoNorm * 1.e-6;
   double p_floor   = Theta0 * rho_floor * c_ * c_ / pNorm;
 
   if (*rho < rho_floor) *rho = rho_floor;
   if (*p   < p_floor)   *p   = p_floor;
-
+  */
   return;
 }
 
 void Simu::dataDump(){
   // can we find a way to print at each new cell shock crossing?
-  // raise
-  if (it % 10 == 0){ grid.printCols(it, t); }
+  if (it % 50 == 0){ grid.printCols(it, t); }
 
 }
 
@@ -336,7 +268,7 @@ void Simu::evalEnd(){
 
   bool anyShockedTracer = false;
 
-   if ( t > 50204 ){ stop = true; }
+   if ( t > 1293858 ){ stop = true; }
   //   if ( it > 500 ){ stop = true; }
 
   #if SHOCK_DETECTION_ == ENABLED_
