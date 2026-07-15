@@ -90,7 +90,7 @@ def truncate_at_rarefaction(shocked_data, slope_thresh=-8., window=15, minpts=20
     return shocked_data.iloc[:steep[0]]
   return shocked_data
 
-def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False):
+def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=None):
   '''
   Fit the variable vars, normed by norms, of cell_data
   x0 is the anchor radius (where fitfunc==1); defaults to the first cell radius.
@@ -127,8 +127,10 @@ def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False):
   for name, norm in zip(vars, norms):
     x_ = shocked_data.x.to_numpy() / x0
     val = get_variable(shocked_data, name, env)/norm
-    popt = get_fitting_smoothBPL_new(x_, val, cleanData=cleanData, beta=None)
+    popt = get_fitting_smoothBPL_new(x_, val, cleanData=cleanData, beta=beta)
     popt = np.asarray(popt, dtype=float)
+    if beta is not None:
+      popt = np.insert(popt, -1, beta)
     popt[0] /= smooth_bpl_apy(1., *popt)   # anchor: fitfunc(x0) = 1 (free amplitude A)
     popts.append(popt)
   return popts
@@ -212,7 +214,7 @@ def worldline_from_fit(tp_edges, R0, lfac0, popt_lfac, fitfunc=smooth_bpl_apy):
   return t_vals, R_vals
 
 def worldline_from_cooling(tt_edges, cell_d0, env, popts, R0=None, Tobs_max=None,
-    fitfunc=smooth_bpl_apy):
+    R_rar=None, fitfunc=smooth_bpl_apy):
   '''
   Convert the dimensionless cooling fluence tt into proper time t', lab time t and
   radius R, consistently with a decreasing comoving B (evolving synchrotron rate).
@@ -243,6 +245,10 @@ def worldline_from_cooling(tt_edges, cell_d0, env, popts, R0=None, Tobs_max=None
   Tobs_max. Ton is monotonic in tt, so this is a single lossless crossing; None
   disables the cap. tt_edges is truncated to the integrated range and returned.
 
+  R_rar (if finite) is a second terminal event: the radius at which the rarefaction
+  wave catches the cell (compute_R_rar), past which it no longer emits. The worldline
+  stops at whichever of the two events (Tobs_max or R_rar) is reached first in tt.
+
   Returns t_edges, tp_edges, R_edges, tt_edges (all elapsed since the cell_d0 state).
   '''
   popt_rho, popt_lfac, popt_p = popts
@@ -262,7 +268,7 @@ def worldline_from_cooling(tt_edges, cell_d0, env, popts, R0=None, Tobs_max=None
     return [c_*np.sqrt(max(Gamma**2 - 1., 0.))*tc1,  # dR/dtt (guard Gamma<1)
             tc1,                            # dt'/dtt
             Gamma*tc1]                      # dt/dtt
-  events = None
+  events = []
   if Tobs_max is not None:
     t0_cell = cell_d0.t
     def reach_window(tt, y):
@@ -271,23 +277,94 @@ def worldline_from_cooling(tt_edges, cell_d0, env, popts, R0=None, Tobs_max=None
       return (1. + env.z)*(t0_cell + y[2] + env.t0 - y[0]/c_) - Tobs_max
     reach_window.terminal = True
     reach_window.direction = 1.
-    events = reach_window
+    events.append(reach_window)
+  if R_rar is not None and np.isfinite(R_rar):
+    def reach_rar(tt, y):
+      return y[0] - R_rar          # R crosses the rarefaction catch-up radius
+    reach_rar.terminal = True
+    reach_rar.direction = 1.
+    events.append(reach_rar)
+  events = events or None
 
-  # a few (non-skipped) cells have a rho fit decaying to ~0 at large R, so the
-  # comoving cooling time tc1 = 1/syn(R) diverges and derivs hits 0*inf / inf,
-  # briefly feeding a NaN radius through the fit's log during intermediate steps.
-  # This is benign (the window event terminates the worldline at a finite R and
-  # the returned edges are finite), so silence those known warnings here. Proper
-  # handling of the outer edge cells needs the rarefaction-wave physics (TODO).
+  # a few cells have a rho fit decaying to ~0 at large R, so the comoving cooling
+  # time tc1 = 1/syn(R) diverges and derivs hits 0*inf / inf, briefly feeding a NaN
+  # radius through the fit's log during intermediate steps. Benign (a terminal event
+  # stops the worldline at a finite R and the returned edges are finite), so silence
+  # those known warnings here.
   with np.errstate(invalid='ignore', divide='ignore', over='ignore'):
     sol = solve_ivp(derivs, (0., tt_edges[-1]), [R0, 0., 0.],
                     method='DOP853', dense_output=True, events=events)
-  # truncate tt to the integrated range if the observer window was reached
-  # (tt_edges[0] = 0 always survives, so >= 2 edges remain)
-  if events is not None and len(sol.t_events[0]) and sol.t[-1] > 0.:
+  # truncate tt to the integrated range if a terminal event fired (whichever of
+  # Tobs_max / R_rar came first in tt). tt_edges[0]=0 survives, so >= 2 edges remain.
+  fired = events is not None and any(len(te) for te in sol.t_events)
+  if fired and sol.t[-1] > 0.:
     tt_edges = np.append(tt_edges[tt_edges < sol.t[-1]], sol.t[-1])
   R_edges, tp_edges, t_edges = sol.sol(tt_edges)
   return t_edges, tp_edges, R_edges, tt_edges
+
+def compute_R_rar(cell_d0, exit_row, env, popts, R_fac=50., fitfunc=smooth_bpl_apy):
+  '''
+  Radius at which the rarefaction wave catches the cell, after which it stops
+  emitting; np.inf if it is never caught within the horizon (falls back to the
+  Tobs_max cap). Local per-cell model, spherically correct via the reconstructed
+  fits: the head is launched from the shell-exit interface (exit_row: the last-
+  shocked/outer-edge cell = actual RS/FS crossing, NOT the planar env.RfRS/RfFS)
+  and propagated through THIS cell's hydro at the local sound-speed characteristic
+    beta_RF = (beta_fl +/- cs)/(1 +/- beta_fl*cs)   (+ region 3 / z=4, - region 2)
+  with beta_fl from lfac(R) and cs = derive_cs(rho(R), p(R)) from the fits (cs drops
+  as the gas expands - the spherical effect the planar betaRFp3/betaRFm2 miss).
+  R_rar is the intersection of the head worldline with the cell worldline, both
+  integrated in lab time (shared since-collision origin: cell_d0.t, exit_row.t).
+  '''
+  popt_rho, popt_lfac, popt_p = popts
+  z_fwd = bool(cell_d0.trac < 1.5)                 # region 3 (forward RF) vs region 2
+  R0    = cell_d0.x * c_
+  lfac0 = get_variable(cell_d0, 'lfac', env)
+  rho0  = get_variable(cell_d0, 'rho', env)
+  p0    = get_variable(cell_d0, 'p', env)
+  t_sh  = cell_d0.t                                # cell shocking lab time
+  t_L   = exit_row.t                               # rarefaction launch (shell exit)
+  R_L   = exit_row.x * c_
+
+  def beta_fl(R):
+    G = lfac0 * fitfunc(R/R0, *popt_lfac)
+    return np.sqrt(max(G*G - 1., 0.))/G if G > 1. else 0.
+  def beta_head(R):
+    b  = beta_fl(R)
+    cs = float(derive_cs(rho0*fitfunc(R/R0, *popt_rho), p0*fitfunc(R/R0, *popt_p)))
+    return (b + cs)/(1. + b*cs) if z_fwd else (b - cs)/(1. - b*cs)
+
+  # integrate both worldlines to a generous radius horizon (R_fac*R0); if the head
+  # has not caught the cell by then it is treated as shielded / not caught -> inf.
+  R_max = R_fac * R0
+  T = (R_max - min(R0, R_L)) / (c_ * 0.3)          # lab-time horizon (beta >= 0.3)
+  with np.errstate(invalid='ignore', divide='ignore', over='ignore'):
+    csol = solve_ivp(lambda t, y: [c_*beta_fl(y[0])],   (0., T), [R0],
+                     method='DOP853', dense_output=True)
+    hsol = solve_ivp(lambda t, y: [c_*beta_head(y[0])], (0., T), [R_L],
+                     method='DOP853', dense_output=True)
+    t0, t1 = max(t_sh, t_L), min(t_sh, t_L) + T
+    if t1 <= t0:
+      return np.inf
+    tg = np.linspace(t0, t1, 400)
+    Rc = csol.sol(tg - t_sh)[0]                     # cell R(t)
+    Rh = hsol.sol(tg - t_L)[0]                      # head R(t)
+  G = Rh - Rc                                       # >0: head ahead of cell
+  ok = np.isfinite(G)
+  if ok.sum() < 2:
+    return np.inf
+  G, Rc = G[ok], Rc[ok]
+  if abs(G[0]) < 1e-6*R0:                           # exit cell: caught immediately
+    return max(R0*(1.+1e-6), Rc[0])
+  cross = np.flatnonzero(np.diff(np.signbit(G)))    # first head<->cell crossing
+  if not len(cross):
+    return np.inf
+  i = cross[0]
+  frac = -G[i]/(G[i+1]-G[i]) if (G[i+1] != G[i]) else 0.
+  R_rar = Rc[i] + frac*(Rc[i+1]-Rc[i])
+  if not np.isfinite(R_rar) or R_rar <= R0:
+    return np.inf
+  return max(R_rar, R0*(1.+1e-6))
 
 def evolve_gma_bounds(R_edges, tt_edges, cell_d0, env, popt_rho, R0=None, fitfunc=smooth_bpl_apy):
   '''
@@ -421,7 +498,7 @@ def rescale_hydro_data(data, alpha):
 
 def generate_cell_withDistrib(cell_data, cell_init, env_in,
     u_scale=1., alpha=1., zeta=1., cleanData=False, r_ref=1.2, Tmax=None,
-    key=None, k=None):
+    key=None, k=None, exit_row=None):
   '''
   Reconstruct cell hydrodynamics from fit, adds electron distribution
   u_scale rescales (after fitting) as if simulation was run with u1 x u_scale
@@ -433,6 +510,10 @@ def generate_cell_withDistrib(cell_data, cell_init, env_in,
     radii. None keeps the full (uncapped) worldline. See worldline_from_cooling.
   key, k: if given, the (expensive) hydro fit is disk-cached per cell; see
     load_or_fit_celldata. None fits every call (no cache).
+  exit_row: the shell-exit interface (last-shocked / outer-edge cell of the shell,
+    from sh_data). If given, the worldline is capped at the rarefaction catch-up
+    radius R_rar = compute_R_rar(...), past which the cell no longer emits. None
+    disables the rarefaction cap (worldline bounded by Tobs_max only).
   '''
 
   # add copy and rescaling to env
@@ -450,26 +531,14 @@ def generate_cell_withDistrib(cell_data, cell_init, env_in,
     return False, env_in
   popt_rho, popt_lfac, popt_p = popts
 
-  # reject cells whose fitted Lorentz profile is non-physical (Gamma rising with
-  # radius): a coasting/decelerating shell has non-increasing Gamma, so a rising
-  # fit (outer edge cells with short/noisy post-shock histories) is spurious. Such
-  # fits send lfac->inf / vx->1 at large R, evade the worldline cap (their onset
-  # time saturates, so Ton never reaches the window) and inject huge spurious flux.
-  # Drop them like a failed fit. Checked on the scale-free normalized fit shape
-  # (=1 at the anchor x0), so it is independent of u_scale/alpha/zeta rescaling.
-  x_chk = np.logspace(0., 3., 40)
-  lfac_shape = smooth_bpl_apy(x_chk, *popt_lfac)
-  if (not np.all(np.isfinite(lfac_shape))) or np.any(lfac_shape <= 0.) \
-      or lfac_shape[-1] > 1.05:
-    print(f'Non-physical Gamma(R) fit (rising Lorentz factor) on cell '
-          f'{int(cell_d0.i)}; skipping')
-    return False, env_in
-
   # rescale cell_d0 and env (s = u_scale, holding a_u, f, chi fixed),
-  # see rescale_shocked_data for the conventions
+  # see rescale_shocked_data for the conventions. The shell-exit interface (exit_row)
+  # is rescaled the same way so R_rar is computed in the reconstruction frame.
   env = rescale_proper_velocities(u_scale, env_in)
   if u_scale != 1.:
     cell_d0 = rescale_shocked_data(cell_d0, env_in, env)
+    if exit_row is not None:
+      exit_row = rescale_shocked_data(exit_row, env_in, env)
 
   # Granot hydro unit-rescaling on top: env carries rho,p x zeta*alpha^-3
   # (via rhoscale) and lengths/times x alpha; the anchor carries t,x,dx x alpha
@@ -477,19 +546,28 @@ def generate_cell_withDistrib(cell_data, cell_init, env_in,
     env = rescale_hydro(alpha, zeta, env)
     if alpha != 1.:
       cell_d0 = rescale_hydro_data(cell_d0, alpha)
+      if exit_row is not None:
+        exit_row = rescale_hydro_data(exit_row, alpha)
+
+  # rarefaction catch-up radius: past R_rar the rarefaction wave has caught the cell
+  # and it stops emitting. Replaces the old rising-Gamma rejection - a cell whose
+  # extrapolated fit would diverge is instead physically truncated at R_rar (which is
+  # a modest radius), so it contributes finite flux instead of being dropped.
+  R_rar = compute_R_rar(cell_d0, exit_row, env, popts) if exit_row is not None else None
 
   # generate time bins
   # the comoving times tp and tt start at 0 when cell is shocked
   tt_edges = generate_timebins(cell_d0, env, popt_lfac, 1., end_cond='gmax', r_ref=r_ref)
 
-  # compute worldline, starting from the cell_d0 radius and lab time.
-  # cap at the observer window (Tobs_max) so tt->R does not run away to
-  # unphysical radii; tt_edges comes back truncated to the integrated range.
+  # compute worldline, starting from the cell_d0 radius and lab time. Capped at the
+  # observer window (Tobs_max) so tt->R does not run away to unphysical radii, and at
+  # the rarefaction catch-up radius (R_rar); tt_edges comes back truncated to the
+  # integrated range (whichever cap is reached first).
   R0 = cell_d0.x * c_
   t0 = cell_d0.t
   Tobs_max = (env.Ts + Tmax*env.T0) if Tmax is not None else None
   t_edges, tp_edges, R_edges, tt_edges = worldline_from_cooling(
-      tt_edges, cell_d0, env, popts, R0=R0, Tobs_max=Tobs_max)
+      tt_edges, cell_d0, env, popts, R0=R0, Tobs_max=Tobs_max, R_rar=R_rar)
   t_arr = t_edges[:-1] + t0
   dt_arr = np.diff(t_edges)
   tp_arr = tp_edges[:-1]
@@ -701,14 +779,70 @@ def total_radiated_energy(nF, nub, Tb, env=None):       # nF = nu*F_nu, shape (T
       E *= env.nu0F0*env.T0
     return E
 
+def get_critlfacs(cell_rad, env):
+  '''
+  Returns gma_m, gma_c, gma_M associated with a cell
+  '''
+  cell0 = cell_rad.iloc[0]
+  gma_m = get_variable(cell0, 'gma_m', env)
+  gma_M = get_variable(cell0, 'gma_M', env)
+  tc1 = get_variable(cell0, 'tc1', env)
+  tdyn = cell_rad.iloc[-1].tp - cell0.tp
+  gma_c = tc1/tdyn
+  return gma_m, gma_c, gma_M
+
+def get_critfreqs(cell_rad, env, normed=False):
+  '''
+  Returns nu'_m, nu'_c, nu'_M associated with a cell
+  '''
+  cell0 = cell_rad.iloc[0]
+  nup_B = get_variable(cell0, 'nup_B', env)
+  critlfacs = get_critlfacs(cell_rad, env)
+  nup_m, nup_c, nup_M = [nup_B*gma**2/(1.5*env.nu0p if normed else 1.) for gma in critlfacs]
+  return nup_m, nup_c, nup_M
+
+def get_shell_critlfacs(sh_data, env):
+  '''
+  Shell-wide gma_m, gma_c, gma_M, the shell analog of get_critlfacs. The injection
+  state (gma_m, gma_M, tc1) is taken at the first-shocked cell of the shell (the
+  earliest shocking time in sh_data), as cell0 is the shocking state for a cell.
+  The shell dynamical time replaces the cell's worldline span: tdyn = comoving shell
+  emission span = (lab span of the shocking times)/lfac0, so gma_c = tc1/tdyn.
+  sh_data: the shock-front dataframe (cellsBehindShock_fromData) for the shell.
+  '''
+  cell0 = sh_data.loc[sh_data.t.idxmin()]                 # first-shocked cell
+  gma_m = get_variable(cell0, 'gma_m', env)
+  gma_M = get_variable(cell0, 'gma_M', env)
+  tc1 = get_variable(cell0, 'tc1', env)
+  tdyn = (sh_data.t.max() - sh_data.t.min()) / env.lfac0  # comoving shell duration
+  gma_c = tc1/tdyn
+  return gma_m, gma_c, gma_M
+
+def get_shell_critfreqs(sh_data, env, normed=False):
+  '''
+  Shell-wide nu'_m, nu'_c, nu'_M, the shell analog of get_critfreqs (same
+  nu' = nup_B*gma**2 convention, normalized by 1.5*env.nu0p if normed). nup_B and the
+  critical Lorentz factors are taken at/for the first-shocked cell of the shell; see
+  get_shell_critlfacs for the shell-wide gma_c (comoving shell emission span).
+  '''
+  cell0 = sh_data.loc[sh_data.t.idxmin()]
+  nup_B = get_variable(cell0, 'nup_B', env)
+  critlfacs = get_shell_critlfacs(sh_data, env)
+  nup_m, nup_c, nup_M = [nup_B*gma**2/(1.5*env.nu0p if normed else 1.) for gma in critlfacs]
+  return nup_m, nup_c, nup_M
+
 def get_cell_nuFnu(key, k, func_Fnu=get_Fnu_cell_evolving,
     u_scale=1., alpha=1., zeta=1., cleanData=False, r_ref=1.2,
-    Tmax=5, NT=500, lognu_min=-2.5, lognu_max=2.5, Nnu=400, **kwargs):
+    Tmax=5, NT=500, lognu_min=-2.5, lognu_max=2.5, Nnu=400,
+    return_cell=False, **kwargs):
   '''
   The whole chain to obtain nu Fnu.
   With u_scale != 1 the env is rescaled (as if u1 -> u1*u_scale); the observer
   arrays nuobs, Tobs are built from that rescaled env (its nu0, Ts, T0), so the
   whole pipeline stays self-consistent in observer space.
+  With return_cell=True the generated cell (cell_dist, incl. the exit_row
+  rarefaction cutoff) is appended to the output, so callers can reuse the exact
+  same cell (e.g. for get_cell_stepspectra) without re-deriving exit_row.
   '''
   # dimensionless observer grids (env-independent); scaled below with the
   # (possibly rescaled) env returned by generate_cell_withDistrib
@@ -722,15 +856,19 @@ def get_cell_nuFnu(key, k, func_Fnu=get_Fnu_cell_evolving,
     extract_data_cells(key, [k], noOut=True)
     cell_data = open_celldata(key, k)
   cell_d0 = sh_data.loc[sh_data.i==cell_data.iloc[0].i].iloc[0]
+  # shell-exit interface (last-shocked cell) = rarefaction launch point (from data)
+  exit_row = sh_data.loc[sh_data.t.idxmax()]
   cell_dist, env = generate_cell_withDistrib(cell_data, cell_d0, env,
                   u_scale=u_scale, alpha=alpha, zeta=zeta, cleanData=cleanData,
-                  r_ref=r_ref, Tmax=Tmax, key=key, k=k)
+                  r_ref=r_ref, Tmax=Tmax, key=key, k=k, exit_row=exit_row)
   # scale the observer grids with the rescaled env (matches obs_arrays)
   nuobs = nub * env.nu0
   Tobs = env.Ts + (T - 1) * env.T0
   if cell_dist is False:
-    return nuobs, Tobs, env, None
+    return (nuobs, Tobs, env, None, cell_dist) if return_cell else (nuobs, Tobs, env, None)
   nuFnu = get_nuFnu(func_Fnu, nuobs, Tobs, cell_dist, env, **kwargs)
+  if return_cell:
+    return nuobs, Tobs, env, nuFnu, cell_dist
   return nuobs, Tobs, env, nuFnu
 
 def check_extracted_cells(key):
@@ -770,6 +908,8 @@ def get_shell_nuFnu(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
   nuFnu_shell = np.zeros((len(Tobs), len(nuobs)))
   sh_data = open_rundata(key, z)
   sh_data = cellsBehindShock_fromData(sh_data)
+  # shell-exit interface (last-shocked cell) = rarefaction launch point, once per shell
+  exit_row = sh_data.loc[sh_data.t.idxmax()]
   func_Fnu = get_Fnu_cell_instant if VFC else get_Fnu_cell_evolving
 
   # check cells that have not been extracted
@@ -799,14 +939,14 @@ def get_shell_nuFnu(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
       continue
     cell, cell_env = generate_cell_withDistrib(cell_data, sel.iloc[0], env,
                     u_scale=u_scale, alpha=alpha, zeta=zeta, cleanData=cleanData,
-                    r_ref=r_ref, Tmax=Tmax, key=key, k=k)
+                    r_ref=r_ref, Tmax=Tmax, key=key, k=k, exit_row=exit_row)
     if cell is False:
       skipped.append(k)
       continue
     if analytic: cell = generate_cell_constLfac(cell, cell_env)
     nuFnu_shell += get_nuFnu(func_Fnu, nuobs, Tobs, cell, cell_env, **kwargs)
   if skipped:
-    print(f'get_shell_nuFnu: skipped {len(skipped)} cells (no data or failed fit): {skipped}')
+    print(f'get_shell_nuFnu on sim {key}: skipped {len(skipped)} cells (no data or failed fit): {skipped}')
 
   return nuobs, Tobs, env_rs, nuFnu_shell
 
@@ -879,7 +1019,18 @@ def get_cell_thinshell_nuFnu(key, k, u_scale=1., alpha=1., zeta=1., norm=True, c
   return nuobs, Tobs, env, nF
 
 
-def plot_spectrum(logT, Tb, nub, nF, ax_in=None, **kwargs):
+def set_slopes_ticks(ax, p):
+  #ax.yaxis.labelpad = 0
+  slopes = [4/3, (3-p)/2, 1-p/2, 1/2]
+  snames = ['$\\frac{4}{3}$', '$\\frac{3-p}{2}$', '$1-\\frac{p}{2}$', '$\\frac{1}{2}$']
+  for val in slopes:
+    ax.axhline(val, c='k', ls=':')
+  ax.tick_params(axis='both', which='both', length=0, labelright=False)
+  for val, name in zip(slopes, snames):
+    ax.text(1.01, val, name, ha='left', va='center', transform=transx(ax))
+  
+
+def plot_spectrum(logT, Tb, nub, nF, slopes=False, p=2.5, ax_in=None, **kwargs):
   iT = np.searchsorted(Tb, 10**logT)
   sp = nF[iT]
   if ax_in is None:
@@ -889,6 +1040,11 @@ def plot_spectrum(logT, Tb, nub, nF, ax_in=None, **kwargs):
   else:
     ax = ax_in
   ax.loglog(nub, sp, **kwargs)
+  if slopes:
+    s = logslope_arr(nub, sp)
+    ax1 = ax.twinx()
+    ax1.semilogx(nub, s, c='k')
+    set_slopes_ticks(ax1, p)
   
 def plot_lightcurve(lognu, Tb, nub, nF, ax_in=None, **kwargs):
   inu = np.searchsorted(nub, 10**lognu)
@@ -899,9 +1055,9 @@ def plot_lightcurve(lognu, Tb, nub, nF, ax_in=None, **kwargs):
     ax.set_ylabel(nF_label)
   else:
     ax = ax_in
-  ax.semilogy(Tb+1, lc, **kwargs)
+  ax.plot(Tb+1, lc, **kwargs)
 
-def compare_spectra(logT, Tb, nub, nF_arr,
+def compare_spectra(logT, Tb, nub, nF_arr, slopes=False,
     colors=None, linestyles=None, labels=None):
   fig, ax = plt.subplots()
   n = len(nF_arr)
@@ -909,7 +1065,7 @@ def compare_spectra(logT, Tb, nub, nF_arr,
   linestyles = linestyles or [None]*n
   labels     = labels     or [None]*n
   for nF, c, ls, lab in zip(nF_arr, colors, linestyles, labels):
-    plot_spectrum(logT, Tb, nub, nF, ax_in=ax,
+    plot_spectrum(logT, Tb, nub, nF, slopes=slopes, ax_in=ax,
                   color=c, linestyle=ls, label=lab)
   
 
@@ -923,3 +1079,72 @@ def compare_lightcurves(lognu, Tb, nub, nF_arr,
   for nF, c, ls, lab in zip(nF_arr, colors, linestyles, labels):
     plot_lightcurve(lognu, Tb, nub, nF, ax_in=ax,
                   color=c, linestyle=ls, label=lab)
+
+def get_cell_stepspectra(logT, nuobs, Tobs, cell, env, norm=True):
+  '''
+  Cooling-step-resolved nu F_nu of a single cell at observer time 10**logT
+  (logT in normalized units, Tb = (Tobs - Ts)/T0).
+  Returns (nub, nF_steps, nF_tot) with nF_steps shape (Nsteps, len(nuobs)) and
+  nF_tot shape (len(nuobs),). The frequency normalization matches get_nuFnu
+  (nu0FS for FS cells, nu0 for RS), so the total equals get_cell_nuFnu at that T.
+  '''
+  Tb = (Tobs - env.Ts)/env.T0
+  iT = min(np.searchsorted(Tb, 10**logT), Tb.size - 1)   # clamp to last bin
+  nu0 = env.nu0FS if (cell.iloc[0].trac > 1.5) else env.nu0
+  nub = nuobs/nu0 if norm else nuobs
+  Fnu_arr = get_Fnu_array_cell_evolving(nuobs, Tobs, cell, env, norm=norm)[:, iT, :]
+  nF_steps = nub[np.newaxis, :] * Fnu_arr
+  nF_tot   = nub * Fnu_arr.sum(axis=0)
+  return nub, nF_steps, nF_tot
+
+def plot_cellspectrum_withsteps(logT, nuobs, Tobs, cell, env, ax_in=None,
+    ls='-', cmap='jet', label=None, norm=True, **tot_kw):
+  '''
+  Spectrum of an evolving cell at observer time 10**logT, decomposed into its
+  cooling steps: the summed spectrum is drawn in black (ls, **tot_kw), each
+  step is coloured along 'cmap'. Same convention as plot_spectrum.
+  '''
+  nub, nF_steps, nF_tot = get_cell_stepspectra(logT, nuobs, Tobs, cell, env, norm=norm)
+  N = len(cell)
+  colors = plt.get_cmap(cmap)(np.linspace(0, 1, N))
+  if ax_in is None:
+    fig, ax = plt.subplots()
+    ax.set_xlabel(nu_label)
+    ax.set_ylabel(nF_label)
+  else:
+    ax = ax_in
+    fig = ax.figure
+  ax.loglog(nub, nF_tot, c='k', ls=ls, lw=1., zorder=-1, label=label, **tot_kw)
+  for j in range(N):
+    ax.loglog(nub, nF_steps[j], c=colors[j], ls=ls)
+  fig.tight_layout()
+  return ax
+
+def compare_cellspectra_withsteps(logT, cells, nuobs_arr, Tobs_arr, envs,
+    linestyles=None, cmaps=None, labels=None, ax_in=None, norm=True):
+  '''
+  Overlay the cooling-step-resolved spectra of several cells at observer time
+  10**logT. Intended to compare the same hydro cell rescaled differently (see
+  generate_cell_withDistrib / get_cell_nuFnu with u_scale, alpha, zeta), so each
+  cell carries its own (nuobs, Tobs, env) and stays self-consistent in observer
+  space. Cells are distinguished by linestyle, their cooling steps by colormap.
+
+  cells, nuobs_arr, Tobs_arr, envs are parallel lists (as compare_spectra).
+  '''
+  n = len(cells)
+  linestyles = linestyles or ['-', '--', ':', '-.'][:n]
+  cmaps      = cmaps      or ['jet', 'viridis', 'plasma', 'cividis'][:n]
+  labels     = labels     or [None]*n
+  if ax_in is None:
+    fig, ax = plt.subplots()
+    ax.set_xlabel(nu_label)
+    ax.set_ylabel(nF_label)
+  else:
+    ax = ax_in
+  for cell, nuobs, Tobs, env, ls, cmap, lab in zip(
+      cells, nuobs_arr, Tobs_arr, envs, linestyles, cmaps, labels):
+    plot_cellspectrum_withsteps(logT, nuobs, Tobs, cell, env, ax_in=ax,
+        ls=ls, cmap=cmap, label=lab, norm=norm)
+  if any(l is not None for l in labels):
+    ax.legend()
+  return ax

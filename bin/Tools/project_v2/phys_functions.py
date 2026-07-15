@@ -464,6 +464,15 @@ def derive_velocity_from_proper(u):
   '''
   return u/np.sqrt(1+u**2)
 
+def derive_relatLfac(lfac1, lfac2):
+  '''
+  Relative Lorentz factor
+  '''
+  beta1 = derive_velocity(lfac1)
+  beta2 = derive_velocity(lfac2)
+  lfac12 = lfac1*lfac2*(1-beta1*beta2)
+  return lfac12
+
 def derive_Ekin(rho, v, rhoscale):
   '''
   Kinetic energy density in lab frame from density and velocity

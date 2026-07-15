@@ -458,13 +458,16 @@ def derive_radii_withtime(env, t):
   Rf0 = np.array([0., env.D01]) + env.R0
   vb0 = np.array([env.beta4, env.betaRS])*c_
   vf0 = np.array([env.betaFS, env.beta1])*c_
-  vbc = np.array([0., env.betaRFp3])*c_
-  vfc = np.array([env.betaRFm2, 0.])*c_
+  # after its shock crossing each external edge (R4, R1) is part of the shocked
+  # region and moves with the shocked fluid (~ CD velocity env.beta); the inner
+  # rarefaction heads (Rrs, Rfs) move at the region-3/2 characteristics.
+  vbc = np.array([env.beta, env.betaRFp3])*c_
+  vfc = np.array([env.betaRFm2, env.beta])*c_
 
   Rcd = np.array(env.R0 + env.beta*c_*t)
   Rb  = [np.where(t<env.tRS, Rb0[n]+vb0[n]*t, Rb0[n]+vb0[n]*env.tRS+vbc[n]*(t-env.tRS))
     for n in [0, 1]]
-  Rf  = [np.where(t<env.tFS, Rf0[n]+vf0[n]*t, Rf0[n]+vf0[n]*env.tFS+vbc[n]*(t-env.tFS))
+  Rf  = [np.where(t<env.tFS, Rf0[n]+vf0[n]*t, Rf0[n]+vf0[n]*env.tFS+vfc[n]*(t-env.tFS))
     for n in [0, 1]]
   R4, Rrs = Rb
   Rfs, R1 = Rf
