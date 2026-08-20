@@ -412,7 +412,9 @@ def split_hydrostep(cell, env, r_ref=1.2, Nmin=2, Nmax=20,
 
   tt_max = cell.dtt
   time_arrays = time_binning_cooling(cell, env, tt_max, 'tt', r_ref, Nmin, Nmax, func_cooling)
-  t_arr, dt_arr, tp_arr, dtp_arr, tt_arr, dtt_arr = time_arrays
+  t_arr, dt_arr, dtp_arr, tt_arr, dtt_arr = time_arrays
+  # left edges of comoving time (time_binning_cooling does not return tp)
+  tp_arr = getattr(cell, 'tp', 0.) + np.insert(np.cumsum(dtp_arr[:-1]), 0, 0.)
   N = len(t_arr)
 
   gma_keys = [key for key in cell.keys() if 'gm' in key]

@@ -200,14 +200,62 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.nuBpFS = e_*env.BpFS/(2.*pi_*me_*c_)
   env.nu0p = env.gma_m**2 * env.nuBp
   env.nu0pFS = env.gma_mFS**2 * env.nuBpFS
-  env.eps_rad = 1
-  env.eps_radFS = 0.5
+  env.nucp = env.gma_c**2 * env.nuBp
+  env.nu0 = 2.*env.lfac0*env.nu0p/(1+z)
+  env.nuc = 2.*env.lfac0*env.nucp/(1+z)
+  env.nucpFS = env.gma_cFS**2 * env.nuBpFS
+  env.nucFS = 2.*env.lfac0*env.nucpFS/(1+z)
+
+  env.eps_rad = 1.
+  env.eps_radFS = 1.
+  # # radiative efficiencies according to Rahaman et al. 2025
+  # if env.gma_m > env.gma_c: 
+  #   # fast and very fast cooling
+  #   env.eps_rad = 1.
+  # else: 
+  #   if env.gma_c > env.gma_max: 
+  #     # very slow cooling
+  #     if env.psyn > 3.:
+  #       env.eps_rad = env.gma_m/env.gma_c
+  #     elif env.psyn < 2.:
+  #       env.eps_rad = env.gma_max/env.gma_c
+  #     else:
+  #       env.eps_rad = (env.gma_max/env.gma_c) * (env.gma_max/env.gma_m)**(2-env.psyn)
+  #   else:
+  #     # slow cooling
+  #     if env.psyn > 3.:
+  #       env.eps_rad = env.gma_m/env.gma_c
+  #     elif env.psyn < 2.:
+  #       env.eps_rad = 1.
+  #     else:
+  #       env.eps_rad = (env.gma_c/env.gma_m)**(2-env.psyn)
+  
+  # if env.gma_mFS > env.gma_cFS: 
+  #   # fast and very fast cooling
+  #   env.eps_radFS = 1.
+  # else: 
+  #   if env.gma_cFS > env.gma_maxFS: 
+  #     # very slow cooling
+  #     if env.psyn > 3.:
+  #       env.eps_radFS = env.gma_mFS/env.gma_cFS
+  #     elif env.psyn < 2.:
+  #       env.eps_radFS = env.gma_maxFS/env.gma_cFS
+  #     else:
+  #       env.eps_radFS = (env.gma_maxFS/env.gma_cFS) * (env.gma_maxFS/env.gma_mFS)**(2-env.psyn)
+  #   else:
+  #     # slow cooling
+  #     if env.psyn > 3.:
+  #       env.eps_radFS = env.gma_mFS/env.gma_cFS
+  #     elif env.psyn < 2.:
+  #       env.eps_radFS = 1.
+  #     else:
+  #       env.eps_radFS = (env.gma_cFS/env.gma_mFS)**(2-env.psyn)
+  
   env.Lbolp = (4/3.) * env.eps_e * env.eps_rad * (4*pi_*env.R0**2) * c_**3 * \
      (env.lfac34-1)*env.u34 * env.rho4 
   env.L0p = env.Lbolp / (Wp*env.nu0p)
   env.L0 = 2*env.lfac0*env.L0p
 
-  env.nu0 = 2.*env.lfac0*env.nu0p/(1+z)
   env.T0 = (1+z) * (env.R0/c_) * ((1-env.betaRS)/env.betaRS)
   env.zdl = (1+z) / (4*pi_*dL**2)
   env.Fs = env.zdl * env.L0
@@ -233,7 +281,7 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   # ratio_lum = (ratio_freq**(-1))*(ratio_bol)
   env.fac_nu = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**2
   env.fac_F  = ((env.lfac34+1)/(env.lfac21+1))**-0.5 * (env.lfac34/env.lfac21)**0.5 * ((env.lfac34-1)/(env.lfac21-1))**-2 * \
-      (env.beta34/env.beta21) #* (env.eps_rad/env.eps_radFS)
+      (env.beta34/env.beta21) * (env.eps_rad/env.eps_radFS)
   env.slope_mid = np.log10(env.fac_F*env.fac_nu)/np.log10(env.fac_nu)
   env.fac_Lp = env.fac_F
   env.fac_T  = ((env.lfacFS/env.lfacRS)**2)*(env.betaFS/env.betaRS)*((1+env.betaFS)/(1+env.betaRS))

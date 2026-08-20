@@ -60,6 +60,36 @@ def ratios_RSvFS_from_au(au):
   ratio_F = fac1 * (b34/b21) / fac2
   return ratio_T, ratio_nu, ratio_F
 
+def offset_gcgm_from_au(au, breakdown=False):
+  '''
+  Cooling-regime offset between the two shocks,
+    (gma_c/gma_m)_FS / (gma_c/gma_m)_RS, for the fiducial family
+    Ek1 = Ek4, D01 = D04 (=> f = rho4/rho1 = a_u^-2 in the UR limit)
+  With gma_m ~ (G_rel - 1) and gma_c ~ G/(B'^2 t_cross), B'^2 ~ 4 G_rel (G_rel-1) rho_up,
+    every microphysics factor (eps_e, eps_B, xi_e, psyn) and the common lfac0 cancel:
+    offset = f (G34/G21) ((G34-1)/(G21-1))^2 (t_RS/t_FS)
+           = (B_RS/B_FS)^2 * (gma_m,RS/gma_m,FS) * (t_RS/t_FS)
+  Always >= 1 (the FS always sits further into slow cooling), and dominated by the
+    gma_m contrast: the two other factors saturate at 1.89 and 0.597.
+    offset ~ 1 + 1.67 (a_u - 1) for a_u -> 1, ~ 6.8 a_u for a_u >> 1.
+  NOT a function of a_u alone off the fiducial family: at a_u = 2 the exact value
+    scales as (D01/D04)^-1.5 and (Ek4/Ek1)^-0.5. Insensitive to how UR the pair is
+    (< 1% from u1 = 3 to u1 = 400).
+  breakdown: also return the three factors above, in that order
+  '''
+  G34, G21 = relLfac_from_au(au)
+  KRS, KFS = tau_to_dRR0_cst(au)
+  f = 1./(au*au)
+
+  fac_B2 = f * (G34*(G34-1))/(G21*(G21-1))    # (B_RS/B_FS)^2 = eint3'/eint2'
+  fac_gm = (G34-1)/(G21-1)                    # gma_m,RS / gma_m,FS
+  fac_t  = KRS/KFS                            # t_RS/t_FS, cst velocity shocks, D01 = D04
+  offset = fac_B2 * fac_gm * fac_t
+  if breakdown:
+    return offset, fac_B2, fac_gm, fac_t
+  else:
+    return offset
+
 ##### fitted parameters and intermediate functions for C25 model
 def smooth_bpl0(x, A, x_b, alpha, s, a_tol=1e-4, s_tol=1e-3):
   '''

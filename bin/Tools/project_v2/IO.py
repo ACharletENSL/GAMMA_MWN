@@ -228,8 +228,16 @@ def df_get_cellBehindShock(df, shFront, n=5, m=1, up=3):
       down.attrs[key] = df.attrs[key]
     front[hdvars] = down[hdvars]
 
-    # save upstream velocity for shock strength
-    vx_u = df.iloc[i+up]['vx']
+    # save upstream velocity for shock strength.
+    # The upstream sample sits `up` cells beyond the front, which can fall outside the
+    # grid once the shock comes within `up` cells of a domain edge. That never happened
+    # while every run carried Next external-medium cells on each side, but with Next = 0
+    # the shell edge IS the domain edge: the FS overruns the top (IndexError) and -- worse
+    # -- the RS goes negative, where .iloc wraps silently to the far end of the array and
+    # returns the WRONG cell with no error. Clamp to the outermost cell, which with
+    # zero-gradient ghosts is exactly the upstream state anyway.
+    i_up = min(max(i + up, 0), len(df) - 1)
+    vx_u = df.iloc[i_up]['vx']
     front['vx_u'] = vx_u
     return front
 

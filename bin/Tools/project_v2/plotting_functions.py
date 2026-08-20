@@ -40,8 +40,15 @@ nFpk_label = "$(\\nu F_\\nu)_{\\rm pk} / \\nu_0 F_0$"
 
 scale_exps = {
   'log_aum':'log$_{10}(a_u -1)$',
-  'chi':'$\\chi$' 
+  'chi':'$\\chi$'
   }
+
+### shell colours, suite-wide: the convention of Charlet et al. 2025, so every two-shell
+### figure produced here drops straight into the paper next to the published ones.
+### REVERSE shock red, FORWARD shock blue, their sum black. NB this is the reverse of
+### what matplotlib's default cycle hands you when RS is simply plotted first, which is
+### how the opposite mapping kept reappearing -- always take the colour from here.
+COL_RS, COL_FS, COL_TOT = 'C3', 'C0', 'k'
 
 def slope_label(label):
   slabel = '$\\frac{\\rm d}{\\rm d\\log}' + label[1:]

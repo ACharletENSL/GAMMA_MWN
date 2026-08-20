@@ -44,7 +44,7 @@ def rescale_input(alpha, zeta, src='./phys_input.ini', dst='./phys_input.ini'):
   Granot (2012) hydrodynamic unit-rescaling of the phys_input.ini parameters,
   so a sim launched from the result equals the original rescaled a posteriori
   with environment.rescale_hydro(alpha, zeta, env). Scales dimensional inputs:
-    length/time (toff,t0,t1,t4,R0,D01,D04) x alpha
+    length/time (toff,t0,t1,t4,R0,D01,D04,tstop) x alpha
     energy      (Ek1,Ek4)                  x zeta
     power       (L)                        x zeta/alpha
     density/pressure (rho1,rho4,p1,p4)     x zeta*alpha**-3
@@ -55,6 +55,7 @@ def rescale_input(alpha, zeta, src='./phys_input.ini', dst='./phys_input.ini'):
   '''
   factors = {
     'toff':alpha, 't0':alpha, 't1':alpha, 't4':alpha, 'R0':alpha, 'D01':alpha, 'D04':alpha,
+    'tstop':alpha,   # a lab time, so it rescales with the rest of the clock
     'Ek1':zeta, 'Ek4':zeta,
     'L':zeta/alpha,
     'rho1':zeta*alpha**-3, 'rho4':zeta*alpha**-3, 'p1':zeta*alpha**-3, 'p4':zeta*alpha**-3,
@@ -140,10 +141,27 @@ def update_Makefile(env):
     outf.writelines(f'{s}\n' for s in out_lines)
 
 def update_simFile(filepath, env):
+  # stop keyword -> STOP_ code in Shells.cpp (0 it / 1 shock / 2 rarefaction / 3 tstop);
+  # 'time' kept as a legacy alias for 'shock' -- note it does NOT mean 'tstop'
+  stop_code = {'it':0, 'shock':1, 'time':1, 'rarefaction':2, 'tstop':3}.get(env.stop, 1)
+  # dump cadence: three phases in Shells.cpp (early / mid / late, switched on the shock
+  # and rarefaction detections). 'itdump' is the mid value, i.e. the historical single
+  # cadence; a phys_input without itdump_early/itdump_late falls back to it everywhere,
+  # which reproduces the former uniform behaviour exactly.
+  itdump_mid = int(env.itdump)
   gridvars = {
     'rhoNorm':env.rhoNorm, 'Nsh1':env.Nsh1, 'Ntot1':env.Nsh1+env.Next,
     'Nsh4':env.Nsh4, 'Ntot4':env.Nsh4+env.Next, 'stop':env.stop,
-    'itmax':env.itmax, 'EXTRA_TIME':0.1*env.tmax, 'geometry':env.geometry
+    'itmax':env.itmax, 'EXTRA_TIME':0.05*env.tmax, 'geometry':env.geometry,
+    'STOP_':stop_code, 'ITMAX_':int(env.itmax),
+    # mode 3 target in lab seconds; 0 when unused (ITMAX_ then stops the run anyway)
+    'TSTOP_':float(getattr(env, 'tstop', 0.)),
+    # ambient pressure: 0 = p_ext scaled by rhoContr (historical), 1 = pressure-matched
+    # to the shells. Defaults to 0 so existing phys_input files reproduce exactly.
+    'PMATCH_':int(getattr(env, 'pmatch', 0)),
+    'ITDUMP_EARLY_':int(getattr(env, 'itdump_early', itdump_mid)),
+    'ITDUMP_MID_':itdump_mid,
+    'ITDUMP_LATE_':int(getattr(env, 'itdump_late', itdump_mid))
   }
   physvars = {}
   if env.mode == 'MWN':
@@ -181,31 +199,9 @@ def update_simFile(filepath, env):
             line = line.replace(l[4], env.rhoNorm)
           else:
             line = line.replace(l[4], f'{vars2update[l[2]]}')
-      if 'if ( it >' in line:
-        if (env.stop != 'it'):
-          # make sure stopping with it is commented
-          if ('//' not in line):
-            line = line[:2] + '//  ' + line[2:]
-        else:
-          # make sure stopping with it is uncommented
-          if ('//' in line):
-            line = line.replace('// ', '')
-          l = line.split()
-          line = line.replace(l[4], f'{int(env.itmax):d}')
-      if 'if ( t >' in line:
-        if (env.stop != 'time'):
-          # make sure stopping with time is commented
-          if ('//' not in line):
-            line = line[:2] + '//  ' + line[2:]
-        else:
-          # make sure stopping with time is uncommented
-          if ('//' in line):
-            line = line.replace('// ', '')
-          l = line.split()
-          line = line.replace(l[4], f'{int(3*env.tmax):d}')
-      elif 'grid.printCols' in line:
-        l = line.split()
-        line = line.replace(l[3], f'{int(env.itdump):d}')
+      # the stopping criterion is selected at runtime by STOP_, and the dump cadence by
+      # ITDUMP_{EARLY,MID,LATE}_ (both set above from the phys_input keywords); no line
+      # (un)commenting or positional patching of the printCols call needed anymore.
       out_lines.append(line)
   
   with open(filepath, 'w') as outf:

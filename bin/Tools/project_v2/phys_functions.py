@@ -11,8 +11,9 @@ This file contains functions to derive physical variables
 import numpy as np
 import math
 from phys_constants import *
-from numba import jit, prange, vectorize
+from numba import jit, njit, prange, vectorize
 from scipy.signal import savgol_filter
+from scipy.special import hyp2f1
 
 # General functions
 # --------------------------------------------------------------------------------------------------
@@ -87,6 +88,186 @@ def smooth_bpl_apy(x, A, x_b, alpha, beta, s):
 
 def smooth_bpl0_apy(x, A, x_b, alpha, s):
   return smooth_bpl_apy(x, A, x_b, alpha, 0., s)
+
+
+###### Synchrotron emission function R(x)
+# coeffs from table 1 in Finke, Dermer & Böttcher 08
+coeffs_bel1 = [-0.35775237, -0.83695385, -1.1449608,
+    -0.68137283, -0.22754737, -0.031967334]
+coeffs_abv1 = [-0.35842494, -0.79652041, -1.6113032,
+    0.26055213, -1.6979017, 0.032955035]
+
+def _func_R_exact(x):
+  '''
+  R function see eqns (18) to (20) in Finke, Dermer & Böttcher 2008
+  Vectorized: accepts scalar or ndarray. Piecewise reference implementation;
+  func_R below is a tabulated fast path built from this.
+  '''
+  x = np.asarray(x, dtype=float)
+  xs = np.where(x > 0., x, 1.)   # safe placeholder, branches masked by select
+  y = np.log10(xs)
+  with np.errstate(under='ignore', over='ignore'):
+    R = np.select(
+        [x < 0.01, x < 1., x < 10.],
+        [1.80842*xs**(1./3.),
+         10**np.polyval(coeffs_bel1[::-1], y),
+         10**np.polyval(coeffs_abv1[::-1], y)],
+        default=.5*pi_*(1.-99./(162.*xs))*np.exp(-xs))
+  return R if R.ndim else float(R)
+
+# Precompute func_R once on a dense log grid and evaluate by log-log interpolation
+# in a fused numba kernel, replacing the per-call np.select + 2 polyval + log10.
+# Outside the grid we use analytic asymptotes
+_R_XMIN, _R_XMAX, _R_NGRID = 1e-6, 60., 8192
+_R_xgrid = np.geomspace(_R_XMIN, _R_XMAX, _R_NGRID)
+_R_logR  = np.ascontiguousarray(np.log(_func_R_exact(_R_xgrid)))
+_R_LOGXMIN = np.log(_R_XMIN)
+_R_INV_DLOG = (_R_NGRID - 1) / np.log(_R_XMAX / _R_XMIN)   # uniform log spacing
+
+@njit(cache=True)
+def _func_R_kernel(xf, logxmin, inv_dlog, logR, xmin, xmax):
+  '''
+  R(x) on a flat array: uniform-log-grid direct-index log-log blend, with the
+  analytic low-x power law / high-x exp tail outside [xmin, xmax]. x<=0 -> 0.
+  '''
+  ng = logR.size
+  out = np.zeros(xf.size)
+  for i in range(xf.size):
+    xi = xf[i]
+    if xi <= 0.:
+      continue
+    elif xi < xmin:
+      out[i] = 1.80842 * xi**(1./3.)
+    elif xi > xmax:
+      out[i] = 0.5*np.pi*(1. - 99./(162.*xi))*np.exp(-xi)
+    else:
+      u = (np.log(xi) - logxmin) * inv_dlog
+      i0 = int(u)
+      if i0 > ng - 2:
+        i0 = ng - 2
+      f = u - i0
+      out[i] = np.exp((1.-f)*logR[i0] + f*logR[i0+1])
+  return out
+
+def func_R(x):
+  '''
+  R function (Finke, Dermer & Böttcher 2008 eqns 18-20), tabulated log-log fast
+  path over _func_R_exact. Vectorized: accepts scalar or ndarray of any shape.
+  '''
+  x = np.asarray(x, dtype=float)
+  xf = np.ascontiguousarray(np.atleast_1d(x).ravel())
+  out = _func_R_kernel(xf, _R_LOGXMIN, _R_INV_DLOG, _R_logR, _R_XMIN, _R_XMAX)
+  return float(out[0]) if x.ndim == 0 else out.reshape(x.shape)
+
+
+R_LOW_COEF = 1.80842      # R(x) -> R_LOW_COEF * x**(1/3) as x -> 0 (_func_R_exact)
+
+def syn_cutoff_R(u):
+  '''
+  Shape of the high-frequency cut-off of a synchrotron spectrum, as a multiplicative
+  factor to apply to a power-law spectrum, for u = nu/nu_M with nu_M = gma_M**2 nu_B
+  the burnoff frequency.
+
+  Above nu_M the emission comes from the top of the electron distribution, so the
+  spectrum rolls over with the shape of the single-electron emissivity P'_nu' ~ R(x),
+  x = 2 nu'/(3 gma**2 nu'_B) = (2/3) u. Dividing R by its own low-x asymptote
+  R_LOW_COEF*x**(1/3) makes the factor -> 1 well below the cut-off, so it leaves the
+  power-law body untouched and only supplies the rolloff.
+
+  Much shallower than exp(-u): R spreads its turnover over ~3 decades in x (at u=10 it
+  leaves 5.4e-4 against exp's 4.5e-5). Measured on the sweep spectra, swapping exp for
+  this cuts the rise-phase rms of the Granot & Sari fits from 0.133 to 0.029 dex.
+  '''
+  x = (2./3.)*np.asarray(u, dtype=float)
+  return func_R(x)/(R_LOW_COEF*x**(1./3.))
+
+
+def granot_sari_syn(nu, num, nuc, psyn, s1=1.3, s2=2.0, nuM=None, F_ext=1.,
+    nuFnu=False, cutoff='R', beta_mid=None, beta_lo_single=-0.5):
+  '''
+  Synchrotron spectrum with both breaks joined the Granot & Sari (2002) way, plus a
+  physical high-frequency cut-off at nuM. GS02 write each break as
+      F_nu = F_b,ext [ (nu/nu_b)**(-s*beta1) + (nu/nu_b)**(-s*beta2) ]**(-1/s)
+  with beta1, beta2 the F_nu indices either side and F_b,ext the flux where the two
+  power laws extrapolate to cross. For two breaks the lower one takes that form and the
+  upper one enters as the multiplicative correction [1 + (nu/nu_b2)**(s2*dbeta)]**(-1/s2).
+
+  num, nuc: the two breaks, in ANY order and in the same units as nu -- the ordering
+  alone sets the middle slope, beta_mid = -1/2 if nuc < num (fast cooling) or
+  -(p-1)/2 if nuc > num (slow), so callers need not say which regime they are in. The
+  F_nu indices are 1/3, beta_mid, -p/2 from low to high frequency.
+
+  nuc=None is the SINGLE-BREAK spectrum: one break at num joining beta_lo_single straight to
+  -p/2, with smoothing s2 (s1 and beta_mid are unused). Do NOT emulate it by passing nuc=num,
+  which keeps the intermediate segment. Two cases use it, differing only in the lower index:
+    beta_lo_single = -1/2 (DEFAULT)  very fast cooling -- gamma_c is small enough that the
+        whole distribution has cooled, so nu_c AND the 1/3 segment beneath it both sit below
+        the observed band, leaving nu_m as the only break.
+    beta_lo_single = 1/3             the MARGINAL regime -- nu_c and nu_m are too close for
+        any intermediate power law to exist in the data, so the spectrum runs from the 1/3
+        asymptote straight to -p/2 through one broad break (see spectral_breaks.
+        fit_single_break). Writing it this way rather than as a generic smoothly-broken power
+        law is what keeps s in the SAME convention as s1, s2 everywhere else: larger is
+        sharper.
+  nuM:   the burnoff frequency, where the spectrum cuts off. Not part of GS02; nuM > num,
+         nuc always, so it is the top of the spectrum. None -> no cutoff.
+  cutoff: the SHAPE of that cut-off, as a factor of u = nu/nuM.
+         'R'      -> syn_cutoff_R(u) (DEFAULT), the true single-electron synchrotron
+                     emissivity R(x) normalised by its own low-x asymptote. This is the
+                     physical rolloff: above nuM the emission comes from the top of the
+                     electron distribution, so the spectrum turns over like P'_nu'.
+         'exp'    -> exp(-u), the usual crude stand-in. Kept for comparison only: it
+                     turns over far too abruptly and costs a factor ~4 in rise-phase
+                     residual against the computed spectra (0.133 vs 0.029 dex).
+         callable -> any cutoff(u);  None -> no cut-off.
+  F_ext: GS02's F_b,ext at the LOWER break.
+  nuFnu: return nu*F_nu instead of F_nu.
+  beta_mid: override the middle F_nu slope, which is otherwise set by the ordering of the
+         two breaks (-1/2 fast, -(p-1)/2 slow). Only useful in the MARGINAL regime: with
+         gamma_c = gamma_m the shell-integrated mid segment lands genuinely between the two
+         asymptotes (measured -0.67 / -0.56 there), and the fast/slow labels become
+         meaningless -- neither break is cleanly nu_c or nu_m. Every other regime pins it
+         at an asymptote when left free, so the ordering rule is right there.
+
+  CAREFUL with the smoothing convention: here (as in GS02) a LARGER s is a SHARPER
+  break, the opposite of sweep_gammacm._slope_step / paired_syn_bpl, where larger s is
+  smoother. s1 applies to the lower break, s2 to the upper.
+
+  Evaluated in log space: nu/nu_b spans >10 decades in these spectra and the naive
+  powers overflow (same reason smooth_bpl_apy is written with logaddexp).
+  '''
+  nu = np.asarray(nu, float)
+  beta_hi = -psyn/2.
+  if nuc is None:
+    # single break at num, beta_lo_single -> -p/2, in the same GS02 two-term form
+    ln2 = np.log(nu/num)
+    ln_F = np.log(F_ext) - np.logaddexp(-s2*beta_lo_single*ln2, -s2*beta_hi*ln2)/s2
+  else:
+    b_lo, b_hi = min(num, nuc), max(num, nuc)
+    beta_lo = 1/3.
+    if beta_mid is None:
+      beta_mid = -0.5 if nuc < num else -(psyn-1.)/2.
+
+    ln1 = np.log(nu/b_lo)
+    # [y**(-s1 beta_lo) + y**(-s1 beta_mid)]**(-1/s1)
+    ln_t1 = -np.logaddexp(-s1*beta_lo*ln1, -s1*beta_mid*ln1)/s1
+    ln2 = np.log(nu/b_hi)
+    # [1 + (nu/b_hi)**(s2 (beta_mid - beta_hi))]**(-1/s2)
+    ln_t2 = -np.logaddexp(0., s2*(beta_mid - beta_hi)*ln2)/s2
+    ln_F = np.log(F_ext) + ln_t1 + ln_t2
+  if nuFnu:
+    ln_F = ln_F + np.log(nu)
+  F = np.exp(ln_F)
+  if nuM is not None and cutoff is not None:
+    if cutoff == 'R':
+      F = F*syn_cutoff_R(nu/nuM)
+    elif cutoff == 'exp':
+      F = F*np.exp(-nu/nuM)
+    elif callable(cutoff):
+      F = F*cutoff(nu/nuM)
+    else:
+      raise ValueError(f"cutoff must be 'R', 'exp', None or a callable, got {cutoff!r}")
+  return F
 
 
 def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
@@ -583,6 +764,95 @@ def derive_xiDN(gmin, gmax, p):
     return ((gmax**(2-p) - gmin**(2-p))/(gmax**(2-p)-1))*((gmax**(1-p)-1.)/(gmax**(1-p)-gmin**(1-p)))
   
   return np.where(gmax<1., 0., np.where(gmin<1., xiDN(gmin, gmax, p), 1.))
+
+def _cooled_energy_antideriv(s, p, tt):
+  '''
+  Antiderivative of s**(p-2)/(s+tt) with G(0) = 0, i.e. the energy integral of the
+  cooled shape written in the un-cooling variable s (see derive_xiDN_cooled):
+    G(S) = S**(p-1)/((p-1)*tt) * 2F1(1, p-1; p; -S/tt)
+  '''
+  s = np.asarray(s, dtype=float)
+  pos = s > 0.
+  sp = np.where(pos, s, 1.)                  # 2F1 is evaluated on every branch
+  return np.where(pos, sp**(p-1)/((p-1)*tt) * hyp2f1(1., p-1., p, -sp/tt), 0.)
+
+def derive_xiDN_cooled(gmin, gmax, p, tt, parts=False):
+  '''
+  derive_xiDN for the COOLED shape N ~ gma**-p (1-gma*tt)**(p-2) (cooling_distribution.
+  distrib_plaw_cooled) rather than the pristine power law, with
+  tt = radiation_cooling.cooled_tt_eff(gmax, bsyn) = (1-bsyn)/gmax.
+
+  Cooling only relabels electrons, so the change of variable
+    s(gma) = 1/gma - tt = 1/gma0      (gma0 = the Lorentz factor it was INJECTED with)
+  sends every moment of the cooled shape back to a power-law integral:
+    N(a,b) = int_a^b gma**-p     (1-gma*tt)**(p-2) dgma = (s_a**(p-1)-s_b**(p-1))/(p-1)
+    E(a,b) = int_a^b gma**(1-p)  (1-gma*tt)**(p-2) dgma = int_{s_b}^{s_a} s**(p-2)/(s+tt) ds
+                                                        = G(s_a) - G(s_b)
+  so xi keeps derive_xiDN's two-factor structure,
+    xi_N = [E(gmin,gmax)/E(1,gmax)] * [N(1,gmax)/N(gmin,gmax)] = F1 * F2,
+  evaluated at s(gmax) = bsyn/gmax, s(1) = 1-tt, s(gmin) = 1/gmin - tt. F2 reads off
+  directly: the electrons below gma = 1 today are exactly those injected below
+  gma0 = 1/(1-tt), so it is the INJECTED power law's number fraction above that
+  pulled-back threshold. tt -> 0 reproduces derive_xiDN to machine precision, and
+  p = 2 is covered as well (2F1(1,1;2;z) is the log the energy integral degenerates
+  to; checked against it to 1e-12).
+
+  WHICH factors to use is a prescription choice, and they are not interchangeable:
+    - electrons that COOLED below 1 stop emitting and their energy is already in the
+      radiation, so nothing is re-spread: the emission integral is simply truncated
+      at gma = 1 and no factor applies. That is what radiation_cooling.get_epnu and
+      step_radiated_energy do -- they do NOT call this function;
+    - deep-Newtonian INJECTION (derive_gma_m returning gma_m < 1, the Ayache et al.
+      2022 case derive_xiDN was written for) does re-spread that energy over the
+      surviving electrons. Against a NUMBER normalisation (norm_plaw_distrib on the
+      injection bounds) that is F1 alone; F1*F2 is the emitting-number fraction, i.e.
+      what multiplies a distribution renormalised to unit number on [1, gmax].
+  Applying F1*F2 on top of a K0-normalised integral already truncated at 1 counts the
+  renormalisation twice (F2 = 0.35 at gmin=0.5, gmax=1e3, p=2.5).
+
+  parts=True returns (xi_N, F1, F2) instead of xi_N.
+
+  The cooled shape itself barely matters: [gmin, 1] lies far below the cutoff
+  (gma*tt <= tt <= 1/gmax there), so (1-gma*tt)**(p-2) ~ 1 exactly where the ratio is
+  decided and derive_xiDN is already within 0.16% (median over p in [2.2, 3], gmin in
+  [1e-3, 1], gmax in [1.05, 1e6], bsyn in [0, 1]). The residual is the O(gmax**(2-p))
+  top-edge curl in F1's denominator, reaching ~10% only for gmax <~ 3.
+  '''
+  gmin, gmax, tt = (np.asarray(v, dtype=float) for v in (gmin, gmax, tt))
+  # np.where evaluates every branch: hold the masked-out ones on finite placeholders
+  edge = (gmax <= 1.) | (gmin >= 1.)
+  gmn  = np.where(edge, .5, gmin)
+  gmx  = np.where(edge, 2., gmax)
+  cool = (tt > 0.) & ~edge
+  t    = np.where(cool, tt, .5/gmx)
+  sm, s1, sM = 1./gmn - t, 1. - t, 1./gmx - t
+
+  F2 = (s1**(p-1) - sM**(p-1))/(sm**(p-1) - sM**(p-1))
+  F1 = (_cooled_energy_antideriv(sm, p, t) - _cooled_energy_antideriv(sM, p, t)) \
+       / (_cooled_energy_antideriv(s1, p, t) - _cooled_energy_antideriv(sM, p, t))
+  # bsyn = 1 (purely adiabatic step, tt = 0): the shape is the pristine power law
+  F2 = np.where(cool, F2, (gmx**(1-p) - 1.)/(gmx**(1-p) - gmn**(1-p)))
+  F1 = np.where(cool, F1, (gmx**(2-p) - gmn**(2-p))/(gmx**(2-p) - 1.))
+  # gma_max cooled below 1: nothing emits. gma_min still above 1: nothing is missing.
+  F1 = np.where(edge, 1., F1)
+  F2 = np.where(gmax <= 1., 0., np.where(gmin >= 1., 1., F2))
+  return (F1*F2, F1, F2) if parts else F1*F2
+
+def derive_xiE(gmin, gmax, p):
+  '''
+  Fraction of eps_e*e'_int actually carried by the truncated power law between
+  gmin and gmax: derive_gma_m sets gma_m from the gma_M -> inf limit
+  (Gp = (p-2)/(p-1)), so a distribution cut at gma_M holds only
+    (1 - x**(2-p))/(1 - x**(1-p)),  x = gmax/gmin
+  of that energy. -> 1 as x -> inf, and drops below 1 for narrow distributions
+  (0.94 at x=281, reached deep in fast cooling by the alpha rescale).
+  '''
+  if p == 2.:
+    # degenerate: Gp = 0 so derive_gma_m (and hence the reference energy) is undefined
+    return np.nan
+  x = np.asarray(gmax, dtype=float)/np.asarray(gmin, dtype=float)
+  xs = np.where(x<=1., 2., x)          # placeholder, masked out below
+  return np.where(x<=1., 0., (1.-xs**(2-p))/(1.-xs**(1-p)))
 
 def derive_Ne(x, dx, vx, rho, R0, rhoscale, geometry):
   '''

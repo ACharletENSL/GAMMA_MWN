@@ -11,103 +11,115 @@ Contains:
   - get_Fnu_step
   - get_Lnu_comov
   - get_epnu
-  - Pnu_instant_bins
+  - Pnu_instant / cooled_tt_eff (cooled-distribution cutoff, see cooled_tt_eff)
+  - Pnu_instant_fit (FM26 analytic fit alternative to Pnu_instant)
   - get_Fnu_cell_analytic (optimal time binning for constant hydro)
   - get_cell_nuFnu_analytic (wrapper for analytic case)
 '''
 
 import numpy as np
 from numba import njit
+from scipy.integrate import simpson
 from cooling_distribution import norm_plaw_distrib, distrib_plaw_cooled, \
   gamma_synCooled, split_hydrostep
+from syn_fitting_FM26 import Jpl_FM26, pnu_fm26_scalars, _pnu_fm26_kernel
 from IO import get_variable
 from obs_functions import *
-from phys_functions import derive_xiDN
+from phys_functions import (func_R, _func_R_exact, syn_cutoff_R,
+    R_LOW_COEF, coeffs_bel1, coeffs_abv1,
+    _R_logR, _R_LOGXMIN, _R_INV_DLOG, _R_XMIN, _R_XMAX)
 from phys_constants import *
 
-###### Emission function
-# coeffs from table 1 in Finke, Dermer & Böttcher 08
-coeffs_bel1 = [-0.35775237, -0.83695385, -1.1449608,
-    -0.68137283, -0.22754737, -0.031967334]
-coeffs_abv1 = [-0.35842494, -0.79652041, -1.6113032,
-    0.26055213, -1.6979017, 0.032955035]
+from types import SimpleNamespace
+
+
+class _StepView(SimpleNamespace):
+  '''Lightweight carrier of one cooling step's precomputed scalars, so the
+  cooling-step hot loops avoid re-materializing cell.iloc[j] and re-deriving
+  get_variable(step,...) every step. Downstream kernels read fields via _sval,
+  which falls back to the pandas-row path for any non-view step (bit-identical).'''
+  pass
+
+
+_STEP_BASE_COLS = ('x', 'trac', 'gmin', 'gmax', 'dtp')
+# base columns that older / analytic cell frames may not carry, with their default
+# (bsyn=0 reproduces the historical tt=1/gmax cooled shape exactly; dtt=0 drops the
+# step-integration weight of step_radiated_energy, i.e. the instantaneous-rate limit)
+_STEP_OPT_COLS = {'bsyn': 0., 'dtt': 0.}
+
+
+def _sval(step, key, env):
+  '''Per-step scalar: precomputed attribute on a _StepView, else derived from a
+  pandas row exactly as before (base column by item access, derived via
+  get_variable) -> bit-identical for non-view callers. Keys in _STEP_OPT_COLS fall
+  back to their default when the cell frame predates them (analytic cells), so
+  those paths keep their historical values.'''
+  if isinstance(step, _StepView):
+    return getattr(step, key, _STEP_OPT_COLS[key]) if key in _STEP_OPT_COLS \
+           else getattr(step, key)
+  if key in _STEP_OPT_COLS:
+    return step[key] if key in step else _STEP_OPT_COLS[key]
+  if key in _STEP_BASE_COLS:
+    return step[key]
+  return get_variable(step, key, env)
+
+
+def precompute_step_cols(cell, env, keys=('Dop', 'nup_B', 'Tth', 'V3p', 'Pmax', 'obsT')):
+  '''Vectorize a whole cell's per-step quantities once (arrays), to feed
+  _StepView in the cooling-step loops. Derived keys via get_variable(cell,...)
+  (same formula as the per-row call); base columns via .to_numpy(); obsT is the
+  (Ton, Tth, Tej) triple.'''
+  cols = {}
+  for key in keys:
+    if key == 'obsT':
+      Ton, Tth, Tej = get_variable(cell, 'obsT', env)
+      cols['obsT'] = (np.asarray(Ton, float), np.asarray(Tth, float), np.asarray(Tej, float))
+    else:
+      cols[key] = np.asarray(get_variable(cell, key, env), float)
+  for key in _STEP_BASE_COLS:
+    cols[key] = cell[key].to_numpy()
+  for key, default in _STEP_OPT_COLS.items():
+    cols[key] = cell[key].to_numpy() if key in cell \
+                else np.full(len(cell), default, dtype=float)
+  return cols
+
+
+def step_view(cols, j):
+  '''Build the _StepView for step j from the precomputed arrays.'''
+  kw = {key: ((v[0][j], v[1][j], v[2][j]) if key == 'obsT' else v[j])
+        for key, v in cols.items()}
+  return _StepView(**kw)
+
 
 def syn_emiss_exact(gma, tnu):
   '''
   "exact" synchrotron emission function from Crusius & Schlikeiser (1986)
   for an electron with LF gma at tnu = nu'/nu'_B, nu'_B=e*B/(2*pi_*me_*c_)
-  norm_R_ = ∫R(x)dx ~ 1.075, determined numerically
   Vectorized: gma and tnu can be scalars or broadcastable arrays.
+
+  UNITS: this returns R(x) itself, x = 2tnu/(3 gma**2). R is the physical shape,
+  and its own normalisation norm_R_ = int R(x) dx = 1.0751412668 is NOT divided out
+  here -- it is a single scalar and belongs where an absolute emissivity is actually
+  formed, not on every element of every kernel evaluation. get_epnu applies it once,
+  in the same multiply as Pmax (see there); step_radiated_energy consumes it inside
+  its analytic frequency integral. So
+    int R(x) dtnu = norm_R_ * (3/2) gma**2,
+  and Pmax * nup_B * that / norm_R_ is the true single-electron synchrotron power
+  (4/3) sigT c gma**2 U_B -- checked to 4e-7.
   '''
   gma = np.asarray(gma, dtype=float)
   tnu = np.asarray(tnu, dtype=float)
   # underflows in np.exp will be treated as 0.
   with np.errstate(under='ignore'):
     x = (2.*tnu)/(3.*gma**2)
-    out = np.where(tnu < 1., 0., func_R(x)/norm_R_)
+    out = np.where(tnu < 1., 0., func_R(x))
   return out if out.ndim else float(out)
 
-def _func_R_exact(x):
-  '''
-  R function see eqns (18) to (20) in Finke, Dermer & Böttcher 2008
-  Vectorized: accepts scalar or ndarray. Piecewise reference implementation;
-  func_R below is a tabulated fast path built from this.
-  '''
-  x = np.asarray(x, dtype=float)
-  xs = np.where(x > 0., x, 1.)   # safe placeholder, branches masked by select
-  y = np.log10(xs)
-  with np.errstate(under='ignore', over='ignore'):
-    R = np.select(
-        [x < 0.01, x < 1., x < 10.],
-        [1.80842*xs**(1./3.),
-         10**np.polyval(coeffs_bel1[::-1], y),
-         10**np.polyval(coeffs_abv1[::-1], y)],
-        default=.5*pi_*(1.-99./(162.*xs))*np.exp(-xs))
-  return R if R.ndim else float(R)
+# R(x), its tabulated fast path and the cut-off shape it defines now live in
+# phys_functions (granot_sari_syn needs them and cannot import this module:
+# radiation_cooling imports phys_functions, not the reverse). Imported above
+# and re-exported here, so `from radiation_cooling import func_R` still works.
 
-# Precompute func_R once on a dense log grid and evaluate by log-log interpolation
-# in a fused numba kernel, replacing the per-call np.select + 2 polyval + log10.
-# Outside the grid we use analytic asymptotes
-_R_XMIN, _R_XMAX, _R_NGRID = 1e-6, 60., 8192
-_R_xgrid = np.geomspace(_R_XMIN, _R_XMAX, _R_NGRID)
-_R_logR  = np.ascontiguousarray(np.log(_func_R_exact(_R_xgrid)))
-_R_LOGXMIN = np.log(_R_XMIN)
-_R_INV_DLOG = (_R_NGRID - 1) / np.log(_R_XMAX / _R_XMIN)   # uniform log spacing
-
-@njit(cache=True)
-def _func_R_kernel(xf, logxmin, inv_dlog, logR, xmin, xmax):
-  '''
-  R(x) on a flat array: uniform-log-grid direct-index log-log blend, with the
-  analytic low-x power law / high-x exp tail outside [xmin, xmax]. x<=0 -> 0.
-  '''
-  ng = logR.size
-  out = np.zeros(xf.size)
-  for i in range(xf.size):
-    xi = xf[i]
-    if xi <= 0.:
-      continue
-    elif xi < xmin:
-      out[i] = 1.80842 * xi**(1./3.)
-    elif xi > xmax:
-      out[i] = 0.5*np.pi*(1. - 99./(162.*xi))*np.exp(-xi)
-    else:
-      u = (np.log(xi) - logxmin) * inv_dlog
-      i0 = int(u)
-      if i0 > ng - 2:
-        i0 = ng - 2
-      f = u - i0
-      out[i] = np.exp((1.-f)*logR[i0] + f*logR[i0+1])
-  return out
-
-def func_R(x):
-  '''
-  R function (Finke, Dermer & Böttcher 2008 eqns 18-20), tabulated log-log fast
-  path over _func_R_exact. Vectorized: accepts scalar or ndarray of any shape.
-  '''
-  x = np.asarray(x, dtype=float)
-  xf = np.ascontiguousarray(np.atleast_1d(x).ravel())
-  out = _func_R_kernel(xf, _R_LOGXMIN, _R_INV_DLOG, _R_logR, _R_XMIN, _R_XMAX)
-  return float(out[0]) if x.ndim == 0 else out.reshape(x.shape)
 
 
 # Contribution from a cell
@@ -164,9 +176,9 @@ def get_Fnu_step(nuobs, Tobs, step, K0, env, Ng=20, norm=True, width_tol=1.1):
   F_\nu (T) from a (cooling) step
   '''
   
-  D = get_variable(step, "Dop", env)
-  lfac = get_variable(step, 'lfac', env)
-  tT = Tobs_to_tildeT(Tobs, step, env)
+  D = _sval(step, "Dop", env)
+  Ton, Tth, Tej = _sval(step, 'obsT', env)
+  tT = (Tobs - Tej) / Tth                          # Tobs_to_tildeT inlined
   nuobs = np.asarray(nuobs, dtype=float)
   if np.ndim(Tobs) > 0:
     tT = np.asarray(tT)
@@ -191,21 +203,21 @@ def get_Lnu_comov(nup, step, K0, env, Ng=20, norm=True, width_tol=1.1):
     as a function of \nu'/\nu'_m
   '''
 
-  nup_B = get_variable(step, 'nup_B', env)
+  nup_B = _sval(step, 'nup_B', env)
   rsc = 1.
   if env.geometry == 'cartesian':
     # assume geometrical scaling nu' \propto R^(-1)
-    rsc = step.x * c_/env.R0
+    rsc = _sval(step, 'x', env) * c_/env.R0
   nup_B /= rsc
   tnu = nup/nup_B
 
-  Ttz = get_variable(step, "Tth", env)/(1+env.z)
-  V3p = get_variable(step, "V3p", env)
+  Ttz = _sval(step, "Tth", env)/(1+env.z)
+  V3p = _sval(step, "V3p", env)
   Lnu = get_epnu(tnu, step, K0, env, Ng, width_tol)
   Lnu *= rsc * V3p/Ttz
 
   if norm:
-    Lnu /= (env.L0p if step.trac < 1.5 else env.L0pFS)
+    Lnu /= (env.L0p if _sval(step, 'trac', env) < 1.5 else env.L0pFS)
   return Lnu
 
 def get_Lnu_interp(nup, step, K0, env, Ng=20, norm=True, width_tol=1.1, n_grid=300):
@@ -294,73 +306,198 @@ def get_Lnu_outer(nub, tT, step, K0, env, Ng=20, norm=True, width_tol=1.1,
   out[pos_t] = _outer_loglog_blend(logL_grid, u, s, w)
   return out
 
+# module switch: route the plain power-law path of get_epnu through the
+# FM26 analytic fit (Pnu_instant_fit) instead of the Ng-point trapezoid.
+# Toggle from a notebook with radiation_cooling.PNU_USE_FM26 = True
+PNU_USE_FM26 = False
+# below this gmax/gmin the fit degrades (30-80% near the cutoff for eta ~ 1.1-3,
+# a limitation of the FM26 fitting form itself) while the trapezoid over the
+# narrow gamma range is accurate: keep the numerical path there.
+FIT_ETA_MIN = 4.
+
 def get_epnu(tnu_arr, step, K0, env, Ng=20, width_tol=1.1,
-    func_cooling=gamma_synCooled, func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact):
+    func_cooling=gamma_synCooled, func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact,
+    use_fit=None):
   '''
   Delta e'_nu' of a step (assuming constant P'_nu' in the bin)
     as a function of nu'/nu'_B
   K0 as variable because it depends on initial gma_min/max of the distrib
   Accepts tnu_arr of any shape (e.g. 2D (T, nu) for the EATS-shifted grid): the
   kernels operate per-tnu, so we flatten, compute, then reshape back.
+  use_fit=True replaces the Pnu_instant trapezoid by the FM26 analytic fitting
+  function (defaults to the module switch PNU_USE_FM26); it is only valid for the
+  bsyn=0 shape, so it is skipped whenever the step carries a burn-off factor.
   '''
-  p   = env.psyn
   tnu_arr = np.asarray(tnu_arr, dtype=float)
   shape_in = tnu_arr.shape
   tnu_flat = tnu_arr.ravel()
-  gmin, gmax = step.gmin, step.gmax
+  gmin, gmax = _sval(step, 'gmin', env), _sval(step, 'gmax', env)
   if gmax <= 1.:
     return np.zeros(shape_in)
-  gma_keys = [key for key in step.keys() if 'gm' in key]
-  Pmax = get_variable(step, "Pmax", env)
+  bsyn = _sval(step, 'bsyn', env)
+  Pmax = _sval(step, "Pmax", env)
   K = K0
-  xi_N = 1.
   if gmin < 1.:
-    xi_N = derive_xiDN(gmin, gmax, p)
-    gmin = 1.
+    gmin = 1.               # see step_radiated_energy: bound truncation, no rescaling
   if gmax/gmin <= width_tol:
     K = 1
     gma_mn = np.sqrt(gmin*gmax)
     #gma_mn = gmin
     enu = np.asarray(func_emiss(gma_mn, tnu_flat))
   else:
-    if len(gma_keys) > 2:
-      gmas_arr = step[gma_keys].to_numpy(copy=True)
-      enu = Pnu_instant_bins(tnu_flat, gmas_arr, env, func_distrib, func_emiss)
+    if use_fit is None:
+      use_fit = PNU_USE_FM26
+    if use_fit and gmax/gmin >= FIT_ETA_MIN and bsyn == 0.:
+      enu = Pnu_instant_fit(tnu_flat, gmin, gmax, env)
     else:
-      enu = Pnu_instant(tnu_flat, gmin, gmax, env, Ng, func_distrib, func_emiss)
-  enu *= xi_N*K*step['dtp']*Pmax
+      enu = Pnu_instant(tnu_flat, gmin, gmax, env, Ng, func_distrib, func_emiss,
+                        bsyn=bsyn)
+  # 1/norm_R_ is R(x)'s normalisation (syn_emiss_exact returns R itself): applied
+  # ONCE here, as a scalar in the prefactor, for both the trapezoid and the FM26
+  # branch -- never inside the per-element kernels.
+  enu *= K*_sval(step, 'dtp', env)*Pmax/norm_R_
   return enu.reshape(shape_in)
 
 
-def Pnu_instant_bins(tnu_arr, gmas_arr, env,
-      func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact):
+def cooled_tt_eff(gmax, bsyn):
   '''
-  Energy per unit freq per unit volume and time at normalized time tt
-    as a function of nu'/nu'_B, in units P'_e,max
-  from an array of logarithmic bins in gma
-  ''' 
-  p = env.psyn
-  gmax = gmas_arr[-1]
-  # center values in bins for calculation; vectorized over (bins, tnu)
-  gmas_ctr = np.sqrt(gmas_arr[:-1] * gmas_arr[1:])
-  dgmas = np.diff(gmas_arr)
-  dP = func_distrib(gmas_ctr[:, None], p, 1/gmax) \
-      * func_emiss(gmas_ctr[:, None], tnu_arr[None, :])
-  return np.sum(dP * dgmas[:, None], axis=0)
+  Normalized time to pass to distrib_plaw_cooled so that the cooled shape has its
+  cutoff at the RIGHT place. The exact solution of an injected power law is
+    N(gma,tt) = K0 gma^-p (1-gma*tt)^(p-2)  on  [gmin(tt), gmax(tt)],
+  and at the physical cutoff 1-gmax*tt = gmax/gmax0 != 0: a sharp injected edge
+  stays sharp, the distribution is truncated by its SUPPORT, not by the shape
+  decaying to zero. Writing u = gma/gmax and b = the cumulative SYNCHROTRON-only
+  burn-off factor of the top edge (gmax_syn-only/gmax0),
+    1 - gma*tt = 1 - u*(1-b)   =>   tt_eff = (1-b)/gmax
+  b=0 recovers the old tt=1/gmax, i.e. the gmax0 -> infinity solution, which
+  vanishes at the cutoff and under-counts the emission there (23% at injection,
+  ~2.5% of the fast-cooling energy budget). b=gmax/gmax0 (pure synchrotron) gives
+  the true elapsed tt = 1/gmax - 1/gmax0; b->1 (adiabatic-dominated, which does
+  NOT distort the power law) gives tt_eff -> 0, a pristine power law.
+  '''
+  return (1. - bsyn)/gmax
 
 def Pnu_instant(tnu_arr, gmin, gmax, env, Ng=20,
-      func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact):
+      func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact, bsyn=0.):
   '''
   Energy per unit freq per unit volume and time at normalized time tt
     as a function of nu'/nu'_B, in units P'_e,max
   Separates the range gamma_min/max into log bins for calculation
+  bsyn: synchrotron-only burn-off factor of the step (see cooled_tt_eff);
+    0 reproduces the historical tt=1/gmax shape.
+  Carries func_emiss's units, i.e. R(x)'s own normalisation is still in: get_epnu
+  divides by norm_R_ once (see syn_emiss_exact).
   '''
   p = env.psyn
   gmas_arr = np.geomspace(gmin, gmax, Ng)
   # vectorized over (gma, tnu)
-  dP = func_distrib(gmas_arr[:, None], p, 1/gmax) \
+  dP = func_distrib(gmas_arr[:, None], p, cooled_tt_eff(gmax, bsyn)) \
       * func_emiss(gmas_arr[:, None], tnu_arr[None, :])
   return np.trapezoid(dP, gmas_arr, axis=0)
+
+
+def step_radiated_energy(step, K0, env, Ng=120, width_tol=1.01,
+      func_distrib=distrib_plaw_cooled):
+  '''
+  Comoving radiated energy per unit (nu'_B * V3p) of one cooling step, obtained by
+  integrating the single-electron synchrotron power ANALYTICALLY in frequency:
+    int syn_emiss_exact(gma, tnu) dtnu / norm_R_ = (3/2) gma**2   (exact, since
+    syn_emiss_exact = func_R(x), x=2tnu/(3gma**2), int R(x)dx = norm_R_;
+    the tnu<1 cutoff drops only O(gma**-8/3)).
+  This replaces get_epnu's per-tnu emissivity + trapezoid over tnu by the analytic
+  weight (3/2)gma**2, leaving only the smooth electron integral over gma (Simpson).
+  Mirrors get_epnu's normalization branch-for-branch (Pmax, K, dtp), so the absolute
+  scale is identical -- only the integration is unbiased/cheaper. Multiply the return
+  by nup_B * V3p (as in cell_radiated_energy) to get an energy.
+
+  norm_R_ does NOT appear below, and must not: doing the frequency integral in closed
+  form is exactly where R(x)'s normalisation gets consumed, so it is already inside
+  the constant (3/2). get_epnu, which integrates over tnu numerically instead, carries
+  the 1/norm_R_ explicitly in its prefactor -- the two agree.
+
+  gma_min cooled below 1: those electrons are non-relativistic and stop emitting, so
+  the integral is truncated at gma = 1 and NOTHING else is done. K0 is a NUMBER
+  normalisation on the injection bounds (norm_plaw_distrib) and the cooled shape
+  conserves number exactly, so the surviving electrons already carry their own weight;
+  the energy the cooled ones lost is in the radiation, not handed to the survivors.
+  The former xi_N = derive_xiDN factor here applied the deep-Newtonian (energy
+  re-spreading) renormalisation on top of that truncation, counting it twice. See
+  phys_functions.derive_xiDN_cooled for the exact factors and when they do apply.
+
+  The gma**2 weight is the INSTANTANEOUS rate, which over a finite step is a
+  first-order overestimate: the step advances every electron by 1/gma_R = 1/gma_L
+  + dtt, so what it actually radiates is
+    me c^2 (gma_L - gma_R) = me c^2 gma_L gma_R dtt = me c^2 dtt gma_L**2/(1+gma_L dtt),
+  i.e. the geometric mean squared, not gma_L**2. With the prefactor already
+  carrying dtt (through dtp*Pmax), the exact step energy is obtained by weighting
+  the LEFT-EDGE distribution with
+    (3/2) gma**2 / (1 + gma*dtt)
+  which is what is integrated below. This is exact per electron, so the result no
+  longer drifts with the step size (measured eps_rad = 1.00032/1.00031/1.00027 at
+  r_ref = 1.2/1.1/1.05, against 1.0029/1.0010/1.0005 for the former midpoint-bounds
+  evaluation). dtt = 0 (frames predating the column) recovers that former limit.
+  '''
+  p = env.psyn
+  gmin, gmax = _sval(step, 'gmin', env), _sval(step, 'gmax', env)
+  if gmax <= 1.:
+    return 0.
+  bsyn = _sval(step, 'bsyn', env)
+  dtt = _sval(step, 'dtt', env)
+  Pmax = _sval(step, "Pmax", env)
+  K = K0
+  if gmin < 1.:
+    gmin = 1.               # bound truncation only (see docstring)
+  if gmax/gmin <= width_tol:                       # delta-function shortcut (as get_epnu)
+    K = 1.
+    gma_mn = np.sqrt(gmin*gmax)
+    I = 1.5*gma_mn**2/(1. + gma_mn*dtt)
+  else:
+    gmas = np.geomspace(gmin, gmax, Ng)
+    I = simpson(func_distrib(gmas, p, cooled_tt_eff(gmax, bsyn))
+                * 1.5*gmas**2/(1. + gmas*dtt), x=gmas)
+  return K*_sval(step, 'dtp', env)*Pmax * I
+
+def Pnu_instant_fit(tnu_arr, gmin, gmax, env):
+  '''
+  Same quantity as Pnu_instant (distrib_plaw_cooled x syn_emiss_exact integrated
+  over gamma), via the Ferguson & Margalit 2026 analytic fitting function J_pl
+  instead of numerical integration:
+    Pnu = (1/2) ((2/3) tnu)^{(1-p)/2} J_pl(p; x1, xinf)
+  with x1 = (2/3) tnu/gmin^2, xinf = (2/3) tnu/gmax^2, eta = gmax/gmin, and the
+  same tnu < 1 cutoff as syn_emiss_exact. Like Pnu_instant this is in R(x)'s own
+  units (J_pl is built on the raw func_R), so get_epnu's single 1/norm_R_ covers
+  both branches identically. Uses the tabulated func_R as the
+  pitch-angle-averaged kernel Ftilde (same function, see syn_fitting_FM26).
+  Valid for 2 < p <~ 5 and the synchrotron-only cooled power law; worst-case
+  fit error ~50% near eta ~ 1.05-1.2 (see module docstring).
+  NB: J_pl takes only (p, x1, xinf, eta), so it encodes the bsyn=0 shape (cutoff
+  AT gmax) and cannot represent the bsyn>0 family (cooled_tt_eff). get_epnu
+  therefore skips this path whenever bsyn != 0; using it there would need J_pl
+  refitted against (1 - u(1-b))^(p-2). See syn_fitting_FM26.
+  '''
+  p = env.psyn
+  eta = gmax/gmin
+  tnu_arr = np.asarray(tnu_arr, dtype=float)
+  if eta - 1. < 1e-3:
+    # near-delta distribution: vectorized path (Eq. 21 valid at all freqs);
+    # rare in practice, get_epnu's width_tol shortcut intercepts it upstream
+    nut = (2./3.)*tnu_arr
+    J = Jpl_FM26(p, nut/gmin**2, nut/gmax**2, eta, func_F=func_R)
+    # tnu <= 0 gives inf/nan in the (discarded) second branch of the where
+    with np.errstate(under='ignore', divide='ignore', invalid='ignore'):
+      return np.where(tnu_arr < 1., 0., 0.5 * nut**((1.-p)/2.) * J)
+  # fused numba fast path: per-step scalars once, single pass over tnu
+  pm1h, om_pref, A1, a1, a2, a3, a4, log_psi_pref, c1, al2, al4 = \
+      pnu_fm26_scalars(p, eta)
+  pfac = 0.5                 # norm_R_ is applied once by get_epnu, not here
+  inv_g2sq = 1./gmax**2
+  g2fac = inv_g2sq**pm1h    # = xf^pm1h * nut^-pm1h, folds the output prefactor
+  tf = np.ascontiguousarray(np.atleast_1d(tnu_arr).ravel())
+  out = _pnu_fm26_kernel(tf, inv_g2sq, pfac*om_pref*g2fac, pfac*A1*g2fac,
+                         log_psi_pref + np.log(pfac) + pm1h*np.log(inv_g2sq),
+                         a1, a2, a3, a4, pm1h, c1*eta**(2.*al2), al2, al4,
+                         _R_logR, _R_LOGXMIN, _R_INV_DLOG, _R_XMIN, _R_XMAX)
+  return float(out[0]) if tnu_arr.ndim == 0 else out.reshape(tnu_arr.shape)
 
 
 # Analytic constant-hydro case

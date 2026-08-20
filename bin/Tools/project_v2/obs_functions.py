@@ -12,13 +12,29 @@ from IO import get_variable
 ##### Standard obs frequency and time arrays
 def obs_arrays(key, normed=False,
     Tmax=5, NT=500,
-    lognu_min=-3, lognu_max=2, Nnu=250):
+    lognu_min=-3, lognu_max=2, Nnu=250, Tb_min=None, Tb_lin=None):
   '''
-  Returns arrays of observed times and frequencies
+  Returns arrays of observed times and frequencies.
+  Tb_min: if set, the time grid is geometric in bar{T} = (Tobs-Ts)/T0 = T-1
+    over [Tb_min, Tmax] (log-uniform, resolving the early rise); None keeps the
+    default T = geomspace(1, Tmax+1) (bar{T} only ~linear near 0).
+  Tb_lin: (lo, hi, n) -- merge n extra samples spaced LINEARLY in bar{T} over
+    [lo, hi] into the grid above. The geometric grid resolves the log axis, so it
+    leaves the peak region thin in linear terms (on the fiducial sweep only ~12 of
+    250 points fall in bar{T}/bar{T}_f = 1..2, where the lightcurve peaks) and
+    linear-scale lightcurves come out jagged. Every geometric point is kept -- the
+    result is a strict superset, so the early rise Tb_min buys is untouched -- and
+    NT then sizes only the geometric part: len(T) == NT + n.
   '''
   env = MyEnv(key)
   nub = np.logspace(lognu_min, lognu_max, Nnu)
-  T = np.geomspace(1, Tmax+1, NT)
+  if Tb_min is None:
+    T = np.geomspace(1, Tmax+1, NT)
+  else:
+    T = 1. + np.geomspace(Tb_min, Tmax, NT)
+  if Tb_lin is not None:
+    lo, hi, n = Tb_lin
+    T = 1. + np.unique(np.concatenate([T - 1., np.linspace(lo, min(hi, Tmax), n)]))
   if normed:
     return nub, T, env
   else:

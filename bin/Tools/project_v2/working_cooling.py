@@ -20,6 +20,15 @@ from cooling_distribution import *
 from radiation_cooling import *
 from obs_functions import *
 
+# default cap on ln(rho) spanned by a single cooling step (see worldline_from_cooling
+# / _refine_tt_on_rho): the tt bins measure synchrotron fluence, which under-resolves
+# the adiabatic (expansion-dominated) evolution of the inner-shell cells in the
+# slow-cooling regime (they survive to R_rar ~ 2.5 R0, total dln(rho) ~ 1.2). Value
+# set by a full-shell convergence study at log10(gma_c/gma_m)=+2: shell nuFnu vs the
+# finest cap is off by ~15% at None, ~7-9% at 0.15, ~3-4% at 0.075. Fast cooling is
+# edge-dominated (small expansion) and unchanged by the cap. None disables refinement.
+DLNRHO_MAX = 0.075
+
 
 
 def get_cellvals(name, data, env, cell_d0=None):
@@ -213,8 +222,27 @@ def worldline_from_fit(tp_edges, R0, lfac0, popt_lfac, fitfunc=smooth_bpl_apy):
   R_vals, t_vals = sol.sol(tp_edges)
   return t_vals, R_vals
 
+def _refine_tt_on_rho(tt_edges, sol, R0, rho0, popt_rho, fitfunc, dlnrho_max):
+  '''
+  Insert extra tt edges so no interval spans more than dlnrho_max in ln(rho),
+  using the dense worldline solution sol (no re-integration). rho is monotonic
+  along the worldline, so a single linear-in-tt subdivision per interval,
+  n = ceil(Dln rho / dlnrho_max) sub-steps, keeps every sub-step under the cap.
+  Refining tt only adds resolution: the synchrotron law 1/g = 1/g0 + tt and the
+  adiabatic product both telescope, so results are unchanged for coarse grids
+  and converge as the grid is refined.
+  '''
+  def lnrho(tt):
+    R = np.atleast_1d(sol.sol(tt))[0]        # sol state = [R, t', t]; take R
+    return np.log(rho0 * fitfunc(R/R0, *popt_rho))
+  out = [tt_edges[0]]
+  for a, b in zip(tt_edges[:-1], tt_edges[1:]):
+    n = max(1, int(np.ceil(abs(lnrho(b) - lnrho(a)) / dlnrho_max)))
+    out.extend(np.linspace(a, b, n + 1)[1:])
+  return np.asarray(out)
+
 def worldline_from_cooling(tt_edges, cell_d0, env, popts, R0=None, Tobs_max=None,
-    R_rar=None, fitfunc=smooth_bpl_apy):
+    R_rar=None, dlnrho_max=None, fitfunc=smooth_bpl_apy):
   '''
   Convert the dimensionless cooling fluence tt into proper time t', lab time t and
   radius R, consistently with a decreasing comoving B (evolving synchrotron rate).
@@ -248,6 +276,11 @@ def worldline_from_cooling(tt_edges, cell_d0, env, popts, R0=None, Tobs_max=None
   R_rar (if finite) is a second terminal event: the radius at which the rarefaction
   wave catches the cell (compute_R_rar), past which it no longer emits. The worldline
   stops at whichever of the two events (Tobs_max or R_rar) is reached first in tt.
+
+  dlnrho_max (if set) refines the surviving tt grid so no step spans more than that
+  in ln(rho), guaranteeing a fixed adiabatic sampling resolution even when little
+  synchrotron fluence tt accrues over a large radius range (slow/very-slow cooling);
+  None keeps the raw cooling-fluence bins. See _refine_tt_on_rho.
 
   Returns t_edges, tp_edges, R_edges, tt_edges (all elapsed since the cell_d0 state).
   '''
@@ -299,10 +332,96 @@ def worldline_from_cooling(tt_edges, cell_d0, env, popts, R0=None, Tobs_max=None
   fired = events is not None and any(len(te) for te in sol.t_events)
   if fired and sol.t[-1] > 0.:
     tt_edges = np.append(tt_edges[tt_edges < sol.t[-1]], sol.t[-1])
+  # refine on ln(rho) so the adiabatic (expansion-dominated) evolution is
+  # sampled at a fixed resolution even when little synchrotron fluence tt
+  # accrues over a large radius range (slow / very-slow cooling)
+  if dlnrho_max is not None:
+    tt_edges = _refine_tt_on_rho(tt_edges, sol, R0, rho0, popt_rho, fitfunc, dlnrho_max)
   R_edges, tp_edges, t_edges = sol.sol(tt_edges)
   return t_edges, tp_edges, R_edges, tt_edges
 
-def compute_R_rar(cell_d0, exit_row, env, popts, R_fac=50., fitfunc=smooth_bpl_apy):
+def _one_minus_beta_over_beta(G):
+  '''
+  (1 - beta)/beta from the Lorentz factor, WITHOUT the catastrophic cancellation of
+  computing beta = sqrt(G^2-1)/G first and then 1/beta - 1: at G ~ 100 that subtracts
+  two numbers agreeing to 1e-5, and at G ~ 1e3 to 1e-7. Exact identity:
+    1 - beta = (G - sqrt(G^2-1))/G = 1/(G*(G + sqrt(G^2-1)))
+    => (1 - beta)/beta = 1/(sqrt(G^2-1)*(G + sqrt(G^2-1)))    ( -> 1/(2 G^2) for G >> 1)
+  This is the integrand of the observer lag ds/dR = (1-beta)/(c*beta) (see
+  compute_shell_rarefaction_head), i.e. the ONLY quantity that distinguishes two
+  nearly-luminal worldlines, so it must not be built by subtraction.
+  G <= 1 (fit artefact) returns inf; callers clip it.
+  '''
+  G = np.asarray(G, float)
+  q = np.sqrt(np.clip(G*G - 1., 0., None))
+  with np.errstate(divide='ignore', invalid='ignore'):
+    out = 1./(q*(G + q))
+  return np.where(q > 0., out, np.inf)
+
+
+def _dsdR_head(G, cs, z_fwd):
+  '''
+  Lag integrand ds/dR = (1 - beta_h)/(c*beta_h) of the rarefaction head moving through
+  fluid of Lorentz factor G and sound speed cs, with
+    beta_h = (beta +/- cs)/(1 +/- beta*cs)     (+ region 3 / z=4, - region 2)
+  Built from the factorised identity rather than from beta_h itself, for the same reason
+  as _one_minus_beta_over_beta -- beta_h rounds to 1 well before (1 - beta_h) stops
+  mattering:
+    1 - beta_h = (1 - beta)(1 -/+ cs)/(1 +/- beta*cs)
+    => (1 - beta_h)/beta_h = (1 - beta)*(1 -/+ cs)/(beta +/- cs)
+  with 1 - beta = 1/(G*(G + sqrt(G^2-1))) exact. The denominator beta +/- cs is O(1) here
+  (beta ~ 1, cs <= 1/sqrt(3)), so nothing cancels. A non-positive denominator would mean a
+  head running inward; returns inf there, which stops the lag profile (_lag_profile).
+  '''
+  G, cs = np.asarray(G, float), np.asarray(cs, float)
+  q = np.sqrt(np.clip(G*G - 1., 0., None))
+  b = np.where(q > 0., q/G, 0.)
+  omb = np.where(q > 0., 1./(G*(G + q)), 1.)                   # 1 - beta, exact
+  num, den = ((1. - cs), (b + cs)) if z_fwd else ((1. + cs), (b - cs))
+  with np.errstate(divide='ignore', invalid='ignore'):
+    out = omb*num/(den*c_)
+  return np.where(den > 1e-6, out, np.inf)
+
+
+def _lag_profile(Rg, dsdR, R_anchor, s_anchor):
+  '''
+  Observer lag s(R) = t(R) + t0 - R/c of a worldline sampled on the radius grid Rg,
+  from its integrand dsdR = (1-beta)/(c*beta) (already evaluated on Rg) and the anchor
+  (R_anchor, s_anchor) where the worldline starts:
+    s(R) = s_anchor + int_{R_anchor}^{R} (1-beta)/(c beta) dR'
+  Trapezoidal on Rg, which is log-spaced (the integrand is a smooth power law of R).
+
+  FORWARD ONLY from the anchor, and stopping at the first non-finite integrand node:
+  NaN outside that range. A worldline does not exist below the radius at which its cell
+  was shocked, and the extrapolated fits do go bad (a few last-shocked cells have so few
+  snapshots that their lfac fit crosses Gamma = 1, where the integrand is infinite). The
+  integral is a cumsum, so a single inf anywhere would otherwise poison every node after
+  it and silently drop the cell from the map.
+  The anchor need not be a grid node: it is prepended so the integral starts exactly
+  there (a missing sub-step is ~0.8% of the shell's lag spread, enough to add visible
+  cell-to-cell jitter).
+  '''
+  f = np.asarray(dsdR, float)
+  out = np.full(len(Rg), np.nan)
+  i0 = int(np.searchsorted(Rg, R_anchor, side='left'))   # first node at/after the anchor
+  if i0 >= len(Rg):
+    return out
+  bad = np.flatnonzero(~np.isfinite(f[i0:]))
+  i1 = i0 + (int(bad[0]) if len(bad) else len(Rg) - i0)
+  if i1 <= i0:
+    return out
+  R, fv = Rg[i0:i1], f[i0:i1]
+  prepend = R[0] > R_anchor
+  if prepend:
+    f0 = (np.interp(R_anchor, Rg[i0-1:i1], f[i0-1:i1])
+          if (i0 > 0 and np.isfinite(f[i0-1])) else fv[0])
+    R, fv = np.concatenate(([R_anchor], R)), np.concatenate(([f0], fv))
+  F = np.concatenate(([0.], np.cumsum(0.5*(fv[1:] + fv[:-1])*np.diff(R))))
+  out[i0:i1] = s_anchor + (F[1:] if prepend else F)
+  return out
+
+
+def compute_R_rar(cell_d0, exit_row, env, popts, R_fac=50., n_R=2000, fitfunc=smooth_bpl_apy):
   '''
   Radius at which the rarefaction wave catches the cell, after which it stops
   emitting; np.inf if it is never caught within the horizon (falls back to the
@@ -313,8 +432,15 @@ def compute_R_rar(cell_d0, exit_row, env, popts, R_fac=50., fitfunc=smooth_bpl_a
     beta_RF = (beta_fl +/- cs)/(1 +/- beta_fl*cs)   (+ region 3 / z=4, - region 2)
   with beta_fl from lfac(R) and cs = derive_cs(rho(R), p(R)) from the fits (cs drops
   as the gas expands - the spherical effect the planar betaRFp3/betaRFm2 miss).
-  R_rar is the intersection of the head worldline with the cell worldline, both
-  integrated in lab time (shared since-collision origin: cell_d0.t, exit_row.t).
+
+  R_rar is the intersection of the head worldline with the cell worldline, solved in
+  the OBSERVER LAG s(R) = t(R) + t0 - R/c on a log-spaced radius grid, NOT as
+  R_head(t) - R_cell(t) on a lab-time grid. Both worldlines are ultrarelativistic and
+  sit within ~1e-6 of each other in RADIUS while their lags differ by O(1) s, so the
+  lab-time form resolves the crossing to nothing (see compute_shell_rarefaction_head
+  for the measured failure) while the lag form is well conditioned:
+    ds/dR = (1 - beta)/(c*beta)   [_one_minus_beta_over_beta, no cancellation]
+  and the crossing is the root of D(R) = s_head(R) - s_cell(R).
   '''
   popt_rho, popt_lfac, popt_p = popts
   z_fwd = bool(cell_d0.trac < 1.5)                 # region 3 (forward RF) vs region 2
@@ -322,49 +448,372 @@ def compute_R_rar(cell_d0, exit_row, env, popts, R_fac=50., fitfunc=smooth_bpl_a
   lfac0 = get_variable(cell_d0, 'lfac', env)
   rho0  = get_variable(cell_d0, 'rho', env)
   p0    = get_variable(cell_d0, 'p', env)
-  t_sh  = cell_d0.t                                # cell shocking lab time
-  t_L   = exit_row.t                               # rarefaction launch (shell exit)
-  R_L   = exit_row.x * c_
+  s_sh  = cell_d0.t + env.t0 - R0/c_                # cell lag at its shocking event
+  s_L   = exit_row.t + env.t0 - exit_row.x          # lag of the launch event (shell exit);
+  R_L   = exit_row.x * c_                           # exit_row.x is already R/c
 
-  def beta_fl(R):
-    G = lfac0 * fitfunc(R/R0, *popt_lfac)
-    return np.sqrt(max(G*G - 1., 0.))/G if G > 1. else 0.
-  def beta_head(R):
-    b  = beta_fl(R)
-    cs = float(derive_cs(rho0*fitfunc(R/R0, *popt_rho), p0*fitfunc(R/R0, *popt_p)))
-    return (b + cs)/(1. + b*cs) if z_fwd else (b - cs)/(1. - b*cs)
+  def lfac(R):
+    return lfac0 * fitfunc(np.asarray(R, float)/R0, *popt_lfac)
+  def cs_fl(R):
+    x = np.asarray(R, float)/R0
+    return np.asarray(derive_cs(rho0*fitfunc(x, *popt_rho), p0*fitfunc(x, *popt_p)), float)
 
-  # integrate both worldlines to a generous radius horizon (R_fac*R0); if the head
-  # has not caught the cell by then it is treated as shielded / not caught -> inf.
-  R_max = R_fac * R0
-  T = (R_max - min(R0, R_L)) / (c_ * 0.3)          # lab-time horizon (beta >= 0.3)
+  # log-spaced radius grid over the horizon; the lag integrands are smooth in ln R
+  # (power-law fits), so this resolves the launch region as well as the far field.
+  Rg = np.geomspace(min(R0, R_L), R_fac*R0, n_R)
   with np.errstate(invalid='ignore', divide='ignore', over='ignore'):
-    csol = solve_ivp(lambda t, y: [c_*beta_fl(y[0])],   (0., T), [R0],
-                     method='DOP853', dense_output=True)
-    hsol = solve_ivp(lambda t, y: [c_*beta_head(y[0])], (0., T), [R_L],
-                     method='DOP853', dense_output=True)
-    t0, t1 = max(t_sh, t_L), min(t_sh, t_L) + T
-    if t1 <= t0:
-      return np.inf
-    tg = np.linspace(t0, t1, 400)
-    Rc = csol.sol(tg - t_sh)[0]                     # cell R(t)
-    Rh = hsol.sol(tg - t_L)[0]                      # head R(t)
-  G = Rh - Rc                                       # >0: head ahead of cell
-  ok = np.isfinite(G)
+    s_c = _lag_profile(Rg, _one_minus_beta_over_beta(lfac(Rg))/c_,   R0,  s_sh)
+    s_h = _lag_profile(Rg, _dsdR_head(lfac(Rg), cs_fl(Rg), z_fwd), R_L, s_L)
+  # D = 0 on the exit cell (the head is launched on it) and D > 0 on every other cell of
+  # the shell, in BOTH regions: the exit cell is shocked last and so carries the largest
+  # lag of the shell (that is what makes barT_f the shell-crossing time). It falls to 0
+  # as the head reaches the cell -- in region 3 because the head outruns the fluid
+  # (+cs), in region 2 because the cells further from the exit decelerate harder and
+  # their lag grows faster than the backward head's. The signbit scan below only assumes
+  # a sign CHANGE, not which way.
+  D = s_h - s_c
+  ok = np.isfinite(D) & (Rg >= max(R0, R_L)*(1. - 1e-12))
   if ok.sum() < 2:
     return np.inf
-  G, Rc = G[ok], Rc[ok]
-  if abs(G[0]) < 1e-6*R0:                           # exit cell: caught immediately
-    return max(R0*(1.+1e-6), Rc[0])
-  cross = np.flatnonzero(np.diff(np.signbit(G)))    # first head<->cell crossing
+  D, Rv = D[ok], Rg[ok]
+  if abs(D[0]) < 1e-9*env.T0:                       # exit cell: the head starts on it
+    return max(R0*(1.+1e-6), Rv[0])
+  cross = np.flatnonzero(np.diff(np.signbit(D)))    # first head<->cell crossing
   if not len(cross):
     return np.inf
   i = cross[0]
-  frac = -G[i]/(G[i+1]-G[i]) if (G[i+1] != G[i]) else 0.
-  R_rar = Rc[i] + frac*(Rc[i+1]-Rc[i])
+  frac = D[i]/(D[i] - D[i+1]) if (D[i+1] != D[i]) else 0.
+  R_rar = Rv[i]*(Rv[i+1]/Rv[i])**frac               # log-linear within the interval
   if not np.isfinite(R_rar) or R_rar <= R0:
     return np.inf
   return max(R_rar, R0*(1.+1e-6))
+
+
+_RAR_CACHE_VERSION = 4   # v2: caches carry n_shell (coverage); v3: + per-cell barT_off;
+                         # v4: crossings solved in the observer lag on a log-radius grid
+                         # (the lab-time solver resolved the whole shell in ~4 steps)
+_RAR_HEAD_MEM = {}    # (key, z) -> ({cell_i: R_rar/R_inj}, {cell_i: barT_off}), in-process reuse
+
+
+def compute_shell_rarefaction_head(key, z, env, R_fac=50., n_R=2000, fitfunc=smooth_bpl_apy):
+  '''
+  Rarefaction catch-up radius R_rar for EVERY cell of shell z, from a SINGLE head
+  trajectory integrated once through the assembled shell hydro -- instead of the
+  per-cell compute_R_rar that traces a separate head through one cell's own fit
+  extrapolated everywhere. Each shell cell contributes its self-similar worldline
+  and (beta_k, cs_k) from its cached fit; the head is launched from the shell-exit
+  interface and, at each radius, sees the LOCAL cell's fluid
+  (beta +/- cs)/(1 +/- beta*cs) (+ region 3 trac<1.5, - region 2). R_rar for a
+  cell = first crossing of the head with that cell's worldline. Returns
+  ({cell_index: R_rar/R_inj}, {cell_index: barT_off}), where barT_off = (Ton - Ts)/T0 is
+  the observer time at which the cell stops emitting.
+
+  EVERYTHING IS SOLVED IN THE OBSERVER LAG, PARAMETRISED BY RADIUS:
+    s(R) = t(R) + t0 - R/c        Ton = (1+z)*s,   barT = ((1+z)*s - Ts)/T0
+    ds/dR = (1 - beta(R))/(c*beta(R))              [_one_minus_beta_over_beta]
+  and NOT as R_head(t) - R_cell(t) on a lab-time grid, which is what this function used
+  to do and which does not work at all here. The shocked layer is ultrarelativistic, so
+  at the launch time the whole 500-cell shell spans ~0.3 light-seconds out of R_L/c =
+  65305 -- a 1e-6 relative spread in RADIUS -- while spanning O(1) s in LAG. Resolving
+  the crossings in radius therefore needs a lab-time step ~1e-6 of the horizon; the old
+  uniform grid (2000 steps over (R_fac-1)*R_L/(0.3c), a horizon sized by a
+  non-relativistic beta >= 0.3 estimate) gave dt = 5336 s while the rarefaction crosses
+  the entire shell in 21000 s, i.e. FOUR steps for the whole shell. The 81 cells nearest
+  the exit all collapsed onto the launch node (interpolated crossing fraction exactly
+  0.0), which handed them R_rar = their own radius at t_L and a barT_off BELOW the
+  shell-crossing time barT_f -- impossible, since d(t - R/c)/dt = 1 - beta_head > 0 makes
+  every crossing later in observer time than the launch event. In the lag variable that
+  ordering holds by construction: s_head only grows from s_L, and the crossing value
+  s_k = s_head >= s_L.
+
+  The lag also fixes the local-fluid lookup: at fixed R the cells are ordered by lag
+  (small s = outer/front, large s = inner/back), so beta and cs seen by the head are
+  interpolated over the cells' lags at the head's own lag, instead of over radii that
+  agree to 1e-6.
+
+  NB the radius map is normalised to R_inj = each cell's OWN radius when it was shocked
+  (row.x*c_ -- the local variable is called R0 below, do not read it as env.R0, the
+  shell normalisation radius). So the values start at 1 by construction and run to ~3
+  across the shell: 1 at the outer edge, shocked last with the head already on it, up to
+  ~3 at the contact discontinuity, shocked first and radiating to ~3x its injection
+  radius. Consumers must rescale by the cell's own radius, as generate_cell_withDistrib
+  does: R_rar = ror*(cell_d0.x*c_).
+
+  Both maps are dimensionless, hence alpha/zeta-invariant (Granot rescale leaves R/R_inj,
+  beta, cs invariant, and scales t, t0, R, Ts, T0 alike) and reused across the whole
+  alpha sweep. They do assume the baseline env: u_scale != 1 changes beta and would need
+  a recompute.
+
+  n_R: nodes of the log-spaced radius grid, split between the pre-launch stretch (where
+  the cells accumulate the lag separation that orders them) and the post-launch horizon
+  up to R_fac*R_L. Converged: 500 -> 8000 moves the R_rar map by <0.1%.
+  '''
+  sh = cellsBehindShock_fromData(open_rundata(key, z))
+  exit_row = sh.loc[sh.t.idxmax()]
+  R_L = float(exit_row.x*c_)
+  s_L = float(exit_row.t) + env.t0 - float(exit_row.x)   # lag of the launch event
+  z_fwd = bool(exit_row.trac < 1.5)   # region 3 (forward RF) vs region 2; one shell,
+                                      # one side of the CD, so one sign for all cells
+  varlist = ['rho', 'lfac', 'p']
+  cells = []
+  for _, row in sh.iterrows():
+    kk = int(row.i)
+    cd = open_celldata(key, kk)
+    if cd is False:
+      continue
+    norms = [get_variable(row, nm, env) for nm in varlist]
+    try:
+      popt_rho, popt_lfac, popt_p = load_or_fit_celldata(cd, varlist, norms, env, row.x, key=key, k=kk)
+    except RuntimeError:
+      continue
+    cells.append(dict(i=kk, R0=float(row.x*c_), s0=float(row.t) + env.t0 - float(row.x),
+                      lfac0=float(get_variable(row, 'lfac', env)),
+                      rho0=float(get_variable(row, 'rho', env)),
+                      p0=float(get_variable(row, 'p', env)),
+                      popts=(popt_rho, popt_lfac, popt_p)))
+  if not cells:
+    return {}, {}
+
+  # radius grid, log-spaced and split at R_L so the launch radius is EXACTLY a node
+  # (the head starts there and every cell lag is compared against s_L at that node).
+  R_min = min(ci['R0'] for ci in cells)
+  lo = np.log(max(R_L/R_min, 1. + 1e-12)), np.log(R_fac)
+  n_lo = int(np.clip(round(n_R*lo[0]/(lo[0] + lo[1])), 50, n_R - 50))
+  Rg = np.concatenate((np.geomspace(R_min, R_L, n_lo, endpoint=False),
+                       np.geomspace(R_L, R_fac*R_L, n_R - n_lo)))
+  i_L = n_lo                                  # index of R_L in Rg
+
+  # per-cell Lorentz factor, sound speed and lag on the grid. Gamma_k(R) and cs_k(R) are
+  # ANALYTIC in the fits, so no per-cell ODE is needed: the worldline is the quadrature
+  # s_k(R) = s_k(R0_k) + int (1-beta)/(c beta) dR (_lag_profile).
+  nc = len(cells)
+  Gk = np.full((nc, len(Rg)), np.nan)
+  Ck = np.full((nc, len(Rg)), np.nan)
+  Sk = np.full((nc, len(Rg)), np.nan)
+  with np.errstate(invalid='ignore', divide='ignore', over='ignore'):
+    for m, ci in enumerate(cells):
+      popt_rho, popt_lfac, popt_p = ci['popts']
+      x = Rg/ci['R0']
+      G = ci['lfac0']*fitfunc(x, *popt_lfac)
+      # _lag_profile already runs forward from R0 and stops where the fit goes bad
+      s = _lag_profile(Rg, _one_minus_beta_over_beta(G)/c_, ci['R0'], ci['s0'])
+      live = np.isfinite(s) & np.isfinite(G) & (G > 1.)
+      Gk[m, live] = G[live]
+      Ck[m, live] = np.asarray(derive_cs(ci['rho0']*fitfunc(x[live], *popt_rho),
+                                         ci['p0']*fitfunc(x[live], *popt_p)), float)
+      Sk[m, live] = s[live]
+
+  # march ONE head from (R_L, s_L) outwards, Heun on the log-spaced grid. At each node
+  # the local fluid is read at the head's LAG: sort the live cells by s_k(R) and
+  # interpolate Gamma, cs there (np.interp clamps once the head leaves the shell, i.e.
+  # it then keeps coasting with the edge cell's state -- by which point every cell has
+  # already been crossed).
+  def dsdR(i, s):
+    live = np.isfinite(Sk[:, i])
+    if not live.any():
+      return np.nan
+    o = np.argsort(Sk[live, i])
+    sv, gv, cv = Sk[live, i][o], Gk[live, i][o], Ck[live, i][o]
+    return float(_dsdR_head(np.interp(s, sv, gv), np.interp(s, sv, cv), z_fwd))
+
+  Sh = np.full(len(Rg), np.nan)
+  Sh[i_L] = s_L
+  for i in range(i_L, len(Rg) - 1):
+    dR = Rg[i+1] - Rg[i]
+    f1 = dsdR(i, Sh[i])
+    if not np.isfinite(f1):
+      break
+    f2 = dsdR(i+1, Sh[i] + f1*dR)
+    Sh[i+1] = Sh[i] + 0.5*(f1 + (f2 if np.isfinite(f2) else f1))*dR
+
+  # per-cell R_rar/R_inj (R0 here = this cell's own shocked radius, NOT env.R0) = first
+  # crossing of the head with that cell's worldline, i.e. the root of D = s_head - s_cell,
+  # plus the observer time barT_off = (Ton - Ts)/T0 there = when the cell stops emitting.
+  # Same Ton convention as the reach_window event in worldline_from_cooling and as
+  # get_variable(.., 'Ton', ..): Ton = (1+z)*(t_sim + t0 - R/c) = (1+z)*s.
+  # D starts at 0 on the exit cell (the head is launched on it) and at > 0 on all the
+  # others, in both regions -- see compute_R_rar for why.
+  def _barT_off(s):
+    return ((1. + env.z)*s - env.Ts)/env.T0
+  rrar, boff = {}, {}
+  for m, ci in enumerate(cells):
+    R0 = ci['R0']
+    D = Sh - Sk[m]
+    ok = np.isfinite(D)
+    ok[:i_L] = False                                      # head does not exist before R_L
+    if ok.sum() < 2:
+      rrar[ci['i']] = np.inf; boff[ci['i']] = np.inf; continue
+    Dv, Rv, sv = D[ok], Rg[ok], Sk[m][ok]
+    if abs(Dv[0]) < 1e-9*env.T0:                          # exit cell: head starts on it
+      rrar[ci['i']] = max(R0*(1.+1e-6), Rv[0])/R0
+      boff[ci['i']] = _barT_off(sv[0]); continue
+    cross = np.flatnonzero(np.diff(np.signbit(Dv)))
+    if not len(cross):
+      rrar[ci['i']] = np.inf; boff[ci['i']] = np.inf; continue
+    a = cross[0]
+    frac = Dv[a]/(Dv[a] - Dv[a+1]) if Dv[a+1] != Dv[a] else 0.
+    R_rar = Rv[a]*(Rv[a+1]/Rv[a])**frac                   # log-linear within the interval
+    s_rar = sv[a] + frac*(sv[a+1] - sv[a])
+    good = np.isfinite(R_rar) and R_rar > R0
+    rrar[ci['i']] = max(R_rar, R0*(1.+1e-6))/R0 if good else np.inf
+    boff[ci['i']] = _barT_off(s_rar) if good else np.inf
+  _check_rarefaction_maps(rrar, boff, _barT_off(s_L), key, z)
+  return rrar, boff
+
+
+def _check_rarefaction_maps(rrar, boff, barT_f, key, z, tol=1e-6, frac_tol=0.05):
+  '''
+  Guard on the invariant the old lab-time solver silently violated: the rarefaction is
+  launched at the shell-exit event, and the observer lag grows monotonically along the
+  head worldline (d(t - R/c)/dt = 1 - beta_head > 0), so NO cell can be cut off before
+  the shell-crossing time barT_f -- the earliest cut-off is the exit cell itself, at
+  exactly barT_f. Warns (does not raise) if that fails.
+
+  Also checks that barT_off runs monotonically across the shell, but only flags
+  reversals larger than frac_tol of the shell's barT_off span: the head is traced
+  through 500 INDEPENDENTLY fitted cell profiles, whose cell-to-cell scatter puts a few
+  ~1% wiggles in the sequence (6/499 steps, worst 2%, on cooling_fid_raref z=4) that are
+  fit noise, not a solver failure. An under-resolved grid reverses whole blocks of cells
+  instead (the lab-time solver ramped 81 cells DOWN by 14% of the span), which this
+  catches.
+  '''
+  b = np.array([v for v in boff.values()], float)
+  b = b[np.isfinite(b)]
+  if not b.size:
+    return
+  if b.min() < barT_f - tol:
+    print(f'compute_shell_rarefaction_head: WARNING ({key}, z={z}) min(barT_off)='
+          f'{b.min():.6f} < barT_f={barT_f:.6f} by {barT_f - b.min():.2e} -- the head '
+          f'crossings are under-resolved (raise n_R)')
+  ks = np.array(sorted(rrar.keys()))
+  seq = np.array([boff[k] for k in ks], float)
+  seq = seq[np.isfinite(seq)]
+  span = seq.max() - seq.min()
+  if len(seq) > 2 and span > 0.:
+    d = np.diff(seq)*(1. if np.nanmean(np.diff(seq)) > 0 else -1.)
+    worst = -d.min()/span
+    if worst > frac_tol:
+      print(f'compute_shell_rarefaction_head: WARNING ({key}, z={z}) barT_off reverses '
+            f'by {worst:.1%} of its span across the shell ({(d < 0).sum()}/{len(d)} '
+            f'steps) -- the head crossings are under-resolved (raise n_R)')
+
+
+def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None):
+  '''(key, z)-cached rarefaction maps ({cell_index: R_rar/R_inj}, {cell_index: barT_off})
+  from the single shared head (compute_shell_rarefaction_head -- see it for what R_inj is
+  and why the radii are per-cell ratios). Both dimensionless and alpha/zeta-invariant ->
+  built once, reused across the whole sweep; memoized in-process and on disk
+  (results/{key}/rarefaction_head_{z}.npz).
+  n_shell: number of cells the shell actually has. compute_shell_rarefaction_head only
+  sees the cells already extracted to disk, so a head built before extraction covers a
+  subset of the shell -- and a cell missing from the map emits with NO rarefaction cut-off.
+  Passing n_shell stores the coverage in the cache and rejects (rebuilds) any cached map
+  that covers fewer cells than the shell has.'''
+  memo = _RAR_HEAD_MEM.get((key, z))
+  if memo is not None:
+    return memo
+  path = get_dirpath(key) + f'rarefaction_head_{z}.npz'
+  if os.path.isfile(path):
+    try:
+      d = np.load(path)
+      covered = (n_shell is None) or (len(d['cell_i']) >= int(n_shell))
+      if int(d['version']) == _RAR_CACHE_VERSION and np.isclose(float(d['R_fac']), R_fac) \
+          and covered:
+        memo = ({int(i): float(r) for i, r in zip(d['cell_i'], d['rrar_over_R0'])},
+                {int(i): float(b) for i, b in zip(d['cell_i'], d['barT_off'])})
+        _RAR_HEAD_MEM[(key, z)] = memo
+        return memo
+      if not covered:
+        print(f'load_shell_rarefaction: cached head for ({key}, {z}) covers '
+              f'{len(d["cell_i"])}/{int(n_shell)} shell cells -- rebuilding')
+    except Exception:
+      pass
+  rrar, boff = compute_shell_rarefaction_head(key, z, env, R_fac=R_fac)
+  if n_shell is not None and len(rrar) < int(n_shell):
+    print(f'load_shell_rarefaction: WARNING head for ({key}, {z}) built from '
+          f'{len(rrar)}/{int(n_shell)} shell cells (missing cell data); the rest will '
+          f'get an interpolated R_rar')
+  try:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    ci = np.array(sorted(rrar.keys()), dtype=int)
+    np.savez(path, cell_i=ci, rrar_over_R0=np.array([rrar[i] for i in ci], float),
+             barT_off=np.array([boff[i] for i in ci], float),
+             R_fac=float(R_fac), version=_RAR_CACHE_VERSION,
+             n_shell=int(n_shell) if n_shell is not None else len(ci))
+  except Exception:
+    pass
+  _RAR_HEAD_MEM[(key, z)] = (rrar, boff)
+  return rrar, boff
+
+
+def load_shell_rarefaction(key, z, env, R_fac=50., n_shell=None):
+  '''{cell_index: R_rar/R_inj} for shell z -- the radius at which the rarefaction wave
+  catches each cell and its emission stops, as a ratio to THAT cell's own radius when it
+  was shocked (not to env.R0); scale by the cell's radius to use it, as
+  generate_cell_withDistrib does. Runs 1 (outer edge) to ~3 (contact discontinuity).
+  See compute_shell_rarefaction_head / _load_shell_rarefaction_maps.'''
+  return _load_shell_rarefaction_maps(key, z, env, R_fac=R_fac, n_shell=n_shell)[0]
+
+
+def load_shell_rarefaction_offT(key, z, env, R_fac=50., n_shell=None):
+  '''{cell_index: barT_off} for shell z, barT_off = (Ton - Ts)/T0 the observer time at
+  which the rarefaction cuts that cell's emission off. max over cells = the observer time
+  past which the shell emits nothing at all and the lightcurve is pure high-latitude decay.
+  See _load_shell_rarefaction_maps.'''
+  return _load_shell_rarefaction_maps(key, z, env, R_fac=R_fac, n_shell=n_shell)[1]
+
+
+def rar_map_lookup(rar_map, i):
+  '''R_rar/R_inj for cell index i from the shell rarefaction map. Cells absent from the map
+  (head built before they were extracted) are LINEARLY INTERPOLATED over the map's own
+  indices -- R_rar/R_inj is smooth and monotonic across the shell (1 -> ~3), so this is far
+  closer to the truth than the alternative of no cut-off at all, which lets the cell
+  radiate forever and inflates its slow-cooling energy budget by tens of percent.
+  A non-integer i (sub-cells carry an index interpolated between their parent's and the
+  next cell's) is TRUNCATED to int first, so a sub-cell takes its parent's value rather
+  than one interpolated between the two. Harmless where sub-cells are actually created --
+  the CD-adjacent cells, over which the map steps by <0.3% per cell (median 0.24%, 90th
+  percentile 0.27% across the shell; the largest single step is 1.6% near k=40, where the
+  head is still sweeping the exit cells fastest). The old lab-time solver put a spurious
+  7% jump at k=100, the boundary of its under-resolved block -- see
+  compute_shell_rarefaction_head.'''
+  i = int(i)
+  if i in rar_map:
+    return rar_map[i]
+  ks = np.array(sorted(rar_map.keys()), dtype=float)
+  if not len(ks):
+    return np.inf
+  vs = np.array([rar_map[int(k)] for k in ks], dtype=float)
+  ok = np.isfinite(vs)
+  if ok.sum() < 2:
+    return float(vs[ok][0]) if ok.any() else np.inf
+  return float(np.interp(float(i), ks[ok], vs[ok]))
+
+
+def evolve_gma_bounds_edges(tt_edges, rho_edges, gmin0, gmax0):
+  '''
+  Core of evolve_gma_bounds, operating on precomputed arrays: per step j -> j+1,
+  operator-split synchrotron (with cooling fluence dtt_j) then adiabatic
+  correction (rho_{j+1}/rho_j)^(1/3). Source of rho_edges is irrelevant (fits or
+  actual hydro data), which is what makes this shared between the fit-based and
+  data-driven pipelines.
+  Returns gmin_edges, gmax_edges, bsyn_edges (see evolve_gma_bounds docstring).
+  '''
+  dtt = np.diff(tt_edges)
+  adiab = (rho_edges[1:] / rho_edges[:-1])**(1./3.)   # (V'_{j+1}/V'_j)^(-1/3) per step
+
+  def evolve(g0):
+    g = np.empty(len(rho_edges))
+    bs = np.empty(len(rho_edges))
+    g[0], bs[0] = g0, 1.
+    for j in range(len(dtt)):
+      f_syn  = 1. / (1. + g[j] * dtt[j])    # synchrotron burn-off factor of the step
+      bs[j+1] = bs[j] * f_syn               # cumulative, synchrotron only
+      g[j+1] = g[j] * f_syn * adiab[j]      # actual trajectory: syn, then adiabatic
+    return g, bs
+  gmin_edges, _ = evolve(gmin0)
+  gmax_edges, bsyn_edges = evolve(gmax0)
+  return gmin_edges, gmax_edges, bsyn_edges
 
 def evolve_gma_bounds(R_edges, tt_edges, cell_d0, env, popt_rho, R0=None, fitfunc=smooth_bpl_apy):
   '''
@@ -378,7 +827,13 @@ def evolve_gma_bounds(R_edges, tt_edges, cell_d0, env, popt_rho, R0=None, fitfun
   (code rho is the comoving density, so V' ~ 1/rho along the worldline.)
   rho evaluated from the fits (popt_rho) normalized to cell_d0.
   R0 is the fit anchor radius (= cell_d0.x*c_); must match worldline_from_cooling
-  and reconstruct_cell so the fit is sampled consistently. Returns gmin_edges, gmax_edges.
+  and reconstruct_cell so the fit is sampled consistently.
+  Also returns bsyn_edges: the cumulative SYNCHROTRON-only burn-off factor of the
+  top edge, accumulated along the actual (syn+adiabatic) trajectory. Only the
+  synchrotron part distorts the power-law shape -- adiabatic cooling is a uniform
+  rescaling that preserves it -- so bsyn, not gmax/gmax0, is what sets the cooled
+  distribution's cutoff (see cooled_tt_eff in radiation_cooling).
+  Returns gmin_edges, gmax_edges, bsyn_edges.
   '''
 
   if R0 is None:
@@ -387,22 +842,10 @@ def evolve_gma_bounds(R_edges, tt_edges, cell_d0, env, popt_rho, R0=None, fitfun
 
   x   = R_edges / R0
   rho = rho0 * fitfunc(x, *popt_rho)
-  dtt = np.diff(tt_edges)
-  adiab = (rho[1:] / rho[:-1])**(1./3.)   # (V'_{j+1}/V'_j)^(-1/3) per step
 
   gmin0 = get_variable(cell_d0, 'gma_m', env)
   gmax0 = get_variable(cell_d0, 'gma_M', env)
-
-  def evolve(g0):
-    g = np.empty(len(R_edges))
-    g[0] = g0
-    for j in range(len(dtt)):
-      g_syn  = g[j] / (1. + g[j] * dtt[j])  # synchrotron
-      g[j+1] = g_syn * adiab[j]             # then adiabatic
-    return g
-  gmin_edges = evolve(gmin0)
-  gmax_edges = evolve(gmax0)
-  return gmin_edges, gmax_edges
+  return evolve_gma_bounds_edges(tt_edges, rho, gmin0, gmax0)
 
 def generate_timebins(cell_d0, env, popt_lfac, end_val, end_cond='tt',
     r_ref=1.2, Nmin=2, Nmax=None, func_cooling=gamma_synCooled,
@@ -498,13 +941,19 @@ def rescale_hydro_data(data, alpha):
 
 def generate_cell_withDistrib(cell_data, cell_init, env_in,
     u_scale=1., alpha=1., zeta=1., cleanData=False, r_ref=1.2, Tmax=None,
-    key=None, k=None, exit_row=None):
+    key=None, k=None, exit_row=None, dlnrho_max=DLNRHO_MAX, popts=None, rar_map=None):
   '''
   Reconstruct cell hydrodynamics from fit, adds electron distribution
   u_scale rescales (after fitting) as if simulation was run with u1 x u_scale
   alpha, zeta: Granot (2012) hydro unit-rescaling (lengths/times x alpha,
     energy/mass x zeta => rho, p x zeta*alpha^-3); composes on top of u_scale
+  popts: precomputed (popt_rho, popt_lfac, popt_p) hydro fit; when given the fit
+    is skipped and cell_data is unused (for interpolated sub-cells that reuse a
+    neighbour's self-similar profile, see get_shell_nuFnu subcell refinement)
   r_ref: cooling-bin ratio (gmax_j/gmax_j+1 per step); larger = fewer steps
+  dlnrho_max: cap on ln(rho) per cooling step, refining the tt grid so the
+    adiabatic evolution stays resolved in slow/very-slow cooling (see
+    worldline_from_cooling / _refine_tt_on_rho); None keeps the raw tt bins
   Tmax: if set, caps the worldline at the observer window Tobs_max = Ts + Tmax*T0
     (obs_arrays uses T in [1, Tmax+1]); avoids the tt->R runaway to unphysical
     radii. None keeps the full (uncapped) worldline. See worldline_from_cooling.
@@ -522,13 +971,15 @@ def generate_cell_withDistrib(cell_data, cell_init, env_in,
   norms = [get_variable(cell_d0, name, env_in) for name in vars]
 
   # fit hydrodynamics, anchored at the cell_d0 (downstream) state so the
-  # reconstruction starts exactly at cell_d0 (disk-cached per cell when key/k set)
-  try:
-    popts = load_or_fit_celldata(cell_data, vars, norms, env_in, cell_d0.x,
-                                 cleanData=cleanData, key=key, k=k)
-  except RuntimeError:
-    print('Fit failed on cell ', cell_d0.i)
-    return False, env_in
+  # reconstruction starts exactly at cell_d0 (disk-cached per cell when key/k set).
+  # A precomputed popts (e.g. from a parent cell) skips the fit entirely.
+  if popts is None:
+    try:
+      popts = load_or_fit_celldata(cell_data, vars, norms, env_in, cell_d0.x,
+                                   cleanData=cleanData, key=key, k=k)
+    except RuntimeError:
+      print('Fit failed on cell ', cell_d0.i)
+      return False, env_in
   popt_rho, popt_lfac, popt_p = popts
 
   # rescale cell_d0 and env (s = u_scale, holding a_u, f, chi fixed),
@@ -553,7 +1004,18 @@ def generate_cell_withDistrib(cell_data, cell_init, env_in,
   # and it stops emitting. Replaces the old rising-Gamma rejection - a cell whose
   # extrapolated fit would diverge is instead physically truncated at R_rar (which is
   # a modest radius), so it contributes finite flux instead of being dropped.
-  R_rar = compute_R_rar(cell_d0, exit_row, env, popts) if exit_row is not None else None
+  # rar_map (from the single shared shell head, load_shell_rarefaction) gives the
+  # dimensionless R_rar/R_inj per cell, normalised to the cell's OWN shocked radius (not
+  # env.R0) -> scale by this cell's (rescaled) injection radius; falls back
+  # to the per-cell compute_R_rar when no map is supplied. A cell absent from the map is
+  # interpolated over the map's indices (rar_map_lookup), never left uncapped.
+  if rar_map is not None:
+    ror = rar_map_lookup(rar_map, cell_d0.i)
+    R_rar = ror * (cell_d0.x*c_) if np.isfinite(ror) else np.inf
+  elif exit_row is not None:
+    R_rar = compute_R_rar(cell_d0, exit_row, env, popts)
+  else:
+    R_rar = None
 
   # generate time bins
   # the comoving times tp and tt start at 0 when cell is shocked
@@ -567,7 +1029,8 @@ def generate_cell_withDistrib(cell_data, cell_init, env_in,
   t0 = cell_d0.t
   Tobs_max = (env.Ts + Tmax*env.T0) if Tmax is not None else None
   t_edges, tp_edges, R_edges, tt_edges = worldline_from_cooling(
-      tt_edges, cell_d0, env, popts, R0=R0, Tobs_max=Tobs_max, R_rar=R_rar)
+      tt_edges, cell_d0, env, popts, R0=R0, Tobs_max=Tobs_max, R_rar=R_rar,
+      dlnrho_max=dlnrho_max)
   t_arr = t_edges[:-1] + t0
   dt_arr = np.diff(t_edges)
   tp_arr = tp_edges[:-1]
@@ -578,12 +1041,17 @@ def generate_cell_withDistrib(cell_data, cell_init, env_in,
 
   # reconstruct hydro
   i, x, dx, rho, vx, lfac, p, trac = reconstruct_cell(R_arr, env, cell_d0, popts)
-  gmin_edges, gmax_edges = evolve_gma_bounds(R_edges, tt_edges, cell_d0, env, popt_rho, R0=R0)
-  gmin, gmax = gmin_edges[:-1],gmax_edges[:-1]
+  gmin_edges, gmax_edges, bsyn_edges = evolve_gma_bounds(R_edges, tt_edges, cell_d0,
+                                                         env, popt_rho, R0=R0)
+  gmin, gmax, bsyn = gmin_edges[:-1], gmax_edges[:-1], bsyn_edges[:-1]
 
   # create dataframe
-  keys = ['t', 'dt', 'tp', 'dtp', 'tt', 'dtt', 'i', 'x', 'dx', 'rho', 'vx', 'lfac', 'p', 'trac', 'gmin', 'gmax']
-  vals = [t_arr, dt_arr, tp_arr, dtp_arr, tt_arr, dtt_arr, i, x, dx, rho, vx, lfac, p, trac, gmin, gmax]
+  keys = ['t', 'dt', 'tp', 'dtp', 'tt', 'dtt', 'i', 'x', 'dx', 'rho', 'vx', 'lfac', 'p', 'trac', 'gmin', 'gmax', 'bsyn']
+  vals = [t_arr, dt_arr, tp_arr, dtp_arr, tt_arr, dtt_arr, i, x, dx, rho, vx, lfac, p, trac, gmin, gmax, bsyn]
+  # carry the (constant) upstream velocity so thin-shell functions (get_Fnu_vFC ->
+  # nu_m2 via derive_nu_m_new) work on the reconstructed cell
+  if 'vx_u' in cell_d0:
+    keys.append('vx_u'); vals.append(np.full(x.shape, cell_d0.vx_u))
   dic = {key:val for key, val in zip(keys, vals)}
   out = pd.DataFrame.from_dict(dic)
   attrs = cell_d0.attrs
@@ -659,11 +1127,14 @@ def generate_cell_constLfac(cell, env):
     out.attrs[key] = cell.attrs[key]
   return out
 
-def get_Fnu_array_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1):
+def get_Fnu_array_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1,
+    midpoint=True):
   '''
   Same as get_Fnu_cell_evolving but returns array of Fnus per step
   '''
   cell0 = cell.iloc[0]
+  if midpoint:
+    cell = _midpoint_cell(cell)
   K0 = norm_plaw_distrib(cell0.gmin, cell0.gmax, env.psyn)
   Tarr = np.atleast_1d(np.asarray(Tobs, dtype=float))
   Fnu = np.zeros((len(cell), Tarr.size, np.size(nuobs)))
@@ -677,16 +1148,27 @@ def get_Fnu_array_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_
     Fnu[j][iT0:] += get_Fnu_step(nuobs, Tarr[iT0:], step, K0, env, Ng, norm, width_tol)
   return Fnu if np.ndim(Tobs) > 0 else Fnu[:,0,:]
 
-def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1):
+def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1,
+    midpoint=True):
   '''
   F_nu(Tobs) of an evolving cell, summed over its cooling steps.
   'cell' is the dataframe from generate_cell_withDistrib (already binned in
   cooling time). K0 is fixed by the initial (injection) distribution bounds.
 
+  midpoint: evaluate each step at its geometric-mean (gmin, gmax, bsyn) rather
+  than at its left edge (_midpoint_cell). A step emits over a finite dtt, during
+  which every electron cools from gma_L to gma_R, so the left-edge state is a
+  first-order overshoot (~4.7% at r_ref=1.1, ~8.9% at 1.2, ~2.4% at 1.05); the
+  geometric mean is the representative state (gma_L*gma_R is the exact finite-step
+  weight, see _step_midpoint_gma) and makes the flux second order in the step.
+  False restores the historical left-edge evaluation.
+
   Returns shape (len(Tobs), len(nuobs)) for an array Tobs, (len(nuobs),) for a scalar.
   '''
   cell0 = cell.iloc[0]
   K0 = norm_plaw_distrib(cell0.gmin, cell0.gmax, env.psyn)
+  if midpoint:
+    cell = _midpoint_cell(cell)
   Tarr = np.atleast_1d(np.asarray(Tobs, dtype=float))
   Fnu = np.zeros((Tarr.size, np.size(nuobs)))
   # frequency-band cut (same criterion as get_Fnu_cell): 
@@ -698,17 +1180,118 @@ def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.
   gmax_arr = cell.gmax.to_numpy()
   N = gmax_arr.size
   jcut = min(max(N - np.searchsorted(gmax_arr[::-1], gmax_cut, side='right'), 1), N)
+  cols = precompute_step_cols(cell, env)                   # vectorize per-step scalars once
+  Ton_arr = cols['obsT'][0]                                # onset (tT=1)
   for j in range(jcut):
-    step = cell.iloc[j]
-    Ton = get_variable(step, 'obsT', env)[0]               # onset (tT=1)
     # only Tarr >= Ton receives flux: slice instead of computing + masking
-    iT0 = np.searchsorted(Tarr, Ton)
+    iT0 = np.searchsorted(Tarr, Ton_arr[j])
     if iT0 >= Tarr.size:
       continue                                             # onset after window
-    Fnu[iT0:] += get_Fnu_step(nuobs, Tarr[iT0:], step, K0, env, Ng, norm, width_tol)
+    Fnu[iT0:] += get_Fnu_step(nuobs, Tarr[iT0:], step_view(cols, j), K0, env, Ng, norm, width_tol)
   return Fnu if np.ndim(Tobs) > 0 else Fnu[0]
 
-def get_Fnu_cell_instant(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1):
+def _shared_step_prefix(cols_a, cols_b):
+  '''
+  Number of leading cooling steps on which two precomputed column dicts
+  (precompute_step_cols) are EXACTLY equal -- the steps whose emission is therefore
+  the same number in both, and need be evaluated only once.
+
+  Compared on the precomputed columns rather than on the raw cell frames because
+  those are what get_Fnu_step actually consumes, and because it makes the one-row
+  stencil of _midpoint_cell fall out automatically (a midpoint column already
+  carries the j/j+1 mixing, so an index that survives here is genuinely shared).
+
+  Exact `==`, never a tolerance: the point of the pairing is that the two sides stay
+  bit-identical, so a near-match must NOT be treated as a match. NaN compares false,
+  which truncates the prefix early -- conservative, i.e. less sharing, never wrong.
+  '''
+  n = min(len(cols_a['gmax']), len(cols_b['gmax']))
+  if n == 0:
+    return 0
+  eq = np.ones(n, dtype=bool)
+  for key, va in cols_a.items():
+    vb = cols_b[key]
+    if key == 'obsT':                      # (Ton, Tth, Tej) triple of arrays
+      for ta, tb in zip(va, vb):
+        eq &= (np.asarray(ta)[:n] == np.asarray(tb)[:n])
+    else:
+      eq &= (np.asarray(va)[:n] == np.asarray(vb)[:n])
+    if not eq.any():
+      return 0
+  bad = np.flatnonzero(~eq)
+  return int(bad[0]) if bad.size else n
+
+
+def get_Fnu_cell_evolving_pair(nuobs, Tobs, cell_full, cell_cut, env, Ng=20, norm=True,
+    width_tol=1.1, midpoint=True):
+  '''
+  F_nu(Tobs) of ONE cell under both rarefaction treatments at once: `cell_full`
+  followed to its last snapshot (rar_cut=None) and `cell_cut` truncated at R_rar
+  (rar_cut='model'). Returns (Fnu_full, Fnu_cut), each BIT-IDENTICAL to the
+  corresponding separate get_Fnu_cell_evolving call.
+
+  Why this is worth doing: the cut history is a truncation of the full one, so the
+  two cooling-step tables agree exactly over a long leading run and the emission of
+  those steps is computed twice for nothing. Evaluating them once is not a small
+  saving, because get_Fnu_step is called on Tarr[iT0:] -- the EARLY steps span
+  almost the whole observer grid and are the expensive ones, and they are precisely
+  the ones the cut keeps.
+
+  The shared length is MEASURED (_shared_step_prefix), never assumed. The tables do
+  not simply agree up to the cut: _densify_nodes places nodes from the local
+  variation of syn/lfac, so near the truncation its stencil sees different
+  neighbours and the step binning shifts for the last ~20 rows (measured on
+  cooling_g100: cut tables of 137/171/96 steps sharing 134/149/73). Assuming the
+  prefix ran to the cut would corrupt those rows.
+
+  Bit-identity holds because floating-point addition is order-dependent and the
+  order is preserved: each side accumulates steps 0,1,2,... into the same array
+  elements in the same sequence as the single-cell function does.
+  '''
+  # The cut truncates the history, it never moves its start, so the injection row --
+  # which fixes K0 and the band cut -- is shared. Assert rather than assume.
+  c0f, c0c = cell_full.iloc[0], cell_cut.iloc[0]
+  if not (float(c0f.gmin) == float(c0c.gmin) and float(c0f.gmax) == float(c0c.gmax)):
+    raise ValueError('get_Fnu_cell_evolving_pair: the two cells do not share an '
+                     'injection state, so they are not the same cell')
+  K0 = norm_plaw_distrib(c0f.gmin, c0f.gmax, env.psyn)
+  if midpoint:
+    cell_full, cell_cut = _midpoint_cell(cell_full), _midpoint_cell(cell_cut)
+  Tarr = np.atleast_1d(np.asarray(Tobs, dtype=float))
+  _BAND_MARGIN = 10.                       # as get_Fnu_cell_evolving
+  nu_B0 = get_variable(c0f, 'nu_B', env)
+  gmax_cut = max(1., np.sqrt(np.min(nuobs)/(nu_B0*_BAND_MARGIN)))
+
+  def _jcut(cell):
+    g = cell.gmax.to_numpy()
+    N = g.size
+    return min(max(N - np.searchsorted(g[::-1], gmax_cut, side='right'), 1), N)
+
+  jcut_f, jcut_c = _jcut(cell_full), _jcut(cell_cut)
+  cols_f = precompute_step_cols(cell_full, env)
+  cols_c = precompute_step_cols(cell_cut, env)
+  n_shared = min(_shared_step_prefix(cols_f, cols_c), jcut_f, jcut_c)
+
+  def _add_steps(Fnu, cols, j0, j1):
+    Ton_arr = cols['obsT'][0]
+    for j in range(j0, j1):
+      iT0 = np.searchsorted(Tarr, Ton_arr[j])
+      if iT0 >= Tarr.size:
+        continue                           # onset after the window
+      Fnu[iT0:] += get_Fnu_step(nuobs, Tarr[iT0:], step_view(cols, j), K0, env,
+                                Ng, norm, width_tol)
+    return Fnu
+
+  shared = _add_steps(np.zeros((Tarr.size, np.size(nuobs))), cols_f, 0, n_shared)
+  out = [_add_steps(shared.copy(), cols, n_shared, jc)
+         for cols, jc in ((cols_f, jcut_f), (cols_c, jcut_c))]
+  if np.ndim(Tobs) > 0:
+    return out[0], out[1]
+  return out[0][0], out[1][0]
+
+
+def get_Fnu_cell_instant(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1,
+    midpoint=True):
   '''
   F_nu(Tobs) of evolving cell, but all contributions are summed and attributed 
   to initial lab-frame time to artificially generate vFC
@@ -722,6 +1305,8 @@ def get_Fnu_cell_instant(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1
   Tobs    = np.atleast_1d(Tobs)
   cell0 = cell.iloc[0]
   K0 = norm_plaw_distrib(cell0.gmin, cell0.gmax, env.psyn)
+  if midpoint:
+    cell = _midpoint_cell(cell)
 
   # fluence spectrum: each step's peak amplitude (tT=1, i.e. Tobs=Ton) x its width
   Phi = np.zeros(nuobs.shape)
@@ -752,25 +1337,91 @@ def get_nuFnu(func_Fnu, nuobs, Tobs, cell, env, norm=True, **kwargs):
   nF = nub * func_Fnu(nuobs, Tobs, cell, env, norm=norm, **kwargs)
   return nF
 
-def cell_radiated_energy(cell, env, Ng=20, width_tol=1.1, tnu=None):
+def _step_midpoint_gma(cell, col, rate_col=None):
+  '''
+  Geometric mean of each cooling step's (left, right) value, from the stored left
+  edges: right edge of step j = left edge of step j+1, and the last step is closed
+  with the synchrotron law (factor 1/(1+g*dtt)). rate_col names the column whose
+  gamma sets that factor -- itself for gmin/gmax, but gmax for bsyn, which is the
+  cumulative burn-off of the TOP edge.
+  Used by the FLUX kernels (_midpoint_cell): a step's emission integrated over its
+  duration is that of the geometric-mean state, since 1/gma_R = 1/gma_L + dtt gives
+  gma_L*gma_R = gma_L**2/(1+gma_L*dtt) -- exactly the finite-step weight. Evaluating
+  the spectrum there is second order in the step, against first order (a ~4.7%
+  overshoot at r_ref=1.1) at the left edge. cell_radiated_energy does NOT use this:
+  it applies the same weight per electron and exactly, inside step_radiated_energy.
+  '''
+  v = cell[col].to_numpy()
+  g = cell[rate_col or col].to_numpy()
+  dtt = cell['dtt'].to_numpy()
+  v_r = np.empty_like(v)
+  v_r[:-1] = v[1:]
+  v_r[-1] = v[-1]/(1. + g[-1]*dtt[-1])
+  return np.sqrt(v*v_r)
+
+def _midpoint_cell(cell):
+  '''
+  Cell frame with gmin/gmax/bsyn replaced by their per-step geometric means
+  (_step_midpoint_gma), i.e. the state whose emission represents the whole step.
+  Returned unchanged when the frame carries no dtt column (analytic cells).
+  '''
+  if 'dtt' not in cell:
+    return cell
+  mids = dict(gmin=_step_midpoint_gma(cell, 'gmin'),
+              gmax=_step_midpoint_gma(cell, 'gmax'))
+  if 'bsyn' in cell:
+    mids['bsyn'] = _step_midpoint_gma(cell, 'bsyn', rate_col='gmax')
+  return cell.assign(**mids)
+
+def cell_radiated_energy(cell, env, Ng=120, width_tol=1.01):
   '''
   Frame-independent total comoving radiated energy of a cell, summed over its
   cooling steps:
-    E' = sum_j  nu'_B,j * V3p_j * int get_epnu_j(tnu) dtnu
+    E' = sum_j  nu'_B,j * V3p_j * int emiss_j(tnu) dtnu
+  The frequency integral is done analytically per step (step_radiated_energy:
+  int syn_emiss dtnu = (3/2)gma**2), so only the smooth electron integral over gma
+  remains -- unbiased and ~1000x cheaper than the former tnu-grid trapezoid, and
+  free of the log-grid overshoot that biased the fast-cooling efficiency high.
+  Steps are evaluated at their LEFT edges: step_radiated_energy applies the exact
+  finite-step weight (3/2)gma**2/(1+gma*dtt) per electron, which is what the
+  distribution actually radiates over the step (me c^2 (gma_L - gma_R)). That is
+  exact, so the budget no longer drifts with the cooling-step size -- it replaces
+  the former midpoint-bounds substitution, which was the right idea applied to the
+  bounds rather than per electron and left a first-order residue (eps_rad
+  1.0029/1.0010/1.0005 at r_ref=1.2/1.1/1.05, now 1.00032/1.00031/1.00027).
   '''
-  if tnu is None:
-    gmax0 = cell.iloc[0].gmax
-    tnu = np.logspace(0., 2.*np.log10(gmax0) + 1., 1000)   # nu'/nu'_B, covers up to ~gmax^2
   cell0 = cell.iloc[0]
-  K0 = norm_plaw_distrib(cell0.gmin, cell0.gmax, env.psyn)
+  K0 = norm_plaw_distrib(cell0.gmin, cell0.gmax, env.psyn)   # injection state
+  cols = precompute_step_cols(cell, env, keys=('nup_B', 'V3p', 'Pmax'))
+  nupB_arr, V3p_arr = cols['nup_B'], cols['V3p']
   E = 0.
   for j in range(len(cell)):
-    step = cell.iloc[j]
-    nupB = get_variable(step, 'nup_B', env)
-    V3p  = get_variable(step, 'V3p', env)
-    epnu = get_epnu(tnu, step, K0, env, Ng, width_tol)
-    E += np.trapezoid(epnu, tnu) * nupB * V3p
+    E += step_radiated_energy(step_view(cols, j), K0, env, Ng, width_tol) * nupB_arr[j] * V3p_arr[j]
   return E
+
+def cell_injected_energy(cell, env):
+  '''
+  Comoving energy deposited in the accelerated electrons of a cell, i.e. the
+  budget cell_radiated_energy draws on: the power law K0*gma**-p between the
+  injection bounds (gmin0, gmax0), minus the rest mass the electrons keep.
+    E'_inj = xi_e n' V'_3 m_e c^2 [ K0 (gmin0**(2-p) - gmax0**(2-p))/(p-2) - 1 ]
+  This is NOT eps_e * e'_int: derive_gma_m fixes gma_m from the gma_M -> inf
+  limit (Gp=(p-2)/(p-1)), so the truncated distribution actually holds only
+  derive_xiE(gmin0, gmax0, p) of eps_e*e'_int -- 0.94 deep in fast cooling,
+  where the alpha rescale shrinks gma_M ~ alpha**(3/4) at fixed gma_m. The two
+  forms are algebraically identical; eps_e*ei*V3p*derive_xiE is the cheap
+  cross-check that derive_gma_m's internal e'_int matches derive_Eint_comoving.
+  '''
+  p = env.psyn
+  cell0 = cell.iloc[0]
+  gmin0, gmax0 = cell0.gmin, cell0.gmax
+  if gmax0 <= gmin0:
+    return 0.
+  K0 = norm_plaw_distrib(gmin0, gmax0, p)
+  Ne = env.xi_e * derive_n(get_variable(cell0, 'rho', env), env.rhoscale) \
+       * get_variable(cell0, 'V3p', env)
+  gma_mean = K0*(gmin0**(2-p) - gmax0**(2-p))/(p-2)
+  return Ne * me_*c_**2 * (gma_mean - 1.)
 
 def total_radiated_energy(nF, nub, Tb, env=None):       # nF = nu*F_nu, shape (T, nu)
     Enu = np.trapezoid(nF, np.log(nub), axis=1)   # ∫νFν dlnν = ∫Fν dν  per T
@@ -834,7 +1485,7 @@ def get_shell_critfreqs(sh_data, env, normed=False):
 def get_cell_nuFnu(key, k, func_Fnu=get_Fnu_cell_evolving,
     u_scale=1., alpha=1., zeta=1., cleanData=False, r_ref=1.2,
     Tmax=5, NT=500, lognu_min=-2.5, lognu_max=2.5, Nnu=400,
-    return_cell=False, **kwargs):
+    return_cell=False, dlnrho_max=DLNRHO_MAX, **kwargs):
   '''
   The whole chain to obtain nu Fnu.
   With u_scale != 1 the env is rescaled (as if u1 -> u1*u_scale); the observer
@@ -860,7 +1511,8 @@ def get_cell_nuFnu(key, k, func_Fnu=get_Fnu_cell_evolving,
   exit_row = sh_data.loc[sh_data.t.idxmax()]
   cell_dist, env = generate_cell_withDistrib(cell_data, cell_d0, env,
                   u_scale=u_scale, alpha=alpha, zeta=zeta, cleanData=cleanData,
-                  r_ref=r_ref, Tmax=Tmax, key=key, k=k, exit_row=exit_row)
+                  r_ref=r_ref, Tmax=Tmax, key=key, k=k, exit_row=exit_row,
+                  dlnrho_max=dlnrho_max)
   # scale the observer grids with the rescaled env (matches obs_arrays)
   nuobs = nub * env.nu0
   Tobs = env.Ts + (T - 1) * env.T0
@@ -870,6 +1522,58 @@ def get_cell_nuFnu(key, k, func_Fnu=get_Fnu_cell_evolving,
   if return_cell:
     return nuobs, Tobs, env, nuFnu, cell_dist
   return nuobs, Tobs, env, nuFnu
+
+def _interp_state(a, b, f, dx):
+  '''
+  Linear interp of the primitive columns between onset-adjacent states a, b at
+  fraction f; region labels (trac, i) kept from a; dx set explicitly (the
+  flux-conserving onset-interval weight). Shared by the subcell_dlogT
+  refinement of get_shell_nuFnu (fit path) and get_shell_nuFnu_fromData
+  (data path, working_cooling_data).
+  '''
+  out = a.copy()
+  for col in ('x', 't', 'vx', 'rho', 'p', 'vx_u'):
+    if col in a.index and col in b.index:
+      out[col] = a[col]*(1.-f) + b[col]*f
+  out['dx'] = dx
+  return out
+
+def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max):
+  '''
+  Adaptive sub-cell onset edges for the early-lightcurve staircase smoothing.
+  The cell onsets bar{T}_on are ~linearly spaced, so the earliest cells (near the
+  CD, onsets ~0..few*dbarT) span many decades of the log-time axis: their onset
+  intervals are split so the early rise is resolved down to the grid floor.
+  barT_on: per-cell onset (klist order, NaN where unknown); floor: earliest
+  resolved bar{T} on the obs grid. Returns a list (len(barT_on)) of
+  (a, b, edges) tuples or None (never the last index).
+
+  Each parent's interval [a,b] is split into n_k = ceil(gap/subcell_dlogT) equal
+  log-intervals; only cells whose interval spans more than subcell_dlogT get n_k > 1
+  (the CD-adjacent ones).
+
+  NB n_k is an integer, so the realised onset SPACING steps discontinuously wherever
+  ceil() does -- by a factor of 2 at the n_k = 2 -> 1 boundary, which on cooling_g100
+  falls at cell k=497 (0.0101 -> 0.0193 dex). That is real, but it was MEASURED not to
+  be observable in the lightcurves: replacing this with a single global ladder, whose
+  onset density is continuous by construction, leaves the fast-cooling feature at
+  bar{T}/bar{T}_f = 0.044 unchanged (|d slope| 10.755 -> 10.924, and 10.122 when the
+  ladder is also refined to dlogT=0.008 over a completely different cell range). So do
+  not rewrite this scheme expecting a smoother lightcurve -- that feature is the
+  early_ana='shockfit' prepend boundary, not this.
+  '''
+  sub_edges = [None]*len(barT_on)
+  for idx in range(len(barT_on)-1):
+    a, b = barT_on[idx], barT_on[idx+1]
+    if not (np.isfinite(a) and np.isfinite(b)) or b <= 0.:
+      continue
+    lo = max(a, floor)                     # first cell (a=0) starts at the grid floor
+    if b <= lo:
+      continue
+    nk = int(np.clip(np.ceil((np.log10(b)-np.log10(lo))/subcell_dlogT), 1, subcell_max))
+    if nk > 1:
+      sub_edges[idx] = (a, b, np.geomspace(lo, b, nk+1))
+  return sub_edges
 
 def check_extracted_cells(key):
   '''
@@ -885,7 +1589,9 @@ def check_extracted_cells(key):
 
 def get_shell_nuFnu(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     VFC=False, analytic=False, cleanData=False, r_ref=1.2,
-    Tmax=5, NT=500, lognu_min=-2.5, lognu_max=2.5, Nnu=400, **kwargs):
+    Tmax=5, NT=500, lognu_min=-2.5, lognu_max=2.5, Nnu=400,
+    dlnrho_max=DLNRHO_MAX, Tb_min=None, Tb_lin=None, subcell_dlogT=None, subcell_max=32,
+    return_energies=False, energies_only=False, **kwargs):
   '''
   Computes total nu F_nu from shell z of simulation key, summed over its cells.
   With u_scale != 1 the env is rescaled (as if u1 -> u1*u_scale); the observer
@@ -894,18 +1600,38 @@ def get_shell_nuFnu(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
   klist restricts the sum to a subset of cell ids (defaults to all of shell z).
   VFC forces all contributions from a cell to be emitted at same lab frame time
   analytic uses the 'analytic' cell for calculation (Gma = cst, rho ~ R^-2, B ~ R^-1)
+  subcell_dlogT: if set, the discrete cell-sum staircase in the early lightcurve
+    is smoothed by splitting cells into interpolated sub-cells wherever consecutive
+    cell onsets are more than subcell_dlogT apart in log10(bar{T}_onset) (i.e. the
+    CD-adjacent early cells). Each parent is split into n_k = clip(ceil(dlog/
+    subcell_dlogT), 1, subcell_max) sub-cells that reuse its fitted profile and
+    carry dx/n_k (flux-conserving). None keeps the raw one-cell-per-cell sum.
+  return_energies: if True, also accumulate and return three comoving energies for
+    the radiative-efficiency budget: E_rad = sum over cells of cell_radiated_energy
+    (total comoving radiated energy), E_int = sum over cells of e'*V3p at the
+    shocking state (comoving internal energy right after each cell is shocked),
+    and E_inj = sum over cells of cell_injected_energy (energy actually deposited
+    in the truncated electron power law, i.e. the budget E_rad draws on; this is
+    eps_e*E_int only in the gma_M -> inf limit, see cell_injected_energy).
+    eps_rad = E_rad/E_inj. Returns (nuobs, Tobs, env_rs, nuFnu_shell, E_rad,
+    E_int, E_inj) instead of the 4-tuple.
+  energies_only: skip the flux kernel and return the energy budget alone, with
+    None in the nuFnu slot (implies return_energies). Same contract as
+    get_shell_nuFnu_fromData's flag -- see its docstring for what still has to
+    match the run being compared against.
   NB: cells shocked at R/R0 > ~Tmax arrive after the Tobs window and contribute
   nothing there; take Tmax above env.RfRS0 (or RfFS0) to capture the full shell.
   '''
+  return_energies = return_energies or energies_only
 
   nub, T, env = obs_arrays(key, normed=True, Tmax=Tmax, NT=NT,
-      lognu_min=lognu_min, lognu_max=lognu_max, Nnu=Nnu)
+      lognu_min=lognu_min, lognu_max=lognu_max, Nnu=Nnu, Tb_min=Tb_min, Tb_lin=Tb_lin)
   env_rs = rescale_proper_velocities(u_scale, env) if u_scale != 1. else env
   if alpha != 1. or zeta != 1.:
     env_rs = rescale_hydro(alpha, zeta, env_rs)
   nuobs = nub * env_rs.nu0
   Tobs = env_rs.Ts + (T - 1) * env_rs.T0
-  nuFnu_shell = np.zeros((len(Tobs), len(nuobs)))
+  nuFnu_shell = None if energies_only else np.zeros((len(Tobs), len(nuobs)))
   sh_data = open_rundata(key, z)
   sh_data = cellsBehindShock_fromData(sh_data)
   # shell-exit interface (last-shocked cell) = rarefaction launch point, once per shell
@@ -925,9 +1651,38 @@ def get_shell_nuFnu(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
   if todo:
     extract_data_cells(key, todo, noOut=True)
 
+  # single shared rarefaction head -> {cell: R_rar/R_inj} for the whole shell, built once
+  # per (key, z) and reused across every cell and alpha (alpha-invariant). AFTER the
+  # extraction above: compute_shell_rarefaction_head skips cells with no data on disk,
+  # so building it first would freeze (and cache) a head made of whatever subset of the
+  # shell happened to be extracted at the time.
+  rar_map = load_shell_rarefaction(key, z, env, n_shell=len(sh_data))
+
+  # per-cell shocked state (in klist=onset order) and adaptive sub-cell edges
+  # (compute_subcell_edges: geometric split of the CD-adjacent onset intervals)
+  rows = [(sh_data.loc[sh_data.i==k].iloc[0] if len(sh_data.loc[sh_data.i==k]) else None)
+          for k in klist]
+  barT_grid = T - 1.
+  floor = barT_grid[barT_grid > 0.].min()   # earliest resolved bar{T} on the obs grid
+  sub_edges = [None]*len(klist)
+  if subcell_dlogT is not None:
+    barT_on = np.array([((get_variable(r, 'Ton', env) - env.Ts)/env.T0) if r is not None else np.nan
+                        for r in rows])
+    sub_edges = compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max)
+
   # loop over cells
   skipped = []
-  for k in klist:
+  n_refined = 0
+  E_rad = 0.    # total comoving radiated energy, summed over cells (return_energies)
+  E_int = 0.    # sum of comoving internal energy right after each cell is shocked
+  E_inj = 0.    # sum of comoving energy deposited in the electron power law
+  def _accum_energy(cell, cell_env):
+    nonlocal E_rad, E_int, E_inj
+    E_rad += cell_radiated_energy(cell, cell_env)
+    E_inj += cell_injected_energy(cell, cell_env)
+    c0 = cell.iloc[0]
+    E_int += get_variable(c0, 'ei', cell_env) * get_variable(c0, 'V3p', cell_env)
+  for idx, k in enumerate(klist):
     # open data, generate distribution
     cell_data = open_celldata(key, k)
     if cell_data is False:
@@ -937,17 +1692,56 @@ def get_shell_nuFnu(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     if not len(sel):
       skipped.append(k)
       continue
-    cell, cell_env = generate_cell_withDistrib(cell_data, sel.iloc[0], env,
-                    u_scale=u_scale, alpha=alpha, zeta=zeta, cleanData=cleanData,
-                    r_ref=r_ref, Tmax=Tmax, key=key, k=k, exit_row=exit_row)
-    if cell is False:
-      skipped.append(k)
-      continue
-    if analytic: cell = generate_cell_constLfac(cell, cell_env)
-    nuFnu_shell += get_nuFnu(func_Fnu, nuobs, Tobs, cell, cell_env, **kwargs)
+    if sub_edges[idx] is None:
+      cell, cell_env = generate_cell_withDistrib(cell_data, sel.iloc[0], env,
+                      u_scale=u_scale, alpha=alpha, zeta=zeta, cleanData=cleanData,
+                      r_ref=r_ref, Tmax=Tmax, key=key, k=k, exit_row=exit_row,
+                      dlnrho_max=dlnrho_max, rar_map=rar_map)
+      if cell is False:
+        skipped.append(k)
+        continue
+      if analytic: cell = generate_cell_constLfac(cell, cell_env)
+      if not energies_only:
+        nuFnu_shell += get_nuFnu(func_Fnu, nuobs, Tobs, cell, cell_env, **kwargs)
+      if return_energies: _accum_energy(cell, cell_env)
+    else:
+      # split the parent's onset interval into flux-conserving sub-cells at
+      # geometrically-spaced onsets, reusing its (self-similar) fitted profile
+      a, b, edges = sub_edges[idx]
+      cd0 = rows[idx]
+      norms = [get_variable(cd0, v, env) for v in ('rho', 'lfac', 'p')]
+      try:
+        popts = load_or_fit_celldata(cell_data, ['rho', 'lfac', 'p'], norms, env,
+                                     cd0.x, cleanData=cleanData, key=key, k=k)
+      except RuntimeError:
+        skipped.append(k)
+        continue
+      for j in range(len(edges)-1):
+        e0, e1 = edges[j], edges[j+1]
+        onset_c = np.sqrt(e0*e1)                       # geometric centre
+        f = float(np.clip((onset_c - a)/(b - a), 0., 1.))
+        dx_w = cd0.dx * (e1 - e0)/(b - a)              # onset-width weight => flux conserved
+        sub = _interp_state(cd0, rows[idx+1], f, dx_w)
+        cell, cell_env = generate_cell_withDistrib(None, sub, env,
+                        u_scale=u_scale, alpha=alpha, zeta=zeta, cleanData=cleanData,
+                        r_ref=r_ref, Tmax=Tmax, key=None, k=None, exit_row=exit_row,
+                        dlnrho_max=dlnrho_max, popts=popts, rar_map=rar_map)
+        if cell is False:
+          continue
+        if analytic: cell = generate_cell_constLfac(cell, cell_env)
+        if not energies_only:
+          nuFnu_shell += get_nuFnu(func_Fnu, nuobs, Tobs, cell, cell_env, **kwargs)
+        if return_energies: _accum_energy(cell, cell_env)
+      n_refined += len(edges) - 2
   if skipped:
     print(f'get_shell_nuFnu on sim {key}: skipped {len(skipped)} cells (no data or failed fit): {skipped}')
+  if subcell_dlogT is not None:
+    kr = [int(klist[i]) for i in range(len(klist)) if sub_edges[i] is not None]
+    print(f'get_shell_nuFnu subcell refinement: +{n_refined} sub-cells over '
+          f'{len(kr)} cells' + (f' (k={min(kr)}..{max(kr)})' if kr else ''))
 
+  if return_energies:
+    return nuobs, Tobs, env_rs, nuFnu_shell, E_rad, E_int, E_inj
   return nuobs, Tobs, env_rs, nuFnu_shell
 
 def get_thinshell_nuFnu(key, front='RS', u_scale=1., alpha=1., zeta=1., norm=True, cutoff=False,

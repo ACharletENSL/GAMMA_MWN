@@ -67,6 +67,12 @@ def get_Fnu_vFC(nuobs, Tobs, cell, env, norm=True, cutoff=False, nu_resc=1.):
   Signature consistent with the cooling functions (nuobs, Tobs, cell, env, ...)
   '''
 
+  # thin-shell (vFC) approximation: all the cell's energy is radiated from its
+  # shocked (initial) state, so a multi-step reconstructed cell collapses to its
+  # first row (run_nuFnu_vFC already passes a single shock-front row).
+  if getattr(cell, 'ndim', 1) == 2:
+    cell = cell.iloc[0]
+
   # normalizations
   Ton, Tth, Tej = get_variable(cell, 'obsT', env)
   T = (Tobs - Tej)/Tth   # \tilde{T}

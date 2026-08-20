@@ -7,11 +7,110 @@ Contains:
   - get_Rcrossing
   - extract_data_thinshell
   - extract_data_cell
+  - smooth_dump_density (de-jitter the moving-mesh partition, see below)
 '''
+
+import json
+import numpy as np
+from scipy.ndimage import median_filter
 
 from IO import *
 from phys_constants import *
+from phys_functions import prim2cons
 from fits_hydro import get_hydrofits_shell
+
+
+##### Moving-mesh density de-jittering
+# Long runs develop a cell-to-cell jitter in rho that reaches ~50% by the end, while p
+# stays smooth (~6%). It is a MESH-PARTITION artifact, not a density fluctuation: the
+# cell mass rho*x^2*dx stays smooth to 1e-4 throughout and corr(dln rho, dln dx) = -1.000
+# exactly at every late snapshot. The moving mesh has partitioned a smooth mass
+# distribution into unevenly wide cells and rho = mass/V inherits that inversely.
+#
+# Most of the pipeline is immune, because it consumes rho only through rho*V' = mass
+# (cell_radiated_energy's Pmax*V3p, cell_injected_energy) or through p (syn/t_c1, since
+# e' = p/(gma_ad-1)). What is NOT immune is anything reading rho on its own: the adiabatic
+# factor (rho_j+1/rho_j)^(1/3) in evolve_gma_bounds_edges (+-40% in rho -> +-12% in gamma)
+# and the total-variation budget of _refine_tt_on_rho_data (13x wasted sub-steps).
+#
+# CRITICAL: rho must never be smoothed alone. rho and dx being anti-correlated to -1.000,
+# smoothing rho by itself would break rho*dx = mass -- the very thing that makes the flux
+# and the energy budget exact. dx is therefore rescaled by rho_raw/rho_smooth below, which
+# preserves the product to machine epsilon (measured 2.2e-16) and, since dx_new =
+# mass/rho_smooth, comes out smooth as well.
+RHO_SMOOTH_WINDOW = 9      # cells in the running median; None disables the filter
+RHO_SMOOTH_ROUGH  = 0.05   # gate: median |dln rho| between neighbours, per tracer group
+
+
+def smooth_dump_density(df, window=RHO_SMOOTH_WINDOW, rough_min=RHO_SMOOTH_ROUGH):
+  '''
+  De-jitter the moving-mesh partition of ONE snapshot, in place-safe fashion (returns a
+  copy when it acts). Running median of ln(rho) over `window` cells, with dx rescaled so
+  the cell mass rho*dx is preserved exactly (see module notes).
+
+  Filtered separately per tracer group (external medium / shell 4 / shell 1), ordered in
+  radius, so the contact discontinuity and the shell/ambient boundaries are never averaged
+  across; each group is gated independently.
+
+  GATE. A median filter preserves sharp steps but erodes ramps of order the window width,
+  so it must stay off while the shell still has real radial structure. Roughness is a poor
+  predictor of that erosion -- measured on cooling_g100, at it=1e5 the roughness is only
+  0.0035 yet filtering cuts the sharpest gradient by 25% (a ramp), while at it=3e5-4.5e5
+  the roughness is higher and the gradient larger but the loss is exactly 0% (a step). So
+  the gate's only job is to keep the filter out of the structured phase entirely. That
+  phase peaks at roughness 0.0169 (it=4.5e5); the jitter knee, where the loss jumps
+  11.5% -> 64.7%, sits at 0.05-0.06. rough_min = 0.05 therefore clears the structure by 3x
+  and lands on the knee. Firing late costs <=5% in rho (<=1.6% in gamma); firing early
+  costs a 25% erosion of a real feature, so the asymmetry is deliberate.
+
+  Window 9 is the smallest that cleans fully: once jitter dominates the loss is
+  window-independent, while on a real ramp it grows monotonically with width (17.3% at
+  w=5 to 27.5% at w=25). w=9 leaves residual roughness 0.0054 at it=8.5e5 against 0.0053
+  for w=15 and 0.0311 for w=5.
+  '''
+  if window is None or 'rho' not in df or 'dx' not in df:
+    return df
+
+  rho = df['rho'].to_numpy(dtype=float)
+  trac = df['trac'].to_numpy(dtype=float) if 'trac' in df else np.zeros(len(df))
+  x = df['x'].to_numpy(dtype=float)
+
+  rho_new = rho.copy()
+  acted = False
+  # Group by tracer value: 1 = shell 4, 2 = shell 1. The external medium (trac = 0) is
+  # deliberately EXCLUDED -- it is a numerical buffer that extract_data_cells never puts
+  # in a cell history (it selects trac > 0), and it is the one group whose roughness
+  # exceeds the gate while the shells are still structured (0.0665 at shock crossing,
+  # against maxima of 0.0043 for shell 4 and 0.0059 for shell 1 over the same span), so
+  # filtering it would smear real structure for no benefit.
+  for tval in np.unique(np.round(trac[trac > 0.5])):
+    g = np.flatnonzero(np.round(trac) == tval)
+    if g.size <= window:
+      continue
+    g = g[np.argsort(x[g])]                     # radial order within the group
+    lr = np.log(rho[g])
+    if np.median(np.abs(np.diff(lr))) <= rough_min:
+      continue                                  # still structured (or already smooth)
+    rho_new[g] = np.exp(median_filter(lr, size=window, mode='nearest'))
+    acted = True
+
+  if not acted:
+    return df
+  out = df.copy()
+  out['rho'] = rho_new
+  # rho*dx (the cell mass, x unchanged) preserved exactly -- see module notes
+  out['dx'] = df['dx'].to_numpy(dtype=float) * (rho / rho_new)
+  # The conserved DENSITIES must follow the new rho, or they silently contradict the new
+  # dx: D, sx and tau are per unit volume, so leaving them stale while dx moves breaks
+  # sum(sx*V) by up to 24% even though the primitives themselves conserve momentum to
+  # ~1e-7 (that error is O(Theta) = O(p/rho c^2) ~ 1e-5 per cell and cancels in the sum).
+  # Recomputed from the smoothed primitives with the code's own Taub-Matthews EoS, which
+  # reproduces the dumped columns to 1e-11.
+  if all(c in df for c in ('D', 'sx', 'tau', 'vx')):
+    v = df['vx'].to_numpy(dtype=float)
+    D, s, tau = prim2cons(rho_new, v/np.sqrt(1. - v**2), df['p'].to_numpy(dtype=float))
+    out['D'], out['sx'], out['tau'] = D, s, tau
+  return out
 
 
 
@@ -135,16 +234,29 @@ def extract_data_thinshell(key, itmin=0, itmax=None,
 
 
 
-def extract_data_cells(key, klist, itmin=0, itmax=None,
-    savefile=True, noOut=False):
+def extract_data_cells(key, klist, itmin=0, itmax=None, itstep=None,
+    savefile=True, noOut=False,
+    rho_smooth_window=RHO_SMOOTH_WINDOW, rho_smooth_rough=RHO_SMOOTH_ROUGH):
   '''
   Extracts hydro data by reorganizing into cells history
     klist: list of cell indices to extract
       if klist = None, extracts all cells
+  rho_smooth_window / rho_smooth_rough: passed to smooth_dump_density, applied to each
+    snapshot before the per-cell pull. This is the ONLY place the moving-mesh density
+    jitter is corrected -- everything downstream (open_celldata -> generate_cell_fromData
+    -> the emission kernels) then reads clean rho with no change of its own.
+    window=None disables it and reproduces the raw extraction exactly.
   '''
 
   dirpath = get_dirpath(key)
-  its = dataList(key, itmin, itmax)[0:]
+  # itstep: keep only every itstep-th iteration (dataList already supports it). Use when a
+  # run's dump cadence is far denser than the runs it will be compared with -- e.g. a
+  # near-vacuum ambient keeps the shock detector busy, so 'crossed' fires late, the
+  # cadence never drops to ITDUMP_LATE_, and the run lands ~6x more dumps than its
+  # counterparts for the same physical span. Safe for anything measured on a common
+  # radial grid (see boundary_comparison.crash_radius_uniform, verified cadence-
+  # independent); NOT safe for anything differentiating over a fixed number of rows.
+  its = dataList(key, itmin, itmax, itstep)[0:]
   # create subfolder to save cells
   Path(dirpath+'cells').mkdir(parents=True, exist_ok=True) 
 
@@ -160,20 +272,26 @@ def extract_data_cells(key, klist, itmin=0, itmax=None,
     if not (it%1000):
       print(f'Opening file it {it}')
     df = openData(key, it)
+    df = smooth_dump_density(df, rho_smooth_window, rho_smooth_rough)
     for i, k in enumerate(klist):
       dics_arr[i]['it'][j] += it
       for var in varlist[1:]:
         dics_arr[i][var][j] += df.at[k, var]
-  
+
   for dic in dics_arr:
     dic['it'] = dic['it'].astype(int)
   out_arr = [pd.DataFrame.from_dict(dic).set_index('it') for dic in dics_arr]
 
-  
+
   if savefile:
     for k, out_k in zip(klist, out_arr):
       cellfile, _ = get_cellfile(key, k)
       out_k.to_csv(cellfile, index=True)
+    # provenance: which de-jittering these CSVs were built with
+    with open(dirpath + 'cells/_extraction.json', 'w') as f:
+      json.dump({'rho_smooth_window': rho_smooth_window,
+                 'rho_smooth_rough': rho_smooth_rough,
+                 'itmin': itmin, 'itmax': itmax}, f)
   
   if not noOut:
     return out_arr
