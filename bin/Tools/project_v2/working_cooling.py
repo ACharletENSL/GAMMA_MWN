@@ -1127,7 +1127,7 @@ def generate_cell_constLfac(cell, env):
     out.attrs[key] = cell.attrs[key]
   return out
 
-def get_Fnu_array_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1,
+def get_Fnu_array_cell_evolving(nuobs, Tobs, cell, env, Ng=NG_FLUX, norm=True, width_tol=1.1,
     midpoint=True):
   '''
   Same as get_Fnu_cell_evolving but returns array of Fnus per step
@@ -1148,7 +1148,7 @@ def get_Fnu_array_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_
     Fnu[j][iT0:] += get_Fnu_step(nuobs, Tarr[iT0:], step, K0, env, Ng, norm, width_tol)
   return Fnu if np.ndim(Tobs) > 0 else Fnu[:,0,:]
 
-def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1,
+def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=NG_FLUX, norm=True, width_tol=1.1,
     midpoint=True):
   '''
   F_nu(Tobs) of an evolving cell, summed over its cooling steps.
@@ -1222,7 +1222,7 @@ def _shared_step_prefix(cols_a, cols_b):
   return int(bad[0]) if bad.size else n
 
 
-def get_Fnu_cell_evolving_pair(nuobs, Tobs, cell_full, cell_cut, env, Ng=20, norm=True,
+def get_Fnu_cell_evolving_pair(nuobs, Tobs, cell_full, cell_cut, env, Ng=NG_FLUX, norm=True,
     width_tol=1.1, midpoint=True):
   '''
   F_nu(Tobs) of ONE cell under both rarefaction treatments at once: `cell_full`
@@ -1290,7 +1290,7 @@ def get_Fnu_cell_evolving_pair(nuobs, Tobs, cell_full, cell_cut, env, Ng=20, nor
   return out[0][0], out[1][0]
 
 
-def get_Fnu_cell_instant(nuobs, Tobs, cell, env, Ng=20, norm=True, width_tol=1.1,
+def get_Fnu_cell_instant(nuobs, Tobs, cell, env, Ng=NG_FLUX, norm=True, width_tol=1.1,
     midpoint=True):
   '''
   F_nu(Tobs) of evolving cell, but all contributions are summed and attributed 

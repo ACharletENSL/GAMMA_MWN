@@ -64,6 +64,14 @@ def _sval(step, key, env):
   return get_variable(step, key, env)
 
 
+# Electron-integral resolution for the FLUX path. Was 20, which is 12.9% off in fast
+# cooling and 48.9% in SLOW (gmax/gmin reaching 2.6e5 = 3.7 points per decade in gamma),
+# and roughened the slope at the 1/3 -> -(p-1)/2 turnover by 2.8-3.9x. 120 matches
+# cell_radiated_energy, so the energy and flux paths now agree, and costs 1.47x
+# (measured 0.120 -> 0.176 s per cell spectrum) for 0.39% / 1.44% residual error.
+NG_FLUX = 120
+
+
 def precompute_step_cols(cell, env, keys=('Dop', 'nup_B', 'Tth', 'V3p', 'Pmax', 'obsT')):
   '''Vectorize a whole cell's per-step quantities once (arrays), to feed
   _StepView in the cooling-step loops. Derived keys via get_variable(cell,...)
@@ -124,7 +132,7 @@ def syn_emiss_exact(gma, tnu):
 
 # Contribution from a cell
 def get_Fnu_cell(nuobs, Tobs, data, env,
-  Ng=20, norm=True, width_tol=1.1, r_ref=1.2, Nmin=2, Nmax=20):
+  Ng=NG_FLUX, norm=True, width_tol=1.1, r_ref=1.2, Nmin=2, Nmax=20):
   '''
   F_nu(T) from a cell (dataframe with the cell history)
   array of size nuobs array
@@ -156,7 +164,7 @@ def get_Fnu_cell(nuobs, Tobs, data, env,
   return Fnu_out
 
 def get_Fnu_hydrostep(nuobs, Tobs, cell, cell_next, K0, env,
-  Ng=20, norm=True, width_tol=1.1, r_ref=1.5, Nmin=2, Nmax=20):
+  Ng=NG_FLUX, norm=True, width_tol=1.1, r_ref=1.5, Nmin=2, Nmax=20):
   '''
   F_\nu (T) from a hydro step
   '''
@@ -171,7 +179,7 @@ def get_Fnu_hydrostep(nuobs, Tobs, cell, cell_next, K0, env,
   return Fnu_out
 
 # Contribution from a single time bin
-def get_Fnu_step(nuobs, Tobs, step, K0, env, Ng=20, norm=True, width_tol=1.1):
+def get_Fnu_step(nuobs, Tobs, step, K0, env, Ng=NG_FLUX, norm=True, width_tol=1.1):
   '''
   F_\nu (T) from a (cooling) step
   '''
@@ -208,7 +216,7 @@ def get_Fnu_step(nuobs, Tobs, step, K0, env, Ng=20, norm=True, width_tol=1.1):
     Fnu *= env.zdl
   return Fnu
 
-def get_Lnu_comov(nup, step, K0, env, Ng=20, norm=True, width_tol=1.1):
+def get_Lnu_comov(nup, step, K0, env, Ng=NG_FLUX, norm=True, width_tol=1.1):
   '''
   L'_\nu' from a (cooling) step
     as a function of \nu'/\nu'_m
@@ -231,7 +239,7 @@ def get_Lnu_comov(nup, step, K0, env, Ng=20, norm=True, width_tol=1.1):
     Lnu /= (env.L0p if _sval(step, 'trac', env) < 1.5 else env.L0pFS)
   return Lnu
 
-def get_Lnu_interp(nup, step, K0, env, Ng=20, norm=True, width_tol=1.1, n_grid=300):
+def get_Lnu_interp(nup, step, K0, env, Ng=NG_FLUX, norm=True, width_tol=1.1, n_grid=300):
   '''
   get_Lnu_comov evaluated over an arbitrary-shape nup grid (e.g. the 2D (T, nu)
   EATS-shifted grid from get_Fnu_step), via a 1D log-grid in nup + log-log
@@ -280,7 +288,7 @@ def _outer_loglog_blend(logL_grid, u, s, w):
       out[i, j] = wi * np.exp((1.-f)*logL_grid[i0] + f*logL_grid[i0+1])
   return out
 
-def get_Lnu_outer(nub, tT, step, K0, env, Ng=20, norm=True, width_tol=1.1,
+def get_Lnu_outer(nub, tT, step, K0, env, Ng=NG_FLUX, norm=True, width_tol=1.1,
     n_grid=300, row_weight=None):
   '''
   Lnu evaluated at nup[i, j] = tT[i] * nub[j] (the EATS-shifted grid of
@@ -326,7 +334,7 @@ PNU_USE_FM26 = False
 # narrow gamma range is accurate: keep the numerical path there.
 FIT_ETA_MIN = 4.
 
-def get_epnu(tnu_arr, step, K0, env, Ng=20, width_tol=1.1,
+def get_epnu(tnu_arr, step, K0, env, Ng=NG_FLUX, width_tol=1.1,
     func_cooling=gamma_synCooled, func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact,
     use_fit=None):
   '''
@@ -388,7 +396,7 @@ def cooled_tt_eff(gmax, bsyn):
   '''
   return (1. - bsyn)/gmax
 
-def Pnu_instant(tnu_arr, gmin, gmax, env, Ng=20,
+def Pnu_instant(tnu_arr, gmin, gmax, env, Ng=NG_FLUX,
       func_distrib=distrib_plaw_cooled, func_emiss=syn_emiss_exact, bsyn=0.):
   '''
   Energy per unit freq per unit volume and time at normalized time tt
@@ -513,7 +521,7 @@ def Pnu_instant_fit(tnu_arr, gmin, gmax, env):
 
 # Analytic constant-hydro case
 def get_Fnu_cell_analytic(nuobs, Tobs, gmin0, gmax0, hydro_const, env,
-    Nt=200, r_ref=1.2, Ng=20, width_tol=1.1):
+    Nt=200, r_ref=1.2, Ng=NG_FLUX, width_tol=1.1):
   '''
   F_nu(T) for analytic case with constant hydrodynamics (cartesian geometry)
   Uses logarithmic time binning optimized for cooling
