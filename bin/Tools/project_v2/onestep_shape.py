@@ -41,7 +41,8 @@ from sweep_gammacm import compute_alpha_sweep
 import prerar_model as M
 
 KEY, Z = 'cooling_g100', 4
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures')
+# all the nu_c-dip diagnostics land in one folder so they are not scattered
+OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'nuc_dip')
 NG = 200          # converged electron quadrature; the flux path's default 20 is 12.9% (fast)
                   # / 48.9% (slow) off and would show as noise on the shape being judged
 SLOPE_C = '#999999'

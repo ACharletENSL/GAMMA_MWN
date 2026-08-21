@@ -31,7 +31,8 @@ from sweep_gammacm import compute_alpha_sweep
 import prerar_model as M
 
 KEY, Z = 'cooling_g100', 4
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures')
+# all the nu_c-dip diagnostics land in one folder so they are not scattered
+OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'nuc_dip')
 LOGRS = (-4., -2., 0., 1., 3.)          # the five curves of regimes.png
 CMAP = ('#00429d', '#4771b2', '#93c4a2', '#e8a33d', '#93003a')
 

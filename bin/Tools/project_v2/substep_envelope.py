@@ -33,7 +33,8 @@ from sweep_gammacm import compute_alpha_sweep
 import prerar_model as M
 
 KEY, Z = 'cooling_g100', 4
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures')
+# all the nu_c-dip diagnostics land in one folder so they are not scattered
+OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'nuc_dip')
 
 
 def main(Ri_target=1.05, logrs=(-4., 3.), key=KEY, z=Z, outdir=OUTDIR, Nnu=2400):
