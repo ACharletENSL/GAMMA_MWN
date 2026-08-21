@@ -180,13 +180,24 @@ def get_Fnu_step(nuobs, Tobs, step, K0, env, Ng=20, norm=True, width_tol=1.1):
   Ton, Tth, Tej = _sval(step, 'obsT', env)
   tT = (Tobs - Tej) / Tth                          # Tobs_to_tildeT inlined
   nuobs = np.asarray(nuobs, dtype=float)
+  # A step emits NOTHING before its own on-axis arrival. tT=1 is Tobs=Ton (theta=0, the
+  # first photon); tT<1 means Tobs<Ton, and photons from larger theta arrive LATER still,
+  # so there is no line of sight that has delivered anything yet. Only tT<=0 was excluded
+  # before, which let steps radiate ahead of their own onset with a tT^-2 > 1 boost and
+  # their spectrum shifted down in frequency. get_Fnu_cell_evolving never saw this (it
+  # slices at iT0 = searchsorted(Tarr, Ton), so tT>=1 by construction), but every
+  # fixed-Tobs caller did -- working_cooling_prev.get_cell_nuFnu evaluates the whole cell
+  # at Tobs=env.Ts, where measured tT spans 0.27..0.94 and NOT ONE step has arrived.
+  live = tT >= 1.
   if np.ndim(Tobs) > 0:
     tT = np.asarray(tT)
     # outer-product fast path: nup[i,j] = tT[i] * (nuobs/D)[j], tT^-2 folded in
     with np.errstate(divide='ignore'):
-      w = np.where(tT > 0., tT, 1.)**-2
+      w = np.where(live, np.where(tT > 0., tT, 1.)**-2, 0.)
     Fnu = get_Lnu_outer(nuobs/D, tT, step, K0, env, Ng, norm, width_tol,
                         row_weight=w)
+  elif not live:
+    Fnu = np.zeros_like(nuobs)
   else:
     nup = nuobs * tT / D
     Lnu = get_Lnu_interp(nup, step, K0, env, Ng, norm, width_tol)
