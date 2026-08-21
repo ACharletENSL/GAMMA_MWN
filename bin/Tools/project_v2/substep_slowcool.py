@@ -38,6 +38,9 @@ import prerar_model as M
 
 KEY, Z = 'cooling_g100', 4
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures')
+NG = 200      # converged electron quadrature, as onestep_shape.py uses. The flux path still
+              # defaults to Ng=20, which is 12.9% (fast) / 48.9% (slow) off and roughens the
+              # slope at the turnover by 2.8-3.9x -- noise this figure should not inherit.
 
 
 def main(Ri_target=1.05, logr=3., key=KEY, z=Z, outdir=OUTDIR, Nnu=900,
@@ -67,7 +70,7 @@ def main(Ri_target=1.05, logr=3., key=KEY, z=Z, outdir=OUTDIR, Nnu=900,
   S = np.zeros((N, Nnu))
   for j in range(N):
     S[j] = np.asarray(get_Fnu_step(nuobs, float(Tobs), step_view(cols, j), K0, env,
-                                   20, True, 1.1), float)*nu
+                                   NG, True, 1.1), float)*nu
   S = np.where(np.isfinite(S), S, 0.)
   tot = S.sum(axis=0)
   live = np.flatnonzero(S.max(axis=1) > tot.max()*1e-12)
