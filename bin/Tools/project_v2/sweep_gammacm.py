@@ -2084,7 +2084,13 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   os.makedirs(outdir, exist_ok=True)
   results = load_sweep(outdir) if use_cache else None
   if results is None:
-    results = run_sweep(key, log10ratio_arr, z=z, outdir=outdir, nproc=nproc, method=method)
+    # skip_cached MUST be forwarded: run_sweep defaults it to True, so without this
+    # use_cache=False would bypass load_sweep and then silently skip every point that is
+    # already on disk -- recomputing nothing and re-plotting the stale cache. (That is
+    # exactly what it did after the A^(p-1) normalisation landed.) sweep_efficiency.main
+    # has always forwarded it; these two now behave the same.
+    results = run_sweep(key, log10ratio_arr, z=z, outdir=outdir, nproc=nproc,
+                        method=method, skip_cached=use_cache)
 
   detections = []
   for r in results:
