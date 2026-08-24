@@ -131,7 +131,10 @@ def main(Ri_target=1.05, logrs=(-4., 3.), steps=(0, 3, 10), key=KEY, z=Z, outdir
 
       # 4. nu F_nu, observer frame
       nu = np.geomspace(1e-7, 3e2*gmx[j]**2, 3000)
-      F = np.asarray(get_Fnu_step(nu*env.nu0, float(env.Ts), st, K0, env, NG, True, 1.1),
+      # evaluate at THIS step's own arrival (tT=1). env.Ts is before every step's onset, and
+      # get_Fnu_step now correctly returns zero there.
+      Ton_j, Tth_j, Tej_j = _sval(st, 'obsT', env)
+      F = np.asarray(get_Fnu_step(nu*env.nu0, float(Ton_j), st, K0, env, NG, True, 1.1),
                      float)*nu
       _panel(axes[3, c], nu, F, col, lab, ((4./3., '4/3'), ((3.-p)/2., '(3-p)/2')),
              r'$\nu F_\nu$', r'$\nu/\nu_m$', (-2.2, 1.8), i == 0)

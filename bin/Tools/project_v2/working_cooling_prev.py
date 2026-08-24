@@ -344,11 +344,15 @@ def plot_val_rescaled(name, scalefacs):
   fig, ax = plt.subplots()
   ax.plot(scalefacs, vals)
 
-def get_cell_nuFnu(dist, env, arr=False, width_tol=1.1):
+def get_cell_nuFnu(dist, env, arr=False, width_tol=1.1, Tobs=None):
   nub = get_normalized_freqarr(dist)
   nF_arr = np.zeros((len(dist), len(nub)))
   nuobs = nub*env.nu0
-  Tobs = env.Ts
+  # env.Ts is BEFORE every step's on-axis arrival (measured tT 0.27..0.94 there), and
+  # get_Fnu_step now correctly returns zero for tT<1. Default to the last step's Ton so
+  # every sub-step has arrived; pass Tobs explicitly to pick another epoch.
+  if Tobs is None:
+    Tobs = float(np.max(get_variable(dist, 'obsT', env)[0]))
   nu_B0 = get_variable(dist.iloc[0], 'nu_B', env)
   #gmax_cut = max(1., np.sqrt(nuobs.min()/nu_B0))
   gmax_cut = 1

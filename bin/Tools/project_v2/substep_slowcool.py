@@ -65,7 +65,10 @@ def main(Ri_target=1.05, logr=3., key=KEY, z=Z, outdir=OUTDIR, Nnu=900,
   N = len(cell)
   nu = np.logspace(*lognu, Nnu)
   nuobs = nu*env.nu0
-  Tobs = env.Ts                                   # the one observer time, as the old path uses
+  # ONE observer time, but it must be one where the sub-steps have ARRIVED. env.Ts (what the
+  # old path used) is NOT: measured tT there spans 0.27..0.94, i.e. before every step's own
+  # on-axis arrival, and get_Fnu_step now correctly returns zero for tT<1. Use max(Ton).
+  Tobs = float(cols['obsT'][0].max())
 
   # per sub-step spectra, exactly as get_cell_nuFnu sums them
   S = np.zeros((N, Nnu))
