@@ -11,22 +11,26 @@ WHAT IS BEING COMPARED
                         rarefaction-free window, then a tail on the measured alpha tables
                         running onto the derived causal-contact asymptote.
 
-So the pair isolates the rarefaction wave, exactly as sweep_norar does -- what differs is the
-EXTENSION LAW, and that is the whole point of this module existing alongside it:
+So this pair isolates the rarefaction wave. The tail is the MEASURED evolution of these
+cells -- alpha_D, alpha_G, alpha_p tabulated in (R_i/R_0, R/R_i) on a wide-shell basis run,
+blended onto the DERIVED asymptote alpha_D = 2/gma-2 = -0.800, alpha_p = -2, alpha_G = 0.
 
-  sweep_norar          'bernoulli' (also 'adiab', 'bpl'): the tail is closed from the handover
-                       row on conservation laws alone, with rho -> R^-2 free coasting.
-  sweep_prerar (here)  the tail is the MEASURED evolution of these cells -- alpha_D, alpha_G,
-                       alpha_p tabulated in (R_i/R_0, R/R_i) on a wide-shell basis run, blended
-                       onto the DERIVED asymptote alpha_D = 2/gma-2 = -0.800, alpha_p = -2,
-                       alpha_G = 0.
+THIS IS NOW THE ONLY EXTENSION LAW. It replaced a free-coasting family ('bernoulli', 'adiab',
+'adiab_frozen', 'bpl', driven by the retired sweep_norar.py) which closed the tail from the
+handover row on conservation laws alone, giving rho -> R^-2. That treats a shocked cell as a
+FREE fluid element, and it is not: it sits inside a causally-connected shocked layer that keeps
+compressing it toward the contact discontinuity, so rho ~ R^-1.2 -- see prerar_model's module
+docstring for the derivation. rho ~ R^-2 is never an asymptote this model relaxes to; the cell
+is interacting for the whole prolongation.
 
-WHY THE LAWS DIFFER, AND BY HOW MUCH: a shocked cell is NOT a free fluid element. It sits inside
-a causally-connected shocked layer that keeps compressing it toward the contact discontinuity,
-so rho ~ R^-1.2, not R^-2 -- see prerar_model's module docstring for the derivation. Over the
-~2.5 decades this counterfactual extrapolates, that index difference is a factor ~100 in
-density, so the two extension laws are NOT small perturbations of each other. rho ~ R^-2 is
-never an asymptote this model relaxes to: the cell is interacting for the whole prolongation.
+HOW MUCH IT MATTERED: over the ~2.5 decades this counterfactual extrapolates, that index
+difference is a factor ~100 in density, and it roughly DOUBLED the inferred cost of the wave.
+Measured on the RS 8-point sweep, ratios full/no-rf (lower = the wave destroyed more):
+  logr      -5      -3      -1      +0      +2
+  coasting  1.0000  0.9985  0.9453  0.9063  0.8845
+  prerar    1.0000  0.9987  0.9130  0.8170  0.7613
+i.e. law-independent deep in fast cooling, and 11.6% vs 23.9% at logr=+2. Those coasting
+numbers are the historical record; they are no longer reproducible from source.
 
 WHERE IT SHOWS UP: at the fast-cooling end of the sweep essentially all the injected electron
 energy radiates whatever the hydro does, so eps_rad is nearly law-independent (measured 8e-5
@@ -55,7 +59,7 @@ from sweep_gammacm import (run_sweep, load_sweep, method_outdir, data_end_barT,
 KEY = 'cooling_g100'
 LAW = 'prerar'
 METHOD_A, METHOD_B = 'data_norar_prerar', 'data'
-LABELS = ('reconstructed', 'full')   # 'no rf' is sweep_norar's label for its own law; keeping
+LABELS = ('reconstructed', 'full')   # 'no rf' was the retired coasting label; keeping
                                      # them distinct so figures from the two are never confused
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'prerar_compare')
 SHELL_NAME = {4: 'RS', 1: 'FS'}      # z -> shell name, for figure titles
@@ -68,7 +72,7 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
   sweep_compare figure battery.
 
   Runs the counterfactual ALONE against the already-cached 'data' reference, as
-  sweep_norar.main does and for the same reason: a paired run would rewrite
+  the retired sweep_norar.main did, and for the same reason: a paired run would rewrite
   figures/gammacm_sweep_data/, which sweep_rarcut, sweep_shells, sweep_efficiency and
   boundary_comparison all compare against.
   '''
@@ -92,7 +96,7 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
   barT_f = exit_onset_barT(key, z=z)
   barT_off = rarefaction_off_barT(key, z=z)
   # both sides stop at the same radius, hence the same observer time to within the
-  # extension's lag difference -- the same design identity sweep_norar relies on
+  # extension's lag difference -- the same design identity the counterfactual relies on
   end = cap_end_barT(key, z=z, cap=cap) if cap else data_end_barT(key, z=z)
   barT_end = (end, end)
   print(f'crossing bar_T_f = {barT_f:.4f}')

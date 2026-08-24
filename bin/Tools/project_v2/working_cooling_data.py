@@ -21,7 +21,7 @@ Differences with the fit-based pipeline (working_cooling.generate_cell_withDistr
     R_rar -- stops the cell early, so it prices the cut-off prescription, sweep_rarcut),
     and `norar` (keep the real rows to the crash, then continue the smooth decay to the
     SAME final radius -- holds the worldline extent fixed and removes only the crash,
-    which is what isolates the wave itself, sweep_norar);
+    which is what isolates the wave itself, sweep_prerar);
   - intended for long-term simulations and setups where the BPL fit ansatz breaks.
 
 Kept identical (imported, not duplicated): the geometric-in-gamma_max time binning
@@ -86,18 +86,19 @@ NORAR_PRECURSOR_TOL = 0.005
                           # window. 0.005 = 0.5% in p, 0.25% in B; below the smallest
                           # measured sag, so cells with no resolved precursor keep the
                           # detector's own index and nothing moves for them.
-NORAR_DR_SLOPE = 0.       # d ln(dr)/d ln R of the synthetic tail. 0 = strict
-                          # no-spreading, which is what 'no rarefaction' means
-                          # kinematically and the only value that needs no
-                          # calibration. See _norar_rows.
 NORAR_Z = 4               # shell the 'prerar' alpha table is read for when the caller does
                           # not say; every shell-level entry point passes its own z, so this
                           # only backstops a direct single-cell call. 4 = reverse shock.
-NORAR_LAW = 'bernoulli'   # see _norar_rows. Closes the tail on THREE conservation laws
-                          # (mass, TM adiabat, Bernoulli) with no free parameter; the only
-                          # remaining assumption is dr = const, worth <=1.2% on E_rad.
-                          # 'adiab' replaces Bernoulli with Gamma = const, which discards
-                          # the real 7-15% acceleration and moves E_rad by up to 3.4%.
+NORAR_LAW = 'prerar'      # the only surviving extension law (prerar_model). The
+                          # free-coasting family ('bernoulli', 'adiab', 'adiab_frozen',
+                          # 'bpl') was retired: it closed the tail on conservation laws
+                          # alone, i.e. rho -> R^-2, which treats a shocked cell as a FREE
+                          # fluid element. It is not -- it sits in a causally-connected
+                          # shocked layer still compressing it toward the CD, so rho ~
+                          # R^-1.2 (see prerar_model). Over the ~2.5 decades this
+                          # counterfactual extrapolates that is a factor ~100 in density,
+                          # and it roughly DOUBLED the inferred cost of the wave
+                          # (full/no-rf 0.885 vs 0.761 at logr=+2, RS).
 
 
 def _precursor_backoff(lnx, lnp, c, window, minpts, tol):
@@ -221,183 +222,10 @@ def _adiabat_integrated(rho, rho_h, p_h):
   return np.exp(out)
 
 
-def _bernoulli_state(x_ext, xh, rho_h, p_h, lf_h, dx, dx_h, niter=4):
-  '''
-  (rho, p, lfac) of the synthetic tail closed with the relativistic BERNOULLI invariant
-  instead of an assumed Gamma:
-
-      rho*Gamma*R^2*dr = const     mass conservation (exact)
-      dlnp/dlnrho = gma_ad(T)      Taub-Matthews adiabat
-      Gamma*h(T)  = const          Bernoulli, h = 2.5T + sqrt(1+2.25T^2), T = p/rho
-
-  Bernoulli is the first integral of the momentum equation for steady adiabatic flow, so
-  it supplies exactly the relation the other two lack -- and it is not an assumption here:
-  measured along the coasting phase of cooling_g100_semi, Gamma*h is conserved to 0.7-1.3%
-  while h falls 3-9% and Gamma RISES 2.0-7.7% to compensate. That acceleration is real
-  physics (internal energy converting to bulk motion as the gas cools) which a Gamma=const
-  closure discards. In the shock-crossing transient BEFORE the handover it is violated by
-  up to 8% -- correctly, that flow is not steady -- which is another reason the extension
-  must start at the handover and not at injection.
-
-  Solved by marching along x with a fixed-point iteration per step: mass conservation
-  fixes K = rho*Gamma, the adiabat gives p from rho, Bernoulli gives Gamma from T, and
-  rho <- K/Gamma closes the loop. Gamma moves by <10% over the whole tail, so the
-  iteration contracts hard; niter=4 is far beyond what is needed.
-  '''
-  hh = derive_enthalpy_fromT_TM(p_h/rho_h)
-  B = lf_h*hh                                   # the invariant
-  K = rho_h*lf_h*xh**2*dx_h/(x_ext**2*dx)       # = rho*Gamma at each radius
-  rho = np.empty(x_ext.shape); p = np.empty(x_ext.shape); lf = np.empty(x_ext.shape)
-  lnp_prev, lnr_prev = np.log(p_h), np.log(rho_h)
-  for j in range(x_ext.size):
-    r_j = K[j]/lf_h if j == 0 else rho[j-1]     # first guess: previous step's density
-    for _ in range(niter):
-      d = np.log(r_j) - lnr_prev                # adiabat, midpoint step in ln rho
-      g1 = derive_adiab(np.exp(lnr_prev), np.exp(lnp_prev))
-      g2 = derive_adiab(np.exp(lnr_prev + 0.5*d), np.exp(lnp_prev + 0.5*d*g1))
-      lnp_j = lnp_prev + d*g2
-      T = np.exp(lnp_j)/r_j
-      g = B/derive_enthalpy_fromT_TM(T)         # Bernoulli -> Gamma
-      r_j = K[j]/max(g, 1. + 1e-12)             # mass conservation -> rho
-    rho[j], p[j], lf[j] = r_j, np.exp(lnp_j), max(g, 1. + 1e-12)
-    lnr_prev, lnp_prev = np.log(r_j), lnp_j
-  return rho, p, lf
 
 
-def _norar_rows(row_h, x_ext, law=NORAR_LAW, fit=None, dr_slope=NORAR_DR_SLOPE):
-  '''
-  Hydro of the synthetic no-rarefaction tail at radii x_ext (light-seconds, all > x_h),
-  continuing the state of the handover row row_h. Returns a dict of column arrays
-  {rho, p, lfac, vx, dx, t}.
-
-  law='adiab' (default): coasting, no lab-frame spreading, adiabatic. No rarefaction IS
-    no spreading, so Gamma = Gamma_h and dr = dr_h; mass conservation then gives
-    rho ~ R^-2, and p follows the Taub-Matthews adiabat with gma_ad EVOLVING as the gas
-    cools (_adiabat_integrated). Self-anchored on row_h, so it needs no fit, no cache,
-    and is continuous by construction.
-  law='adiab_frozen': the same, with gma_ad held at its handover value. Under-steepens
-    the tail (see _adiabat_integrated); kept only for comparison.
-    Every ingredient is first-principles: nothing here is fitted or calibrated.
-    NOT VALIDATED against cooling_g100_semi, despite the temptation -- Next=0 is NOT a
-    no-rarefaction control. Its decompression fires at the SAME radius as the fiducial's
-    (R_h/R_inj = 1.001..2.35, onset being boundary-independent to ~1%; the edge sets only
-    the DEPTH), and its rigid dp/dr=0 clamp then CONFINES the layer, holding p ABOVE free
-    adiabatic coasting by up to 1.28x at R/R_inj = 30. Two contaminations in opposite
-    directions, neither calibrated against a real control, so that run can reject a law
-    that is orders of magnitude wrong (it does, for 'bpl') but cannot arbitrate anything
-    at the tens-of-percent level -- and must never be used to tune this closure.
-  law='bpl': the cell's smooth-BPL fit shape, continuity-corrected at the handover so the
-    fit normalisations cancel (only popts and the anchor x0 are needed, never rho0/p0).
-    fit = (popts, x0) with popts = (popt_rho, popt_lfac, popt_p) from load_or_fit_celldata.
-    RETAINED AS A BOUND, NOT RECOMMENDED: those fits are constrained over R/R_inj in
-    [1, 1.05..3.14] -- 0.02 to 0.5 decades, entirely inside the shock-crossing transient
-    -- and asymptote to rho ~ R^-1.2..-1.7, p ~ R^-2.0..-2.4, far shallower than the
-    measured -1.95/-3.25. Extrapolated to R/R_inj = 30 that over-predicts p by 18-90x
-    (B by 4.5-9.5x); several cells' Gamma fit also decays, whose extra observer lag pushes
-    Ton past Tmax and breaks the endpoint match the whole construction exists for.
-  '''
-  # float() everywhere: the early_ana='shockfit' prepend builds its frame with
-  # pd.concat([row.to_frame().T, shocked]), which can come back object-dtype
-  xh   = float(row_h.x)
-  rho_h = float(row_h.rho)
-  p_h   = float(row_h.p)
-  dx_h  = float(row_h.dx)
-  lf_h  = float(row_h.lfac) if 'lfac' in row_h.index \
-          else 1./np.sqrt(1. - float(row_h.vx)**2)
-  x_ext = np.asarray(x_ext, dtype=float)
-
-  if law == 'bernoulli':
-    dx   = dx_h * (x_ext/xh)**dr_slope
-    rho, p, lfac = _bernoulli_state(x_ext, xh, rho_h, p_h, lf_h, dx, dx_h)
-  elif law in ('adiab', 'adiab_frozen'):
-    # Gamma = Gamma_h and dr = dr_h (dr_slope = 0) => rho ~ R^-2 by mass conservation
-    # (rho*Gamma*R^2*dr = const, the invariant reconstruct_cell uses). dr_slope != 0
-    # relaxes the strict no-spreading assumption; see NORAR_DR_SLOPE.
-    dx   = dx_h * (x_ext/xh)**dr_slope
-    rho  = rho_h * (xh/x_ext)**2 * (dx_h/dx)
-    p    = (_adiabat_frozen(rho, rho_h, p_h) if law == 'adiab_frozen'
-            else _adiabat_integrated(rho, rho_h, p_h))
-    lfac = np.full(x_ext.shape, lf_h)
-  elif law == 'bpl':
-    if fit is None:
-      raise ValueError("law='bpl' needs fit=(popts, x0)")
-    (popt_rho, popt_lfac, popt_p), x0 = fit
-    def shape(popt, xx):
-      return smooth_bpl_apy(np.asarray(xx, dtype=float)/float(x0), *popt)
-    rho  = rho_h * shape(popt_rho, x_ext)/shape(popt_rho, xh)
-    p    = p_h   * shape(popt_p,   x_ext)/shape(popt_p,   xh)
-    # the Gamma fit crosses 1 on some cells; reconstruct_cell clips that to beta=0, which
-    # here would make the 1/beta of the lab-time integral diverge
-    lfac = np.maximum(lf_h * shape(popt_lfac, x_ext)/shape(popt_lfac, xh), 1. + 1e-12)
-    dx   = dx_h * (rho_h*lf_h*xh**2)/(rho*lfac*x_ext**2)   # mass conservation
-  else:
-    raise ValueError(f"unknown extension law {law!r}")
-
-  vx = np.sqrt(lfac**2 - 1.)/lfac
-  # lab time: t = t_h + int dx/beta = t_h + (x - x_h) + int (1-beta)/beta dx.
-  # NEVER as int dx/beta directly: the whole Ton = (1+z)(t + t0 - x) observable lives in
-  # that second term (~700 light-seconds out of x ~ 1e7 here), so building it by
-  # subtraction destroys it -- exactly what _one_minus_beta_over_beta exists to prevent.
-  xa  = np.concatenate(([xh], x_ext))
-  fa  = _one_minus_beta_over_beta(np.concatenate(([lf_h], lfac)))
-  lag = np.concatenate(([0.], np.cumsum(0.5*(fa[1:] + fa[:-1])*np.diff(xa))))[1:]
-  t   = float(row_h.t) + (x_ext - xh) + lag
-  return dict(rho=rho, p=p, lfac=lfac, vx=vx, dx=dx, t=t, x=x_ext)
 
 
-def norar_history(shocked, law=NORAR_LAW, fit=None, pts_per_dec=NORAR_PTS_PER_DEC,
-    slope_thresh=NORAR_SLOPE_THRESH, window=NORAR_SLOPE_WINDOW, minpts=NORAR_MINPTS,
-    precursor_tol=NORAR_PRECURSOR_TOL, dr_slope=NORAR_DR_SLOPE,
-    persist=NORAR_PERSIST):
-  '''
-  Counterfactual post-shock history: the real rows out to the rarefaction crash, then a
-  synthetic tail (see _norar_rows) continuing the smooth decay to the SAME final radius
-  the input history reached. Returns (history, info).
-
-  The target radius is taken from the history itself (shocked.x.iloc[-1]) rather than from
-  a {cell: R_end/R_inj} map, so the endpoint matches the reference EXACTLY whatever
-  produced it -- an r_cap window, a rar_ratio cut, the early_ana='shockfit' prepend (whose
-  injection row sits 0.8-5% below the first measured row, which a ratio map would get
-  wrong), or a sub-cell shift. It is also free, and keeps a 500-CSV rescan out of the
-  forkserver workers.
-
-  info: status ('ok' | 'no_crash' | 'at_end'), h (handover index), n_syn, x_h, x_end.
-  status != 'ok' means the counterfactual IS the reference -- correct, not a failure:
-  'no_crash' = this history never crashes, 'at_end' = the crash is at or past the target
-  (e.g. an r_cap window shorter than the handover radius), so there is nothing to replace.
-  '''
-  x = shocked.x.to_numpy(dtype=float)
-  info = dict(status='no_crash', h=None, n_syn=0,
-              x_h=float(x[-1]) if len(x) else np.nan,
-              x_end=float(x[-1]) if len(x) else np.nan)
-  if len(shocked) < 2:
-    return shocked, info
-  h = rarefaction_handover(shocked, slope_thresh=slope_thresh, window=window,
-                           minpts=minpts, precursor_tol=precursor_tol, persist=persist)
-  if h is None:
-    return shocked, info
-  info.update(h=int(h), x_h=float(x[h]), status='at_end')
-  if h >= len(x) - 1 or x[-1] <= x[h]*(1. + 1e-9):
-    info['x_end'] = float(x[h])            # the returned frame really does stop there
-    return shocked.iloc[:h+1], info        # crash at/past the target: nothing to replace
-
-  n_syn = max(2, int(np.ceil(np.log10(x[-1]/x[h])*pts_per_dec)) + 1)
-  x_ext = np.geomspace(x[h], x[-1], n_syn)[1:]   # ends EXACTLY on the target radius
-  row_h = shocked.iloc[h]
-  cols = _norar_rows(row_h, x_ext, law=law, fit=fit, dr_slope=dr_slope)
-  # carry every column of the parent frame (i, trac, vx_u, ...) as _prepend_shocked_row
-  # does, so get_variable and the sub-cell path keep working on the result
-  ext = pd.DataFrame({c: np.full(len(x_ext), row_h[c]) for c in shocked.columns})
-  for c, v in cols.items():
-    if c in ext:
-      ext[c] = v
-  if 'Sd' in ext:
-    ext['Sd'] = 0.                               # synthetic rows are never shocked
-  ext.index = shocked.index[-1] + 1 + np.arange(len(x_ext))
-  out = pd.concat([shocked.iloc[:h+1], ext])
-  out.attrs = shocked.attrs
-  info.update(status='ok', n_syn=len(x_ext))
-  return out, info
 
 
 def _truncate_at_ratio(shocked, ratio):
@@ -418,8 +246,8 @@ def data_method_name(law=None, cap=None):
   Sweep-method / cache-directory name of a data-path variant: 'data', 'data_norar',
   'data_norar_bpl', 'data_cap', 'data_norar_cap'. Single source of truth, imported by
   sweep_gammacm so method_outdir and _compute_point cannot drift apart.
-  law: None (reference hydro) | 'adiab' | 'bernoulli' | 'bpl' | 'prerar'; cap: None |
-  R/R_inj window. 'prerar' is the measured-reconstruction law (prerar_model).
+  law: None (reference hydro) | 'prerar'; cap: None | R/R_inj window.
+  'prerar' is the measured-reconstruction law (prerar_model).
   '''
   name = 'data'
   if law is not None:
@@ -433,38 +261,6 @@ def data_method_name(law=None, cap=None):
   return name
 
 
-def _norar_fits(key, z, env, klist):
-  '''
-  {cell: (popts, x0)} for the 'bpl' extension law, on the cells of klist.
-
-  INVARIANT, do not break it: load_or_fit_celldata's disk cache
-  (results/{key}/cells/{k:04d}_fit.npz) is keyed on the anchor x0 and OVERWRITES on
-  mismatch, so key/k may be passed only when x0 is that cell's cellsBehindShock_fromData
-  radius -- the anchor generate_cell_withDistrib and compute_shell_rarefaction_head use.
-  Anchoring anywhere else (e.g. on the cell's own first measured row, which sits 0.8-5%
-  higher) would silently refit and rewrite the cache the fit path and the rarefaction head
-  both depend on. Using that anchor makes every call here a cache HIT, never a write.
-  The continuity factors in _norar_rows divide the fit shape by its value at the handover,
-  so the normalisations cancel: `norms` only has to be consistent, never correct.
-  '''
-  sh_data = cellsBehindShock_fromData(open_rundata(key, z))
-  out = {}
-  for k in klist:
-    cell_data = open_celldata(key, k)
-    if cell_data is False:
-      continue
-    sel = sh_data.loc[sh_data.i == k]
-    if not len(sel):
-      continue
-    row = sel.iloc[0]
-    norms = [get_variable(row, nm, env) for nm in ('rho', 'lfac', 'p')]
-    try:
-      popts = load_or_fit_celldata(cell_data, ['rho', 'lfac', 'p'], norms, env,
-                                   row.x, key=key, k=int(k))
-    except RuntimeError:
-      continue                     # unfittable cell: falls back to no extension
-    out[int(k)] = (popts, float(row.x))
-  return out
 
 
 def select_postshock_rows(cell_data, n_settle=1):
@@ -641,10 +437,11 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
     comparison share), and only r_cap belongs in a cache-directory name. When both are
     given the tighter one wins.
   norar: build the COUNTERFACTUAL history instead -- real rows to the rarefaction crash,
-    then the smooth shocked-layer decay continued to the same final radius (norar_history).
+    then the smooth shocked-layer decay continued to the same final radius
+    (prerar_model.prerar_history).
     None (default) is the method's normal behaviour and leaves this code path untouched.
-    'adiab' | 'bpl' select the extension law (see _norar_rows); norar_fit = (popts, x0) is
-    required by 'bpl' only. norar_ppd is its sampling in points per decade of R.
+    'prerar' is the only extension law; norar_fit is its alpha table (prerar_model.
+    with_settle). norar_ppd is its sampling in points per decade of R.
     Applied AFTER the truncation above, so the counterfactual's target radius is whatever
     the reference's own endpoint is under the same rar_ratio/r_cap.
 
@@ -666,18 +463,14 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
   if ratios:
     shocked = _truncate_at_ratio(shocked, min(ratios))
   # counterfactual hydro, AFTER the truncation so the extension targets whatever endpoint
-  # the reference has under the same window (norar_history takes it from the frame)
+  # the reference has under the same window (prerar_history takes it from the frame)
   if norar is not None:
-    if norar == 'prerar':
-      # The reconstruction law (prerar_model): follows the real rows out to the edge of the
-      # rarefaction-free window, then prolongs on the measured alpha tables -> the derived
-      # causal-contact asymptote. Imported lazily so the module stays importable, and the
-      # forkserver workers stay cheap, for every other law.
-      from prerar_model import prerar_history
-      shocked, _ = prerar_history(shocked, norar_fit, z=norar_z,
-                                  pts_per_dec=norar_ppd)
-    else:
-      shocked, _ = norar_history(shocked, law=norar, fit=norar_fit, pts_per_dec=norar_ppd)
+    # 'prerar' is the only law: follow the real rows out to the edge of the
+    # rarefaction-free window, then prolong on the measured alpha tables -> the derived
+    # causal-contact asymptote. Imported lazily so the module stays importable and the
+    # forkserver workers stay cheap when no counterfactual is asked for.
+    from prerar_model import prerar_history
+    shocked, _ = prerar_history(shocked, norar_fit, z=norar_z, pts_per_dec=norar_ppd)
   # rescale env + data (s = u_scale holding a_u fixed, then Granot alpha/zeta),
   # same composition order as generate_cell_withDistrib
   env = rescale_proper_velocities(u_scale, env_in)
@@ -926,7 +719,7 @@ def get_cell_nuFnu_fromData(key, k, func_Fnu=get_Fnu_cell_evolving,
   if norar is not None and rar_cut is not None:
     raise ValueError('norar and rar_cut are alternative treatments of the same wave; '
                      'set at most one')
-  norar_fit = _norar_fits(key, z, env, [k]).get(int(k)) if norar == 'bpl' else None
+  norar_fit = None
   if norar == 'prerar':
     from prerar_model import load_table, with_settle, TABLE_KEY, NCELLS
     norar_fit = with_settle(load_table(TABLE_KEY, z), key, z, NCELLS)
@@ -972,12 +765,12 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     anything: with rar_cut='model' the remaining fit/data gap is hydro alone.
   norar: build the COUNTERFACTUAL shell instead -- every cell followed to the same final
     radius as the reference, but with the rarefaction crash replaced by the smooth
-    shocked-layer decay past the handover (norar_history / _norar_rows). Mutually
+    shocked-layer decay past the handover (prerar_model.prerar_history). Mutually
     exclusive with rar_cut: both are treatments of the same wave, and where rar_cut stops
     the cell early, this one holds the worldline EXTENT fixed and removes only the crash
     -- which is what isolates the wave's effect on the emission. None (default) leaves
-    this code path untouched. 'adiab' | 'bpl' select the law; 'both' computes the
-    reference AND the 'adiab' counterfactual in one pass, sharing their common leading
+    this code path untouched. 'prerar' is the only law; 'both' computes the
+    reference AND the 'prerar' counterfactual in one pass, sharing their common leading
     cooling steps (get_Fnu_cell_evolving_pair) and returning a DICT keyed by sweep-method
     name, exactly as rar_cut='both' does.
     NB the shared prefix is SMALLER here than for rar_cut='both' (measured 86 of 433 steps
@@ -1054,16 +847,11 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
                      'set at most one')
   if norar is not None:
     laws = [None, NORAR_LAW] if norar == 'both' else [norar]
-    if any(l not in (None, 'adiab', 'adiab_frozen', 'bernoulli', 'bpl', 'prerar')
-           for l in laws):
-      raise ValueError(f"norar must be None, 'adiab', 'adiab_frozen', 'bernoulli', 'bpl', "
-                       f"'prerar' or 'both', got {norar!r}")
-    # the 'bpl' law needs each cell's fitted profile; anchored on its
-    # cellsBehindShock_fromData radius, which is the anchor load_or_fit_celldata's disk
-    # cache is keyed on -- any other x0 would silently overwrite it (see _norar_fits)
-    fits = _norar_fits(key, z, env, klist) if 'bpl' in laws else None
-    # 'prerar' instead needs the alpha table, which is SHARED by every cell (not narrowed
-    # per-cell below, unlike the bpl fits) and carries this run's own settling correction.
+    if any(l not in (None, 'prerar') for l in laws):
+      raise ValueError(f"norar must be None, 'prerar' or 'both', got {norar!r}")
+    # 'prerar' needs the alpha table, which is SHARED by every cell and carries this run's
+    # own settling correction.
+    fits = None
     if 'prerar' in laws:
       from prerar_model import load_table, with_settle, TABLE_KEY, NCELLS
       fits = with_settle(load_table(TABLE_KEY, z), key, z, NCELLS)
@@ -1151,10 +939,6 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     '''Build one cell per variant from a shared history; None where it is unusable.'''
     out = []
     for _, rmap, kw in variants:
-      # the 'bpl' fit table is per cell (and per sub-cell on its truncated index, the
-      # rar_map_lookup convention): resolve it here, not in the variant spec
-      if kw.get('norar') == 'bpl':
-        kw = dict(kw, norar_fit=(kw['norar_fit'] or {}).get(int(kk)))
       c, ce = generate_cell_fromHistory(hist, attrs, env,
           u_scale=u_scale, alpha=alpha, zeta=zeta, r_ref=r_ref, Tmax=Tmax,
           dlnrho_max=dlnrho_max, dlnsyn_max=dlnsyn_max,

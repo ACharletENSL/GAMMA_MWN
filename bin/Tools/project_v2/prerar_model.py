@@ -319,7 +319,7 @@ from fits_hydro import find_fitting_boundaries
 from phys_functions import savgol_smooth, smooth_bpl0_apy
 from fits_hydro import get_fitting_smoothBPL_new
 from scipy.signal import savgol_filter
-from sweep_norar import _history, SHELL_NAME, shell_cell_range
+from shell_cells import _history, SHELL_NAME, shell_cell_range
 import prerar_cell_evolution as P
 
 TABLE_KEY = 'cooling_g100_w5'      # the basis run: widest windows (1.069 dex), coarse, cheap

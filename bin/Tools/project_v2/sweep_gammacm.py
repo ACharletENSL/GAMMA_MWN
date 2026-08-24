@@ -53,7 +53,7 @@ DEFAULT_METHOD = 'data'   # reference flux computation: the data-driven driver w
 R_CAP = 30.               # analysis window in R/R_injection for the '_cap' methods, applied
                           # to BOTH sides of the no-rarefaction comparison so their endpoints
                           # still match while the counterfactual's extension only has to
-                          # carry ~1-1.5 decades instead of ~2.5 (sweep_norar.main_capped).
+                          # carry ~1-1.5 decades instead of ~2.5 (sweep_prerar.main_capped).
                           # 30 sits inside cooling_g100_semi's coverage (R/R_inj reaches
                           # 64..155) for every cell, so the capped variant is the one that
                           # can be checked against a simulation that has no rarefaction.
@@ -288,7 +288,6 @@ def _data_method_spec(method):
   Grammar: 'data' [ '_norar' [ '_<law>' ] ] [ '_cap' ], e.g.
     data             the reference: real histories to their last snapshot
     data_norar       the no-rarefaction counterfactual, default law (NORAR_LAW)
-    data_norar_bpl   ditto with the BPL-extrapolation law (a bound, see sweep_norar)
     data_cap         the reference truncated at R/R_inj = R_CAP
     data_norar_cap   the counterfactual over that same window (endpoints still match)
 
@@ -306,7 +305,7 @@ def _data_method_spec(method):
     law = NORAR_LAW             # shorthand on INPUT only; canonicalised to the explicit
   elif base.startswith('data_norar_'):   # form below, so caches never collide across laws
     law = base[len('data_norar_'):]
-    if law not in ('adiab', 'adiab_frozen', 'bernoulli', 'bpl', 'prerar'):
+    if law not in ('prerar',):
       raise ValueError(f"unknown extension law {law!r} in method {method!r}")
   else:
     raise ValueError(f"unknown method {method!r}")
@@ -466,8 +465,8 @@ def run_sweep(key, log10ratio_arr, z=Z_SHELL, Tmax=TMAX, NT=NT,
   nproc>1 runs them across a process pool (nproc: explicit > env GAMMACM_NPROC >
   cpu_count()-1).
   method: 'data' (the reference; get_shell_nuFnu_fromData with rar_cut=None) |
-  'data_rarcut' (same with the modelled cut) | 'data_norar[_bpl]' and their '_cap'
-  variants (the no-rarefaction counterfactual, sweep_norar) | the paired 'data+rarcut'
+  'data_rarcut' (same with the modelled cut) | 'data_norar[_prerar]' and their '_cap'
+  variants (the no-rarefaction counterfactual, sweep_prerar) | the paired 'data+rarcut'
   and 'cap+norar_cap' | 'fit' (get_shell_nuFnu); outdir
   defaults to that (method, key, z) triple's directory (method_outdir) so the caches coexist.
   The first point is always computed serially to warm the (key,k) cell/fit caches (and
@@ -1316,7 +1315,7 @@ def cap_end_barT(key, z=Z_SHELL, cap=R_CAP):
   '''
   (first, last) bar{T} = (Ton - Ts)/T0 at which the CAPPED histories stop, i.e. where the
   cells of shell z cross R = cap*R_injection. The capped counterpart of data_end_barT,
-  for the figure annotations of sweep_norar.main_capped -- there BOTH sides stop there,
+  for the figure annotations of sweep_prerar.main_capped -- there BOTH sides stop there,
   reference and counterfactual alike, which is the point of the window.
 
   Interpolated in Ton at the crossing radius rather than read off the truncated row, so

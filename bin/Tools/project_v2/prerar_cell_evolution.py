@@ -71,7 +71,8 @@ RESULTS (cooling_g100, both shells, 40 cells each, slope half-width 0.01 dex)
   of the table is needed for the TRANSIENT; the asymptote is one number, -0.795 +- 0.005.
 
   The p slope is unchanged at ~R^-2 and still sits inside the BPL fits' independently
-  measured p ~ R^-2.0..-2.4 (sweep_norar), which remains the one external check available.
+  measured p ~ R^-2.0..-2.4 (the retired free-coasting laws), which remains the one
+  external check available.
 
   WHY THE FIDUCIAL GOT IT WRONG, and why the pooled curve hides it. Per cell, alpha_D
   steepens MONOTONICALLY through the window -- on the deepest W=2 cells, -0.660 at 0.10 dex
@@ -338,7 +339,7 @@ from environment import MyEnv, GAMMA_dir
 from phys_constants import c_
 from phys_functions import derive_cs, derive_enthalpy, derive_adiab_fromT_TM
 from working_cooling_data import rarefaction_handover, _adiabat_integrated, _cumtrapz0
-from sweep_norar import _history, profile_cells, SHELL_NAME
+from shell_cells import _history, profile_cells, SHELL_NAME
 
 KEY = 'cooling_g100'
 Z_LIST = (4, 1)
@@ -378,7 +379,7 @@ DEX_MIN = 0.06
 # 32 of margin here).
 # This fires on exactly one cell, k=20, whose spurious early Sd block makes
 # select_postshock_rows start it 2.4x too early in radius -- the pre-existing defect
-# sweep_norar.handover_table flags by a break in the R_end/R_inj ladder. Its anchor row has
+# the retired handover_table flagged by a break in the R_end/R_inj ladder. Its anchor row has
 # Theta_sh = 5e-5 = Theta0 and Gamma_sh = 199.8 = u4, i.e. unshocked shell-4 material. Left
 # in, it alone returns alpha_D_mean = +1.117 against -0.93..-0.69 elsewhere and inflates the
 # plateau spread from 0.013 to 0.291. handover_table is right to keep it (the emission
@@ -544,7 +545,7 @@ def _plateau(grid, a, dex):
 def _collect(key, z, ncells=NCELLS, ks=None, halfwidth=SLOPE_HALFWIDTH, verbose=False):
   '''
   Per-cell slope dicts for one shell, keyed by k. Histories are built by
-  sweep_norar._history, i.e. WITH the shockfit prepend, so this measures the history
+  shell_cells._history, i.e. WITH the shockfit prepend, so this measures the history
   production actually sees; skipping the prepend is how a detector artifact once survived
   a full round of per-cell checks.
   '''
