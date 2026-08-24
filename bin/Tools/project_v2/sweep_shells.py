@@ -467,7 +467,10 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, method=METHOD, outdir=None,
     os.makedirs(d, exist_ok=True)
     if not (use_cache and load_sweep(d)):
       print(f'--- running the {method} sweep on {key}, shell z={z} ---')
-      run_sweep(key, log10ratio_arr, z=z, method=method, nproc=nproc)
+      # skip_cached MUST be forwarded (see sweep_gammacm.main): run_sweep defaults it
+      # to True, so use_cache=False would otherwise recompute nothing.
+      run_sweep(key, log10ratio_arr, z=z, method=method, nproc=nproc,
+                skip_cached=use_cache)
 
   pairs = load_shell_pairs(key, method, log10ratio_arr)
   plot_lightcurves_per_regime(pairs, key=key, outdir=outdir)

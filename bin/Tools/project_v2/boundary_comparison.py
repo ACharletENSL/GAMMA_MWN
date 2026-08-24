@@ -809,8 +809,10 @@ def emission_compare(z=4, log10ratio_arr=None, nproc=None, use_cache=True,
     if not (use_cache and load_sweep(d)):
       print(f'--- running the {EMISSION_METHOD} sweep on {key}, shell z={z}, '
             f'Tmax={Tmax:.3f} ---')
+      # skip_cached MUST be forwarded (see sweep_gammacm.main): run_sweep defaults it
+      # to True, so use_cache=False would otherwise recompute nothing.
       run_sweep(key, log10ratio_arr, z=z, method=EMISSION_METHOD, nproc=nproc,
-                Tmax=Tmax, outdir=d)
+                Tmax=Tmax, outdir=d, skip_cached=use_cache)
   pairs = cmp.load_pairs(sdir(SEMI_KEY), sdir(REF_KEY))
 
   barT_f = exit_onset_barT(REF_KEY, z=z)

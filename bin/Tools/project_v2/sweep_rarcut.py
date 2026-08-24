@@ -178,7 +178,10 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
     os.makedirs(d, exist_ok=True)
     if not (use_cache and load_sweep(d)):
       print(f'--- running the {m} sweep on {key}, shell z={z} ---')
-      run_sweep(key, log10ratio_arr, z=z, method=m, nproc=nproc)
+      # skip_cached MUST be forwarded (see sweep_gammacm.main): run_sweep defaults it
+      # to True, so use_cache=False would otherwise recompute nothing.
+      run_sweep(key, log10ratio_arr, z=z, method=m, nproc=nproc,
+                skip_cached=use_cache)
   pairs = cmp.load_pairs(method_outdir(METHOD_A, key, z), method_outdir(METHOD_B, key, z))
 
   barT_f = exit_onset_barT(key, z=z)
