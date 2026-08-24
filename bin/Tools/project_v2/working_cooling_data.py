@@ -764,7 +764,7 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
   vx_e = np.sqrt(lfac_e**2 - 1.)/lfac_e
 
   # electron distribution bounds along the actual (interpolated) rho history
-  gmin_edges, gmax_edges, bsyn_edges = evolve_gma_bounds_edges(
+  gmin_edges, gmax_edges, bsyn_edges, Aad_edges = evolve_gma_bounds_edges(
       tt_edges, rho_e, gmin0, gmax0)
 
   # assemble (left edges + diffs, as generate_cell_withDistrib; t is already
@@ -776,7 +776,8 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
          'i': np.full(n1, inj.i), 'x': x_e[:-1], 'dx': dx_e[:-1],
          'rho': rho_e[:-1], 'vx': vx_e[:-1], 'lfac': lfac_e[:-1], 'p': p_e[:-1],
          'trac': np.full(n1, inj.trac),
-         'gmin': gmin_edges[:-1], 'gmax': gmax_edges[:-1], 'bsyn': bsyn_edges[:-1]}
+         'gmin': gmin_edges[:-1], 'gmax': gmax_edges[:-1], 'bsyn': bsyn_edges[:-1],
+         'Aad': Aad_edges[:-1]}
   out = pd.DataFrame.from_dict(dic)
   for key in attrs:
     out.attrs[key] = attrs[key]

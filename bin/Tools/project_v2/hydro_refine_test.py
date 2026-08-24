@@ -43,7 +43,7 @@ import prerar_model as M
 KEY, Z = 'cooling_g100', 4
 # all the nu_c-dip diagnostics land in one folder so they are not scattered
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'nuc_dip')
-LOGC = ('rho', 'p', 'gmin', 'gmax', 'bsyn', 'lfac', 'dx')   # interpolated in log
+LOGC = ('rho', 'p', 'gmin', 'gmax', 'bsyn', 'Aad', 'lfac', 'dx')   # interpolated in log
 TRAPZ = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
 
 

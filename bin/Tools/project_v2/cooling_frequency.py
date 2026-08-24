@@ -172,8 +172,10 @@ def cell_cooling_table(cell, env, normed=True, syn_fac=SYN_FAC, gma_floor=GMA_FL
     gma_cut     : cell_cooled_cutoff_lfac (finite-gmax0 twin, for the identity check)
     gma_m, gma_M: the frame's evolved bounds gmin, gmax
     nu_c, nu_m, nu_M : the corresponding frequencies (nu_from_lfac; env.nu0 units if normed)
-    Pmax, V3p, nup_B, dtp, Dop : emission-weight ingredients (see cell_radiated_energy,
-                  whose comoving per-step energy goes as Pmax*V3p*nup_B*dtp)
+    Pmax, V3p, nup_B, dtp, Dop, Kad : emission-weight ingredients (see
+                  cell_radiated_energy, whose comoving per-step energy goes as
+                  Kad*Pmax*V3p*nup_B*dtp, with Kad = A^(p-1) the adiabatic
+                  renormalisation of the electron count)
     fresh       : cooling has not yet reached the injected cutoff (no cooling break)
     spent       : the raw gamma_c fell below gma_floor, i.e. the cell has cooled out
 
@@ -206,6 +208,10 @@ def cell_cooling_table(cell, env, normed=True, syn_fac=SYN_FAC, gma_floor=GMA_FL
       'nup_B':  get_variable(cell, 'nup_B', env),
       'dtp':    cell['dtp'].to_numpy(dtype=float),
       'Dop':    get_variable(cell, 'Dop', env),
+      # adiabatic renormalisation of the electron count (radiation_cooling.get_epnu);
+      # 1 for frames predating the column, which is its no-expansion value
+      'Kad':    (cell['Aad'].to_numpy(dtype=float)**(env.psyn - 1.)
+                 if 'Aad' in cell else np.ones(len(cell))),
       })
   # gamma_c is 1/cooled_tt_eff, so it lies just ABOVE the evolved gmax at EVERY step
   # (identity 2, exact): comparing the two says nothing. Cooling has bitten only once
@@ -367,16 +373,19 @@ def step_weights(H, dop_exp=DOP_EXP):
   '''
   Per-step observed emission weight, as a flux-like density in observer time.
 
-  The comoving energy a step radiates goes as Pmax*V3p*nu'_B*dt' (the prefactor of
+  The comoving energy a step radiates goes as Kad*Pmax*V3p*nu'_B*dt' (the prefactor of
   radiation_cooling.step_radiated_energy, summed by cell_radiated_energy); it is boosted
   by Dop**dop_exp and arrives spread over the step's angular window Tth, so the density
   in observer time is that energy divided by Tth.
 
   Only RATIOS between steps at the same observer time matter to every estimator here, so
   the absolute normalisation and the exact dop_exp are second order -- which is testable,
-  and is why dop_exp is a parameter rather than a constant.
+  and is why dop_exp is a parameter rather than a constant. Kad = A^(p-1) does NOT drop
+  out of those ratios, though: A falls along a worldline, so it de-weights late steps
+  relative to early ones. It is the same factor step_radiated_energy applies, and
+  omitting it here would leave the weights inconsistent with the energy they mirror.
   '''
-  return (H.Pmax*H.V3p*H.nup_B*H.dtp*H.Dop**dop_exp/H.Tth_b).to_numpy(dtype=float)
+  return (H.Kad*H.Pmax*H.V3p*H.nup_B*H.dtp*H.Dop**dop_exp/H.Tth_b).to_numpy(dtype=float)
 
 
 def _weighted_quantile(x, w, q):

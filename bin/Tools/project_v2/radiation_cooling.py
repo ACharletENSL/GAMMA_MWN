@@ -44,8 +44,9 @@ class _StepView(SimpleNamespace):
 _STEP_BASE_COLS = ('x', 'trac', 'gmin', 'gmax', 'dtp')
 # base columns that older / analytic cell frames may not carry, with their default
 # (bsyn=0 reproduces the historical tt=1/gmax cooled shape exactly; dtt=0 drops the
-# step-integration weight of step_radiated_energy, i.e. the instantaneous-rate limit)
-_STEP_OPT_COLS = {'bsyn': 0., 'dtt': 0.}
+# step-integration weight of step_radiated_energy, i.e. the instantaneous-rate limit;
+# Aad=1 drops the adiabatic renormalisation K0 -> K0*A^(p-1), i.e. the no-expansion limit)
+_STEP_OPT_COLS = {'bsyn': 0., 'dtt': 0., 'Aad': 1.}
 
 
 def _sval(step, key, env):
@@ -355,7 +356,10 @@ def get_epnu(tnu_arr, step, K0, env, Ng=NG_FLUX, width_tol=1.1,
     return np.zeros(shape_in)
   bsyn = _sval(step, 'bsyn', env)
   Pmax = _sval(step, "Pmax", env)
-  K = K0
+  # A^(p-1): adiabatic cooling compresses the gamma axis, so the cooled shape at fixed
+  # K0 integrates to A^(1-p), not 1. Pmax*V3p supplies the (conserved) electron number,
+  # so the shape must be renormalised here or the count is inflated by A^(1-p).
+  K = K0 * _sval(step, 'Aad', env)**(env.psyn - 1.)
   if gmin < 1.:
     gmin = 1.               # see step_radiated_energy: bound truncation, no rescaling
   if gmax/gmin <= width_tol:
@@ -385,8 +389,10 @@ def cooled_tt_eff(gmax, bsyn):
     N(gma,tt) = K0 gma^-p (1-gma*tt)^(p-2)  on  [gmin(tt), gmax(tt)],
   and at the physical cutoff 1-gmax*tt = gmax/gmax0 != 0: a sharp injected edge
   stays sharp, the distribution is truncated by its SUPPORT, not by the shape
-  decaying to zero. Writing u = gma/gmax and b = the cumulative SYNCHROTRON-only
-  burn-off factor of the top edge (gmax_syn-only/gmax0),
+  decaying to zero. Writing u = gma/gmax and b = the cumulative product of the
+  per-step SYNCHROTRON factors, evaluated along the ACTUAL (syn+adiabatic)
+  trajectory -- not the ratio of a synchrotron-only run, which would over-predict
+  the distortion since adiabatic cooling lowers gma and throttles later syn losses,
     1 - gma*tt = 1 - u*(1-b)   =>   tt_eff = (1-b)/gmax
   b=0 recovers the old tt=1/gmax, i.e. the gmax0 -> infinity solution, which
   vanishes at the cutoff and under-counts the emission there (23% at injection,
@@ -437,7 +443,8 @@ def step_radiated_energy(step, K0, env, Ng=120, width_tol=1.01,
   gma_min cooled below 1: those electrons are non-relativistic and stop emitting, so
   the integral is truncated at gma = 1 and NOTHING else is done. K0 is a NUMBER
   normalisation on the injection bounds (norm_plaw_distrib) and the cooled shape
-  conserves number exactly, so the surviving electrons already carry their own weight;
+  conserves number exactly under SYNCHROTRON (the A^(p-1) above restores it under
+  adiabatic cooling too), so the surviving electrons already carry their own weight;
   the energy the cooled ones lost is in the radiation, not handed to the survivors.
   The former xi_N = derive_xiDN factor here applied the deep-Newtonian (energy
   re-spreading) renormalisation on top of that truncation, counting it twice. See
@@ -463,7 +470,7 @@ def step_radiated_energy(step, K0, env, Ng=120, width_tol=1.01,
   bsyn = _sval(step, 'bsyn', env)
   dtt = _sval(step, 'dtt', env)
   Pmax = _sval(step, "Pmax", env)
-  K = K0
+  K = K0 * _sval(step, 'Aad', env)**(p - 1.)     # adiabatic renormalisation, see get_epnu
   if gmin < 1.:
     gmin = 1.               # bound truncation only (see docstring)
   if gmax/gmin <= width_tol:                       # delta-function shortcut (as get_epnu)

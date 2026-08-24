@@ -797,7 +797,8 @@ def evolve_gma_bounds_edges(tt_edges, rho_edges, gmin0, gmax0):
   correction (rho_{j+1}/rho_j)^(1/3). Source of rho_edges is irrelevant (fits or
   actual hydro data), which is what makes this shared between the fit-based and
   data-driven pipelines.
-  Returns gmin_edges, gmax_edges, bsyn_edges (see evolve_gma_bounds docstring).
+  Returns gmin_edges, gmax_edges, bsyn_edges, Aad_edges (see evolve_gma_bounds
+  docstring).
   '''
   dtt = np.diff(tt_edges)
   adiab = (rho_edges[1:] / rho_edges[:-1])**(1./3.)   # (V'_{j+1}/V'_j)^(-1/3) per step
@@ -813,7 +814,10 @@ def evolve_gma_bounds_edges(tt_edges, rho_edges, gmin0, gmax0):
     return g, bs
   gmin_edges, _ = evolve(gmin0)
   gmax_edges, bsyn_edges = evolve(gmax0)
-  return gmin_edges, gmax_edges, bsyn_edges
+  # cumulative adiabatic factor A = prod(adiab) = (rho/rho_0)^(1/3); it telescopes,
+  # but is built from the SAME adiab as the recursion so the two cannot drift apart.
+  Aad_edges = np.concatenate(([1.], np.cumprod(adiab)))
+  return gmin_edges, gmax_edges, bsyn_edges, Aad_edges
 
 def evolve_gma_bounds(R_edges, tt_edges, cell_d0, env, popt_rho, R0=None, fitfunc=smooth_bpl_apy):
   '''
@@ -833,7 +837,12 @@ def evolve_gma_bounds(R_edges, tt_edges, cell_d0, env, popt_rho, R0=None, fitfun
   synchrotron part distorts the power-law shape -- adiabatic cooling is a uniform
   rescaling that preserves it -- so bsyn, not gmax/gmax0, is what sets the cooled
   distribution's cutoff (see cooled_tt_eff in radiation_cooling).
-  Returns gmin_edges, gmax_edges, bsyn_edges.
+  Also returns Aad_edges, the cumulative adiabatic factor A = (rho/rho_0)^(1/3).
+  A rescales the distribution's NORMALISATION, K = K0 * A^(p-1): the cooled shape
+  conserves number under synchrotron alone, but adiabatic cooling compresses the
+  gamma axis, so the shape at fixed K integrates to A^(1-p) instead of 1. The
+  emission path applies A^(p-1) per step (get_epnu, step_radiated_energy).
+  Returns gmin_edges, gmax_edges, bsyn_edges, Aad_edges.
   '''
 
   if R0 is None:
@@ -1041,13 +1050,16 @@ def generate_cell_withDistrib(cell_data, cell_init, env_in,
 
   # reconstruct hydro
   i, x, dx, rho, vx, lfac, p, trac = reconstruct_cell(R_arr, env, cell_d0, popts)
-  gmin_edges, gmax_edges, bsyn_edges = evolve_gma_bounds(R_edges, tt_edges, cell_d0,
-                                                         env, popt_rho, R0=R0)
+  gmin_edges, gmax_edges, bsyn_edges, Aad_edges = evolve_gma_bounds(
+      R_edges, tt_edges, cell_d0, env, popt_rho, R0=R0)
   gmin, gmax, bsyn = gmin_edges[:-1], gmax_edges[:-1], bsyn_edges[:-1]
+  # left edge, to stay consistent with rho/Pmax (which are also left-edge): the pair
+  # (n(rho), A^(p-1)) is what makes the step's electron count physical.
+  Aad = Aad_edges[:-1]
 
   # create dataframe
-  keys = ['t', 'dt', 'tp', 'dtp', 'tt', 'dtt', 'i', 'x', 'dx', 'rho', 'vx', 'lfac', 'p', 'trac', 'gmin', 'gmax', 'bsyn']
-  vals = [t_arr, dt_arr, tp_arr, dtp_arr, tt_arr, dtt_arr, i, x, dx, rho, vx, lfac, p, trac, gmin, gmax, bsyn]
+  keys = ['t', 'dt', 'tp', 'dtp', 'tt', 'dtt', 'i', 'x', 'dx', 'rho', 'vx', 'lfac', 'p', 'trac', 'gmin', 'gmax', 'bsyn', 'Aad']
+  vals = [t_arr, dt_arr, tp_arr, dtp_arr, tt_arr, dtt_arr, i, x, dx, rho, vx, lfac, p, trac, gmin, gmax, bsyn, Aad]
   # carry the (constant) upstream velocity so thin-shell functions (get_Fnu_vFC ->
   # nu_m2 via derive_nu_m_new) work on the reconstructed cell
   if 'vx_u' in cell_d0:
