@@ -720,9 +720,9 @@ def check_env_match(key_a=SEMI_KEY, key_b=REF_KEY, rtol=1e-10, verbose=True):
   quantity that enters the flux, so the alpha sweep, frequency windows and observer
   grids coincide and the pairs line up pointwise.
 
-  This REPLACES sweep_duration.check_common_span, which cannot be used here for two
-  reasons: the runs are meant to diverge (that is the measurement, see causality_gate),
-  and a raw cell index k is a different physical cell in each run because Next differs.
+  A plain common-span check cannot be used here for two reasons: the runs are meant to
+  diverge (that is the measurement, see causality_gate), and a raw cell index k is a
+  different physical cell in each run because Next differs.
   '''
   ea, eb = MyEnv(key_a), MyEnv(key_b)
   ok, rows = True, []
@@ -755,8 +755,8 @@ def common_Tmax(z=4, margin=0.99):
   The runs stop at very different bar{T}: the fiducial's cells end at ~646-650 (RS),
   the semi run's at ~99, because ITMAX_ fired before TSTOP_ (the confined layer keeps
   a small CFL timestep -- see matched_window). Integrating each to its own end would
-  compare "confined AND 6.5x shorter", and sweep_duration measured a comparable 5x
-  duration change moving the low-frequency late lightcurve by up to 2.1x.
+  compare "confined AND 6.5x shorter", and a comparable 5x duration change was measured
+  to move the low-frequency late lightcurve by up to 2.1x.
 
   Tmax is the HISTORY window in get_shell_nuFnu_fromData, so passing this to BOTH
   sweeps matches the windows without re-extracting or truncating either run. The semi

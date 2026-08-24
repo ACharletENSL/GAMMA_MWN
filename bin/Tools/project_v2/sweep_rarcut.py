@@ -44,10 +44,11 @@ cell's ON-AXIS emission, but get_Fnu_cell_evolving still delivers the tT^-2
 high-latitude tail of every step already emitted. Photons in flight still arrive.
 That is why the cut costs far less than the bar{T} numbers alone suggest.
 
-Companion to sweep_duration.py, which varies the run LENGTH instead (same
-machinery, labels ('raref','ext')). Together they separate "the simulation ended"
-from "the wave arrived" -- the short run cooling_fid_raref ends at bar{T}
-1.66..2.21, i.e. just past this cut, so it is only an approximate version of it.
+"The simulation ended" and "the wave arrived" are distinct causes of a missing
+tail, and this module only controls the second. The run-LENGTH companion that
+separated them (sweep_duration.py) was removed once its paired runs were deleted:
+it measured that a 5x duration change moves the low-frequency late lightcurve by
+up to 2.1x, and <3% on integrated observables.
 
 Example use in command line:
   python -c "import sweep_rarcut as R; R.main(nproc=4)"
