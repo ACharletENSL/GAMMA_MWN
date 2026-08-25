@@ -2,25 +2,47 @@
 Refine the cooling steps on the HYDRO AS THE EMISSION SEES IT (V3p and nu'_B), and test
 whether that removes the slow-cooling dip above nu_c.
 
-WHY: the per-step radiated energy departs from the exact electron budget by up to 18% in the
-late steps of a slow-cooling cell, and the departure correlates with how long the step is
-(corr 0.97 with dtp) and how much the hydro moves across it (corr 0.82 with |dV3p/V3p|). It is
-ZERO in a frozen-hydro cell (code/budget = 1.0000 at every cooling range). So the late steps
-are long enough that B and V3p change materially WITHIN one step, while the code evaluates them
-at a single state.
+READ THE VERDICT BELOW BEFORE THE MOTIVATION: this file's original premise was half right,
+and the half that was right got fixed somewhere else.
 
-The existing binning has no guard for this: r_ref is geometric in gamma_max and dlnrho_max
-refines on rho, but neither bounds the change in V3p or nu'_B across a step -- and those are
-what set the emission.
+ORIGINAL MOTIVATION (2026-08-21). The per-step radiated energy departed from the exact
+electron budget by up to 18% in the late steps of a slow-cooling cell, correlating with step
+duration (corr 0.97 with dtp) and with hydro drift across the step (corr 0.82 with
+|dV3p/V3p|), and was EXACTLY 1.0000 in a frozen-hydro cell. The binning had no guard for it:
+r_ref is geometric in gamma_max and dlnrho_max refines on rho, and neither bounds V3p or
+nu'_B, which are what set the emission.
 
-WHAT IS BEING TESTED: does bounding that variation fix the dip? The dip is the target -- the
-slow-cooling nu F_nu slope steepens past -(p-2)/2 just above nu_c and then RECOVERS, which a
-smooth broken power law cannot do, and which costs 0.052 dex against the GS02 reference where
-fast cooling costs 0.013.
+VERDICT, in two parts.
 
-Caveat kept in view: the energy error is a DEFICIT in the late steps, which on its own would
-make the peak at nu_c too low and the fall ABOVE it shallower -- the wrong sign for the dip.
-So this may fix a real numerical error without touching the dip. Both outcomes are reported.
+  ON THE DIP: NEGATIVE, and this still stands. 8.4x more sub-steps (N 41 -> 346) with the
+  drift capped at 0.5% moved the GS02 rms by 0.0003 dex (0.0520 -> 0.0517) and the slope at
+  +1 dex by 0.001; fast cooling was untouched at 0.0132. Within-step hydro drift is NOT the
+  cause of the nu_c feature. The sign said so in advance: a deficit in the late steps would
+  make the fall above nu_c shallower, not steeper. What the figure does show is that the
+  residual is a clean +0.15 dex EXCESS peaking at nu_c flanked by a -0.10 dex trough -- a
+  bump, not a dip, and the "slope dip" is its derivative.
+
+  ON THE ENERGY ERROR: REAL, and now FIXED -- but by a second-order quadrature rule, not by
+  refinement. Reading the emission prefactor (Aad*Pmax*V3p*nu'_B) at each step's LEFT edge
+  is a left-rectangle rule, so the cure is to read it at the step MIDPOINT, which costs
+  nothing and needs no extra steps. Shipped in commit fcf92a1 as
+  precompute_step_cols(midpoint_hydro=True); see midpoint_hydro_test.py for the measurement.
+  It was worth +2.0/+2.6/+3.2% on a cell's E_rad at log10(gc/gm) = 0/+1/+3 and 1.9-2.4% on
+  the SHELL eps_rad, always one sign, ~0 in fast cooling.
+
+So this test asked the right question of the wrong lever. Refining the steps and midpointing
+the prefactor converge to the same answer; midpointing gets there at the production step
+count, which is why the fix went there and this file stayed a diagnostic.
+
+WHY IT COULD NOT SEE ITS OWN POINT: it judged on the GS02 fit rms, which is a SHAPE statistic
+and is blind to a smooth few-percent normalisation -- exactly the error that was present. It
+never looked at E_rad. Anything measuring a normalisation must say so explicitly; a fit
+residual will absorb it.
+
+NUMBERS ABOVE PREDATE two changes -- the Aad renormalisation (5d2294d) and the midpoint
+(fcf92a1) -- so the baseline this script now draws as 'as-is' is the midpointed one, and the
+refinement it applies on top should move things LESS than it used to. Re-run before quoting
+any figure from it.
 
   python -c "import hydro_refine_test as H; H.main()"
 '''
