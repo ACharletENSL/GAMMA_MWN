@@ -39,10 +39,29 @@ and is blind to a smooth few-percent normalisation -- exactly the error that was
 never looked at E_rad. Anything measuring a normalisation must say so explicitly; a fit
 residual will absorb it.
 
-NUMBERS ABOVE PREDATE two changes -- the Aad renormalisation (5d2294d) and the midpoint
-(fcf92a1) -- so the baseline this script now draws as 'as-is' is the midpointed one, and the
-refinement it applies on top should move things LESS than it used to. Re-run before quoting
-any figure from it.
+RE-RUN 2026-08-25, after both the Aad renormalisation (5d2294d) and the midpoint (fcf92a1).
+The 'as-is' baseline is now the midpointed one, so the refinement on top has little left to
+remove:
+
+  logr  dmax     N   GS02 rms   slopes above peak (+0.5,+1,+1.5,+2,+3 dex)
+   -4   None    79     0.0131   -0.228 -0.250 -0.251 -0.252 -0.264
+   -4   0.005  156     0.0132   -0.228 -0.250 -0.251 -0.252 -0.264
+   +3   None    41     0.0243   -0.199 -0.310 -0.292 -0.274 -0.286
+   +3   0.005  347     0.0266   -0.199 -0.320 -0.302 -0.281 -0.289
+
+Two things changed since the original run. The slow-cooling GS02 rms went 0.0520 -> 0.0243,
+a factor 2.1 better, from the two fixes combined -- so a good part of what was being read as
+"the nu_c feature" was the left-edge prefactor after all, even though refining could not show
+it. And refinement now makes the fit slightly WORSE (0.0243 -> 0.0266) instead of very
+slightly better; do not read that as a reason to refine, it is at the level where the
+remaining feature dominates.
+
+CAVEAT on the "late E err" column, which is where the 18% above came from: _energy_error
+returns Ec/Eb normalised by its own median, and the two integrals it divides are the SAME
+integral, so what survives is a ratio of PREFACTORS (K*dtp*Pmax/dtt) measured relative to its
+median across steps. That is a drift diagnostic, not an absolute energy error, and it is not
+the quantity the midpoint fix was judged on -- see midpoint_hydro_test.py, which compares
+against a converged reference instead.
 
   python -c "import hydro_refine_test as H; H.main()"
 '''
