@@ -56,6 +56,7 @@ import pandas as pd
 from IO import get_variable, open_celldata
 from analysis_hydro import extract_data_cells
 from obs_functions import obs_arrays
+from radiation_cooling import _midpoint_hydro_col
 from environment import rescale_proper_velocities, rescale_hydro
 from working_cooling import (check_extracted_cells, load_shell_rarefaction, rar_map_lookup,
     compute_subcell_edges, DLNRHO_MAX)
@@ -203,14 +204,18 @@ def cell_cooling_table(cell, env, normed=True, syn_fac=SYN_FAC, gma_floor=GMA_FL
       'nu_c':   nu_from_lfac(gma_c, cell, env, normed=normed, syn_fac=syn_fac),
       'nu_m':   nu_from_lfac(gmin, cell, env, normed=normed, syn_fac=syn_fac),
       'nu_M':   nu_from_lfac(gmax, cell, env, normed=normed, syn_fac=syn_fac),
-      'Pmax':   get_variable(cell, 'Pmax', env),
-      'V3p':    get_variable(cell, 'V3p', env),
-      'nup_B':  get_variable(cell, 'nup_B', env),
+      # the four emission-prefactor columns are midpointed exactly as the flux and
+      # energy paths do it (radiation_cooling.precompute_step_cols): step_weights below
+      # mirrors step_radiated_energy's prefactor, so it has to mirror where it is read
+      # too. Dop is NOT midpointed here either -- it is kinematic, and Tth_b/barT with it.
+      'Pmax':   _midpoint_hydro_col(get_variable(cell, 'Pmax', env)),
+      'V3p':    _midpoint_hydro_col(get_variable(cell, 'V3p', env)),
+      'nup_B':  _midpoint_hydro_col(get_variable(cell, 'nup_B', env)),
       'dtp':    cell['dtp'].to_numpy(dtype=float),
       'Dop':    get_variable(cell, 'Dop', env),
       # adiabatic renormalisation of the electron count (radiation_cooling.get_epnu);
       # 1 for frames predating the column, which is its no-expansion value
-      'Kad':    (cell['Aad'].to_numpy(dtype=float)**(env.psyn - 1.)
+      'Kad':    (_midpoint_hydro_col(cell['Aad'].to_numpy(dtype=float))**(env.psyn - 1.)
                  if 'Aad' in cell else np.ones(len(cell))),
       })
   # gamma_c is 1/cooled_tt_eff, so it lies just ABOVE the evolved gmax at EVERY step

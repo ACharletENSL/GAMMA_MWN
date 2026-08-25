@@ -1150,14 +1150,15 @@ def get_Fnu_array_cell_evolving(nuobs, Tobs, cell, env, Ng=NG_FLUX, norm=True, w
   K0 = norm_plaw_distrib(cell0.gmin, cell0.gmax, env.psyn)
   Tarr = np.atleast_1d(np.asarray(Tobs, dtype=float))
   Fnu = np.zeros((len(cell), Tarr.size, np.size(nuobs)))
+  cols = precompute_step_cols(cell, env, midpoint_hydro=midpoint)
+  Ton_arr = cols['obsT'][0]                                # onset (tT=1)
   for j in range(len(cell)):
-    step = cell.iloc[j]
-    Ton = get_variable(step, 'obsT', env)[0]               # onset (tT=1)
     # only Tarr >= Ton receives flux: slice instead of computing + masking
-    iT0 = np.searchsorted(Tarr, Ton)
+    iT0 = np.searchsorted(Tarr, Ton_arr[j])
     if iT0 >= Tarr.size:
       continue                                             # onset after window
-    Fnu[j][iT0:] += get_Fnu_step(nuobs, Tarr[iT0:], step, K0, env, Ng, norm, width_tol)
+    Fnu[j][iT0:] += get_Fnu_step(nuobs, Tarr[iT0:], step_view(cols, j), K0, env,
+                                 Ng, norm, width_tol)
   return Fnu if np.ndim(Tobs) > 0 else Fnu[:,0,:]
 
 def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=NG_FLUX, norm=True, width_tol=1.1,
@@ -1167,12 +1168,18 @@ def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=NG_FLUX, norm=True, width_t
   'cell' is the dataframe from generate_cell_withDistrib (already binned in
   cooling time). K0 is fixed by the initial (injection) distribution bounds.
 
-  midpoint: evaluate each step at its geometric-mean (gmin, gmax, bsyn) rather
-  than at its left edge (_midpoint_cell). A step emits over a finite dtt, during
-  which every electron cools from gma_L to gma_R, so the left-edge state is a
-  first-order overshoot (~4.7% at r_ref=1.1, ~8.9% at 1.2, ~2.4% at 1.05); the
-  geometric mean is the representative state (gma_L*gma_R is the exact finite-step
-  weight, see _step_midpoint_gma) and makes the flux second order in the step.
+  midpoint: evaluate each step at its geometric mean rather than at its left edge,
+  in BOTH of the places a step has a state -- the electron bounds (gmin, gmax, bsyn,
+  via _midpoint_cell) and the emission prefactor (V3p, nu'_B, Pmax, Aad, via
+  precompute_step_cols(midpoint_hydro=...)). A step emits over a finite dtt, during
+  which every electron cools from gma_L to gma_R AND the hydro moves under them, so
+  the left-edge state is a first-order overshoot on both counts: ~4.7% at r_ref=1.1
+  (8.9% at 1.2, 2.4% at 1.05) from the bounds, and up to 3.8% on the per-frequency
+  fluence in slow cooling from the prefactor. The geometric mean is the representative
+  state for both (gma_L*gma_R is the exact finite-step weight, see _step_midpoint_gma)
+  and makes the flux second order in the step.
+  The kinematics (obsT, Dop) stay at the left edge either way -- see
+  precompute_step_cols for why moving x is fatal, and for what error that leaves.
   False restores the historical left-edge evaluation.
 
   Returns shape (len(Tobs), len(nuobs)) for an array Tobs, (len(nuobs),) for a scalar.
@@ -1192,7 +1199,7 @@ def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=NG_FLUX, norm=True, width_t
   gmax_arr = cell.gmax.to_numpy()
   N = gmax_arr.size
   jcut = min(max(N - np.searchsorted(gmax_arr[::-1], gmax_cut, side='right'), 1), N)
-  cols = precompute_step_cols(cell, env)                   # vectorize per-step scalars once
+  cols = precompute_step_cols(cell, env, midpoint_hydro=midpoint)   # per-step scalars once
   Ton_arr = cols['obsT'][0]                                # onset (tT=1)
   for j in range(jcut):
     # only Tarr >= Ton receives flux: slice instead of computing + masking
@@ -1280,8 +1287,8 @@ def get_Fnu_cell_evolving_pair(nuobs, Tobs, cell_full, cell_cut, env, Ng=NG_FLUX
     return min(max(N - np.searchsorted(g[::-1], gmax_cut, side='right'), 1), N)
 
   jcut_f, jcut_c = _jcut(cell_full), _jcut(cell_cut)
-  cols_f = precompute_step_cols(cell_full, env)
-  cols_c = precompute_step_cols(cell_cut, env)
+  cols_f = precompute_step_cols(cell_full, env, midpoint_hydro=midpoint)
+  cols_c = precompute_step_cols(cell_cut, env, midpoint_hydro=midpoint)
   n_shared = min(_shared_step_prefix(cols_f, cols_c), jcut_f, jcut_c)
 
   def _add_steps(Fnu, cols, j0, j1):
@@ -1394,13 +1401,21 @@ def cell_radiated_energy(cell, env, Ng=120, width_tol=1.01):
   int syn_emiss dtnu = (3/2)gma**2), so only the smooth electron integral over gma
   remains -- unbiased and ~1000x cheaper than the former tnu-grid trapezoid, and
   free of the log-grid overshoot that biased the fast-cooling efficiency high.
-  Steps are evaluated at their LEFT edges: step_radiated_energy applies the exact
-  finite-step weight (3/2)gma**2/(1+gma*dtt) per electron, which is what the
-  distribution actually radiates over the step (me c^2 (gma_L - gma_R)). That is
-  exact, so the budget no longer drifts with the cooling-step size -- it replaces
-  the former midpoint-bounds substitution, which was the right idea applied to the
-  bounds rather than per electron and left a first-order residue (eps_rad
-  1.0029/1.0010/1.0005 at r_ref=1.2/1.1/1.05, now 1.00032/1.00031/1.00027).
+  The two halves of a step's state sit in different places, and both are deliberate:
+
+    ELECTRONS at the step's LEFT edge. step_radiated_energy applies the exact
+    finite-step weight (3/2)gma**2/(1+gma*dtt) per electron, which is what the
+    distribution actually radiates over the step (me c^2 (gma_L - gma_R)). That is
+    exact, so the budget does not drift with the cooling-step size -- it replaces the
+    former midpoint-bounds substitution, which was the right idea applied to the bounds
+    rather than per electron and left a first-order residue (eps_rad 1.0029/1.0010/1.0005
+    at r_ref=1.2/1.1/1.05, then 1.00032/1.00031/1.00027).
+
+    PREFACTOR (Aad*Pmax*V3p*nu'_B) at the step's MIDPOINT, via precompute_step_cols'
+    midpoint_hydro. Nothing makes that factor exact over a finite step, so it is an
+    ordinary quadrature and the midpoint rule is the cheap second-order choice. Left-edge
+    was worth +2.0/+2.6/+3.1% on E_rad at log10(gc/gm) = 0/+1/+3 -- i.e. eps_rad read
+    that much high in slow cooling -- against <=0.07% here. See precompute_step_cols.
   '''
   cell0 = cell.iloc[0]
   K0 = norm_plaw_distrib(cell0.gmin, cell0.gmax, env.psyn)   # injection state

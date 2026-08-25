@@ -48,6 +48,28 @@ _STEP_BASE_COLS = ('x', 'trac', 'gmin', 'gmax', 'dtp')
 # Aad=1 drops the adiabatic renormalisation K0 -> K0*A^(p-1), i.e. the no-expansion limit)
 _STEP_OPT_COLS = {'bsyn': 0., 'dtt': 0., 'Aad': 1.}
 
+# Per-step columns forming the EMISSION PREFACTOR, i.e. everything the step's radiated
+# energy is proportional to before the electron integral: Aad*Pmax*V3p*nu'_B. These are
+# midpointed by precompute_step_cols (see there). The KINEMATIC columns are NOT in this
+# list and must never be added to it -- see the docstring for why x in particular is fatal.
+_MIDPOINT_HYDRO_COLS = ('V3p', 'nup_B', 'Pmax', 'Aad')
+
+
+def _midpoint_hydro_col(v):
+  '''
+  Per-step geometric mean of a column stored at step LEFT edges: the right edge of step
+  j is the left edge of step j+1. The last step keeps its left value -- its right edge is
+  not stored (evolve_gma_bounds_edges trims the N+1 edge states to N) -- which is one step
+  in 62-1400 and measured negligible.
+  Geometric rather than arithmetic because these columns are power-law monomials in the
+  hydro, so the geometric mean of the product is the product of the geometric means: it
+  preserves rho*V3p = const exactly, which an arithmetic mean does not.
+  '''
+  v = np.asarray(v, dtype=float)
+  out = v.copy()
+  out[:-1] = np.sqrt(v[:-1]*v[1:])
+  return out
+
 
 def _sval(step, key, env):
   '''Per-step scalar: precomputed attribute on a _StepView, else derived from a
@@ -73,11 +95,50 @@ def _sval(step, key, env):
 NG_FLUX = 120
 
 
-def precompute_step_cols(cell, env, keys=('Dop', 'nup_B', 'Tth', 'V3p', 'Pmax', 'obsT')):
+def precompute_step_cols(cell, env, keys=('Dop', 'nup_B', 'Tth', 'V3p', 'Pmax', 'obsT'),
+    midpoint_hydro=True):
   '''Vectorize a whole cell's per-step quantities once (arrays), to feed
   _StepView in the cooling-step loops. Derived keys via get_variable(cell,...)
   (same formula as the per-row call); base columns via .to_numpy(); obsT is the
-  (Ton, Tth, Tej) triple.'''
+  (Ton, Tth, Tej) triple.
+
+  midpoint_hydro: evaluate the EMISSION PREFACTOR (_MIDPOINT_HYDRO_COLS = V3p, nu'_B,
+  Pmax, Aad) at each step's midpoint -- the geometric mean of its edges -- instead of at
+  its left edge. A step emits over a finite dtt during which the hydro moves (up to
+  dlnrho_max = 0.075 per step), so a left-edge prefactor is a left-rectangle quadrature:
+  first order, and single-signed because the hydro drifts monotonically along a worldline.
+  This is the hydro counterpart of what _midpoint_cell does for the electron bounds, and
+  it is the LARGER of the two; the electron bounds themselves stay where each caller puts
+  them.
+
+  Measured on the fiducial cell (cooling_g100 z=4 k=502, r_ref=1.1) against the same path
+  at dlnrho_max/64, as production-minus-converged:
+
+    log10(gc/gm)   -4       -2        0       +1       +3
+    E_rad       +0.003%  +0.172%  +2.014%  +2.589%  +3.051%    left edge
+                -0.001%  -0.059%  -0.071%  -0.014%  +0.031%    midpoint
+    fluence(nu)   0.09%    2.5%     3.8%     4.0%     3.8%     left edge, max over nu
+                  0.04%    0.27%    0.67%    0.59%    0.54%    midpoint
+
+  It is ~zero in fast cooling and grows into slow cooling, where the steps sit at the
+  dlnrho_max cap and eps_rad is small enough that a fixed absolute error is a large
+  relative one. The decisive check is not the size but the convergence: midpointed E_rad
+  is flat to 0.05% over a factor-8 refinement in dlnrho_max, where the left-edge value
+  still crawls by 1.5% -- so this was the DOMINANT step-size error, not one of several.
+
+  Aad must move WITH the other three: it is the same state's adiabatic renormalisation of
+  the electron count, so midpointing V3p/nu'_B/Pmax without it leaves +0.41% at logr=0,
+  and midpointing Aad alone leaves +1.52%; together, -0.07%.
+
+  The KINEMATIC columns are deliberately left at the left edge -- obsT and Dop, hence t, x
+  and vx. That is not conservatism: T_obs = t - beta*x is a cancellation of order
+  x/2Gamma^2, so a half-step shift in x alone is ~200x the quantity itself and destroys
+  the lightcurve (-98% on the peak, measured). What remains at the left edge is therefore
+  the arrival-time discretisation -- each step is a flash at its own Ton with an HLE tail
+  -- which is a separate error, is what dominates the lightcurve PEAK (+4.5% at logr=0,
+  only ~20% of it removed here), and is not addressed by this switch.
+
+  False restores the historical left-edge evaluation.'''
   cols = {}
   for key in keys:
     if key == 'obsT':
@@ -90,6 +151,10 @@ def precompute_step_cols(cell, env, keys=('Dop', 'nup_B', 'Tth', 'V3p', 'Pmax', 
   for key, default in _STEP_OPT_COLS.items():
     cols[key] = cell[key].to_numpy() if key in cell \
                 else np.full(len(cell), default, dtype=float)
+  if midpoint_hydro:
+    for key in _MIDPOINT_HYDRO_COLS:
+      if key in cols:
+        cols[key] = _midpoint_hydro_col(cols[key])
   return cols
 
 
