@@ -28,7 +28,8 @@ from scipy.optimize import least_squares
 
 from environment import MyEnv, rescale_hydro, GAMMA_dir
 from phys_functions import granot_sari_syn, syn_cutoff_R
-from spectral_breaks import fit_segments, measure_cutoff_nuM, MIN_MID_DEX
+from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run,
+    SLOPE_SMOOTH, SLOPE_TOL, MIN_PTS, MIN_DEX, FIT_DEC, CUT_FAC)
 from working_cooling import (get_shell_nuFnu, open_rundata, cellsBehindShock_fromData,
     load_shell_rarefaction_offT, check_extracted_cells, open_celldata)
 from working_cooling_data import (get_shell_nuFnu_fromData, data_method_name,
@@ -592,14 +593,6 @@ def paired_syn_bpl(x, num, nuc, p, peak=1., xM=None, s=0.4):
   lower break; 1/2 (nuc<num, fast cooling) or (3-p)/2 (nuc>num, slow cooling)
   between the breaks; 1-p/2 above the upper break; optional exp cutoff at xM.
   Scaled so its peak matches `peak`.
-
-  num == nuc gives the MERGED (marginal-cooling) shape for free: _slope_step's
-  x-dependence does not involve dslope, so two steps at the same position multiply into
-  ONE step of the summed slope change, i.e. nu^(4/3) straight to nu^(1-p/2) with no mid
-  segment at all -- the same shape spectral_breaks.fit_single_break fits, and the one the
-  MC spectra actually have (see merged_break_from_segments). `mid` is then irrelevant.
-  The merged break sits (a_lo-a_hi)*s*log10(2) dex below its asymptote crossing, which is
-  what lets `s` be MEASURED there rather than assumed (checked to 5 digits at s<=1.1).
   '''
   x = np.asarray(x, float)
   b_lo, b_hi = min(num, nuc), max(num, nuc)
@@ -610,67 +603,100 @@ def paired_syn_bpl(x, num, nuc, p, peak=1., xM=None, s=0.4):
     y = y * np.exp(-x/xM)
   return y * (peak / np.nanmax(y))
 
+SEG_MIN_MID_DEX = 1.7     # decades of MID segment required before it counts as identified.
+                          # The low and high segments are ASYMPTOTES -- a spectrum can only
+                          # approach them -- so MIN_DEX (0.25) is enough there; the mid slope
+                          # is a value the turnover PASSES THROUGH on its way from one
+                          # asymptote to the other, and a knee crossing it registers as a
+                          # short spurious window. Measured on the sweep, those spurious runs
+                          # reach 0.82 dex (the 1/2 window of a slow-cooling spectrum, and the
+                          # (3-p)/2 window of a fast one), while every real mid segment is
+                          # >= 2.00 dex and the marginal ones stop at 1.43 -- so the threshold
+                          # sits inside a measured factor-1.4 gap and the classification is
+                          # unchanged anywhere in 1.5-2.0. Below ~1.0 the four spectra with
+                          # 1.18-1.43 dex mid windows would be named FC/SC instead of MC.
+SEG_EXT = 0.5             # decades each identified segment is drawn PAST its own window, so
+                          # that a short one is visible on a 15-decade axis. Cosmetic only:
+                          # the window is what the identification and the regime rest on.
 
-def merged_break_from_segments(x, sp, psyn, min_mid_dex=MIN_MID_DEX):
+
+def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
+    min_mid_dex=SEG_MIN_MID_DEX, smooth=SLOPE_SMOOTH, min_pts=MIN_PTS):
   '''
-  The single MERGED break of a marginally-cooling (MC) spectrum sp(x), or None if the
-  spectrum is not MC. Everything here is measured off the power-law segments
-  (spectral_breaks.fit_segments) and their intersection -- no template is fitted.
+  Which synchrotron power-law segments one nuFnu spectrum sp(x) actually shows, and the
+  cooling regime that follows from the answer.
 
-  A spectrum is MC when only the two OUTER segments are clearly identified: the nu^(4/3)
-  and nu^(1-p/2) windows are both found, and there is no mid segment between them worth a
-  line (none at all, or narrower than min_mid_dex). That is the marginal regime by
-  construction rather than by a bin on a break ratio -- an MC spectrum's local slope runs
-  from the low asymptote straight to the high one over ~2 decades, never plateauing, so
-  the two-break form has nothing to measure there (see spectral_breaks.fit_single_break).
+  Four candidates, each a slope the shape theory fixes -- nu^(4/3) below both breaks,
+  nu^(1/2) between them when fast-cooling, nu^((3-p)/2) between them when slow, and
+  nu^(1-p/2) above both. A candidate is IDENTIFIED where the local log-log slope stays
+  within slope_tol of it over a wide enough run (spectral_breaks._widest_run): the slope is
+  held, only the intercept is fitted, so what comes back is the segment itself -- position,
+  extent and normalisation -- with nothing said about how the spectrum turns from one into
+  the next. No break, no crossing and no smoothing is involved anywhere.
 
-  Both parameters of the merged break come out of that same segment fit:
-    position   the intersection of the two lines, 10**((c_lo - c_hi)/(a_hi - a_lo))
-    smoothing  from the flux DEFICIT at that crossing, the smoothing_from_deficit identity
-               applied to one break: the spectrum sits (a_lo - a_hi)*s*log10(2) dex below
-               the crossing, so s reads straight off it. paired_syn_bpl's `s` convention
-               (larger = SMOOTHER), which is the reciprocal of GS02's.
+  The identified SET is the regime, which is the whole point of measuring it this way:
 
-  MEASURED on the reference sweep (cooling_g100, z=4, method 'data'): 7 of the 24
-  rise/peak/tail spectra come back MC -- logr = -3 rise, -2 rise/peak, -1 rise/peak,
-  +0 rise/peak, i.e. the approach to and the crossing itself. On those seven, against the
-  spectrum's own shape (amplitude profiled out, cutoff divided out, over the plotted range):
+      4/3, 1/2, 1-p/2        FC    both breaks in band, fast cooling
+      4/3, (3-p)/2, 1-p/2    SC    both breaks in band, slow cooling
+      4/3, 1-p/2 only        MC    marginal: no mid segment survives between them, the
+                                   spectrum goes from one asymptote to the other
+      1/2, 1-p/2 (no 4/3)    VFC   nothing below the 1/2 segment: nu_c is off the band
+      4/3, (3-p)/2 (no 1-p/2)  VSC nothing above the (3-p)/2 segment: nothing has cooled
 
-      merged break, s from the deficit   0.011-0.056 dex   <- what this draws
-      two-break guide, measure_regime    0.055-0.093       <- what was drawn before
-      merged break at the default s=0.4  0.093-0.251       <- the corner is far too sharp
+  These are SHAPE classes -- statements about what the spectrum displays, not about
+  gamma_c. measure_regime's labels answer the other question (a bin on the break ratio,
+  plus gamma_c against GMA_VFC / gma_M) and build_regime_table still tabulates those; the
+  two disagree where a break sits at the edge of the band, which is exactly where a break
+  ratio is a guess and a missing segment is a measurement.
 
-  So the smoothing is the part that has to be measured: the position is not the difficulty
-  (the crossing lands within 0.1-5% of fit_single_break's FITTED position) and holding s at
-  any single tabulated value is not good enough either -- the per-spectrum optimum runs
-  1.1 to 2.0 across these seven, and the best single value (1.4) is worse than the old
-  two-break guide on 2 of them. The deficit recovers that optimum to <=10% every time.
+  Everything is done on the spectrum AS PLOTTED, with no cutoff division: measure_cutoff_nuM
+  is called only to locate nu_M, above which the 1-p/2 candidate is not searched (the
+  rolloff is not a power law). Flattening the cutoff instead -- what spectral_breaks does --
+  widens the high window but leaves the identified low and mid segments bit-identical here,
+  and its flattened spectrum turns back UP past nu_M, which is what made the high segment
+  of every high-latitude tail unfindable.
 
-  Returns dict(nu_b, s, deficit), or None when the spectrum is not MC.
+  Returns dict(regime, segs, nuM), or None if the spectrum is unusable. segs maps the name
+  ('lo', 'fc', 'sc', 'hi') to dict(a, c, x0, x1, dex): slope, intercept in log10, the
+  window it was identified over, and its width in decades. regime is None when the
+  identified set matches no case above.
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
-  cut = measure_cutoff_nuM(x, sp, psyn, flatten=True)
+  cut = measure_cutoff_nuM(x, sp, psyn, flatten=False)
   if not cut['ok']:
     return None
-  seg = fit_segments(x, cut['sp_flat'], psyn)
-  # an asymptote missing from the band is not a merged break: VFC has no nu^(4/3) segment
-  # in band by construction, and declining here leaves those spectra on the two-break path
-  if seg['win_lo'] is None or seg['win_hi'] is None:
+  lx, ly, s = segment_slopes(x, sp, smooth)
+  if len(lx) < 8 or not np.any(np.isfinite(s)):
     return None
-  mid_dex = seg.get('mid_dex', np.nan)
-  if np.isfinite(mid_dex) and mid_dex >= min_mid_dex:
-    return None                                  # a real mid segment: FC or SC, two breaks
-  a_lo, a_hi = seg['a_lo'], seg['a_hi']
-  lb = (seg['c_lo'] - seg['c_hi'])/(a_hi - a_lo)
-  lx = np.log10(x); ly = np.log10(cut['sp_flat'])
-  ok = np.isfinite(lx) & np.isfinite(ly)
-  if not ok.any() or not (lx[ok].min() < lb < lx[ok].max()):
-    return None                     # crossing off the grid: the deficit would be an extrapolation
-  d = (seg['c_lo'] + a_lo*lb) - float(np.interp(lb, lx[ok], ly[ok]))
-  s = d/((a_lo - a_hi)*np.log10(2.))
-  if not (np.isfinite(s) and s > 0.):
-    return None                     # spectrum at or above the crossing: not a smoothed break
-  return dict(nu_b=float(10**lb), s=float(s), deficit=float(d))
+  i_pk = int(np.argmax(ly))
+  idx = np.arange(len(lx))
+  keep = (ly > ly.max() - FIT_DEC) & (lx < np.log10(cut['nuM']/CUT_FAC))
+  segs = {}
+  for name, a, below, mdex in (('lo', 4./3., True, min_dex),
+                               ('fc', 0.5, True, min_mid_dex),
+                               ('sc', (3. - psyn)/2., True, min_mid_dex),
+                               ('hi', 1. - psyn/2., False, min_dex)):
+    m = keep & np.isfinite(s) & (np.abs(s - a) < slope_tol)
+    m &= (idx < i_pk) if below else (idx > i_pk)
+    w = _widest_run(m, lx, min_pts, mdex)
+    if w is None:
+      continue
+    i, j = w
+    segs[name] = dict(a=a, c=float(np.mean(ly[i:j+1] - a*lx[i:j+1])),
+                      x0=float(10**lx[i]), x1=float(10**lx[j]), dex=float(lx[j] - lx[i]))
+  # a spectrum has ONE mid segment: if the slope lingers at both candidates, the wider run
+  # is the segment and the other is a knee (never fires on this sweep -- the two windows are
+  # 0.24-0.46 and 0.27-0.36 dex where they coexist, i.e. both are rejected anyway)
+  if 'fc' in segs and 'sc' in segs:
+    segs.pop('sc' if segs['fc']['dex'] >= segs['sc']['dex'] else 'fc')
+  has = set(segs)
+  if   {'lo', 'fc', 'hi'} <= has: regime = 'FC'
+  elif {'lo', 'sc', 'hi'} <= has: regime = 'SC'
+  elif {'lo', 'hi'} <= has:       regime = 'MC'
+  elif {'fc', 'hi'} <= has:       regime = 'VFC'
+  elif {'lo', 'sc'} <= has:       regime = 'VSC'
+  else:                           regime = None
+  return dict(regime=regime, segs=segs, nuM=float(cut['nuM']))
 
 
 # ---------------------------------------------------------------------------
@@ -1493,24 +1519,20 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
   peak and tail vs nu/nu_m. Flux is normalised to the plot's peak nuFnu value (the
   brightest of the three spectra, at its spectral peak -- nu_m for fast cooling,
   nu_c for slow), so the peak-phase curve tops out at 1 and rise/tail show their
-  brightness evolution below it. Each spectrum is paired with the synchrotron BPL
-  it matches (dash-dotted) and its cooling regime is measured from its two time-dependent
-  breaks: dashed guides mark nu_m(t), dotted guides nu_c(t), and the grey dotted line
-  x=1 is the collision nu_m (the fixed x-axis unit). The legend gives the break ratio
-  and the gamma_c(t) it implies -- the quantity that decides the extreme labels
-  (measure_regime: VFC if gamma_c < GMA_VFC, VSC if gamma_c > gma_M). All plots share
-  the same fixed y-range (SPEC_YSPAN decades below the peak); x is clipped to the
-  visible spectra.
+  brightness evolution below it. Over each spectrum are drawn the synchrotron power-law
+  SEGMENTS it actually shows (dash-dotted; identify_segments), each on its own fitted
+  intercept over the window it was identified on -- so a segment appears where the
+  spectrum holds that slope and nowhere else. Nothing is anchored on the spectral peak or
+  on a break: no crossing is computed, no shape is fitted, and the spectrum's own turnovers
+  are left undescribed, which is the honest statement about them. The grey dotted line at
+  x=1 is the collision nu_m (the fixed x-axis unit). All plots share the same fixed y-range
+  (SPEC_YSPAN decades below the peak); x is clipped to the visible spectra.
 
-  MARGINAL COOLING gets its own pairing. Where the power-law segments resolve only the two
-  asymptotes and no mid line (merged_break_from_segments), the spectrum has ONE broad break
-  rather than two, and is drawn as such -- position and smoothing both read off the segment
-  fit, one guide at the merged break instead of a nu_m/nu_c pair, and 'MC' in the legend.
-  Those spectra are exactly the ones the two-break pairing described worst, and the merged
-  shape is 1.1-6.6x closer to them (numbers in merged_break_from_segments). The MC label is
-  therefore a statement about the SHAPE of the spectrum, decided by what can be measured on
-  it; measure_regime's own 'marginal' -- a bin on the break ratio, which build_regime_table
-  still tabulates -- is a different question and does not fire on any of these spectra.
+  The legend names the regime the identified SET implies -- FC and SC when a mid segment
+  survives between the two asymptotes, MC when none does, VFC when there is nothing below
+  the nu^(1/2) segment, VSC when there is nothing above the nu^((3-p)/2) one. Those are
+  shape classes; measure_regime's labels (a bin on the break ratio, tabulated by
+  build_regime_table) answer a different question and need not agree.
   '''
   styles = {'rise': 'C0', 'peak': 'C1', 'tail': 'C3'}
   ylo = 10.**(-SPEC_YSPAN)
@@ -1518,43 +1540,27 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
     info = det[3]
     x = nu_over_num(r)
     p = r['env'].psyn
-    phases = [(w, r['nuFnu'][info[f'i_{w}'], :],
-               measure_regime(x, r['nuFnu'][info[f'i_{w}'], :], p, r['env']))
+    phases = [(w, r['nuFnu'][info[f'i_{w}'], :])
               for w in ('rise', 'peak', 'tail') if info.get(f'i_{w}') is not None]
     if not phases:
       continue
-    pkmax = max(np.nanmax(sp) for _, sp, _ in phases)      # plot peak nuFnu (= peak-phase peak)
+    pkmax = max(np.nanmax(sp) for _, sp in phases)         # plot peak nuFnu (= peak-phase peak)
     fig, ax = plt.subplots()
     handles = []; labels = []; sps = []
-    for which, sp, m in phases:
+    for which, sp in phases:
       col = styles[which]
       (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
       sps.append(sp/pkmax)
-      mb = merged_break_from_segments(x, sp, p)
-      if mb is not None:
-        # MC: the two breaks are not separately resolvable, so pair the spectrum with the
-        # merged single break and mark that one position -- drawing a nu_m/nu_c pair under
-        # a merged BPL would claim a separation the spectrum does not show
-        ax.loglog(x, paired_syn_bpl(x, mb['nu_b'], mb['nu_b'], p, s=mb['s'],
-                                    peak=np.nanmax(sp)/pkmax),
+      ident = identify_segments(x, sp, p)
+      for sg in (ident['segs'].values() if ident else ()):
+        # the segment on its OWN intercept, over its OWN window (+SEG_EXT for legibility):
+        # a straight line in the panel's coordinates, drawn where the spectrum holds that
+        # slope. Two ends and matplotlib's log axes do the rest.
+        lxs = np.array([np.log10(sg['x0']) - SEG_EXT, np.log10(sg['x1']) + SEG_EXT])
+        ax.loglog(10**lxs, 10**(sg['c'] + sg['a']*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
-        ax.axvline(mb['nu_b'], color=col, ls='-.', lw=.7)        # the merged break
-      else:
-        # off => the lower break was not measured, only clamped to the window edge: push it
-        # far below the grid so the BPL stays a straight power law across the panel, like
-        # the spectrum itself (drawing it at the clamp bends the guide ~a decade above
-        # x.min(), where the data is still on its mid segment)
-        b_lo, b_hi = sorted((m['num_t'], m['nuc_t']))
-        if m['off']:
-          b_lo = x.min()*1e-3
-        num_b, nuc_b = (b_hi, b_lo) if m['nuc_t'] <= m['num_t'] else (b_lo, b_hi)
-        ax.loglog(x, paired_syn_bpl(x, num_b, nuc_b, p, peak=np.nanmax(sp)/pkmax),
-                  color=col, ls='-.', lw=0.9, alpha=0.8)
-        ax.axvline(m['num_t'], color=col, ls=':', lw=.7)         # nu_m(t)
-        if not m['off']:
-          ax.axvline(m['nuc_t'], color=col, ls='--', lw=.7)      # nu_c(t)
       handles.append(h)
-      labels.append(f"{which}: {'MC' if mb is not None else m['regime']}")
+      labels.append(f"{which}: {(ident['regime'] or '?') if ident else '?'}")
     ax.axvline(1., color='grey', ls=':', lw=.9)                # nu_m at collision (x-axis unit)
     ax.set_ylim(ylo, 3.)
     # clip x to where the (y-clipped) spectra are actually visible, +half a decade
