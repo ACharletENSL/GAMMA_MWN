@@ -1494,7 +1494,8 @@ def _draw_order(pairs):
   return list(pairs)[::-1]
 
 
-def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS, outdir=OUTDIR):
+def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
+    outdir=OUTDIR, annotate=True):
   '''
   Shape-normalised lightcurves at a fixed fraction nu_t of each curve's own peak
   frequency nu_pk = max(nu_m, nu_c) (= nu_m for fast cooling, nu_c for slow; this
@@ -1508,9 +1509,15 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   as the band over which the rarefaction progressively switches the shell off, with a
   line at `last` = when emission stops everywhere; right of it the decay is pure
   high-latitude. Deep in slow cooling that line, not the cooling time, ends the pulse.
+
+  annotate=False drops that whole annotation -- band, bar{T}_rf line and its legend -- and
+  writes the figures as a SEPARATE '_plain' series, leaving the curves and the two grey
+  guides. Same data, nothing marked on it, for use where the rarefaction cut-off is not the
+  point being made. Both series are produced by main.
   '''
   colors, sm = _sweep_colors(results)
-  xoff = tuple(b/barT_f for b in barT_off) if (barT_off and barT_f > 0.) else None
+  tag = '' if annotate else '_plain'
+  xoff = tuple(b/barT_f for b in barT_off) if (annotate and barT_off and barT_f > 0.) else None
   for nu_t in nu_targets:
     fig, axs = plt.subplots(1, 2, figsize=(11, 4.5))
     for r, c in _draw_order(zip(results, colors)):
@@ -1536,14 +1543,14 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     axs[1].set_xlim(xmin=1e-3)
     axs[1].set_ylim(ymin=1e-8)
     if xoff is not None:
-      axs[0].legend(fontsize=10, loc='lower right')
+      axs[0].legend(fontsize=10, loc='upper right')
     fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
     fig.suptitle(f'Lightcurve shape at $\\nu={nu_t:g}\\,\\nu_{{\\rm pk}}$ ')
-    fig.savefig(os.path.join(outdir, f'lightcurve_shape_nu={nu_t:g}.png'), dpi=300)
+    fig.savefig(os.path.join(outdir, f'lightcurve_shape{tag}_nu={nu_t:g}.png'), dpi=300)
     plt.close(fig)
 
 
-def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
+def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
   '''
   One figure per gamma_c/gamma_m, overlaying the instantaneous spectra at rise,
   peak and tail vs nu/nu_m. Flux is normalised to the plot's peak nuFnu value (the
@@ -1566,8 +1573,14 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
   about a MISSING segment is supportable (see identify_segments). Those are shape classes;
   measure_regime's labels (a bin on the break ratio, tabulated by build_regime_table)
   answer a different question and need not agree.
+
+  segments=False draws the spectra alone -- no segment lines, no regime in the legend, only
+  the phase -- and writes them as a SEPARATE '_plain' series. Nothing is measured in that
+  pass, so it is also the figure to read when the question is what the spectra do rather
+  than what can be said about them. Both series are produced by main.
   '''
   styles = {'rise': 'C0', 'peak': 'C1', 'tail': 'C3'}
+  tag = '' if segments else '_plain'
   ylo = 10.**(-SPEC_YSPAN)
   for r, det in zip(results, detections):
     info = det[3]
@@ -1584,7 +1597,7 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
       col = styles[which]
       (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
       sps.append(sp/pkmax)
-      ident = identify_segments(x, sp, p)
+      ident = identify_segments(x, sp, p) if segments else None
       # steepest first = left to right, so consecutive entries are the adjacent pairs
       segs = sorted(ident['segs'].items(), key=lambda kv: -kv[1]['a']) if ident else []
       for k, (name, sg) in enumerate(segs):
@@ -1602,7 +1615,8 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
         ax.loglog(10**lxs, 10**(sg['c'] + sg['a']*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
-      labels.append(f"{which}: {(ident['regime'] or '?') if ident else '?'}")
+      labels.append(which if not segments else
+                    f"{which}: {(ident['regime'] or '?') if ident else '?'}")
     ax.axvline(1., color='grey', ls=':', lw=.9)                # nu_m at collision (x-axis unit)
     ax.set_ylim(ylo, 3.)
     # clip x to where the (y-clipped) spectra are actually visible, +half a decade
@@ -1615,7 +1629,8 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
     ax.set_title(f'Spectral evolution, $\\log_{{10}}(\\gamma_c/\\gamma_m)={r["log10ratio"]:+.0f}$')
     ax.legend(handles, labels, fontsize=10, loc='lower center')
     fig.tight_layout()
-    fig.savefig(os.path.join(outdir, f'spectrum_evolution_logr={r["log10ratio"]:+.1f}.png'), dpi=300)
+    fig.savefig(os.path.join(outdir,
+        f'spectrum_evolution{tag}_logr={r["log10ratio"]:+.1f}.png'), dpi=300)
     plt.close(fig)
 
 
@@ -2253,6 +2268,11 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
           f'[{barT_off[0]/barT_f:.3f}, {barT_off[1]/barT_f:.3f}]')
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir)
   plot_spectra_per_regime(results, detections, outdir=outdir)
+  # the same two figures unannotated, as '_plain' series (see each function's docstring).
+  # Named so that no existing glob picks them up -- ARTICLE_SERIES matches on
+  # 'lightcurve_shape_nu=*', which '_plain' breaks by construction
+  plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir, annotate=False)
+  plot_spectra_per_regime(results, detections, outdir=outdir, segments=False)
   # breaks from the Granot & Sari shape fit rather than the knee scan (track_breaks):
   # unbiased break positions, a fitted nu_M, and a regime label the fit chooses
   # barT_off[1] bounds where the SC -> FC swap may be DETECTED, deliberately the same
