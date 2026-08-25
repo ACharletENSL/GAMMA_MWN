@@ -28,8 +28,8 @@ from scipy.optimize import least_squares
 
 from environment import MyEnv, rescale_hydro, GAMMA_dir
 from phys_functions import granot_sari_syn, syn_cutoff_R
-from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run,
-    SLOPE_SMOOTH, SLOPE_TOL, MIN_PTS, MIN_DEX, FIT_DEC, CUT_FAC)
+from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, edge_slope,
+    SLOPE_SMOOTH, SLOPE_TOL, MIN_PTS, MIN_DEX, FIT_DEC, CUT_FAC, EDGE_VFC_TOL)
 from working_cooling import (get_shell_nuFnu, open_rundata, cellsBehindShock_fromData,
     load_shell_rarefaction_offT, check_extracted_cells, open_celldata)
 from working_cooling_data import (get_shell_nuFnu_fromData, data_method_name,
@@ -615,9 +615,19 @@ SEG_MIN_MID_DEX = 1.7     # decades of MID segment required before it counts as 
                           # sits inside a measured factor-1.4 gap and the classification is
                           # unchanged anywhere in 1.5-2.0. Below ~1.0 the four spectra with
                           # 1.18-1.43 dex mid windows would be named FC/SC instead of MC.
-SEG_EXT = 0.5             # decades each identified segment is drawn PAST its own window, so
-                          # that a short one is visible on a 15-decade axis. Cosmetic only:
-                          # the window is what the identification and the regime rest on.
+SEG_EXT = 0.5             # decades each identified segment is drawn past its own window OR
+                          # past where it meets the neighbouring segment, whichever is
+                          # further, so that every adjacent pair crosses visibly and a short
+                          # window is still legible on a 15-decade axis. Cosmetic only: the
+                          # window is what the identification and the regime rest on, and the
+                          # crossing is read off the drawn lines, never computed into one.
+
+
+def _seg_cross(g1, g2):
+  '''log10 of the frequency where two identified segments' lines meet. For DRAWING only --
+  it decides how far each line is extended so the pair crosses inside the panel; nothing in
+  the identification or the regime uses it.'''
+  return (g1['c'] - g2['c'])/(g2['a'] - g1['a'])
 
 
 def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
@@ -649,6 +659,19 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   two disagree where a break sits at the edge of the band, which is exactly where a break
   ratio is a guess and a missing segment is a measurement.
 
+  VFC is the one verdict resting on a segment being ABSENT, which is a measurement only if
+  the band bottom was reached, so it alone is gated on the LOW-END slope
+  (spectral_breaks.edge_slope, over the lowest decade of usable band): the claim that the
+  nu^(4/3) segment lies below the band requires the lowest in-band slope to still BE the 1/2
+  one. A spectrum bending up toward 4/3 without having got there has its cooling break AT the
+  band edge, supports no verdict, and is returned as regime None rather than guessed.
+  Measured on the rarcut sweep, five of the seven VFC candidates sit at 0.50-0.60 and are
+  clean; the two declined sit at 0.69 (logr=-5 rise) and 0.82 (-3 tail), the latter being the
+  population edge_slope was written for. The other classes are NOT gated this way -- their
+  4/3 window is identified, which is the evidence itself, and the same test would decline
+  logr=-3 peak at 1.14, where a real 0.33-dex 4/3 window is only just reached and the edge
+  decade still averages in the knee.
+
   Everything is done on the spectrum AS PLOTTED, with no cutoff division: measure_cutoff_nuM
   is called only to locate nu_M, above which the 1-p/2 candidate is not searched (the
   rolloff is not a power law). Flattening the cutoff instead -- what spectral_breaks does --
@@ -656,10 +679,10 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   and its flattened spectrum turns back UP past nu_M, which is what made the high segment
   of every high-latitude tail unfindable.
 
-  Returns dict(regime, segs, nuM), or None if the spectrum is unusable. segs maps the name
-  ('lo', 'fc', 'sc', 'hi') to dict(a, c, x0, x1, dex): slope, intercept in log10, the
-  window it was identified over, and its width in decades. regime is None when the
-  identified set matches no case above.
+  Returns dict(regime, segs, nuM, a_edge), or None if the spectrum is unusable. segs maps
+  the name ('lo', 'fc', 'sc', 'hi') to dict(a, c, x0, x1, dex): slope, intercept in log10,
+  the window it was identified over, and its width in decades. regime is None when the
+  identified set matches no case above, or when the low end supports no verdict.
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
   cut = measure_cutoff_nuM(x, sp, psyn, flatten=False)
@@ -689,14 +712,21 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   # 0.24-0.46 and 0.27-0.36 dex where they coexist, i.e. both are rejected anyway)
   if 'fc' in segs and 'sc' in segs:
     segs.pop('sc' if segs['fc']['dex'] >= segs['sc']['dex'] else 'fc')
+  # VFC is the one verdict that rests on a segment being ABSENT, so it is gated on the band
+  # bottom actually being converged to the 1/2 it claims. The other classes have their 4/3
+  # window identified -- that IS the evidence -- and must NOT be gated the same way: the same
+  # test applied to them declines logr=-3 peak, whose edge slope is 1.14 because its 0.33-dex
+  # 4/3 window is only just reached, over a decade that still averages in the knee.
+  a_edge = edge_slope(x, sp, cut['nuM'])
+  vfc_ok = bool(np.isfinite(a_edge) and abs(a_edge - 0.5) <= EDGE_VFC_TOL)
   has = set(segs)
-  if   {'lo', 'fc', 'hi'} <= has: regime = 'FC'
-  elif {'lo', 'sc', 'hi'} <= has: regime = 'SC'
-  elif {'lo', 'hi'} <= has:       regime = 'MC'
-  elif {'fc', 'hi'} <= has:       regime = 'VFC'
-  elif {'lo', 'sc'} <= has:       regime = 'VSC'
-  else:                           regime = None
-  return dict(regime=regime, segs=segs, nuM=float(cut['nuM']))
+  if   {'lo', 'fc', 'hi'} <= has:      regime = 'FC'
+  elif {'lo', 'sc', 'hi'} <= has:      regime = 'SC'
+  elif {'lo', 'hi'} <= has:            regime = 'MC'
+  elif {'fc', 'hi'} <= has and vfc_ok: regime = 'VFC'
+  elif {'lo', 'sc'} <= has:            regime = 'VSC'
+  else:                                regime = None
+  return dict(regime=regime, segs=segs, nuM=float(cut['nuM']), a_edge=float(a_edge))
 
 
 # ---------------------------------------------------------------------------
@@ -1521,18 +1551,21 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
   nu_c for slow), so the peak-phase curve tops out at 1 and rise/tail show their
   brightness evolution below it. Over each spectrum are drawn the synchrotron power-law
   SEGMENTS it actually shows (dash-dotted; identify_segments), each on its own fitted
-  intercept over the window it was identified on -- so a segment appears where the
-  spectrum holds that slope and nowhere else. Nothing is anchored on the spectral peak or
-  on a break: no crossing is computed, no shape is fitted, and the spectrum's own turnovers
-  are left undescribed, which is the honest statement about them. The grey dotted line at
+  intercept over the window it was identified on, run out until it meets its neighbours (and
+  to the end of the band for the 1-p/2 one) so that every adjacent pair is seen to cross.
+  Nothing is anchored on the spectral peak or on a break: no shape is fitted, the crossings
+  are read off the drawn lines rather than computed into a break, and the spectrum's own
+  turnovers are left undescribed, which is the honest statement about them. The grey dotted line at
   x=1 is the collision nu_m (the fixed x-axis unit). All plots share the same fixed y-range
   (SPEC_YSPAN decades below the peak); x is clipped to the visible spectra.
 
   The legend names the regime the identified SET implies -- FC and SC when a mid segment
   survives between the two asymptotes, MC when none does, VFC when there is nothing below
-  the nu^(1/2) segment, VSC when there is nothing above the nu^((3-p)/2) one. Those are
-  shape classes; measure_regime's labels (a bin on the break ratio, tabulated by
-  build_regime_table) answer a different question and need not agree.
+  the nu^(1/2) segment, VSC when there is nothing above the nu^((3-p)/2) one -- and '?'
+  where the bottom of the band has converged to neither asymptote, so that no statement
+  about a MISSING segment is supportable (see identify_segments). Those are shape classes;
+  measure_regime's labels (a bin on the break ratio, tabulated by build_regime_table)
+  answer a different question and need not agree.
   '''
   styles = {'rise': 'C0', 'peak': 'C1', 'tail': 'C3'}
   ylo = 10.**(-SPEC_YSPAN)
@@ -1552,11 +1585,20 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR):
       (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
       sps.append(sp/pkmax)
       ident = identify_segments(x, sp, p)
-      for sg in (ident['segs'].values() if ident else ()):
-        # the segment on its OWN intercept, over its OWN window (+SEG_EXT for legibility):
-        # a straight line in the panel's coordinates, drawn where the spectrum holds that
-        # slope. Two ends and matplotlib's log axes do the rest.
-        lxs = np.array([np.log10(sg['x0']) - SEG_EXT, np.log10(sg['x1']) + SEG_EXT])
+      # steepest first = left to right, so consecutive entries are the adjacent pairs
+      segs = sorted(ident['segs'].items(), key=lambda kv: -kv[1]['a']) if ident else []
+      for k, (name, sg) in enumerate(segs):
+        # the segment on its OWN intercept and slope, run out far enough to meet its
+        # neighbours: down to the crossing with the previous one, up to the crossing with the
+        # next, each by SEG_EXT further, so the pair is seen to cross. The 1-p/2 segment has
+        # no neighbour above it and runs to the end of the band.
+        l0, l1 = np.log10(sg['x0']), np.log10(sg['x1'])
+        if k:
+          l0 = min(l0, _seg_cross(segs[k-1][1], sg))
+        if k + 1 < len(segs):
+          l1 = max(l1, _seg_cross(sg, segs[k+1][1]))
+        lxs = np.array([l0 - SEG_EXT,
+                        np.log10(x.max()) if name == 'hi' else l1 + SEG_EXT])
         ax.loglog(10**lxs, 10**(sg['c'] + sg['a']*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
