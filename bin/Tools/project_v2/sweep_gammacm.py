@@ -12,7 +12,8 @@ Plot set:
     curve through (1,1)), linear + log, one 2-panel fig per frequency
   - spectral EVOLUTION: rise/peak/tail spectra, one fig per gamma_c/gamma_m
   - peak & fluence spectra, all regimes together on a nu/nu_m axis, normalised
-    either to the flux at nu_m or to the peak flux
+    to the flux at nu_m, to the peak flux, or peak-normalised and then scaled by
+    each point's radiative efficiency (SPEC_MODES)
 Example use in command line:
   python -c "import sweep_gammacm as S; S.main(use_cache=False, nproc=4)"
   python -c "import sweep_gammacm as S; S.main(z=1, method='data_rarcut', nproc=7)"
@@ -2110,15 +2111,32 @@ def _fit_paired_syn_bpl(x, sp, psyn, nuM, fit_dec=GS02_FIT_DEC):
   return float(np.sqrt(np.mean(r.fun**2)))
 
 
+SPEC_MODES = ('nu_m', 'max', 'eff')   # normalisations of the all-regimes spectra figures
+_MODE_TITLE = {'nu_m': 'normalised at $\\nu_m$',
+               'max': 'peak-normalised',
+               'eff': 'peak-normalised $\\times\\,\\varepsilon_{\\rm rad}$'}
+
+
 def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3.5,
     sym='\\nu F_\\nu'):
   '''
-  Overlay one spectrum per sweep point vs nu/nu_m, normalised either to the value
-  at nu_m (mode='nu_m') or to the peak value (mode='max'). get_spec(r) -> spectrum.
+  Overlay one spectrum per sweep point vs nu/nu_m, normalised to the value at nu_m
+  (mode='nu_m'), to the peak value (mode='max'), or to the peak value and then
+  multiplied by that point's radiative efficiency eps_rad=E_rad/E_inj (mode='eff'),
+  which restores the ENERGETICS the two shape normalisations divide out: the curves
+  keep their shapes but are stacked by how much of the injected electron energy each
+  regime actually radiates (~1 in fast cooling down to a few % in slow cooling), so a
+  faint slow-cooling regime no longer looks as bright as a fast-cooling one. Points
+  whose cache holds no energy budget (compute_efficiency -> nan) are dropped from the
+  'eff' figure rather than drawn unscaled. get_spec(r) -> spectrum.
   sym is the plotted quantity's LaTeX symbol (nuFnu for a flux spectrum, nu*fluence
   for a time-integrated one). The y-axis is clipped to yclip_dec decades below the
   highest curve -- a gentler clip than the spectral-evolution plots so all the
-  spectral shapes stay visible.
+  spectral shapes stay visible. Under mode='eff' the floor hangs off the LOWEST
+  curve's peak instead, so every curve still shows yclip_dec decades of its own
+  shape however far the efficiency scaling has pushed it down (the eps_rad spread is
+  ~1.6 decades across the sweep); the panel is that much taller, and nothing else
+  about the figure changes.
   No curve may END inside the panel: each point's window runs LOGNU_ABOVE_NUM decades
   past its own nu_M (_nu_window), so every spectrum has rolled over and dropped below
   the y-floor before its grid ends (it exits through the bottom), and they all share
@@ -2128,18 +2146,33 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
   '''
   colors, sm = _sweep_colors(results)
   fig, ax = plt.subplots()
-  ylab = f'${sym}/({sym})_{{\\nu_m}}$' if mode == 'nu_m' else f'${sym}/({sym})_{{\\rm max}}$'
-  curves, ymax = [], 0.
+  ylab = {'nu_m': f'${sym}/({sym})_{{\\nu_m}}$',
+          'max': f'${sym}/({sym})_{{\\rm max}}$',
+          'eff': f'$\\varepsilon_{{\\rm rad}}\\,{sym}/({sym})_{{\\rm max}}$'}[mode]
+  curves, ypks = [], []
   for r, c in zip(results, colors):
     x = nu_over_num(r)
     sp = get_spec(r)
     norm = sp[int(np.argmin(np.abs(x - 1.)))] if mode == 'nu_m' else sp.max()
+    if mode == 'eff':
+      eff = compute_efficiency(r)
+      if not np.isfinite(eff) or eff <= 0.:
+        continue                # no energy budget in this point's cache: cannot scale it
+      norm /= eff
     if norm <= 0.:
       continue
     y = sp / norm
     curves.append((x, y, c))
-    ymax = max(ymax, np.nanmax(y))
-  ylo = ymax/10.**yclip_dec if ymax > 0. else None
+    ypks.append(float(np.nanmax(y)))
+  if not curves:
+    print(f'{fname}: nothing to plot'
+          + (' (energies absent from the cache; re-run with use_cache=False)'
+             if mode == 'eff' else ''))
+    plt.close(fig)
+    return
+  ymax = max(ypks)
+  # 'eff' hangs the floor off the FAINTEST curve so each keeps yclip_dec of its own shape
+  ylo = (min(ypks) if mode == 'eff' else ymax)/10.**yclip_dec if ymax > 0. else None
   for x, y, c in _draw_order(curves):
     ax.loglog(x, y, color=c)
   ax.axvline(1., color='grey', ls=':', lw=.7)
@@ -2157,21 +2190,20 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
 
 
 def plot_peak_spectra_all(results, detections, mode, outdir=OUTDIR):
-  '''Peak-time spectra of all sweep points together, nu/nu_m axis (mode: nu_m | max).'''
+  '''Peak-time spectra of all sweep points together, nu/nu_m axis (mode: SPEC_MODES).'''
   ipeak = {id(r): det[3].get('i_peak') for r, det in zip(results, detections)}
   def get_peak(r):
     return r['nuFnu'][ipeak[id(r)], :]
-  _plot_spectra_all(results, get_peak, mode,
-      f'Peak spectra ({("normalised at $\\nu_m$" if mode=="nu_m" else "peak-normalised")})',
+  _plot_spectra_all(results, get_peak, mode, f'Peak spectra ({_MODE_TITLE[mode]})',
       f'peak_spectra_norm-{mode}.png', outdir)
 
 
 def plot_fluence_all(results, mode, outdir=OUTDIR):
-  '''Time-integrated (fluence) spectra of all sweep points, nu/nu_m axis (mode: nu_m | max).'''
+  '''Time-integrated (fluence) spectra of all sweep points, nu/nu_m axis (mode: SPEC_MODES).'''
   def get_fluence(r):
     return compute_fluence_spectrum(r['Tb'], r['nuFnu'])
   _plot_spectra_all(results, get_fluence, mode,
-      f'Time-integrated spectra ({("normalised at $\\nu_m$" if mode=="nu_m" else "peak-normalised")})',
+      f'Time-integrated spectra ({_MODE_TITLE[mode]})',
       f'fluence_spectra_norm-{mode}.png', outdir, sym='\\nu \\mathcal{F}_\\nu')
 
 
@@ -2293,7 +2325,7 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   plot_gs02_fits(results, detections, outdir=outdir)
   plot_gs02_rms(results, barT_f, barT_off=barT_off, outdir=outdir)
   build_gs02_table(results, detections, outdir=outdir)
-  for mode in ('nu_m', 'max'):
+  for mode in SPEC_MODES:
     plot_peak_spectra_all(results, detections, mode, outdir=outdir)
     plot_fluence_all(results, mode, outdir=outdir)
   # build_regime_table(results, detections, outdir=outdir)
