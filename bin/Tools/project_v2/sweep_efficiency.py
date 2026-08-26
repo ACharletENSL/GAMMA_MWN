@@ -316,8 +316,8 @@ def plot_efficiency_curve(res_rs, res_fs, outdir=OUTDIR, method=METHOD):
   logr_c, eff_c = combined_efficiency(res_rs, res_fs)
 
   fig, ax = plt.subplots(figsize=(7., 4.8))
-  for x, y, c, lab in ((logr_rs, eff_rs, COL_RS, 'RS ($z=4$)'),
-                       (logr_fs, eff_fs, COL_FS, 'FS ($z=1$)'),
+  for x, y, c, lab in ((logr_rs, eff_rs, COL_RS, 'RS'),
+                       (logr_fs, eff_fs, COL_FS, 'FS'),
                        (logr_c, eff_c, COL_TOT, 'RS + FS')):
     ax.plot(x, y, '-', color=c, lw=1.4, label=lab)
   ax.axhline(1., color='grey', ls=':', lw=.9)
@@ -349,8 +349,8 @@ def plot_efficiency_own_regime(res_rs, res_fs, outdir=OUTDIR, method=METHOD):
 
   fig, axs = plt.subplots(2, 1, figsize=(7., 7.), sharex=True,
                           gridspec_kw={'height_ratios': [2.2, 1]})
-  axs[0].plot(reg_rs, eff_rs, '-', color=COL_RS, lw=1.4, label='RS ($z=4$)')
-  axs[0].plot(reg_fs, eff_fs, '-', color=COL_FS, lw=1.4, label='FS ($z=1$)')
+  axs[0].plot(reg_rs, eff_rs, '-', color=COL_RS, lw=1.4, label='RS')
+  axs[0].plot(reg_fs, eff_fs, '-', color=COL_FS, lw=1.4, label='FS')
   axs[0].set_yscale('log')
   axs[0].axhline(1., color='grey', ls=':', lw=.9)
   axs[0].set_ylabel('$\\varepsilon_{\\rm rad}$')
@@ -385,7 +385,7 @@ def _series(res_by_z, which):
 
 
 def plot_efficiency_models(res_by_method, outdir=OUTDIR, ref=METHOD,
-    series=(('RS', COL_RS, 'RS ($z=4$)'), ('FS', COL_FS, 'FS ($z=1$)'),
+    series=(('RS', COL_RS, 'RS'), ('FS', COL_FS, 'FS'),
             ('TOT', COL_TOT, 'RS + FS'))):
   '''
   eps_rad across the cooling regime for every (shell, MODEL of the rarefaction wave) --
