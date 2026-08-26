@@ -13,7 +13,9 @@ model is run for both shells, so the figures can be read either way round.
 Same lever, same simulation and same numerical settings as sweep_gammacm (the
 Granot alpha hydro rescale on cooling_g100, every constant imported from there),
 so the 8 coarse points already cached in figures/gammacm_sweep_data*/cache must
-land exactly on these curves -- they are plotted as open circles for that check.
+land exactly on these curves. That is checked NUMERICALLY (check_against_flux_sweep,
+which must come out at 0 to round-off), not by eye: at 10 points per decade the curves
+are denser than a readable marker spacing, so none of these figures draws markers.
 
 The only difference is that the flux is never computed: energies_only=True on
 get_shell_nuFnu_fromData skips get_Fnu_cell_evolving, which is ~3.5x of a point's
@@ -427,12 +429,20 @@ def plot_efficiency_models(res_by_method, outdir=OUTDIR, ref=METHOD,
       if not len(xs):
         continue
       ys = np.array([y[i]/ref_at[k] for i, k in enumerate(keys) if k in ref_at], float)
-      axs[1].plot(xs, ys, ls=ls, color=col, lw=lw)
+      # the three ratios of one model agree to ~0.1%, so whichever is drawn last hides
+      # the others: put the TOTAL underneath with a wider line, where it reads as a halo
+      # around the two shells rather than erasing them
+      axs[1].plot(xs, ys, ls=ls, color=col, lw=lw + (0.9 if which == 'TOT' else 0.),
+                  zorder=1 if which == 'TOT' else 2)
   axs[0].axhline(1., color='grey', ls=':', lw=.9)
   axs[0].set_yscale('log')
   axs[0].set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
   axs[0].set_title('Radiative efficiency: both shells, every rarefaction model')
   axs[1].axhline(1., color='grey', ls=':', lw=.9)
+  # a fixed 5% ladder rather than the autoscaled ticks: the default locator labels 1.0 and
+  # up, and the cut curves (the whole point of the panel) live BELOW 1 with no tick to read
+  # them against
+  axs[1].yaxis.set_major_locator(plt.MultipleLocator(0.05))
   axs[1].set_ylabel(f'/ {METHOD_LABEL[ref]}')
   axs[1].set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
   # two legends: colour = shell, linestyle = model. Neither axis of the figure is
