@@ -3,9 +3,12 @@
 
 '''
 Radiative efficiency eps_rad = E_rad/E_inj across the cooling regime, on a grid
-FAR finer than a flux sweep can afford: log10(gamma_c/gamma_m) from -5 to +3 at
-10 points per decade (81 points), for BOTH shells (reverse z=4, forward z=1) and
-their combined budget.
+FAR finer than a flux sweep can afford: log10(gamma_c/gamma_m) from -5 to +5 at
+10 points per decade (101 points), for BOTH shells (reverse z=4, forward z=1) and
+their combined budget, and for each MODEL of the rarefaction wave (METHODS:
+'data' the reference, 'data_rarcut' the modelled sharp cut-off, 'data_norar_prerar'
+the no-rarefaction counterfactual). Shell and model are independent axes here: every
+model is run for both shells, so the figures can be read either way round.
 
 Same lever, same simulation and same numerical settings as sweep_gammacm (the
 Granot alpha hydro rescale on cooling_g100, every constant imported from there),
@@ -20,6 +23,8 @@ Example use in command line:
   python -c "import sweep_efficiency as S; S.main(nproc=7)"
   python -c "import sweep_efficiency as S; S.main(use_cache=False, nproc=7)"
   python -c "import sweep_efficiency as S; S.run_sweep('cooling_g100', [-5.,-1.,2.], z_list=(4,))"
+  python -c "import sweep_efficiency as S; S.main(methods=S.METHODS, log10ratio_arr=S.LOG10RATIO_MODELS, nproc=7)"
+  python -c "import sweep_efficiency as S; S.replot()"   # figures from the cache alone
 '''
 
 import os
@@ -32,15 +37,39 @@ from working_cooling_data import get_shell_nuFnu_fromData
 from plotting_functions import COL_RS, COL_FS, COL_TOT
 from sweep_gammacm import (GAMMA_dir, DEFAULT_KEY, Z_SHELL, TMAX, NT, TB_MIN, TB_LIN,
     SUBCELL_DLOGT, SUBCELL_MAX, R_REF, EARLY_ANA, compute_alpha_sweep, compute_efficiency,
-    method_outdir, load_sweep, trim_pngs, _pool_context, _resolve_nproc)
+    method_outdir, load_sweep, trim_pngs, _pool_context, _resolve_nproc, _data_method_spec)
 
 LOG10RATIO_FINE = np.linspace(-5., 5., 101)  # 10 points/decade, both endpoints included
+LOG10RATIO_MODELS = np.linspace(-5., 5., 51)  # 5 points/decade for the NON-reference models.
+                     # A strict SUBSET of LOG10RATIO_FINE (0.2 vs 0.1 spacing on the same
+                     # endpoints), so every model point shares an exact target with the
+                     # reference and the model/reference ratios need no interpolation.
+                     # Half the grid because eps_rad is smooth and monotone and what these
+                     # curves have to resolve is a few-percent offset between models, not
+                     # structure -- and a point costs 1-6 min. Fill in to LOG10RATIO_FINE
+                     # by re-running with it: the cache is per-target and resumable, so the
+                     # intermediate targets are simply added.
 Z_LIST = (4, 1)                              # reverse shock, forward shock
 METHOD = 'data'      # reference treatment: get_shell_nuFnu_fromData with rar_cut=None,
                      # i.e. the rarefaction wave as the simulation resolves it and every
-                     # cell followed to its last snapshot. Fixed here (an efficiency
-                     # curve is a property of the reference, not of a prescription);
-                     # sweep_rarcut is what measures the modelled cut against it.
+                     # cell followed to its last snapshot. THE reference for every ratio
+                     # below, and the only model whose cache/figure names are unsuffixed.
+METHODS = ('data', 'data_rarcut', 'data_norar_prerar')
+                     # the models of the rarefaction wave, all on the same energy budget:
+                     #   data                the wave as the simulation resolves it
+                     #   data_rarcut         the fit path's sharp modelled cut-off at R_rar
+                     #                       (rar_cut='model'), i.e. emission stops there
+                     #   data_norar_prerar   the counterfactual with NO crash: each cell
+                     #                       runs to the same final radius on the smooth
+                     #                       pre-rarefaction decay (prerar_model)
+                     # so the pair (rarcut, prerar) brackets the reference -- the cut can
+                     # only remove radiated energy, the counterfactual can only add it.
+                     # sweep_rarcut / sweep_prerar measure the same three on the FLUX.
+METHOD_STY = {'data': ('-', 1.5), 'data_rarcut': ('--', 1.3),
+              'data_norar_prerar': (':', 1.6)}   # (linestyle, lw) per model; ONE mapping,
+                     # shared by every figure so a dashed curve means the same thing in all
+METHOD_LABEL = {'data': 'reference', 'data_rarcut': 'rarefaction cut',
+                'data_norar_prerar': 'no rarefaction'}
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'efficiency_sweep')
 
 # Sub-cell ladder. SUBCELL_DLOGT (0.008) is what the cached flux sweep used, so it is
@@ -72,14 +101,35 @@ def _shell_regime(env, z):
   return np.log10((env.gma_cFS/env.gma_mFS) if z == 1 else (env.gma_c/env.gma_m))
 
 
-def cache_dir(outdir=OUTDIR, z=Z_SHELL):
-  return os.path.join(outdir, 'cache', f'z={z}')
+def cache_dir(outdir=OUTDIR, z=Z_SHELL, method=METHOD):
+  '''Cache of one (model, shell). The reference keeps the historical unsuffixed
+  cache/z={z} path and the other models nest under cache/{method}/z={z} -- the same
+  convention as sweep_gammacm.method_outdir, so the points already computed for the
+  reference stay exactly where they are.'''
+  d = os.path.join(outdir, 'cache')
+  if method != METHOD:
+    d = os.path.join(d, method)
+  return os.path.join(d, f'z={z}')
+
+
+def _method_kwargs(method):
+  '''
+  The get_shell_nuFnu_fromData treatment kwargs of one model, from the SAME grammar
+  sweep_gammacm._compute_point drives ('data_rarcut' -> rar_cut='model', everything
+  else through _data_method_spec, which raises on an unknown name). One place, so a
+  point here and a flux-sweep point of the same method cannot end up being different
+  physics under the same label -- which is what check_against_flux_sweep verifies.
+  '''
+  if method == 'data_rarcut':
+    return dict(rar_cut='model')
+  law, cap, _ = _data_method_spec(method)
+  return dict(norar=law, r_cap=cap)
 
 
 def _save_point(outdir, r):
   '''Cache one point. Per-point files (not one table) so an interrupted sweep
   resumes: 162 tasks at ~1 min each is a run worth not restarting.'''
-  cdir = cache_dir(outdir, r['z'])
+  cdir = cache_dir(outdir, r['z'], r['method'])
   os.makedirs(cdir, exist_ok=True)
   np.savez(os.path.join(cdir, f'point_logr={r["log10ratio"]:+.2f}.npz'),
       log10ratio=r['log10ratio'], alpha=r['alpha'], E_rad=r['E_rad'], E_int=r['E_int'],
@@ -88,10 +138,10 @@ def _save_point(outdir, r):
       **{k: getattr(r['env'], k) for k in _ENV_KEYS if hasattr(r['env'], k)})
 
 
-def load_efficiency_sweep(outdir=OUTDIR, z=Z_SHELL):
-  '''Rebuild one shell's point list from the cache, sorted by target log10ratio.
-  Returns None if the cache is empty.'''
-  files = sorted(glob.glob(os.path.join(cache_dir(outdir, z), 'point_logr=*.npz')),
+def load_efficiency_sweep(outdir=OUTDIR, z=Z_SHELL, method=METHOD):
+  '''Rebuild one (model, shell)'s point list from the cache, sorted by target
+  log10ratio. Returns None if the cache is empty.'''
+  files = sorted(glob.glob(os.path.join(cache_dir(outdir, z, method), 'point_logr=*.npz')),
                  key=lambda f: float(f.split('logr=')[1].rstrip('.npz')))
   if not files:
     return None
@@ -108,9 +158,10 @@ def load_efficiency_sweep(outdir=OUTDIR, z=Z_SHELL):
   return results
 
 
-def _compute_point(key, z, logr, alpha, outdir, subcell_dlogT=SUBCELL_DLOGT, Tmax=TMAX):
+def _compute_point(key, z, logr, alpha, outdir, subcell_dlogT=SUBCELL_DLOGT, Tmax=TMAX,
+    method=METHOD):
   '''
-  Compute + cache one (regime, shell) point: the comoving energy budget alone.
+  Compute + cache one (regime, shell, model) point: the comoving energy budget alone.
   Module-level so it is picklable for the process pool.
 
   Nnu=2 (a token frequency grid) because energies_only never touches nuobs: the
@@ -121,58 +172,63 @@ def _compute_point(key, z, logr, alpha, outdir, subcell_dlogT=SUBCELL_DLOGT, Tma
   here is directly comparable to the cached flux sweep's.
   '''
   nuobs, Tobs, env, nuFnu, E_rad, E_int, E_inj = get_shell_nuFnu_fromData(
-      key, z, alpha=alpha, energies_only=True, early_ana=EARLY_ANA, rar_cut=None,
+      key, z, alpha=alpha, energies_only=True, early_ana=EARLY_ANA,
       Tmax=Tmax, NT=NT, Tb_min=TB_MIN, Tb_lin=TB_LIN, subcell_dlogT=subcell_dlogT,
-      subcell_max=SUBCELL_MAX, r_ref=R_REF, Nnu=2, lognu_min=0., lognu_max=1.)
+      subcell_max=SUBCELL_MAX, r_ref=R_REF, Nnu=2, lognu_min=0., lognu_max=1.,
+      **_method_kwargs(method))
   r = dict(log10ratio=float(logr), alpha=float(alpha), env=env, E_rad=E_rad,
-           E_int=E_int, E_inj=E_inj, key=key, z=z, method=METHOD,
+           E_int=E_int, E_inj=E_inj, key=key, z=z, method=method,
            subcell_dlogT=subcell_dlogT)
   _save_point(outdir, r)
-  return dict(logr=float(logr), z=z, alpha=float(alpha),
+  return dict(logr=float(logr), z=z, alpha=float(alpha), method=method,
               regime=_shell_regime(env, z), eff=(E_rad/E_inj if E_inj > 0. else np.nan),
               E_rad=E_rad, E_inj=E_inj)
 
 
 def _print_point(s):
-  print(f"z={s['z']}  target={s['logr']:+.2f}  alpha={s['alpha']:11.5g}  "
+  print(f"{s['method']:>18}  z={s['z']}  target={s['logr']:+.2f}  alpha={s['alpha']:11.5g}  "
         f"log10(gc/gm)={s['regime']:+.4f}  eps_rad={s['eff']:.5f}")
 
 
-def cached_targets(outdir=OUTDIR, z=Z_SHELL):
-  '''Targets already on disk for shell z, as the rounded keys the task list uses.'''
-  res = load_efficiency_sweep(outdir, z)
+def cached_targets(outdir=OUTDIR, z=Z_SHELL, method=METHOD):
+  '''Targets already on disk for (model, shell), as the rounded keys the task list uses.'''
+  res = load_efficiency_sweep(outdir, z, method)
   return set() if res is None else {round(r['log10ratio'], 4) for r in res}
 
 
 def run_sweep(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST,
     outdir=OUTDIR, nproc=None, subcell_dlogT=SUBCELL_DLOGT, Tmax=TMAX,
-    skip_cached=True):
+    skip_cached=True, methods=(METHOD,)):
   '''
-  Energy budget of every (target log10(gma_c/gma_m), shell) pair, via the alpha lever
-  (zeta=1, u_scale=1) exactly as sweep_gammacm.run_sweep drives it -- the alphas come
-  from the same compute_alpha_sweep, so the two sweeps' shared targets are the same
-  physical points.
+  Energy budget of every (target log10(gma_c/gma_m), shell, model) triple, via the
+  alpha lever (zeta=1, u_scale=1) exactly as sweep_gammacm.run_sweep drives it -- the
+  alphas come from the same compute_alpha_sweep, so the two sweeps' shared targets are
+  the same physical points.
 
   The tasks are independent and run on one process pool (_pool_context: forkserver,
   see the note in sweep_gammacm -- fork deadlocks here on threaded BLAS, silently).
-  ONE serial warm-up point PER SHELL first: those populate the (key, z) cell and
-  shock-front disk caches, so pool workers only ever read shared paths.
+  ONE serial warm-up point PER (model, shell) first: those populate the (key, z) cell,
+  shock-front and rarefaction-head disk caches -- and, for the counterfactual, the
+  prerar table -- so pool workers only ever read shared paths. Per PAIR, not per shell:
+  the rarefaction head and the prerar table are built by the model that needs them, and
+  only the reference has ever run before.
   skip_cached: leave points already in outdir/cache alone, so an interrupted sweep
   resumes where it stopped (delete the point files, or pass False, to recompute).
-  Returns {z: results list} rebuilt from the cache.
+  Returns {method: {z: results list}} rebuilt from the cache.
   '''
   alpha_arr, log10ratio0 = compute_alpha_sweep(key, log10ratio_arr)
   print(f'baseline (alpha=1): log10(gma_c/gma_m) = {log10ratio0:.6f}')
-  args = lambda z, logr, alpha: (key, z, float(logr), float(alpha), outdir,
-                                 subcell_dlogT, Tmax)
+  args = lambda m, z, logr, alpha: (key, z, float(logr), float(alpha), outdir,
+                                    subcell_dlogT, Tmax, m)
   tasks = []
-  for z in z_list:
-    have = cached_targets(outdir, z) if skip_cached else set()
-    tasks += [args(z, logr, alpha) for logr, alpha in zip(log10ratio_arr, alpha_arr)
-              if round(float(logr), 4) not in have]
-  n_all = len(log10ratio_arr)*len(z_list)
-  print(f'{len(log10ratio_arr)} targets x {len(z_list)} shells = {n_all} points, '
-        f'{n_all - len(tasks)} already cached, {len(tasks)} to compute '
+  for m in methods:
+    for z in z_list:
+      have = cached_targets(outdir, z, m) if skip_cached else set()
+      tasks += [args(m, z, logr, alpha) for logr, alpha in zip(log10ratio_arr, alpha_arr)
+                if round(float(logr), 4) not in have]
+  n_all = len(log10ratio_arr)*len(z_list)*len(methods)
+  print(f'{len(log10ratio_arr)} targets x {len(z_list)} shells x {len(methods)} models '
+        f'= {n_all} points, {n_all - len(tasks)} already cached, {len(tasks)} to compute '
         f'(subcell_dlogT={subcell_dlogT})')
   npr = _resolve_nproc(nproc, max(len(tasks), 1))
   if not tasks:
@@ -181,10 +237,8 @@ def run_sweep(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST,
     for t in tasks:
       _print_point(_compute_point(*t))
   else:
-    # warm up once per shell present in the task list, so pool workers only READ the
-    # (key, z) cell / shock-front / rarefaction disk caches
-    warm = [next(t for t in tasks if t[1] == z) for z in z_list
-            if any(t[1] == z for t in tasks)]
+    pairs = {(t[-1], t[1]) for t in tasks}          # (model, shell) still to compute
+    warm = [next(t for t in tasks if (t[-1], t[1]) == pr) for pr in sorted(pairs)]
     print(f'sweep on {npr} workers ({len(warm)} serial warm-up points, then pool)')
     for t in warm:
       _print_point(_compute_point(*t))
@@ -193,7 +247,7 @@ def run_sweep(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST,
       futs = [ex.submit(_compute_point, *t) for t in tasks if t not in warm]
       for fut in cf.as_completed(futs):
         _print_point(fut.result())
-  return {z: load_efficiency_sweep(outdir, z) for z in z_list}
+  return {m: {z: load_efficiency_sweep(outdir, z, m) for z in z_list} for m in methods}
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +286,13 @@ def combined_efficiency(res_rs, res_fs):
   return np.array(logr), np.where(Einj > 0., Erad/np.where(Einj > 0., Einj, 1.), np.nan)
 
 
-def plot_efficiency_curve(res_rs, res_fs, outdir=OUTDIR):
+def _fname(stem, method):
+  '''Figure name of one model: the reference keeps the historical unsuffixed name,
+  the others get '_{method}' -- the same rule cache_dir follows.'''
+  return f'{stem}.png' if method == METHOD else f'{stem}_{method}.png'
+
+
+def plot_efficiency_curve(res_rs, res_fs, outdir=OUTDIR, method=METHOD):
   '''
   eps_rad = E_rad/E_inj vs the GLOBAL cooling regime, both shells and their combined
   budget on one x axis. That axis is the sweep's control parameter -- the single
@@ -264,13 +324,14 @@ def plot_efficiency_curve(res_rs, res_fs, outdir=OUTDIR):
   ax.set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
   ax.set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
   ax.legend(fontsize=9)
-  ax.set_title('Radiative efficiency across the cooling regime')
+  ax.set_title('Radiative efficiency across the cooling regime'
+               + ('' if method == METHOD else f'  ({METHOD_LABEL[method]})'))
   fig.tight_layout()
-  fig.savefig(os.path.join(outdir, 'radiative_efficiency_fine.png'), dpi=300)
+  fig.savefig(os.path.join(outdir, _fname('radiative_efficiency_fine', method)), dpi=300)
   plt.close(fig)
 
 
-def plot_efficiency_own_regime(res_rs, res_fs, outdir=OUTDIR):
+def plot_efficiency_own_regime(res_rs, res_fs, outdir=OUTDIR, method=METHOD):
   '''
   The same two shells, each against ITS OWN log10(gamma_c/gamma_m) rather than the
   sweep's RS control axis. If eps_rad is a function of the local cooling regime alone
@@ -292,7 +353,8 @@ def plot_efficiency_own_regime(res_rs, res_fs, outdir=OUTDIR):
   axs[0].axhline(1., color='grey', ls=':', lw=.9)
   axs[0].set_ylabel('$\\varepsilon_{\\rm rad}$')
   axs[0].legend(fontsize=9)
-  axs[0].set_title('Is $\\varepsilon_{\\rm rad}$ a function of the local regime alone?')
+  axs[0].set_title('Is $\\varepsilon_{\\rm rad}$ a function of the local regime alone?'
+                   + ('' if method == METHOD else f'  ({METHOD_LABEL[method]})'))
   axs[1].plot(xc, ratio, '-', color='k', lw=1.2)
   axs[1].axhline(1., color='grey', ls=':', lw=.9)
   axs[1].set_ylabel('FS / RS')
@@ -300,33 +362,125 @@ def plot_efficiency_own_regime(res_rs, res_fs, outdir=OUTDIR):
   for ax in axs:
     ax.grid(alpha=.25, lw=.5)
   fig.tight_layout()
-  fig.savefig(os.path.join(outdir, 'radiative_efficiency_own_regime.png'), dpi=300)
+  fig.savefig(os.path.join(outdir, _fname('radiative_efficiency_own_regime', method)),
+              dpi=300)
   plt.close(fig)
 
 
-def build_efficiency_table(res_by_z, outdir=OUTDIR, fname='efficiency_table.csv'):
+def _series(res_by_z, which):
+  '''(x, eps_rad) of one series of a model's result dict: 'RS' | 'FS' | 'TOT', all on
+  the sweep's control axis (the target log10ratio, i.e. the RS regime). Returns
+  (None, None) when that shell has no cache.'''
+  if which == 'TOT':
+    if not (res_by_z.get(4) and res_by_z.get(1)):
+      return None, None
+    return combined_efficiency(res_by_z[4], res_by_z[1])
+  res = res_by_z.get(4 if which == 'RS' else 1)
+  if not res:
+    return None, None
+  logr, _, eff = _arrays(res)
+  return logr, eff
+
+
+def plot_efficiency_models(res_by_method, outdir=OUTDIR, ref=METHOD,
+    series=(('RS', COL_RS, 'RS ($z=4$)'), ('FS', COL_FS, 'FS ($z=1$)'),
+            ('TOT', COL_TOT, 'RS + FS'))):
   '''
-  One row per (shell, sweep point): the alpha, the shell's own regime, the three
+  eps_rad across the cooling regime for every (shell, MODEL of the rarefaction wave) --
+  colour is the shell (the project convention: RS red, FS blue, total black), linestyle
+  is the model (METHOD_STY). Lower panel: each model's ratio to the reference, per
+  shell, which is where the models actually differ -- on the top panel they overlie
+  each other to within a few percent everywhere except the slow-cooling wing.
+
+  The ratio is taken at SHARED TARGETS only (the models' grids are nested by
+  construction, LOG10RATIO_MODELS being a subset of LOG10RATIO_FINE), so it is a
+  point-by-point comparison of the same alpha, never an interpolation.
+
+  The expected ordering is rarcut <= reference <= no-rarefaction at every regime: the
+  modelled cut stops each cell at R_rar and can only remove radiated energy, while the
+  counterfactual replaces the crash with the smooth pre-rarefaction decay and can only
+  add it. A crossing would mean one of those two treatments is not doing what it says.
+  '''
+  fig, axs = plt.subplots(2, 1, figsize=(7.4, 7.), sharex=True,
+                          gridspec_kw={'height_ratios': [2.2, 1]})
+  eff_ref = {}
+  for m in ([ref] + [m for m in res_by_method if m != ref]):   # reference first: it is
+    rbz = res_by_method.get(m)                                 # the denominator below
+    if not rbz:
+      continue
+    ls, lw = METHOD_STY.get(m, ('-', 1.3))
+    for which, col, _ in series:
+      x, y = _series(rbz, which)
+      if x is None:
+        continue
+      axs[0].plot(x, y, ls=ls, color=col, lw=lw)
+      if m == ref:
+        eff_ref[which] = (x, y)
+        continue
+      xr, yr = eff_ref.get(which, (None, None))
+      if xr is None:
+        continue
+      # shared targets only; both grids are sorted, so a rounded-key match is exact
+      ref_at = {round(float(a), 4): b for a, b in zip(xr, yr)}
+      keys = [round(float(a), 4) for a in x]
+      xs = np.array([k for k in keys if k in ref_at], float)
+      if not len(xs):
+        continue
+      ys = np.array([y[i]/ref_at[k] for i, k in enumerate(keys) if k in ref_at], float)
+      axs[1].plot(xs, ys, ls=ls, color=col, lw=lw)
+  axs[0].axhline(1., color='grey', ls=':', lw=.9)
+  axs[0].set_yscale('log')
+  axs[0].set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
+  axs[0].set_title('Radiative efficiency: both shells, every rarefaction model')
+  axs[1].axhline(1., color='grey', ls=':', lw=.9)
+  axs[1].set_ylabel(f'/ {METHOD_LABEL[ref]}')
+  axs[1].set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  # two legends: colour = shell, linestyle = model. Neither axis of the figure is
+  # readable without both, so they are drawn separately rather than as 9 combined entries
+  h_shell = [plt.Line2D([], [], color=c, lw=1.5, label=lab) for _, c, lab in series]
+  h_meth = [plt.Line2D([], [], color='0.35', ls=METHOD_STY.get(m, ('-', 1.3))[0],
+                       lw=METHOD_STY.get(m, ('-', 1.3))[1], label=METHOD_LABEL.get(m, m))
+            for m in ([ref] + [m for m in res_by_method if m != ref]) if res_by_method.get(m)]
+  leg = axs[0].legend(handles=h_shell, fontsize=9, loc='lower left')
+  axs[0].add_artist(leg)
+  axs[0].legend(handles=h_meth, fontsize=9, loc='upper right')
+  for ax in axs:
+    ax.grid(alpha=.25, lw=.5)
+  fig.tight_layout()
+  fig.savefig(os.path.join(outdir, 'radiative_efficiency_models.png'), dpi=300)
+  plt.close(fig)
+  return {m: {w: _series(res_by_method[m], w)[1] for w, _, _ in series}
+          for m in res_by_method if res_by_method.get(m)}
+
+
+def build_efficiency_table(res_by_method, outdir=OUTDIR, fname='efficiency_table.csv'):
+  '''
+  One row per (model, shell, sweep point): the alpha, the shell's own regime, the three
   energies, xi_E = E_inj/(eps_e*E_int) (the fraction of eps_e*e'_int a distribution
   truncated at gma_M can hold -- the old, too-large denominator) and eps_rad.
+  Takes the nested {method: {z: results}} run_sweep returns; a bare {z: results} is
+  accepted too and recorded as the reference model.
   '''
+  if res_by_method and not isinstance(next(iter(res_by_method.values())), dict):
+    res_by_method = {METHOD: res_by_method}
   path = os.path.join(outdir, fname)
   with open(path, 'w', newline='') as f:
     w = csv.writer(f)
-    w.writerow(['z', 'log10ratio_target', 'alpha', 'log10_gc_over_gm', 'E_rad', 'E_inj',
-                'E_int', 'xi_E', 'eps_rad'])
-    for z, results in res_by_z.items():
-      for r in results:
-        ei = r['eps_e']*r['E_int']
-        w.writerow([z, f"{r['log10ratio']:+.2f}", f"{r['alpha']:.6e}",
-                    f"{r['regime']:+.6f}", f"{r['E_rad']:.6e}", f"{r['E_inj']:.6e}",
-                    f"{r['E_int']:.6e}", f"{(r['E_inj']/ei if ei > 0 else np.nan):.6f}",
-                    f"{compute_efficiency(r):.6f}"])
+    w.writerow(['method', 'z', 'log10ratio_target', 'alpha', 'log10_gc_over_gm', 'E_rad',
+                'E_inj', 'E_int', 'xi_E', 'eps_rad'])
+    for m, res_by_z in res_by_method.items():
+      for z, results in res_by_z.items():
+        for r in (results or []):
+          ei = r['eps_e']*r['E_int']
+          w.writerow([m, z, f"{r['log10ratio']:+.2f}", f"{r['alpha']:.6e}",
+                      f"{r['regime']:+.6f}", f"{r['E_rad']:.6e}", f"{r['E_inj']:.6e}",
+                      f"{r['E_int']:.6e}", f"{(r['E_inj']/ei if ei > 0 else np.nan):.6f}",
+                      f"{compute_efficiency(r):.6f}"])
   print(f'efficiency table written to {path}')
   return path
 
 
-def check_against_flux_sweep(res_by_z, key=DEFAULT_KEY, rtol=1e-9):
+def check_against_flux_sweep(res_by_z, key=DEFAULT_KEY, rtol=1e-9, method=METHOD):
   '''
   The energies here come from the same cell_radiated_energy / cell_injected_energy
   calls the flux sweep makes, so wherever the two grids share a target they must agree
@@ -335,12 +489,13 @@ def check_against_flux_sweep(res_by_z, key=DEFAULT_KEY, rtol=1e-9):
   '''
   devs = []
   for z, results in res_by_z.items():
-    coarse = load_sweep(method_outdir(METHOD, key, z))
+    coarse = load_sweep(method_outdir(method, key, z))
     if not coarse or not results:
-      print(f'z={z}: no cached flux sweep to check against')
+      print(f'{method} z={z}: no cached flux sweep to check against')
       continue
     fine = {round(r['log10ratio'], 4): r for r in results}
-    print(f"\nz={z}  {'logr':>7} {'eps_rad (fine)':>15} {'eps_rad (flux)':>15} {'rel. dev.':>11}")
+    print(f"\n{method} z={z}  {'logr':>7} {'eps_rad (fine)':>15} "
+          f"{'eps_rad (flux)':>15} {'rel. dev.':>11}")
     for c in coarse:
       f = fine.get(round(c['log10ratio'], 4))
       if f is None:
@@ -386,27 +541,59 @@ def measure_subcell_cost(key=DEFAULT_KEY, z=Z_SHELL, logr_list=(-5., -1., 2.),
   return worst
 
 
+def _figures(res_by_method, outdir=OUTDIR):
+  '''Every figure + the table, from results already in hand. Split out of main so the
+  figures can be rebuilt from the cache alone (replot) while a long sweep is still
+  filling it in.'''
+  for m, rbz in res_by_method.items():
+    if rbz.get(4) and rbz.get(1):
+      plot_efficiency_curve(rbz[4], rbz[1], outdir=outdir, method=m)
+      plot_efficiency_own_regime(rbz[4], rbz[1], outdir=outdir, method=m)
+  if len(res_by_method) > 1:
+    plot_efficiency_models(res_by_method, outdir=outdir)
+  build_efficiency_table(res_by_method, outdir=outdir)
+  trim_pngs(outdir)
+  print(f'Figures saved to {outdir}')
+
+
+def replot(outdir=OUTDIR, z_list=Z_LIST, methods=METHODS):
+  '''Rebuild the figures and the table from whatever is already cached, computing
+  nothing. Models with an empty cache are dropped, so this works mid-sweep.'''
+  res_by_method = {m: {z: load_efficiency_sweep(outdir, z, m) for z in z_list}
+                   for m in methods}
+  res_by_method = {m: rbz for m, rbz in res_by_method.items() if any(rbz.values())}
+  for m, rbz in res_by_method.items():
+    print(f'{m}: ' + ', '.join(f'z={z} {len(r or [])} pts' for z, r in rbz.items()))
+  _figures(res_by_method, outdir=outdir)
+  return res_by_method
+
+
 def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST, outdir=OUTDIR,
-    use_cache=True, nproc=None, subcell_dlogT=SUBCELL_DLOGT, check=True):
+    use_cache=True, nproc=None, subcell_dlogT=SUBCELL_DLOGT, check=True,
+    methods=(METHOD,)):
   '''
   Full efficiency sweep + figures + table. use_cache reuses whatever points are
   already in outdir/cache (the run is resumable: re-run with use_cache=False to
   recompute, or just delete the points you want redone).
+  methods: which rarefaction models to run (METHODS for all three). The cross-model
+  figure is drawn whenever more than one is present -- including models cached by an
+  earlier call, since it reads them back off disk rather than only from this run.
   '''
   os.makedirs(outdir, exist_ok=True)
-  # run_sweep is itself incremental: it computes only the (z, target) points missing
-  # from the cache, so this is both the first run and the resume path
-  res_by_z = run_sweep(key, log10ratio_arr, z_list=z_list, outdir=outdir, nproc=nproc,
-                       subcell_dlogT=subcell_dlogT, skip_cached=use_cache)
+  # run_sweep is itself incremental: it computes only the (method, z, target) points
+  # missing from the cache, so this is both the first run and the resume path
+  run_sweep(key, log10ratio_arr, z_list=z_list, outdir=outdir, nproc=nproc,
+            subcell_dlogT=subcell_dlogT, skip_cached=use_cache, methods=methods)
+  # read EVERY model back, not just the ones this call ran: the models are computed in
+  # separate (long) runs and the comparison figure needs all of them at once
+  res_by_method = {m: {z: load_efficiency_sweep(outdir, z, m) for z in z_list}
+                   for m in dict.fromkeys(tuple(METHODS) + tuple(methods))}
+  res_by_method = {m: rbz for m, rbz in res_by_method.items() if any(rbz.values())}
   if check:
-    check_against_flux_sweep(res_by_z, key=key)
-  if 4 in res_by_z and 1 in res_by_z:
-    plot_efficiency_curve(res_by_z[4], res_by_z[1], outdir=outdir)
-    plot_efficiency_own_regime(res_by_z[4], res_by_z[1], outdir=outdir)
-  build_efficiency_table(res_by_z, outdir=outdir)
-  trim_pngs(outdir)
-  print(f'Figures saved to {outdir}')
-  return res_by_z
+    for m, rbz in res_by_method.items():
+      check_against_flux_sweep(rbz, key=key, method=m)
+  _figures(res_by_method, outdir=outdir)
+  return res_by_method
 
 
 if __name__ == '__main__':
