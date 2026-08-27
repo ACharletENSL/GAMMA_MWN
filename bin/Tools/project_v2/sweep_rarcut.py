@@ -69,11 +69,17 @@ from working_cooling_data import generate_cell_fromData
 import sweep_compare as cmp
 from sweep_gammacm import (run_sweep, load_sweep, method_outdir, data_end_barT,
     exit_onset_barT, rarefaction_off_barT, compute_alpha_sweep, trim_pngs, _draw_order,
-    copy_article_figures, GAMMA_dir, LOG10RATIO_ARR, Z_SHELL, R_REF)
+    copy_article_figures, GAMMA_dir, LOG10RATIO_ARR, Z_SHELL, R_REF, SPEC_MODES)
 
 KEY = 'cooling_g100'
 METHOD_A, METHOD_B = 'data_rarcut', 'data'   # A = cut (denominator), B = full = REFERENCE
 LABELS = ('rf cut', 'full')               # every ratio panel is then full/cut
+NORM_SIDE = 'A'                              # the flux panels are anchored on the CUT: it is
+                                             # the prescription one would quote, so the full
+                                             # curve reads directly as the extra emission the
+                                             # cut leaves out. Linestyles are untouched by
+                                             # this (dashed = cut, solid = full), and so are
+                                             # the ratio panels, which stay full/cut.
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'rarcut_compare')
 N_PROFILE = 42                               # per-cell energy profile: cells sampled per shell
 LOGR_PROFILE = (-3., 0., 2.)
@@ -163,11 +169,12 @@ def plot_cut_energy_profile(cells=None, logr_list=LOGR_PROFILE, key=KEY,
 
 
 def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
-    nproc=None, labels=LABELS, profile=True, z=Z_SHELL):
+    nproc=None, labels=LABELS, profile=True, z=Z_SHELL, norm_side=NORM_SIDE):
   '''
   Ensure both sweeps of shell z exist (the 'data' side is normally already cached,
   being the reference computation), then build every comparison figure with the CUT
-  as side A, so the ratio panels read full/cut = reference/prescription.
+  as side A, so the ratio panels read full/cut = reference/prescription, and (norm_side,
+  see the constant) the flux panels anchored on the cut.
   z: 4 (reverse shock, default) or 1 (forward shock); the latter gets its own
   '_z={z}' output directory, as its sweep caches do (method_outdir).
   '''
@@ -194,22 +201,23 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
 
   cmp.plot_efficiency_compare(pairs, outdir=outdir, labels=labels)
   for kind in ('peak', 'fluence'):
-    for mode in ('nu_m', 'max'):
+    for mode in SPEC_MODES:
       # no ratio panel on the fluence spectra: the cut's effect there is a visible
       # separation between the two curves, which the shared normalisation already puts
       # on the flux axis. The PEAK spectra keep theirs -- the peak phase is emitted
       # before the cut, so the two sides sit on top of each other and the only way to
       # see the (tiny) difference is on its own axis
       cmp.plot_spectra_compare(pairs, kind=kind, mode=mode, outdir=outdir, labels=labels,
-                               ratio=(kind != 'fluence'))
+                               ratio=(kind != 'fluence'), norm_side=norm_side)
   # rise/peak/tail spectra per regime: the peak phase is emitted before the cut and must
   # come out identical, so this isolates where in the spectrum the discarded tail sits
-  cmp.plot_spectral_evolution_compare(pairs, outdir=outdir, labels=labels)
-  # log-log for the wide view, plus the two linear-time variants: the cut-vs-full
-  # difference is all in the decay, and a linear clock is where it reads naturally
-  for sc in ('log', 'linlog', 'lin'):
-    cmp.plot_lightcurve_compare(pairs, barT_f, barT_off=barT_off, outdir=outdir,
-        labels=labels, barT_end=barT_end, scale=sc)
+  cmp.plot_spectral_evolution_compare(pairs, outdir=outdir, labels=labels,
+                                      norm_side=norm_side)
+  # the lin-lin variant ONLY: the cut-vs-full difference is all in the decay, a linear
+  # clock is where it reads naturally, and the log / linlog views of the same curves were
+  # two more files per frequency for a divergence the ratio panel already carries
+  cmp.plot_lightcurve_compare(pairs, barT_f, barT_off=barT_off, outdir=outdir,
+      labels=labels, barT_end=barT_end, scale='lin', norm_side=norm_side)
   s = cmp.plot_summary_ratios(pairs, outdir=outdir, labels=labels)
   fs = cmp.fluence_split(pairs, barT_off[1] if barT_off else None, outdir=outdir,
       labels=labels, cut_label='R_rar cut-off', cut_math='$R_{\\rm rar}$ cut-off')

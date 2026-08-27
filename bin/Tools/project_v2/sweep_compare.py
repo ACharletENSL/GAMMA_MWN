@@ -15,7 +15,9 @@ Both sweeps use the same observer grids per point (_nu_window / TB_MIN / NT depe
 only on env and alpha), so every comparison here is pointwise -- no interpolation.
 Run the sweeps first (sweep_gammacm.run_sweep(key, arr, method='fit'|'data'), each
 cached in its own directory), then main() builds the figures.
-Convention on every figure: DASHED = fit, SOLID = data, colour = the sweep point.
+Convention on every figure: DASHED = side A, SOLID = side B, colour = the sweep point.
+Which side's flux NORMALISES the panels is a separate choice (norm_side), independent of
+the linestyles.
 '''
 
 import os
@@ -31,7 +33,7 @@ from sweep_gammacm import (load_sweep, method_outdir, _sweep_colors, _draw_order
     compute_fluence_spectrum, detect_rise_peak_tail, compute_efficiency,
     exit_onset_barT, rarefaction_off_barT, data_end_barT, run_sweep, trim_pngs,
     LOG10RATIO_ARR, NU_TARGETS, NU_M_LABEL, NU_REF, Z_SHELL, DEFAULT_KEY, SPEC_YSPAN,
-    XLIM_LIN)
+    XLIM_LIN, SPEC_MODES, _MODE_TITLE)
 
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'gammacm_sweep_compare')
 YCLIP_DEC = 3.5           # decades below the highest curve shown on the spectral panels
@@ -50,13 +52,21 @@ LABELS = ('rf cut', 'full')
                           # runs of one method (see sweep_duration.py).
                           # SIDE B IS THE REFERENCE, in every use of this module: the full
                           # run vs the cut one (the default, and sweep_rarcut), the long run
-                          # vs the short one (sweep_duration). Ratios therefore read B/A,
-                          # and B ALSO SETS THE NORMALISATION of the flux panels -- both
-                          # curves are divided by the same reference value, so a figure
-                          # shows what the other side does RELATIVE TO the reference and
-                          # never rescales itself when the non-reference side changes.
-                          # Normalising on A (as this did until 2026-08-10) anchored the
-                          # picture on the prescription being tested instead.
+                          # vs the short one (sweep_duration). Ratios therefore read B/A.
+                          # WHICH SIDE NORMALISES the flux panels is a SEPARATE choice --
+                          # `norm_side` ('A'|'B') on each plotting function, and never tied
+                          # to the linestyles. Both curves of a point are always divided by
+                          # the SAME number, so their vertical offset is the B/A ratio
+                          # either way; norm_side only picks which curve passes through 1,
+                          # i.e. what the figure is anchored on.
+                          #   'B' anchors on the reference: the figure never rescales
+                          #       itself when the side being tested changes (the function
+                          #       default, and what a run-vs-run comparison wants).
+                          #   'A' anchors on the prescription being tested. This is what
+                          #       the cut-vs-full figures use (main below, sweep_rarcut):
+                          #       the cut IS the model one would quote, so anchoring on it
+                          #       makes the full run read directly as the extra emission
+                          #       the cut leaves out.
 
 
 def _regrid_onto(rd, rf):
@@ -141,6 +151,17 @@ def _peak_spectrum(r):
   i_peak = detect_rise_peak_tail(r['Tb'], r['nub'], r['nuFnu'])[3].get('i_peak', 0)
   return r['nuFnu'][i_peak, :]
 
+def _norm_label(labels, norm_side):
+  """
+  Name of the side whose flux normalises a comparison panel (and the norm_side guard).
+  Kept separate from `labels`' own order so a figure can say which curve sits at 1
+  without the reader having to know which side is dashed.
+  """
+  if norm_side not in ('A', 'B'):
+    raise ValueError(f"norm_side must be 'A' or 'B', got {norm_side!r}")
+  return labels[0] if norm_side == 'A' else labels[1]
+
+
 def _ratio_ylim(ax, ratios):
   '''Symmetric-in-log ratio range, widened past RATIO_SPAN only if the data needs it.'''
   vals = np.concatenate([np.asarray(v)[np.isfinite(v) & (np.asarray(v) > 0.)] for v in ratios]) \
@@ -187,23 +208,32 @@ def plot_efficiency_compare(pairs, outdir=OUTDIR, labels=LABELS):
 
 
 def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=LABELS,
-    ratio=True):
+    ratio=True, norm_side='B'):
   '''
   Spectra of every sweep point, both sides overlaid (dashed A / solid B), vs nu/nu_m.
   kind: 'peak' (spectrum at each curve's own lightcurve peak) | 'fluence'
-    (time-integrated). mode: 'nu_m' (normalised at nu_m) | 'max' (peak-normalised)
+    (time-integrated). mode: any of sweep_gammacm.SPEC_MODES -- 'nu_m' (normalised at
+    nu_m), 'max' (peak-normalised) or 'eff' (peak-normalised, then multiplied by the
+    point's radiative efficiency, which restores the energetics the two shape
+    normalisations divide out and stacks the regimes by how much they actually radiate)
     -- same conventions as sweep_gammacm._plot_spectra_all, so the shapes are
-    directly readable against the single-method figures.
-  Normalisation is taken from the B (= REFERENCE) curve and applied to both, so the
-  vertical offset between a point's two curves IS the B/A ratio, and the picture is
-  anchored on the reference rather than on the prescription being tested (see LABELS).
+    directly readable against the single-method figures. Under 'eff' the y-floor hangs
+    off the FAINTEST point rather than the brightest, so every point still shows
+    YCLIP_DEC decades of its own shape; the pair is scaled by the NORMALISING side's
+    eps_rad, the same side its norm comes from.
+  Normalisation is taken from ONE side's curve (norm_side, 'A' or 'B') and applied to
+  both, so the vertical offset between a point's two curves IS the B/A ratio whichever
+  side is picked; norm_side only sets which curve passes through 1 (see LABELS).
   ratio: draw the B/A ratio in a lower panel. It is redundant with that offset -- it
     only re-plots it on its own axis -- so it is worth its half of the figure ONLY when
     the two sides are close enough that the offset is hard to judge by eye. Off for the
     fluence spectra (see sweep_rarcut), where the curves separate visibly and the
     spectral shape is what the figure is for.
   '''
+  if mode not in SPEC_MODES:
+    raise ValueError(f'mode must be one of {SPEC_MODES}, got {mode!r}')
   la, lb = labels
+  ln = _norm_label(labels, norm_side)
   get_spec = _peak_spectrum if kind == 'peak' else \
              (lambda r: compute_fluence_spectrum(r['Tb'], r['nuFnu']))
   colors, sm = _sweep_colors([rf for rf, _ in pairs])
@@ -214,16 +244,26 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
   else:
     fig, ax_s = plt.subplots(figsize=(7.5, 5.))
     ax_r, cb_ax = None, ax_s
-  ymax, ratios, curves = 0., [], []
+  ymax, ypks, ratios, curves = 0., [], [], []
   for (rf, rd), c in _draw_order(zip(pairs, colors)):
     x = nu_over_num(rf)
     sf, sd = get_spec(rf), get_spec(rd)
-    norm = sd[int(np.argmin(np.abs(x - 1.)))] if mode == 'nu_m' else sd.max()
+    sn = sf if norm_side == 'A' else sd
+    norm = sn[int(np.argmin(np.abs(x - 1.)))] if mode == 'nu_m' else sn.max()
+    if mode == 'eff':
+      # scaled by the NORMALISING side's eps_rad, the side the norm itself comes from:
+      # the two differ by a few percent at most, and taking one from each would fold
+      # that difference into the stacking on top of the offset it already sets
+      eff = compute_efficiency(rf if norm_side == 'A' else rd)
+      if not np.isfinite(eff) or eff <= 0.:
+        continue              # no energy budget in this point's cache: cannot scale it
+      norm /= eff
     if norm <= 0.:
       continue
     yf, yd = sf/norm, sd/norm
     curves.append((x, yf, yd, c))
-    ymax = max(ymax, np.nanmax(yf), np.nanmax(yd))
+    ypks.append(max(np.nanmax(yf), np.nanmax(yd)))
+    ymax = max(ymax, ypks[-1])
     if ax_r is not None:
       with np.errstate(divide='ignore', invalid='ignore'):
         ratios.append(np.where(sf > 0., sd/sf, np.nan))
@@ -231,7 +271,15 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
   for x, yf, yd, c in curves:
     ax_s.loglog(x, yf, color=c, lw=1.1, ls='--')
     ax_s.loglog(x, yd, color=c, lw=1.1)
-  ylo = ymax/10.**YCLIP_DEC if ymax > 0. else None
+  if not curves:
+    print(f'{kind}_spectra_cmp_norm-{mode}: nothing to plot'
+          + (' (energies absent from the caches; re-run the sweeps with use_cache=False)'
+             if mode == 'eff' else ''))
+    plt.close(fig)
+    return
+  # 'eff' hangs the floor off the FAINTEST point, so each keeps YCLIP_DEC of its own shape
+  # however far the efficiency scaling has pushed it down (as _plot_spectra_all does)
+  ylo = (min(ypks) if mode == 'eff' else ymax)/10.**YCLIP_DEC if ymax > 0. else None
   if ylo is not None:
     # only a little headroom above the peak: the legend sits upper-LEFT, over the
     # low-frequency end where every curve is near the floor, so it needs no room here
@@ -240,7 +288,8 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
     ax_s.set_xlim(min(x[0] for x, _, _, _ in curves), 2.*xhi)
   sym = '\\nu F_\\nu' if kind == 'peak' else '\\nu \\mathcal{F}_\\nu'
   sub = f'({sym})_{{\\nu_m}}' if mode == 'nu_m' else f'({sym})_{{\\rm max}}'
-  ax_s.set_ylabel(f'${sym}/{sub}$  ({lb} norm.)')
+  pre = '\\varepsilon_{\\rm rad}\\,' if mode == 'eff' else ''
+  ax_s.set_ylabel(f'${pre}{sym}/{sub}$  ({ln} norm.)')
   ax_s.axvline(1., color='grey', ls=':', lw=.7)
   ax_s.plot([], [], 'k--', label=la); ax_s.plot([], [], 'k-', label=lb)
   ax_s.legend(loc='upper left', fontsize=9)
@@ -254,15 +303,14 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
   else:
     ax_s.set_xlabel(NU_M_LABEL)
   ax_s.set_title(f'{"Peak" if kind=="peak" else "Time-integrated"} spectra, '
-                 f'{la} vs {lb} '
-                 f'({"norm. at $\\nu_m$" if mode=="nu_m" else "peak-normalised"})')
+                 f'{la} vs {lb} ({_MODE_TITLE[mode]})')
   fig.colorbar(sm, ax=cb_ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
   fig.savefig(os.path.join(outdir, f'{kind}_spectra_cmp_norm-{mode}.png'), dpi=300)
   plt.close(fig)
 
 
 def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
-    yspan=SPEC_YSPAN, phase_col=None):
+    yspan=SPEC_YSPAN, phase_col=None, norm_side='B'):
   '''
   Spectral evolution, both sides overlaid: one figure per sweep point, showing the
   instantaneous spectra at rise / peak / tail vs nu/nu_m on a SINGLE panel.
@@ -275,8 +323,8 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
   different times, that timing difference is folded into the offset between the curves
   together with the spectral one. For the fixed-observer-time view, read
   plot_lightcurve_compare instead. The legend prints both times whenever they differ, so a
-  phase that has moved is visible on the figure. Flux is normalised to SIDE B's brightest
-  phase spectrum (B = the reference, see LABELS), so the vertical offset between a phase's
+  phase that has moved is visible on the figure. Flux is normalised to the brightest phase
+  spectrum of the norm_side side (see LABELS), so the vertical offset between a phase's
   two curves IS the B/A ratio, read off the same axis as the shapes.
 
   No ratio sub-panel: the offset between the dashed and solid curve of one colour already
@@ -290,6 +338,7 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
   dashed side-A curves.
   '''
   la, lb = labels
+  ln = _norm_label(labels, norm_side)
   phase_col = phase_col or {'rise': 'C0', 'peak': 'C1', 'tail': 'C3'}
   ylo = 10.**(-yspan)
   for rf, rd in pairs:
@@ -303,8 +352,9 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
     if not phases:
       continue
     x = nu_over_num(rf)
-    # side B = the REFERENCE normalises (see LABELS), at ITS OWN phase indices
-    norm = max(np.nanmax(rd['nuFnu'][ib, :]) for _, _, ib in phases)
+    # one side normalises (norm_side, see LABELS), at ITS OWN phase indices
+    rn, ip = (rf, 1) if norm_side == 'A' else (rd, 2)
+    norm = max(np.nanmax(rn['nuFnu'][ph[ip], :]) for ph in phases)
     if not (norm > 0.):
       continue
 
@@ -313,9 +363,14 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
     for w, ia, ib in phases:
       c = phase_col[w]
       sf, sd = rf['nuFnu'][ia, :]/norm, rd['nuFnu'][ib, :]/norm
-      (h,) = ax.loglog(x, sf, color=c, lw=1.2, ls='--')
+      ax.loglog(x, sf, color=c, lw=1.2, ls='--')
       ax.loglog(x, sd, color=c, lw=1.2)
       sps += [sf, sd]
+      # the phase key is a SOLID swatch whatever the linestyles and whichever side
+      # normalises: it names the COLOUR only, and the two black keys below it carry the
+      # dashed/solid convention. Taking it from one of the drawn lines instead made the
+      # phase legend read as if that side were the phase.
+      (h,) = ax.plot([], [], color=c, lw=1.2)
       handles.append(h)
       # both times when the phase has moved between the sides, one when it has not
       tA, tB = rf['Tb'][ia] - 1., rd['Tb'][ib] - 1.
@@ -333,7 +388,7 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
     # peak-phase spectrum and the top-right is the empty corner
     ax.legend(handles + [ha, hb], labs + [la, lb],
               fontsize=9, loc='upper right', ncol=2)
-    ax.set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm pk}}$  ({lb} norm.)')
+    ax.set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm pk}}$  ({ln} norm.)')
     ax.set_xlabel(NU_M_LABEL)
     ax.set_title(f'Spectral evolution, {la} vs {lb}, '
                  f'$\\log_{{10}}(\\gamma_c/\\gamma_m)={rf["log10ratio"]:+.0f}$')
@@ -344,12 +399,14 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
 
 
 def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
-    outdir=OUTDIR, labels=LABELS, barT_end=None, scale='log', xlim_lin=XLIM_LIN):
+    outdir=OUTDIR, labels=LABELS, barT_end=None, scale='log', xlim_lin=XLIM_LIN,
+    norm_side='B'):
   '''
   Lightcurves at a fixed fraction nu_t of each point's own peak frequency, both
-  sides overlaid, time normalised to the shell-crossing bar{T}_f, flux to the
-  B (= REFERENCE) peak of that point, so the reference curve peaks at 1 and side A
-  reads directly as a fraction of it -- the same anchor the B/A ratio panel uses.
+  sides overlaid, time normalised to the shell-crossing bar{T}_f, flux to the peak of
+  the norm_side side of that point (see LABELS), so that side peaks at 1 and the other
+  reads directly as a fraction of it. The B/A ratio panel is unaffected by the choice:
+  it is a ratio of the two curves, and both are divided by the same number.
   One figure per nu_t: lightcurves on top, B/A ratio below -- the panel where the
   early rise (cadence / injection) and the rarefaction-tail treatment show up.
   barT_off: rarefaction cut-off band (rarefaction_off_barT); a pure hydro/geometry
@@ -371,6 +428,7 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   if scale not in ('log', 'linlog', 'lin'):
     raise ValueError(f"scale must be 'log', 'linlog' or 'lin', got {scale!r}")
   la, lb = labels
+  ln = _norm_label(labels, norm_side)
   logx, logy = (scale == 'log'), (scale != 'lin')
   suff = '' if scale == 'log' else f'_{scale}'
   colors, sm = _sweep_colors([rf for rf, _ in pairs])
@@ -383,17 +441,20 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     for (rf, rd), c in _draw_order(zip(pairs, colors)):
       x = (rf['Tb'] - 1.)/barT_f
       lf, ld = _lc_at(rf, nu_t), _lc_at(rd, nu_t)
-      pk = ld.max()          # side B = the REFERENCE sets the normalisation (see LABELS)
-      if pk <= 0. or barT_f <= 0.:
+      pk_b = ld.max()        # B's peak: the scale the ratio mask stands on, so that the
+                             # ratio panel does not move when norm_side does
+      pk = lf.max() if norm_side == 'A' else pk_b   # the anchor (see LABELS)
+      if pk <= 0. or pk_b <= 0. or barT_f <= 0.:
         continue
       axs[0].plot(x, lf/pk, color=c, lw=1.1, ls='--')
       axs[0].plot(x, ld/pk, color=c, lw=1.1)
-      if scale != 'log':      # peak inside the linear window, over BOTH sides. B peaks at
-        win = (x >= xlim_lin[0]) & (x <= xlim_lin[1])   # 1 on the full grid, but its peak
-        if win.any():                                   # can fall outside this window
+      if scale != 'log':      # peak inside the linear window, over BOTH sides. The
+        win = (x >= xlim_lin[0]) & (x <= xlim_lin[1])   # normalising side peaks at 1 on the
+        if win.any():                                   # full grid, but its peak can fall
+                                                        # outside this window
           ymax_win = max(ymax_win, float(np.max(lf[win]/pk)), float(np.max(ld[win]/pk)))
       with np.errstate(divide='ignore', invalid='ignore'):
-        rr = np.where(lf > 1e-6*pk, ld/lf, np.nan)   # ratio only where side A has flux
+        rr = np.where(lf > 1e-6*pk_b, ld/lf, np.nan)  # ratio only where side A has flux
       ratios.append(rr)
       axs[1].plot(x, rr, color=c, lw=.9)
     for ax in axs:
@@ -422,7 +483,7 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
       ymax_win = ymax_win or 1.
       axs[0].set_ylim(ymax_win*10.**-YSPAN_LINLOG, ymax_win*1.6) if logy \
           else axs[0].set_ylim(0., ymax_win*1.05)
-    axs[0].set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm max}}$ ({lb} norm.)')
+    axs[0].set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm max}}$ ({ln} norm.)')
     axs[0].plot([], [], 'k--', label=la); axs[0].plot([], [], 'k-', label=lb)
     axs[0].legend(loc='upper right', fontsize=9)   # the decay tail leaves this corner free
     axs[1].axhline(1., color='grey', ls=':', lw=.9)
@@ -728,7 +789,7 @@ def plot_fluence_slope_profile(series, outdir=OUTDIR, labels=LABELS, fname=None,
   ax.set_ylabel(slope_label('$\\nu \\mathcal{F}_\\nu$'))
   ax.plot([], [], 'k--', label=la); ax.plot([], [], 'k-', label=lb)
   ax.plot([], [], 'kv', ms=4, ls='none', label='$\\min(\\nu_m,\\nu_c)$')
-  ax.legend(loc='lower right', fontsize=9)
+  ax.legend(loc='lower left', fontsize=9)
   ax.set_title(f'Low-energy slope of the time-integrated spectra, {la} vs {lb}{title_extra}')
   fig.colorbar(sm, ax=ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
   fig.savefig(os.path.join(outdir, fname or 'fluence_slope_profile.png'), dpi=300)
@@ -737,10 +798,16 @@ def plot_fluence_slope_profile(series, outdir=OUTDIR, labels=LABELS, fname=None,
 
 def plot_fluence_slopes_vs_regime(tables, outdir=OUTDIR, labels=LABELS, kind='asymptote',
     band_ref=3., fname=None):
-  '''
+  """
   The headline: the low-energy index vs the cooling regime, both sides, for each entry of
-  `tables` = {series name: (DataFrame, colour)}. Top panel the indices themselves (with a
-  Band-alpha twin axis on the right), bottom panel the difference cut - full.
+  `tables` = {series name: (DataFrame, colour)}. Colour = series, linestyle = side, and a
+  Band-alpha twin axis on the right.
+
+  ONE panel. The cut - full difference used to sit under it, but it is the vertical gap
+  between a series' two curves, already on the axis above and against the 4/3 guide that
+  gives it its meaning; on its own axis it was the same information a second time, at the
+  cost of half the figure. The number itself lives in fluence_slope_table's `d_a` /
+  `d_aband` columns and in the CSV.
 
   kind='asymptote' plots a_inf, with filled markers where it is resolved and open where it
   is not -- an open marker is a lower bound on whatever segment is in band, not a measured
@@ -748,46 +815,46 @@ def plot_fluence_slopes_vs_regime(tables, outdir=OUTDIR, labels=LABELS, kind='as
   nuFnu peak. The two get SEPARATE figures on purpose: they measure different segments (in
   slow cooling the peak-anchored window sits on the mid segment and drops to ~0.25), so
   overlaying them puts two unrelated quantities on one axis and wrecks its scale.
-  '''
+  """
+  from matplotlib.patches import Patch
   la, lb = labels
   asym = kind == 'asymptote'
   col_of = (lambda tag: f'a_{tag}') if asym else (lambda tag: f'aband{band_ref:g}_{tag}')
   ok_of = (lambda tag: f'resolved_{tag}') if asym else (lambda tag: f'bandlow{band_ref:g}_{tag}')
-  dcol, dok = ('d_a', 'resolved') if asym else ('d_aband', 'bandlow')
-  fig, axs = plt.subplots(2, 1, figsize=(7.5, 7.), sharex=True,
-                          gridspec_kw={'height_ratios': [2.2, 1]})
+  fig, ax = plt.subplots(figsize=(7.5, 5.))
   for name, (tab, col) in tables.items():
     for tag, ls in (('cut', '--'), ('full', '-')):
       x, y, r = tab['logr'].values, tab[col_of(tag)].values, tab[ok_of(tag)].values
-      axs[0].plot(x, y, ls, color=col, lw=1.2, zorder=2)
-      axs[0].plot(x[r], y[r], 'o', color=col, ms=5.5, zorder=3)
-      axs[0].plot(x[~r], y[~r], 'o', mfc='none', mec=col, ms=5.5, zorder=3)
-    x, d, r = tab['logr'].values, tab[dcol].values, tab[dok].values
-    axs[1].plot(x, d, '-', color=col, lw=1.2, label=name)
-    axs[1].plot(x[r], d[r], 'o', color=col, ms=5.5)
-    axs[1].plot(x[~r], d[~r], 'o', mfc='none', mec=col, ms=5.5)
+      ax.plot(x, y, ls, color=col, lw=1.2, zorder=2)
+      ax.plot(x[r], y[r], 'o', color=col, ms=5.5, zorder=3)
+      ax.plot(x[~r], y[~r], 'o', mfc='none', mec=col, ms=5.5, zorder=3)
   for y in (A_LO_ASYMP, 1.):
-    axs[0].axhline(y, color='grey', ls=':', lw=.8)
-  axs[0].annotate('4/3  (single-particle asymptote, Band $\\alpha=-2/3$)',
-                  xy=(0.985, A_LO_ASYMP + .012), xycoords=transx(axs[0]), fontsize=8,
-                  color='grey', ha='right')
-  axs[0].annotate('1  (Band $\\alpha=-1$)', xy=(0.985, 1. + .012),
-                  xycoords=transx(axs[0]), fontsize=8, color='grey', ha='right')
-  axs[1].axhline(0., color='grey', ls=':', lw=.9)
-  axs[0].set_ylabel('$a = $ d$\\log(\\nu\\mathcal{F}_\\nu)/$d$\\log\\nu$')
-  axs[1].set_ylabel(f'$a$({la}) $- a$({lb})')
-  axs[1].set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
-  axs[0].plot([], [], 'k--', label=la); axs[0].plot([], [], 'k-', label=lb)
-  axs[0].plot([], [], 'ko', mfc='none', ms=5.5,
-              label='asymptote not resolved' if asym else 'window above the break')
-  axs[0].legend(fontsize=9, loc='upper left')
-  axs[1].legend(fontsize=9, ncol=len(tables), loc='upper left')
+    ax.axhline(y, color='grey', ls=':', lw=.8)
+  ax.annotate('4/3  (single-particle asymptote, Band $\\alpha=-2/3$)',
+              xy=(0.985, A_LO_ASYMP + .012), xycoords=transx(ax), fontsize=8,
+              color='grey', ha='right')
+  ax.annotate('1  (Band $\\alpha=-1$)', xy=(0.985, 1. + .012),
+              xycoords=transx(ax), fontsize=8, color='grey', ha='right')
+  ax.set_ylabel('$a = $ d$\\log(\\nu\\mathcal{F}_\\nu)/$d$\\log\\nu$')
+  ax.set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  # series keys are colour SWATCHES, not lines: a coloured line would collide with the
+  # dashed/solid side keys, and a filled marker with the resolved/not-resolved one
+  keys = [Patch(color=col, label=name) for name, (_, col) in tables.items()]
+  keys.append(plt.Line2D([], [], color='k', ls='--', label=la))
+  keys.append(plt.Line2D([], [], color='k', ls='-', label=lb))
+  keys.append(plt.Line2D([], [], color='k', marker='o', mfc='none', ls='none', ms=5.5,
+              label='asymptote not resolved' if asym else 'window above the break'))
+  # headroom for the legend: with the difference panel gone the curves fill the whole
+  # figure, and upper-left is where they are lowest in BOTH kinds (fast cooling)
+  lo, hi = ax.get_ylim()
+  ax.set_ylim(lo, hi + .3*(hi - lo))
+  ax.legend(handles=keys, fontsize=9, loc='upper left', ncol=2)
   what = ('asymptotic' if asym else f'{band_ref:g} decades below the peak')
-  axs[0].set_title(f'Low-energy index of the time-integrated spectra ({what})')
+  ax.set_title(f'Low-energy index of the time-integrated spectra ({what})')
   fig.tight_layout()
   # the Band-alpha twin must be built AFTER tight_layout, or it takes the pre-layout limits
-  ax2 = axs[0].twinx()
-  ax2.set_ylim(*(np.array(axs[0].get_ylim()) - 2.))
+  ax2 = ax.twinx()
+  ax2.set_ylim(*(np.array(ax.get_ylim()) - 2.))
   ax2.set_ylabel('Band $\\alpha = a - 2$')
   fig.savefig(os.path.join(outdir, fname or f'fluence_slopes_{kind}_vs_regime.png'),
               dpi=300, bbox_inches='tight')
@@ -795,13 +862,17 @@ def plot_fluence_slopes_vs_regime(tables, outdir=OUTDIR, labels=LABELS, kind='as
 
 
 def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=OUTDIR,
-    use_cache=True, nproc=None, methods=METHODS, labels=LABELS):
+    use_cache=True, nproc=None, methods=METHODS, labels=LABELS, norm_side='A'):
   '''
   Ensure both sweeps exist (computing whichever is missing), then build every
   comparison figure. With the caches warm this is plotting-only.
   methods: (side A, side B = the REFERENCE) sweep methods, defaulting to the data-only
   METHODS pair -- the 'fit' method is not plotted any more, so the default path never
   computes a fit sweep. Any pair method_outdir knows still works; pass `labels` to match.
+  norm_side: which side's flux anchors the panels. 'A' here, not the 'B' the plotting
+  functions default to, because the default `methods` pair is cut-vs-full: the cut is the
+  prescription being tested, so anchoring on it makes the full run read as the extra
+  emission the cut leaves out (see LABELS). Pass 'B' for a run-vs-run comparison.
   '''
   os.makedirs(outdir, exist_ok=True)
   for m in methods:
@@ -822,9 +893,14 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=OUTDIR,
 
   plot_efficiency_compare(pairs, outdir=outdir, labels=labels)
   for kind in ('peak', 'fluence'):
-    for mode in ('nu_m', 'max'):
-      plot_spectra_compare(pairs, kind=kind, mode=mode, outdir=outdir, labels=labels)
-  plot_lightcurve_compare(pairs, barT_f, barT_off=barT_off, outdir=outdir, labels=labels)
+    for mode in SPEC_MODES:
+      plot_spectra_compare(pairs, kind=kind, mode=mode, outdir=outdir, labels=labels,
+                           norm_side=norm_side)
+  # the lin-lin variant ONLY (see plot_lightcurve_compare's `scale`): the log and linlog
+  # views of the same three curves were three more files per frequency to keep straight,
+  # and the ratio panel already carries the late divergence they were kept for
+  plot_lightcurve_compare(pairs, barT_f, barT_off=barT_off, outdir=outdir, labels=labels,
+                          norm_side=norm_side, scale='lin')
   s = plot_summary_ratios(pairs, outdir=outdir, labels=labels)
 
   trim_pngs(outdir)
