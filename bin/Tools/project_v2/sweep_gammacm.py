@@ -621,18 +621,93 @@ def paired_syn_bpl(x, num, nuc, p, peak=1., xM=None, s=0.4):
     y = y * np.exp(-x/xM)
   return y * (peak / np.nanmax(y))
 
-SEG_MIN_MID_DEX = 1.7     # decades of MID segment required before it counts as identified.
+# A SETTLED-CORE GATE WAS TRIED HERE AND REVERTED -- do not re-derive it. The idea was to
+# require the mid candidate's free slope to HOLD over some width (spectral_breaks.flat_core)
+# and to sit within a tolerance of the asymptote, on the theory that a wide window is no
+# evidence because the turnover passes through the mid value on its way down. It measured well
+# on the slow-cooling branch, where the settled slope lands 0.234-0.245 against an asymptote of
+# 0.250, and a 0.04 tolerance looked comfortable.
+# It is wrong on the FAST-cooling branch, because the shell-integrated mid slope is NOT the
+# one-zone asymptote there: nu_c is smeared across cells, which curves the segment and HARDENS
+# it. At logr=-3 the fc core sits at 0.567-0.590 against an asymptote of 0.500 -- outside any
+# tolerance that still excludes a genuine knee -- while the breaks are 3.5-4.4 dex apart and
+# both the GS02 fit and the segment method call it FC. The gate turned those into MC, i.e. it
+# claimed the breaks were too close to show a mid segment at a separation of over 4 decades.
+# Scored against the break separation, it had four false negatives (3.50, 4.08, 4.34, 2.91 dex,
+# all real segments) and no true positives: the one spectrum it rejected correctly, the logr=
+# +0.0 rise at 2.35 dex, was already rejected by the width gate below.
+# The width gate is not the crude proxy it looks like: the window is a calibrated stand-in for
+# the break SEPARATION, which is the physical quantity. Measured over the sweep, separation
+# minus window is 0.84 dex with the asymmetric fc window below (it was 1.06 with a symmetric
+# one -- widening the window widens what it admits, so the two must be recalibrated together).
+# --- the fast-cooling mid slope is NOT 1/2, and the departure is the measurement ------------
+# The one-zone nuFnu asymptote between the breaks is 1/2 in fast cooling. A shell-integrated
+# spectrum does not show it: nu_c differs cell to cell (it is a cumsum over each cell's own
+# history, see the nu_c work), so the observed segment is a superposition of one-zone segments
+# whose breaks sit at different frequencies, and that superposition HARDENS it. Measured as the
+# slope the segment settles on (spectral_breaks.flat_core) minus the theory value, over the
+# rarcut sweep:
+#
+#     FAST (a_th = 0.500)   n=76   median +0.001, max +0.098
+#         logr=-5   median -0.002   (-0.005 .. +0.070)
+#         logr=-4   median -0.001   (-0.007 .. +0.065)
+#         logr=-3   median +0.062   (+0.043 .. +0.098)
+#     SLOW (a_th = 0.250)   n=69   median -0.008, min -0.034
+#         logr=+2 -0.008, +1 -0.032, +0.0 -0.007, -1 -0.014, -2 -0.013
+#   (measured with the asymmetric window below, i.e. as the code now runs)
+#
+# Two things to read off. The departure is ONE-SIDED on each branch -- fast cooling hardens,
+# slow cooling softens -- and it is an order of magnitude larger in fast cooling. And it is a
+# function of the REGIME, not of the resolution: it correlates with log10(gc/gm) at +0.79 and
+# with the break separation at -0.11, and it vanishes in deep fast cooling (logr=-5, -4 sit on
+# the one-zone value) while growing to +0.065 as gamma_c climbs toward gamma_m. That is the
+# expected direction: the closer the two breaks, the more the per-cell nu_c spread matters
+# relative to the width of the segment it is smearing.
+#
+# CONSEQUENCE FOR DETECTION: a symmetric +-SLOPE_TOL window around 1/2 clips the hardened
+# segment and loses real fast-cooling spectra to MC. The fc candidate therefore gets an
+# asymmetric window, widened UPWARD only -- the direction the physics goes -- while the slow
+# candidate keeps the symmetric one it does not need widened.
+SEG_FC_TOL_HI = 0.25      # upper half-width of the fc window: samples with 0.5-SLOPE_TOL <
+                          # s < 0.5+SEG_FC_TOL_HI. Recovers 17 spectra that the symmetric
+                          # window called MC, every one of which the GS02 fit independently
+                          # calls FC with the breaks 2.57-2.85 dex apart -- i.e. resolved, not
+                          # marginal. The count saturates by 0.30 (FC 9 -> 22 -> 26 -> 28 -> 28
+                          # at tol_hi 0.15 / 0.20 / 0.25 / 0.30 / 0.35), so this sits on the
+                          # knee. It cannot reach down and poach slow-cooling spectra: the
+                          # window's LOWER edge is untouched at 0.35, well above (3-p)/2 = 0.25,
+                          # and the fc/sc clash counter stays at 0 for every value tested.
+                          # Read the departure itself off segs['fc']['dep'] -- it is a physical
+                          # quantity, not a tolerance artefact.
+SEG_MIN_MID_DEX = 1.45    # decades of MID segment required before it counts as identified.
                           # The low and high segments are ASYMPTOTES -- a spectrum can only
                           # approach them -- so MIN_DEX (0.25) is enough there; the mid slope
                           # is a value the turnover PASSES THROUGH on its way from one
-                          # asymptote to the other, and a knee crossing it registers as a
-                          # short spurious window. Measured on the sweep, those spurious runs
-                          # reach 0.82 dex (the 1/2 window of a slow-cooling spectrum, and the
-                          # (3-p)/2 window of a fast one), while every real mid segment is
-                          # >= 2.00 dex and the marginal ones stop at 1.43 -- so the threshold
-                          # sits inside a measured factor-1.4 gap and the classification is
-                          # unchanged anywhere in 1.5-2.0. Below ~1.0 the four spectra with
-                          # 1.18-1.43 dex mid windows would be named FC/SC instead of MC.
+                          # asymptote to the other, and a short knee crossing it must not
+                          # register (the spurious runs reach 0.82 dex, so there is room).
+                          # WHAT THIS ASSERTS. With separation = window + 0.84 (above), 1.45
+                          # admits break separations >= 2.29 dex, i.e. nu_c/nu_m >~ 200. So an
+                          # FC/SC label here means "the two breaks are RESOLVED and the
+                          # spectrum is locally a power law near the mid asymptote" -- it does
+                          # NOT assert that the asymptote is reached. Below ~3.0 dex of
+                          # separation none of these spectra actually settle: measured over the
+                          # sweep, 0 of 31 fc candidates in the 2.5-3.0 dex band have a settled
+                          # core, against 42 of 43 above 3.0. In that band the segment is a
+                          # broad knee whose slope sweeps ~0.22 across the window while the
+                          # FLUX stays straight to ~0.02 dex rms -- which is exactly why such
+                          # spectra look like clean power laws by eye, and why the eye is not a
+                          # reliable guide here.
+                          # THE DISTINCTION IS NOT LOST, it is reported: segs['fc'|'sc']['core']
+                          # is the width over which the slope actually settles, and it is 0.00
+                          # for every one of the swept cases. Use core > 0 when the question is
+                          # "does this spectrum display an asymptotic segment"; use the label
+                          # when the question is "is this fast or slow cooling".
+                          # The gate was 1.7 (separation >= 2.54) until the fc window was
+                          # widened; that left the logr=-3 rise at MC and the logr=-2 peak at
+                          # FC when the two are the same object to within 0.15 dex of window.
+                          # spectral_breaks.MIN_MID_DEX stays at 2.0 and is NOT this: it
+                          # protects a FREE-slope break fit, where a short plateau biases a
+                          # fitted number, rather than a held-slope shape label.
 SEG_EXT = 0.5             # decades each identified segment is drawn past its own window OR
                           # past where it meets the neighbouring segment, whichever is
                           # further, so that every adjacent pair crosses visibly and a short
@@ -649,7 +724,8 @@ def _seg_cross(g1, g2):
 
 
 def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
-    min_mid_dex=SEG_MIN_MID_DEX, smooth=SLOPE_SMOOTH, min_pts=MIN_PTS):
+    min_mid_dex=SEG_MIN_MID_DEX, fc_tol_hi=SEG_FC_TOL_HI, smooth=SLOPE_SMOOTH,
+    min_pts=MIN_PTS):
   '''
   Which synchrotron power-law segments one nuFnu spectrum sp(x) actually shows, and the
   cooling regime that follows from the answer.
@@ -697,10 +773,32 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   and its flattened spectrum turns back UP past nu_M, which is what made the high segment
   of every high-latitude tail unfindable.
 
-  Returns dict(regime, segs, nuM, a_edge), or None if the spectrum is unusable. segs maps
-  the name ('lo', 'fc', 'sc', 'hi') to dict(a, c, x0, x1, dex): slope, intercept in log10,
-  the window it was identified over, and its width in decades. regime is None when the
-  identified set matches no case above, or when the low end supports no verdict.
+  Returns dict(regime, segs, nuM, a_edge, a_drift), or None if the spectrum is unusable.
+  segs maps the name ('lo', 'fc', 'sc', 'hi') to dict(a, c, x0, x1, dex, core, a_core, dep):
+  the HELD slope, the intercept in log10, the window it was identified over and its width in
+  decades, then -- for the two mid candidates only -- the width over which the free slope
+  settles, the value it settles on, and dep = a_core - a. regime is None when the identified
+  set matches no case above, or when the low end supports no verdict.
+
+  dep IS A RESULT, not a diagnostic of the fit. The identification holds the slope at the
+  one-zone asymptote because that is what makes the segment identifiable; dep says how far the
+  spectrum actually departs from it, and in fast cooling that departure is physical -- the
+  shell-integrated segment is hardened by the cell-to-cell spread in nu_c, by up to +0.098 as
+  gamma_c climbs toward gamma_m, while slow cooling softens by at most -0.034 (see
+  SEG_FC_TOL_HI for the measured tables). Anyone quoting a measured fast-cooling spectral
+  index should quote a + dep, not a.
+
+  a_drift (spectral_breaks.edge_slope_drift) DIAGNOSES a decline without changing it. On the
+  rarcut sweep 20 of the 23 no-verdict spectra are the same population -- {fc, hi} identified,
+  VFC declined -- and every one of the 23 has a_drift >= 0.115 (median 0.259), i.e. the low
+  end is one knee in transit (4/3 softening toward 1/2) and there is no segment being missed.
+  The verdicts that ARE returned sit far below that: median a_drift 0.000 (SC, VSC), 0.011
+  (MC), 0.039 (VFC, max 0.104). Accepted and declined VFCs do not overlap in drift, so the
+  gate is not cutting through a continuum.
+
+  A decline with SMALL a_drift at a non-1/2 slope would be the opposite case: a real straight
+  segment at a slope none of the four candidates looks for, which is the only evidence that
+  would justify revisiting the candidate set. None has been seen yet.
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
   cut = measure_cutoff_nuM(x, sp, psyn, flatten=False)
@@ -713,18 +811,29 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   idx = np.arange(len(lx))
   keep = (ly > ly.max() - FIT_DEC) & (lx < np.log10(cut['nuM']/CUT_FAC))
   segs = {}
-  for name, a, below, mdex in (('lo', 4./3., True, min_dex),
-                               ('fc', 0.5, True, min_mid_dex),
-                               ('sc', (3. - psyn)/2., True, min_mid_dex),
-                               ('hi', 1. - psyn/2., False, min_dex)):
-    m = keep & np.isfinite(s) & (np.abs(s - a) < slope_tol)
+  # tol_hi is the UPPER half-width of each candidate's slope window. Only 'fc' differs: the
+  # shell-integrated fast-cooling segment sits above 1/2 by up to +0.098, so a symmetric window
+  # clips it (see SEG_FC_TOL_HI). Every other candidate keeps +-slope_tol.
+  for name, a, below, mdex, tol_hi in (('lo', 4./3., True, min_dex, slope_tol),
+                                       ('fc', 0.5, True, min_mid_dex, fc_tol_hi),
+                                       ('sc', (3. - psyn)/2., True, min_mid_dex, slope_tol),
+                                       ('hi', 1. - psyn/2., False, min_dex, slope_tol)):
+    m = keep & np.isfinite(s) & (s > a - slope_tol) & (s < a + tol_hi)
     m &= (idx < i_pk) if below else (idx > i_pk)
     w = _widest_run(m, lx, min_pts, mdex)
     if w is None:
       continue
     i, j = w
+    # core/a_core/dep are REPORTED for the mid candidates but gate nothing -- see
+    # SEG_MIN_MID_DEX for why a settled-core gate was tried here and reverted. dep is the
+    # departure of the settled slope from the one-zone asymptote, which is a physical
+    # measurement of the shell-integration hardening, not a fitting residual.
+    core = flat_core(lx, ly, lx[i], lx[j]) if name in ('fc', 'sc') else \
+           dict(dex=np.nan, slope=np.nan, n=0)
     segs[name] = dict(a=a, c=float(np.mean(ly[i:j+1] - a*lx[i:j+1])),
-                      x0=float(10**lx[i]), x1=float(10**lx[j]), dex=float(lx[j] - lx[i]))
+                      x0=float(10**lx[i]), x1=float(10**lx[j]), dex=float(lx[j] - lx[i]),
+                      core=float(core['dex']), a_core=float(core['slope']),
+                      dep=float(core['slope'] - a))
   # a spectrum has ONE mid segment: if the slope lingers at both candidates, the wider run
   # is the segment and the other is a knee (never fires on this sweep -- the two windows are
   # 0.24-0.46 and 0.27-0.36 dex where they coexist, i.e. both are rejected anyway)
@@ -765,6 +874,20 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
 # earlier (1.0, 1.8) was calibrated against an exp cutoff, whose error the smoothing was
 # partly absorbing. NB: GS02's convention is INVERTED relative to _slope_step -- here a
 # larger s is a SHARPER break.
+# WHY s IS WEAKLY CONSTRAINED -- the template cannot make the shape the data has. A GS02 break
+# is F = F_ext[y**(-s b1) + y**(-s b2)]**(-1/s), whose log-log slope is a logistic in ln y with
+# ONE rate, s|b1-b2|. It therefore approaches its two asymptotes at the SAME rate: the knee is
+# symmetric by construction, and no (s1, s2) can change that. The computed knees are not.
+# Measuring, on the lower break, the distance from the slope midpoint out to within 10% of each
+# asymptote: a synthetic granot_sari_syn returns a ratio of 1.00 at s1 = 0.8, 1.3 and 2.0 (the
+# control -- symmetric, as derived), while every computed spectrum returns 0.45-0.58, i.e. the
+# real knee reaches the mid asymptote about TWICE as fast as it leaves the 4/3 one, consistently
+# across logr and across rise/peak/tail. The fit can only absorb that mismatch by moving the
+# break and trading s against it, which is precisely the degeneracy spectral_breaks documents
+# (free_s moving nu_c by up to 25x for an rms gain of ~1e-3 dex). So the flat rms landscape
+# below is not a sign that s is unimportant -- it is the template averaging two curvature scales
+# it has no parameter to separate. Holding s is the right response; reading physics off a fitted
+# s is not.
 GS02_S1, GS02_S2 = 1.3, 2.0
 # Cutoff shape, passed straight to granot_sari_syn: 'R' is the true single-electron
 # synchrotron emissivity (the nuFnu spectrum rolls over like P'_nu') and is its default;
