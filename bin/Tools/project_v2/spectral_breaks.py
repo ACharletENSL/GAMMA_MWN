@@ -57,9 +57,28 @@ from phys_functions import granot_sari_syn, syn_cutoff_R
 # --- defaults -------------------------------------------------------------------------
 SLOPE_TOL = 0.15      # |local slope - asymptote| accepted into a fixed-slope segment window
 SLOPE_SMOOTH = 5      # boxcar width (samples) on the local-slope array; the answer must not
-                      # depend on it -- checked in nuc_validation.check_slope_smoothing
-MIN_PTS = 5           # minimum samples in a segment window for it to be fitted
-MIN_DEX = 0.25        # minimum log10 width of a segment window
+                      # depend on it, and does not: feeding identify_segments synthetic GS02
+                      # spectra of known break separation at 33 pts/dex, the separation at
+                      # which the mid segment first registers is 2.80 dex for EVERY smoothing
+                      # in 1, 3, 5, 7, 9, 15 (scan step 0.1 dex). The estimator is
+                      # np.gradient (+-1 sample) o _boxcar(n) (+-(n-1)/2), i.e. a +-(n+1)/2
+                      # sample stencil -- 0.182 dex at n=5, 33 pts/dex -- and a boxcar shrinks
+                      # a plateau symmetrically without moving its centre slope, so the width
+                      # gates below never see it. (An earlier version of this comment cited a
+                      # check in nuc_validation that was never written.)
+MIN_PTS = 5           # minimum samples in a segment window for it to be fitted. At 33 pts/dex
+                      # it spans only 0.121 dex and is SLACK -- MIN_DEX binds instead, and this
+                      # gate only starts to bite below ~16 pts/dex (see sweep_gammacm.
+                      # NNU_PER_DEC for the resolution ladder).
+MIN_DEX = 0.25        # minimum log10 width of a segment window = 10 samples at 33 pts/dex.
+                      # This is the width of the IDENTIFIED window, which is narrower than the
+                      # segment that produced it, because a physical break is smooth and its
+                      # curvature eats into its own plateau. Measured on granot_sari_syn at
+                      # s = (1.3, 2.0), p = 2.5, the TRUE width needed to clear this gate is
+                      # 0.89 dex of band below the lower break for the 4/3 segment (0.33 dex
+                      # if the kink were sharp) and 0.35 dex between nu_m and nu_M/CUT_FAC for
+                      # the 1-p/2 one. The mid segment is gated separately and far harder --
+                      # see MIN_MID_DEX and sweep_gammacm.SEG_MIN_MID_DEX.
 CUT_FAC = 3.          # the high segment is fitted below nuM/CUT_FAC when the cutoff is NOT
                       # divided out (flatten=False)
 FIT_DEC = 8.          # ignore everything more than this many decades below the peak
@@ -72,6 +91,15 @@ FIT_DEC = 8.          # ignore everything more than this many decades below the 
 BMID_TOL = 0.08
 # Minimum decades of straight mid segment for a free-slope measurement to be trusted; see
 # breaks_from_segments. Ignored when the mid slope is held.
+# In physical terms: the identified window runs ~1.06 dex short of the true break separation
+# on a GS02-smoothed spectrum (s = 1.3, 2.0; measured at 33 pts/dex), so 2.0 dex of window
+# means the breaks are >~ 3.06 dex apart -- a nu_c/nu_m ratio of ~1150.
+# NOT the same number as sweep_gammacm.SEG_MIN_MID_DEX (1.7), deliberately: that one gates a
+# HELD-slope shape verdict, where no break position is being fitted and a short window costs
+# only a classification. This one gates a FREE-slope break FIT, whose accuracy is set by the
+# plateau width alone (see breaks_from_segments: within 6% once mid_dex >~ 2.5, i.e. a true
+# separation >~ 3.55 dex, degrading to a factor ~2 by mid_dex ~ 0.85). 2.0 is the point below
+# which that fit stops being worth reporting; 1.7 is where a shape class stops being legible.
 MIN_MID_DEX = 2.0
 
 # --- free-slope diagnostic ------------------------------------------------------------

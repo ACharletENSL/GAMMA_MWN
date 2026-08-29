@@ -93,6 +93,22 @@ LOGNU_ABOVE_NUM = 1.5     # high end, in decades above each point's OWN nu_M: th
                           # crosses the floor 0.68 decade above nu_M, so 1.5 clears it.
 NNU_PER_DEC = 33          # frequency sampling; the window span now varies with the point
                           # (12.4 decades at logr=-5, 17.6 at +2), so Nnu is set from the span
+                          # (409-581 points, inside the clip below, which therefore never
+                          # binds). One step is 0.0303 dex.
+                          # This is NOT what limits segment identification. Sweeping the
+                          # sampling on synthetic GS02 spectra, the true break separation at
+                          # which the mid segment first registers is 2.90 / 2.80 / 2.75 /
+                          # 2.73 / 2.71 dex at 10 / 20 / 33 / 50 / 200 pts/dex, and the 4/3
+                          # segment needs 1.04 / 0.90 / 0.89 / 0.88 / 0.86 dex of band below
+                          # the break -- i.e. going from 33 to 200 buys 0.04 dex, 1.5%. The
+                          # thresholds are set by the CURVATURE of the physical break and by
+                          # the dex gates (spectral_breaks.MIN_DEX, SEG_MIN_MID_DEX), not by
+                          # the grid. The floor is ~16-20 pts/dex, below which MIN_PTS = 5
+                          # starts to bind and the 10 pts/dex row degrades.
+                          # CAUTION if this number is ever changed: the dex-valued gates
+                          # (MIN_DEX, MIN_MID_DEX, SEG_MIN_MID_DEX, EDGE_NDEC, FREE_MIN_DEX)
+                          # are resolution-independent, but SLOPE_SMOOTH, MIN_PTS and
+                          # FREE_MIN_PTS are in SAMPLES and would silently change meaning.
 NNU_MIN, NNU_MAX = 400, 650
 NU_TARGETS = [1e-2, 0.1, 1.0]                # lightcurve panel freqs, as fractions of the
                                              # peak freq nu_pk=max(nu_m,nu_c) (= the nub axis)
