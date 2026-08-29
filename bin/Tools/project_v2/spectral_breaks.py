@@ -34,6 +34,36 @@ This is a third method, not a variant of an existing one:
   breaks_from_segments (here)         - asymptote intersection: smoothing-free by construction,
     and NaN rather than a biased number when the segments are too short to be seen.
 
+A fourth method is deliberately ABSENT: detecting the segments without saying what slope to
+expect, i.e. finding where the spectrum is straight rather than where it matches one of the
+four theory slopes. It is the obvious generalisation and it does not survive contact with
+these spectra, in either of its two forms.
+
+  Pointwise curvature (|ds/dlog nu| < tol) -- fails on the DATA. On a synthetic GS02 spectrum
+    it looks decisive: plateau curvature <= 0.046 against >= 0.365 in the knees, a factor 8.
+    On the computed spectra, INSIDE windows identify_segments accepted as genuine 2-6.8 dex
+    segments, it reaches 0.23-0.71 -- overlapping the knee value entirely. And that is not
+    numerical noise to be filtered away: the residual of those segments from a straight line
+    has a lag-1 autocorrelation of 0.998, i.e. it is smooth, coherent CURVATURE. The low and
+    high segments are asymptotes the spectrum only approaches (see FREE_DFAC), so they are
+    genuinely curved everywhere, most of all near their ends. No amount of smoothing or extra
+    frequency sampling removes it, because it is signal. A curvature threshold therefore has
+    nothing clean to threshold on, while the value test survives because SLOPE_TOL = 0.15 is
+    several times the in-segment slope departure (0.036-0.054) and takes no second derivative.
+  Windowed flatness (rms of a free line fit < tol) -- does not fail on noise, but is not
+    SCALE-FREE, so it answers a different question than the one asked. It is more sensitive
+    (it finds a mid-slope run at 1.1-2.5 dex of break separation against identify_segments'
+    2.75) but the runs it finds there are 0.6-1.2 dex wide with slopes 0.514-0.568 for a true
+    0.5, and its threshold is non-monotonic in tol. Any smooth curve passes an rms test over a
+    short enough window: on the logr=-3 declined spectra every 0.6-dex window at the band
+    bottom fits to an rms of 0.003-0.005 dex while the slope drifts 0.20-0.45 across 2.1 dex.
+    It therefore does not remove the width gate (SEG_MIN_MID_DEX), it relocates it -- trading
+    an assumption about the slope's VALUE for one about the window's WIDTH.
+
+What did survive from that test is edge_slope_drift, at the bottom of this module: sliding the
+free fit is the right way to tell a segment from a knee, even though thresholding its residual
+is not.
+
 nuFnu log-log slopes are a = 1 + beta, with beta the F_nu index:
   a_lo = 4/3      (beta = 1/3, below both breaks)
   a_mid = 1/2     fast cooling (beta = -1/2)   |  (3-p)/2  slow cooling (beta = -(p-1)/2)
@@ -202,6 +232,90 @@ def _widest_run(mask, lx, min_pts=MIN_PTS, min_dex=MIN_DEX):
         best = (i, j)
     i = j + 1
   return best
+
+
+# --- flat core ------------------------------------------------------------------------
+# How far the free slope HOLDS across a window, as a DIAGNOSTIC. It is deliberately not a gate
+# anywhere: gating segment identification on it was tried and reverted, because how flat a real
+# mid segment is depends on the cooling regime. In slow cooling the core lands within 0.016 of
+# the (3-p)/2 asymptote; in fast cooling the shell-integrated segment is curved and hardened by
+# the smearing of nu_c across cells, settling at 0.567-0.590 against an asymptote of 0.500 while
+# the breaks are 3.5-4.4 dex apart and unambiguously resolved. Any tolerance loose enough to
+# admit the second is loose enough to admit a knee. See sweep_gammacm.SEG_MIN_MID_DEX for the
+# criterion that does work, and why.
+# What it IS good for is telling a settled slope from a sweeping one when you already know the
+# separation -- reading a spectrum, not classifying it.
+CORE_WIN_DEX = 0.4     # width of each sliding free-fit window, in dex
+CORE_STEP_DEX = 0.2    # step between them -- half-overlapping, so two windows share half their
+                       # samples and a core is located to ~CORE_STEP_DEX
+CORE_TOL = 0.02        # slopes spanning no more than this over consecutive windows count as ONE
+                       # settled core
+
+
+def sliding_slopes(lx, ly, lo=None, hi=None, win=CORE_WIN_DEX, step=CORE_STEP_DEX,
+    min_pts=MIN_PTS):
+  '''
+  Free straight-line slopes in half-overlapping windows across [lo, hi] of an already-sorted
+  (lx, ly). The primitive behind both flat_core and edge_slope_drift: sliding a free fit is
+  how this module tells a settled power law from a smooth turn, since a turn is locally
+  straight at any tolerance (rms 0.003-0.005 dex inside a knee) but does not hold its slope.
+
+  Returns dict(slopes, x0, rms, n) over the windows that carried min_pts samples.
+  '''
+  lx = np.asarray(lx, float); ly = np.asarray(ly, float)
+  out = dict(slopes=np.array([]), x0=np.array([]), rms=np.array([]), n=0)
+  if len(lx) < min_pts:
+    return out
+  lo = float(lx.min()) if lo is None else float(lo)
+  hi = float(lx.max()) if hi is None else float(hi)
+  sl, x0s, rm = [], [], []
+  off = lo
+  while off + win <= hi + 1e-12:
+    m = (lx >= off) & (lx < off + win)
+    if m.sum() >= min_pts:
+      a, b = np.polyfit(lx[m], ly[m], 1)
+      sl.append(float(a)); x0s.append(float(off))
+      rm.append(float(np.sqrt(np.mean((ly[m] - a*lx[m] - b)**2))))
+    off += step
+  if not sl:
+    return out
+  out.update(slopes=np.array(sl), x0=np.array(x0s), rms=np.array(rm), n=len(sl))
+  return out
+
+
+def flat_core(lx, ly, lo=None, hi=None, tol=CORE_TOL, win=CORE_WIN_DEX, step=CORE_STEP_DEX,
+    min_pts=MIN_PTS):
+  '''
+  The widest stretch of [lo, hi] over which the free slope actually HOLDS: the longest run of
+  consecutive sliding windows whose slopes span no more than `tol`, reported as the frequency
+  width it covers.
+
+  dex is 0 when no two consecutive windows agree, which is the answer for a knee. slope is the
+  mean over the core, and is a free measurement -- nothing is imposed, so it can be compared
+  against a theory asymptote afterwards rather than assumed equal to one.
+
+  Returns dict(dex, slope, n, i0), n = windows in the core.
+  '''
+  out = dict(dex=0., slope=np.nan, n=0, i0=-1)
+  w = sliding_slopes(lx, ly, lo=lo, hi=hi, win=win, step=step, min_pts=min_pts)
+  if w['n'] < 2:
+    return out
+  s, x0 = w['slopes'], w['x0']
+  best = None
+  i = 0
+  while i < len(s):
+    j = i
+    while j + 1 < len(s) and (max(s[i:j+2]) - min(s[i:j+2])) <= tol:
+      j += 1
+    if j > i and (best is None or (x0[j] - x0[i]) > (x0[best[1]] - x0[best[0]])):
+      best = (i, j)
+    i += 1
+  if best is None:
+    return out
+  i, j = best
+  out.update(dex=float(x0[j] - x0[i] + win), slope=float(np.mean(s[i:j+1])),
+             n=int(j - i + 1), i0=int(i))
+  return out
 
 
 def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True):
@@ -748,6 +862,45 @@ EDGE_VFC_TOL = 0.12    # how far above the fast-cooling 1/2 the edge slope may s
                        # nu^(4/3) segment lie BELOW the band, which requires the lowest in-band
                        # slope to be the -1/2 one. Measured on the tail spectra it is ~0.8 in
                        # BOTH methods, so neither supports the claim -- see edge_slope.
+EDGE_WIN_DEX = 0.6     # sub-window width for edge_slope_drift, in dex (not samples, matching
+                       # every other gate here). 0.6 clears MIN_DEX with margin at 33 pts/dex
+EDGE_WIN_STEP = 0.5    # ... and stepping by 0.5 puts four windows in EDGE_DRIFT_NDEC.
+EDGE_DRIFT_NDEC = 2.1  # band the DRIFT is measured over -- deliberately wider than EDGE_NDEC,
+                       # which is not a free choice: a drift needs at least two windows, and
+                       # one decade holds only one 0.6-dex window at this step. 2.1 = the four
+                       # windows starting at +0.0, +0.5, +1.0, +1.5 that resolved the logr=-3
+                       # decline (slopes 1.13/0.95/0.79/0.68 there). edge_slope keeps its own
+                       # EDGE_NDEC = 1.0 -- the two measure different things and must not be
+                       # merged: the VFC gate wants the slope AT the bottom, this wants how
+                       # far it moves on the way up.
+
+
+def _edge_band(x, sp, nuM, cutfac=CUT_FAC, fit_dec=FIT_DEC, min_pts=FREE_MIN_PTS):
+  '''
+  The lowest usable stretch of one spectrum, cutoff-flattened: (lx, ly) sorted in lx, with
+  the rolloff divided out by syn_cutoff_R, everything above nuM/cutfac dropped and everything
+  more than fit_dec below the peak dropped. Shared by edge_slope and edge_slope_drift so the
+  two cannot come to disagree about which samples "the band bottom" means.
+
+  Returns (None, None) when the band is unusable.
+  '''
+  x = np.asarray(x, float); sp = np.asarray(sp, float)
+  if not np.isfinite(nuM) or nuM <= 0.:
+    return None, None
+  g = np.isfinite(sp) & (sp > 0.) & np.isfinite(x) & (x > 0.)
+  if g.sum() < min_pts:
+    return None, None
+  xg, spg = x[g], sp[g]
+  with np.errstate(divide='ignore', invalid='ignore'):
+    R = syn_cutoff_R(xg/nuM)
+  flat = spg/np.where(np.isfinite(R) & (R > 0.), R, np.nan)
+  ok = np.isfinite(flat) & (flat > 0.) & (xg < nuM/cutfac)
+  if ok.sum() < min_pts:
+    return None, None
+  lx, ly = np.log10(xg[ok]), np.log10(flat[ok])
+  o = np.argsort(lx); lx, ly = lx[o], ly[o]
+  keep = ly > ly.max() - fit_dec
+  return lx[keep], ly[keep]
 
 
 def edge_slope(x, sp, nuM, ndec=EDGE_NDEC, cutfac=CUT_FAC, fit_dec=FIT_DEC,
@@ -766,27 +919,49 @@ def edge_slope(x, sp, nuM, ndec=EDGE_NDEC, cutfac=CUT_FAC, fit_dec=FIT_DEC,
   (edge slopes 0.77 and 0.84) yet land on opposite sides, 'data' being called VFC for all 86
   bins of that window while 'data_rarcut' is called FC with its break 1.5-2.5x the band bottom.
   '''
-  x = np.asarray(x, float); sp = np.asarray(sp, float)
-  if not np.isfinite(nuM) or nuM <= 0.:
+  lx, ly = _edge_band(x, sp, nuM, cutfac=cutfac, fit_dec=fit_dec, min_pts=min_pts)
+  if lx is None or len(lx) < min_pts:
     return np.nan
-  g = np.isfinite(sp) & (sp > 0.) & np.isfinite(x) & (x > 0.)
-  if g.sum() < min_pts:
-    return np.nan
-  xg, spg = x[g], sp[g]
-  with np.errstate(divide='ignore', invalid='ignore'):
-    R = syn_cutoff_R(xg/nuM)
-  flat = spg/np.where(np.isfinite(R) & (R > 0.), R, np.nan)
-  ok = np.isfinite(flat) & (flat > 0.) & (xg < nuM/cutfac)
-  if ok.sum() < min_pts:
-    return np.nan
-  lx, ly = np.log10(xg[ok]), np.log10(flat[ok])
-  o = np.argsort(lx); lx, ly = lx[o], ly[o]
-  keep = ly > ly.max() - fit_dec
-  lx, ly = lx[keep], ly[keep]
   m = lx <= lx.min() + ndec
   if m.sum() < min_pts:
     return np.nan
   return float(np.polyfit(lx[m], ly[m], 1)[0])
+
+
+def edge_slope_drift(x, sp, nuM, ndec=EDGE_DRIFT_NDEC, win=EDGE_WIN_DEX, step=EDGE_WIN_STEP,
+    cutfac=CUT_FAC, fit_dec=FIT_DEC, min_pts=FREE_MIN_PTS):
+  '''
+  How much the free low-end slope MOVES across the band bottom -- the one thing edge_slope
+  cannot say, and the difference between a segment and a knee.
+
+  edge_slope collapses the lowest `ndec` decades into a single number, so a genuine segment
+  at 0.72 and a knee running 0.89 -> 0.60 come back identical. This fits a free line in
+  sliding `win`-wide sub-windows stepped by `step` across the same band (same samples, via
+  _edge_band) and reports the spread of those slopes. A segment holds its slope; a knee does
+  not, and a knee's individual windows are still beautifully straight -- measured on the
+  logr=-3 declined run, every 0.6-dex window fits to an rms of 0.003-0.005 dex while the
+  slope moves by 0.20-0.45. That is why the rms is reported but the DRIFT is the
+  discriminator: straightness over a short window is not evidence of a power law.
+
+  It separates the populations cleanly on the rarcut sweep. Median drift by verdict:
+  SC 0.000, VSC 0.000, MC 0.011, VFC 0.039 -- against 0.259 for the 23 no-verdict spectra.
+  The VFC comparison is the sharp one, since the declines are VFC-shaped: every ACCEPTED VFC
+  has drift <= 0.104 and every DECLINED one >= 0.115, so the two do not overlap and the
+  edge_slope gate is not cutting through a continuum.
+
+  Returns dict(drift, slopes, x0, rms, n), drift = max(slopes) - min(slopes), NaN when fewer
+  than two windows carry min_pts samples (one window can say nothing about drift).
+  '''
+  out = dict(drift=np.nan, slopes=np.array([]), x0=np.array([]), rms=np.array([]), n=0)
+  lx, ly = _edge_band(x, sp, nuM, cutfac=cutfac, fit_dec=fit_dec, min_pts=min_pts)
+  if lx is None or len(lx) < min_pts:
+    return out
+  w = sliding_slopes(lx, ly, lo=lx.min(), hi=lx.min() + ndec, win=win, step=step,
+                     min_pts=min_pts)
+  if w['n'] < 2:
+    return out
+  out.update(drift=float(w['slopes'].max() - w['slopes'].min()), **w)
+  return out
 
 
 def classify_regime(tr, psyn, bmid_tol=BMID_TOL, a_edge=None, edge_tol=EDGE_VFC_TOL):

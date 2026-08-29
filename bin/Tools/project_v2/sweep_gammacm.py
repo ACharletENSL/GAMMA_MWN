@@ -30,6 +30,7 @@ from scipy.optimize import least_squares
 from environment import MyEnv, rescale_hydro, GAMMA_dir
 from phys_functions import granot_sari_syn, syn_cutoff_R
 from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, edge_slope,
+    edge_slope_drift, flat_core,
     SLOPE_SMOOTH, SLOPE_TOL, MIN_PTS, MIN_DEX, FIT_DEC, CUT_FAC, EDGE_VFC_TOL)
 from working_cooling import (get_shell_nuFnu, open_rundata, cellsBehindShock_fromData,
     load_shell_rarefaction_offT, check_extracted_cells, open_celldata)
@@ -736,6 +737,11 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   # 4/3 window is only just reached, over a decade that still averages in the knee.
   a_edge = edge_slope(x, sp, cut['nuM'])
   vfc_ok = bool(np.isfinite(a_edge) and abs(a_edge - 0.5) <= EDGE_VFC_TOL)
+  # ANNOTATION ONLY -- a_drift enters no verdict, and vfc_ok above is untouched by it. It
+  # records WHY a decline happened, which a_edge alone cannot: a single fit over the lowest
+  # decade returns the same 0.72 for a genuine segment at 0.72 and for a knee averaging
+  # 0.89 -> 0.60. See edge_slope_drift.
+  a_drift = edge_slope_drift(x, sp, cut['nuM'])['drift']
   has = set(segs)
   if   {'lo', 'fc', 'hi'} <= has:      regime = 'FC'
   elif {'lo', 'sc', 'hi'} <= has:      regime = 'SC'
@@ -743,7 +749,8 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   elif {'fc', 'hi'} <= has and vfc_ok: regime = 'VFC'
   elif {'lo', 'sc'} <= has:            regime = 'VSC'
   else:                                regime = None
-  return dict(regime=regime, segs=segs, nuM=float(cut['nuM']), a_edge=float(a_edge))
+  return dict(regime=regime, segs=segs, nuM=float(cut['nuM']), a_edge=float(a_edge),
+              a_drift=float(a_drift))
 
 
 # ---------------------------------------------------------------------------
