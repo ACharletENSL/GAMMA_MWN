@@ -371,8 +371,60 @@ def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True):
   return out
 
 
+def _tangent_mid(lx, ly, s, interior, psyn):
+  '''
+  The mid line anchored where the slope REACHES a theory asymptote, for spectra that carry no
+  plateau to fit one over.
+
+  Why it exists. fit_segments' plateau needs MIN_MID_DEX of straight mid segment, and below
+  that it declines -- correctly, because a line fitted to a knee is a biased line. But a
+  spectrum whose slope runs monotonically from 4/3 down to 1-p/2 must PASS THROUGH the mid
+  asymptote exactly once on the way, whether or not it ever settles there, and at that single
+  point the tangent is the mid asymptote by construction. Anchoring there uses no plateau and
+  no fit: the slope is held at the theory value and only the intercept comes from the data.
+
+  On synthetic GS02 spectra of known breaks this recovers b_lo, b_hi to 1-3% down to a
+  separation of 3.0 dex, where the plateau fit needs 4.0 and declines below it; it stays
+  usable (7% on the separation) to 2.5 dex and degrades past that. It does NOT fit better than
+  the plateau where a plateau exists -- the two are measured equal, 0.019-0.055 rms against
+  0.021-0.054 -- so it is a fallback for coverage, never a replacement.
+
+  Which asymptote to cross is a real choice: for p = 2.5 both 1/2 and (3-p)/2 lie inside the
+  interior slope range, so both are crossed. The candidate nearest the interior MEDIAN slope
+  wins -- the value the spectrum spends most of its interior near, which is the same statistic
+  the plateau iteration seeds from. Anchoring instead at the flattest interior point (which
+  would keep the mid slope free) was tried and is not robust: it locks onto the tail of the
+  4/3 asymptote in fast cooling, returning a_mid ~ 1.18 and an rms of 0.077-0.084.
+
+  CONSEQUENCE FOR THE REGIME LABEL, which callers must not read past. The slope is HELD at a
+  candidate here, so beta_mid comes back exactly -1/2 or -(p-1)/2 and breaks_from_segments'
+  classifier can only ever answer FC or SC on these spectra -- never MC, whose whole meaning is
+  a mid slope sitting between the asymptotes. A tangent-anchored bin is therefore evidence
+  about WHERE THE BREAKS ARE, not about whether the spectrum is marginal; the marginality
+  question is answered by sweep_gammacm.identify_segments (which does return MC), or by the
+  plateau fit where one exists. Mixing the two populations in a
+  regime census would manufacture a spurious FC/SC excess exactly in the marginal regime, which
+  is where this fallback does all its work. Check mid_from before counting.
+
+  Returns (a_mid, c_mid, x_mid) or None, x_mid being log10 of the anchor frequency.
+  '''
+  if interior.sum() < MIN_PTS:
+    return None
+  L, S, Y = lx[interior], s[interior], ly[interior]
+  o = np.argsort(L); L, S, Y = L[o], S[o], Y[o]
+  a_mid = min((0.5, (3. - psyn)/2.), key=lambda a: abs(a - float(np.median(S))))
+  k = np.where((S[:-1] - a_mid)*(S[1:] - a_mid) <= 0.)[0]
+  if not len(k):
+    return None
+  k = int(k[-1])                      # the crossing closest to the upper break
+  dS = S[k+1] - S[k]
+  t = (a_mid - S[k])/dS if dS != 0. else 0.
+  x_mid = float(L[k] + t*(L[k+1] - L[k]))
+  return float(a_mid), float(np.interp(x_mid, L, Y) - a_mid*x_mid), x_mid
+
+
 def fit_segments(x, sp, psyn, smooth=SLOPE_SMOOTH, slope_tol=SLOPE_TOL,
-    min_pts=MIN_PTS, min_dex=MIN_DEX, mid_slope=None):
+    min_pts=MIN_PTS, min_dex=MIN_DEX, mid_slope=None, min_mid_dex=MIN_MID_DEX):
   '''
   The three power-law segments of one nuFnu spectrum.
 
@@ -442,6 +494,17 @@ def fit_segments(x, sp, psyn, smooth=SLOPE_SMOOTH, slope_tol=SLOPE_TOL,
     if w == w_mid:
       w_mid = w; a_mid = float(A[0]); break
     w_mid, a_mid = w, float(A[0])
+  # No plateau wide enough to carry a free line -- fall back to the TANGENT anchor, which
+  # needs no plateau at all (see _tangent_mid). Only when the slope is not held: a held mid
+  # slope with no window is a caller error, not something to guess around.
+  if (w_mid is None or (lx[w_mid[1]] - lx[w_mid[0]]) < min_mid_dex) and not held:
+    tan = _tangent_mid(lx, ly, s, interior, psyn)
+    if tan is not None:
+      out['a_mid'], out['c_mid'], out['x_mid'] = tan
+      out['mid_dex'] = 0.
+      out['mid_from'] = 'tangent'
+      out['ok'] = True
+      return out
   if w_mid is None:
     return out
   i, j = w_mid
@@ -453,6 +516,7 @@ def fit_segments(x, sp, psyn, smooth=SLOPE_SMOOTH, slope_tol=SLOPE_TOL,
     out['a_mid'], out['c_mid'] = float(A[0]), float(A[1])
   out['win_mid'] = w_mid
   out['mid_dex'] = float(lx[j] - lx[i])
+  out['mid_from'] = 'plateau'
   out['ok'] = True
   return out
 
@@ -481,20 +545,25 @@ def breaks_from_segments(x, sp, psyn, smooth=SLOPE_SMOOTH, slope_tol=SLOPE_TOL,
         dict(nuM=nuM, sp_flat=sp/np.where(syn_cutoff_R(x/nuM) > 0., syn_cutoff_R(x/nuM), np.nan),
              ok=True)
   seg = fit_segments(x, cut['sp_flat'], psyn, smooth=smooth, slope_tol=slope_tol,
-                     min_pts=min_pts, min_dex=min_dex, mid_slope=mid_slope)
+                     min_pts=min_pts, min_dex=min_dex, mid_slope=mid_slope,
+                     min_mid_dex=min_mid_dex)
   out = dict(num=np.nan, nuc=np.nan, b_lo=np.nan, b_hi=np.nan, regime=None,
              beta_mid=np.nan, nuM=cut['nuM'], seg=seg, ok=False, at_bound=False,
-             mid_dex=seg.get('mid_dex', np.nan))
+             mid_dex=seg.get('mid_dex', np.nan), mid_from=seg.get('mid_from'))
   if not seg['ok']:
     return out
   # The one thing that sets this method's accuracy: how many decades of straight mid
   # segment there are to fit. Measured on synthetic GS02 spectra, the recovered lower
   # break is within 6% of truth once mid_dex >~ 2.5 and degrades to a factor ~2 by
   # mid_dex ~ 0.85, for ANY smoothing -- so the plateau width, not s, is the controlling
-  # variable. Declining below min_mid_dex is the point of the method: a short plateau
-  # carries no unambiguous line, and a number produced from one would be the same kind of
-  # silent bias the template fit gives.
-  if seg.get('mid_dex', 0.) < min_mid_dex and mid_slope is None:
+  # variable. A short plateau carries no unambiguous line, and a free fit to one would be the
+  # same kind of silent bias the template fit gives -- so the FREE fit is still refused below
+  # min_mid_dex. What used to happen next was a flat decline; now fit_segments falls back to
+  # the tangent anchor (mid_from == 'tangent'), which needs no plateau because it holds the
+  # slope and takes only the intercept from the data. The decline therefore survives only
+  # where the fallback ALSO fails -- there is no crossing, or no interior at all.
+  if seg.get('mid_from') != 'tangent' and seg.get('mid_dex', 0.) < min_mid_dex \
+     and mid_slope is None:
     return out
   a_lo, a_mid, a_hi = seg['a_lo'], seg['a_mid'], seg['a_hi']
   b_lo = 10**((seg['c_lo'] - seg['c_mid'])/(a_mid - a_lo))
