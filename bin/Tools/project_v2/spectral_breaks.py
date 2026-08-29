@@ -82,7 +82,7 @@ measured answer.
 import numpy as np
 from scipy.optimize import least_squares
 
-from phys_functions import granot_sari_syn, syn_cutoff_R
+from phys_functions import granot_sari_syn, syn_cutoff_R, syn_cutoff_R_smeared
 
 # --- defaults -------------------------------------------------------------------------
 SLOPE_TOL = 0.15      # |local slope - asymptote| accepted into a fixed-slope segment window
@@ -318,7 +318,14 @@ def flat_core(lx, ly, lo=None, hi=None, tol=CORE_TOL, win=CORE_WIN_DEX, step=COR
   return out
 
 
-def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True):
+# Grid for the OPT-IN smeared-cutoff fit (measure_cutoff_nuM(smear=True)). In dex of nu_M
+# spread; the sweep spectra want 0.02-0.10, so 0.20 is generous headroom and 0.01 resolves the
+# minimum (rms moves measurably between adjacent steps -- see syn_cutoff_R_smeared).
+SMEAR_SIGMAS = np.arange(0., 0.2001, 0.01)
+
+
+def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True, smear=False,
+    sigmas=SMEAR_SIGMAS):
   '''
   nu_M from the high-frequency rolloff alone, then optionally divide it out.
 
@@ -332,12 +339,36 @@ def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True):
   segment is a clean power law over its whole range instead of only below ~nuM/3 -- which
   is what lets the high asymptote be fitted where it is best determined.
 
-  Returns dict(nuM, sp_flat, ok).
+  smear=True fits the SUPERPOSED rolloff instead (syn_cutoff_R_smeared), adding one parameter
+  -- the dex spread of nu_M across the contributing cells -- and scanning it jointly with x_M
+  over `sigmas`. It is OPT-IN and default OFF: with smear=False every number this returns is
+  bit-identical to before the smeared shape existed, so no existing result moves until a caller
+  asks for it. Turn it on when nu_M ITSELF is the quantity of interest; it is not needed for
+  anything measured below the cut-off (see below).
+
+  WHY THE DEFAULT IS STILL THE UNSMEARED SHAPE. The single-zone fit is biased: on a synthetic
+  superposition of known sigma = 0.12 dex it returns nu_M 1.30x the true median, and the spread
+  inferred from the sweep's own rolloffs (sigma ~ 0.10-0.13 at peak epochs) puts the shipped
+  nu_M some +23-35% high there. But that bias barely propagates. Measured end to end by
+  re-flattening with the smeared shape and refitting: b_lo moves by x1.0000 in every case,
+  a_mid by +0.0000, mid_dex not at all, and only b_hi moves (median x1.019, worst x1.105).
+  Two reasons -- the convolution is symmetric in log nu, so it broadens the rolloff about nu_M
+  without moving its onset (the departure point shifts <= 0.07 dex at the 1% level and ~0.00 at
+  the 10% and 50% levels), and the nu_M shift itself is only 0.04-0.09 dex against segments
+  spanning several decades. b_hi is the exception because its intercept is fitted partly inside
+  the rolloff and the crossing amplifies it: dlog b_hi = dc_hi/(a_hi - a_mid) with the
+  denominator ~ -0.49. b_hi is nu_m in fast cooling and nu_c in slow, so the residual ~2%
+  (worst 10%) systematic lands on nu_c on the slow-cooling side and belongs in that error
+  budget rather than being assumed zero.
+
+  Returns dict(nuM, sp_flat, ok), plus sigma and rms when smear=True.
   '''
   lx, ly, s = segment_slopes(x, sp, smooth)
   a_hi = 1. - psyn/2.
   xg = 10**lx
   out = dict(nuM=np.nan, sp_flat=np.asarray(sp, float), ok=False)
+  if smear:
+    out.update(sigma=np.nan, rms=np.nan)
   if len(lx) < 8:
     return out
   # work above the peak, over the top FIT_DEC decades
@@ -347,25 +378,45 @@ def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True):
     return out
   lxm, lym = lx[m], ly[m]
   grid = 10**np.linspace(lxm.min() - 1., lxm.max() + 3., 400)
-  best = (np.inf, np.nan)
-  for xM in grid:
-    with np.errstate(divide='ignore', invalid='ignore'):
-      corr = np.log10(syn_cutoff_R(10**lxm/xM))
-    if not np.all(np.isfinite(corr)):
-      continue
-    r = lym - a_hi*lxm - corr            # = c_hi + residual
-    c = float(np.mean(r))                 # profile the offset out
-    rms = float(np.sqrt(np.mean((r - c)**2)))
-    if rms < best[0]:
-      best = (rms, xM)
+  sig_grid = np.asarray(sigmas, float) if smear else np.array([0.])
+  best = (np.inf, np.nan, np.nan)
+  # C_sigma depends on u = x/xM only, so changing xM is a pure shift in log u: tabulate
+  # log10 C_sigma ONCE per sigma on a log-u grid covering every trial, then interpolate.
+  # Evaluating the kernel per (sigma, xM) instead would be ~3e8 calls (see the shape's
+  # docstring). Outside the tabulated range the factor is 1 below and unusable above, which
+  # the isfinite guard below already rejects.
+  # The unsmeared branch keeps evaluating the kernel directly, so smear=False stays
+  # bit-identical to before this option existed; only the smeared branch is tabulated.
+  lu = np.linspace(lxm.min() - np.log10(grid.max()) - 1.,
+                   lxm.max() - np.log10(grid.min()) + 1., 4000)
+  for sig in sig_grid:
+    if smear:
+      with np.errstate(divide='ignore', invalid='ignore'):
+        tab = np.log10(syn_cutoff_R_smeared(10**lu, sig))
+    for xM in grid:
+      if smear:
+        corr = np.interp(lxm - np.log10(xM), lu, tab, left=0., right=np.nan)
+      else:
+        with np.errstate(divide='ignore', invalid='ignore'):
+          corr = np.log10(syn_cutoff_R(10**lxm/xM))
+      if not np.all(np.isfinite(corr)):
+        continue
+      r = lym - a_hi*lxm - corr            # = c_hi + residual
+      c = float(np.mean(r))                 # profile the offset out
+      rms = float(np.sqrt(np.mean((r - c)**2)))
+      if rms < best[0]:
+        best = (rms, xM, sig)
   if not np.isfinite(best[1]):
     return out
   xM = float(best[1])
   out['nuM'] = xM
   out['ok'] = True
+  if smear:
+    out['sigma'], out['rms'] = float(best[2]), float(best[0])
   if flatten:
     with np.errstate(divide='ignore', invalid='ignore'):
-      f = syn_cutoff_R(np.asarray(x, float)/xM)
+      f = (syn_cutoff_R(np.asarray(x, float)/xM) if not smear
+           else syn_cutoff_R_smeared(np.asarray(x, float)/xM, best[2]))
     sp_f = np.asarray(sp, float)/np.where(np.isfinite(f) & (f > 0.), f, np.nan)
     out['sp_flat'] = sp_f
   return out

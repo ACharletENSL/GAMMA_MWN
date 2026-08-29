@@ -182,6 +182,83 @@ def syn_cutoff_R(u):
   return func_R(x)/(R_LOW_COEF*x**(1./3.))
 
 
+# Quadrature for the lognormal average in syn_cutoff_R_smeared: a UNIFORM grid in s (dex),
+# truncated at +-SMEAR_NSIG sigma, with the Gaussian weights renormalised to sum to 1.
+# Deliberately not Gauss-Hermite: func_R is a table interpolation, so the integrand is only
+# piecewise smooth and polynomial quadrature converges badly on it (measured non-monotonic,
+# still ~4e-3 at 31 Gauss-Hermite nodes). A uniform grid converges cleanly instead -- see the
+# ladder in syn_cutoff_R_smeared's docstring. Cost is one vectorised func_R call per node.
+SMEAR_NODES = 121
+SMEAR_NSIG = 4.0
+
+
+def syn_cutoff_R_smeared(u, sigma):
+  '''
+  syn_cutoff_R for an emitting region that is NOT one zone: the cut-off shape when the
+  contributing cells carry a spread of nu_M rather than a single value.
+
+  WHY. syn_cutoff_R(u) is the single-electron rolloff and assumes ONE burnoff frequency. The
+  observed spectrum sums cells, and each cell contributes the same rolloff SHAPE displaced in
+  log-frequency by its own nu_M. Summing them is therefore a convolution in log nu, not a
+  change of shape parameter:
+
+      C_sigma(u) = INT R(u / 10**s) N(s; 0, sigma) ds,     sigma in DEX
+
+  with the spread taken lognormal about the median nu_M. sigma -> 0 returns syn_cutoff_R
+  exactly, and C_sigma -> 1 well below nu_M for any sigma (the weights are normalised), so
+  this keeps the contract the unsmeared shape has: it leaves the power-law body untouched and
+  supplies only the rolloff.
+
+  WHAT IT FIXES. Fitting a single-zone R to a superposed rolloff biases nu_M HIGH, because the
+  fit widens the only way it can -- by pushing the cut-off up. On a synthetic superposition of
+  known sigma = 0.12 dex, a one-parameter R fit returns nu_M 1.299x the true median at an rms
+  of 0.1007 dex, while this shape returns sigma = 0.120 and nu_M 0.971x at rms 0.0072. On the
+  computed sweep spectra it improves the rolloff rms in every case (1.5-3x) and brings the
+  fitted nu_M to within ~5% of the independent Granot & Sari whole-spectrum refit, against a
+  systematic 10-12% disagreement with the unsmeared shape.
+
+  sigma IS A MEASUREMENT, not a shape knob -- it is the dex spread of nu_M over the cells that
+  are contributing. Fitted on the sweep it runs 0.02-0.10 dex and is systematically larger at
+  the pulse peak (0.06-0.10) than on the rise (0.02-0.07), which is the expected ordering since
+  the most cells contribute simultaneously at peak. It must be FITTED, not tabulated: holding a
+  single global sigma = 0.07 costs +0.0126 dex of rms against fitting it per spectrum, ten
+  times what holding the Granot & Sari smoothing costs (+0.0013), i.e. unlike s1/s2 this
+  parameter is well constrained by the data.
+
+  NB an alternative that looks cheaper -- stretching R in log frequency, R(u**(1/k)) -- was
+  tested and is NOT adequate: on the same synthetic it reaches only rms 0.0357 and distorts
+  nu_M by -24%. The convolution is doing real work.
+
+  QUADRATURE. Uniform grid in s over +-SMEAR_NSIG sigma, Gaussian weights renormalised to 1
+  (see SMEAR_NODES). Convergence against a 481-node reference, max |dC| over nu/nu_M in
+  1e-3..30, at sigma = 0.05 / 0.10 / 0.20:
+      31 nodes  1.9e-03 / 2.0e-03 / 2.0e-03
+      61        9.0e-04 / 9.1e-04 / 9.1e-04
+      121       3.8e-04 / 4.3e-04 / 4.5e-04
+      241       1.2e-04 / 1.5e-04 / 1.6e-04
+  It converges like 1/N, as expected for a piecewise-smooth integrand truncated at +-4 sigma.
+  121 puts the shape error near 4e-4, i.e. ~2e-3 dex where the rolloff has fallen to C ~ 0.1 --
+  more than an order below the ~0.02-0.04 dex rms of the fits that use it.
+
+  COST. Callers scanning nu_M should NOT call this per trial value: C_sigma depends on u only,
+  and changing nu_M is a pure shift in log u, so tabulate it once per sigma on a log-u grid and
+  interpolate (measure_cutoff_nuM does exactly that). Evaluated naively inside a 400 x 21 scan
+  this is ~3e8 kernel calls; tabulated it is 21.
+
+  Vectorised over u; sigma is scalar.
+  '''
+  sigma = float(sigma)
+  if sigma <= 1e-6:
+    return syn_cutoff_R(u)
+  u = np.asarray(u, dtype=float)
+  s = np.linspace(-SMEAR_NSIG*sigma, SMEAR_NSIG*sigma, SMEAR_NODES)
+  w = np.exp(-0.5*(s/sigma)**2)
+  w /= w.sum()
+  with np.errstate(divide='ignore', invalid='ignore'):
+    vals = syn_cutoff_R(u[..., None]/10**s)
+  return np.sum(vals*w, axis=-1)
+
+
 def granot_sari_syn(nu, num, nuc, psyn, s1=1.3, s2=2.0, nuM=None, F_ext=1.,
     nuFnu=False, cutoff='R', beta_mid=None, beta_lo_single=-0.5):
   '''
