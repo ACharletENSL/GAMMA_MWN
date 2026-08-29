@@ -70,7 +70,7 @@ EARLY_ANA = 'shockfit'    # data method: reconstruct the cadence-missed early da
 
 LOG10RATIO_ARR = np.arange(-5, 3)          # -5..+2
 Z_SHELL = 4                                 # reverse-shock shell
-TMAX, NT = 1000, 250      # sized on the REFERENCE method, which has no cut-off: with
+TMAX, NT = 1000, 1800     # sized on the REFERENCE method, which has no cut-off: with
                           # rar_cut=None every cell is followed to its last snapshot, and on
                           # cooling_g100 that is bar{T} = 646..650 (the run is 82x longer than
                           # the old cooling_fid_raref_ext fiducial, whose cells ended at
@@ -80,6 +80,22 @@ TMAX, NT = 1000, 250      # sized on the REFERENCE method, which has no cut-off:
                           # The obs grid is geometric in bar{T} (obs_arrays, Tb_min set), so the
                           # decay is log-sampled; NT keeps ~36 points/decade over 7 decades, and
                           # TB_LIN adds 200 linear samples across the peak regardless.
+                          # NT RAISED 250 -> 1800 to resolve the sub-cell onset comb. The
+                          # geometric grid spans 7 decades, so NT sets its spacing at
+                          # 7/(NT-1) dex: 250 gave 0.0281, which is 3.5x COARSER than
+                          # SUBCELL_DLOGT = 0.008 and therefore aliased the very structure
+                          # the sub-cell refinement exists to control -- the early-time
+                          # cell-sum staircase was unresolvable in the output no matter how
+                          # finely it was sampled downstream. 1800 gives 0.0039 dex, ~2
+                          # samples per sub-cell interval (Nyquist). Costs 7.2x in the
+                          # kernel, which is linear in NT.
+                          # WHY IT MATTERS: in fast cooling a cell radiates its energy in
+                          # ~(gamma_c/gamma_m) of the crossing time, so with 500 cells shocked
+                          # at a uniform rate only ~500*(gamma_c/gamma_m) of them emit at
+                          # once -- 0.005 at log10(gc/gm) = -5, 0.05 at -4, 0.5 at -3, 5 at
+                          # -2. Below -3 that is FEWER THAN ONE CELL: the early emission is a
+                          # sequence of isolated cell flashes, not a superposition, and its
+                          # structure sits at the onset spacing.
                           # With rar_cut='model' all cells are instead dark by bar{T} = 2.03
                           # (RS) / 1.70 (FS) and the window is pure tT^-2 tail past that.
 LOGNU_MIN = -6            # fixed low end of the frequency window, in log10(nu/nu_m) and the
@@ -152,16 +168,39 @@ FRAC_RISE, FRAC_TAIL = 0.1, 0.1              # rise/tail spectra are taken where
                                              # loses the SC-rise -> FC-peak transition.
 TB_MIN = 1e-4                                # early-time floor: obs grid geometric in
                                              # bar{T}=(Tobs-Ts)/T0 over [TB_MIN, Tmax]
-TB_LIN = (0.5, 9., 200)                      # extra samples spaced LINEARLY in bar{T},
+TB_LIN = (0.5, 2., 200)                      # extra samples spaced LINEARLY in bar{T},
                                              # merged into that grid (obs_arrays). The
                                              # geometric grid resolves the log axis and
                                              # leaves only 12 of 250 points in
                                              # bar{T}/bar{T}_f = 1..2, where the lightcurve
                                              # peaks -> linear-scale lightcurves come out
-                                             # jagged. This covers the window they show
-                                             # (XLIM_LIN, with margin) at a uniform 0.043
-                                             # in bar{T}, and keeps every geometric point,
-                                             # so the early rise TB_MIN buys is untouched.
+                                             # jagged. Keeps every geometric point, so the
+                                             # early rise TB_MIN buys is untouched.
+                                             # NARROWED from (0.5, 9.): 9 was far wider than
+                                             # the feature it exists to resolve. In
+                                             # bar{T}/bar{T}_f the peak sits at ~1, the
+                                             # crossing at 1 and the rarefaction ends at
+                                             # 1.547, so everything the linear samples are
+                                             # for lives below bar{T} ~ 2.03; the old window
+                                             # spent 3/4 of its 200 points on the decaying
+                                             # tail, which the geometric grid already covers
+                                             # perfectly well. Same n over [0.5, 2] is 4.7x
+                                             # denser through the peak, at 0.0075 in bar{T}.
+                                             # NB 2.0 stops just short of the rarefaction end
+                                             # (bar{T} = 2.025); the geometric grid carries
+                                             # that point, so it is sampled, just not densely.
+                                             # TODO widen to 2.5 at the next regeneration, to
+                                             # cover that end with margin. Deferred because it
+                                             # invalidates every cached point and the cache is
+                                             # keyed on log10ratio ALONE -- it does not
+                                             # self-invalidate, so a plain re-run would
+                                             # silently reuse the old grid. Fold it into the
+                                             # next run that already forces use_cache=False,
+                                             # and do z=1 with it or the two shells end up on
+                                             # different grids (sweep_shells compares them).
+                                             # Widening cannot perturb existing samples:
+                                             # obs_arrays merges the linear set into the
+                                             # geometric one as a strict superset.
 SUBCELL_DLOGT = 0.008                         # smooth the early-time cell-sum staircase:
                                              # split CD-adjacent cells whose onsets are
                                              # >this in log10(bar{T}) apart (None=off).
