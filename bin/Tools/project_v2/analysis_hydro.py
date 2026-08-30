@@ -285,8 +285,9 @@ def extract_data_cells(key, klist, itmin=0, itmax=None, itstep=None,
 
   if savefile:
     for k, out_k in zip(klist, out_arr):
-      cellfile, _ = get_cellfile(key, k)
-      out_k.to_csv(cellfile, index=True)
+      # IO.CELL_FMT, not to_csv: at hi-res the sweep re-reads every cell once per point
+      # and the CSV tokenizer dominates. Existing CSV runs stay readable (get_cellfile).
+      save_celldata(key, k, out_k)
     # provenance: which de-jittering these CSVs were built with
     with open(dirpath + 'cells/_extraction.json', 'w') as f:
       json.dump({'rho_smooth_window': rho_smooth_window,

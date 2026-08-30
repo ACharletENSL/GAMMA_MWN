@@ -32,9 +32,13 @@ alpha / zeta rescaling conventions. The generated cell DataFrame has the same
 schema, so everything downstream of the builder is shared.
 '''
 
+import collections
+from types import SimpleNamespace
+
 from working_cooling import *
 from working_cooling import _interp_state, _one_minus_beta_over_beta
 # (underscore names are skipped by import *)
+import cell_pool
 
 # cap on the variation of ln(syn/lfac) across one node interval of the tt/tp
 # quadrature (see _densify_nodes): the snapshot grid is refined until the
@@ -738,11 +742,412 @@ def get_cell_nuFnu_fromData(key, k, func_Fnu=get_Fnu_cell_evolving,
     return nuobs, Tobs, env, nuFnu, cell_dist
   return nuobs, Tobs, env, nuFnu
 
+# =======================================================================================
+# Cell-level parallelism of the shell pass
+# =======================================================================================
+# get_shell_nuFnu_fromData sums independent per-cell contributions into one (T, nu) grid,
+# so the shell loop is a map-reduce -- but it used to be written as one serial loop over a
+# list holding EVERY cell's history at once. Two things broke at 20x resolution:
+#   - memory: 1e4 cells x ~9e4 rows of history in the parent is ~200 GB. The sweep OOMs
+#     before it is slow.
+#   - cores: the only parallelism was across the 8 sweep points (sweep_gammacm.run_sweep),
+#     so an HPC allocation past 8 cores did nothing.
+# The fix is the same for both: workers own a contiguous chunk of the flat EMITTER list
+# (cells and sub-cells), read the cells it touches themselves, accumulate locally, and hand
+# back one (T, nu) array. The parent holds only a bounded window of partial sums, and the
+# only whole-shell arrays it keeps are the injection rows (scan_shell_cells).
+#
+# DETERMINISM. Chunk boundaries are a function of the problem alone (EMITTERS_PER_CHUNK and
+# the per-emitter cost weights), never of the worker count, and the parent reduces chunks in
+# INDEX order. So 8 workers and 128 workers give bit-identical answers -- an HPC result can
+# be reproduced on a laptop. Against the historical serial reduction the result differs
+# only by float associativity (measured 1.7e-15 relative on a production point);
+# ncell_proc=1 walks the emitters in the historical order and is bit-identical to it.
+
+EMITTERS_PER_CHUNK = 16
+'''Target emitters per pool task. Sets the number of chunks, hence the granularity of
+load balancing and the size of the reduction. It is deliberately NOT derived from the
+worker count: that is what makes the answer core-count independent.
+
+A chunk is a contiguous run of the flat EMITTER list, not of cells -- one cell's
+sub-cells may be split across chunks. That distinction is the whole point: sub-refinement
+is concentrated on the few CD-adjacent cells (54 of 500 carry all 372 sub-cells at
+SUBCELL_DLOGT=0.008, up to SUBCELL_MAX=400 each), so with cells as the atom a single cell
+outweighs the mean chunk 5-18x and caps the shell pass no matter how many cores are
+thrown at it -- measured makespan/ideal 1.74 at 7 workers and 31.9 at 128. Splitting
+inside a cell costs only a re-read of that cell's history in the second chunk.'''
+
+_SCAN_CACHE_VERSION = 1
+_SCAN_CELLS_PER_CHUNK = 64      # scan is I/O bound, so keep chunks small enough to fill a
+                                # large pool (10k cells -> ~157 tasks)
+
+
+def _load_cell_history(key, k, n_settle, env, sh_data=None, early_frac=0.):
+  '''
+  One cell's post-shock history, with the early reconstruction applied: exactly the
+  per-cell body of what used to be get_shell_nuFnu_fromData's first pass.
+  Returns (hist, attrs, n_prepended), hist=None where the cell has no usable history.
+
+  ONE definition, used by both scan_shell_cells and the emission workers, so the
+  injection row the sub-cell edges are built from cannot drift from the injection row
+  the emission actually uses.
+  '''
+  cell_data = open_celldata(key, k)
+  if cell_data is False:
+    return None, None, 0
+  t_off = cell_data.t.iloc[0] if (len(cell_data) and cell_data.index[0] == 0) else 0.
+  shocked = select_postshock_rows(cell_data, n_settle)
+  if len(shocked) < 2:
+    return None, None, 0
+  shocked['t'] = shocked['t'] - t_off
+  n_prepended = 0
+  if sh_data is not None:
+    sel = sh_data.loc[sh_data.i == k]
+    if len(sel):
+      n0 = len(shocked)
+      shocked = _prepend_shocked_row(shocked, sel.iloc[0], env, early_frac)
+      n_prepended = len(shocked) - n0
+  return shocked, cell_data.attrs, n_prepended
+
+
+def _scan_cache_path(key, z, n_settle, early_ana, early_frac):
+  return (get_dirpath(key) +
+          f'cellscan_z={z}_ns={n_settle}_ea={early_ana}_ef={early_frac:g}.npz')
+
+
+_SCAN_CTX = None
+
+def _scan_init(ctx):
+  global _SCAN_CTX
+  _SCAN_CTX = ctx
+
+def _scan_chunk(spec):
+  '''Scan one contiguous run of cells; module-level so it is picklable.'''
+  cid, i0, i1 = spec
+  c = _SCAN_CTX
+  out = []
+  for idx in range(i0, i1):
+    k = int(c.klist[idx])
+    hist, _, npre = _load_cell_history(k=k, key=c.key, n_settle=c.n_settle, env=c.env,
+                                       sh_data=c.sh_data, early_frac=c.early_frac)
+    if hist is None:
+      out.append((idx, False, 0, None, np.nan, 0))
+      continue
+    inj = hist.iloc[0]
+    barT = (get_variable(inj, 'Ton', c.env) - c.env.Ts)/c.env.T0
+    out.append((idx, True, len(hist), inj, barT, npre))
+  return cid, out
+
+
+def scan_shell_cells(key, z, klist, env, n_settle=1, early_ana=None, early_frac=0.,
+    sh_data=None, nproc=1, use_cache=True):
+  '''
+  Per-cell injection rows, usability, onset bar{T} and cost weights for a whole shell --
+  everything the shell pass needs from the cells BEFORE any flux is computed, and nothing
+  that scales with history length.
+
+  This is alpha-independent: the injection row comes from the raw history, and bar{T}_on
+  is built with the UNRESCALED env (the dimensionless convention compute_subcell_edges
+  works in). All 8 sweep points therefore share one scan, where the old first pass redid
+  it per point -- and per point it also held every history in memory, which is the thing
+  that does not fit at hi-res.
+
+  Cached to results/{key}/cellscan_z=...npz, versioned and coverage-checked like the
+  rarefaction head. Callers MUST have run extract_data_cells first: scanning a partially
+  extracted run would freeze a cache made of whatever subset happened to be on disk (the
+  same trap documented for load_shell_rarefaction).
+
+  use_cache: read AND write the shared cache. Callers pass False for a NON-default
+    klist: the cache path is keyed on (key, z) alone, so a subset scan would overwrite
+    the whole shell's cache with a partial one. The stored cell list is checked on read
+    too, so a stale cache is rebuilt rather than trusted.
+
+  Returns dict(k, usable, nrows, barT_on, inj, n_prepended).
+  '''
+  klist = np.asarray(klist)
+  path = _scan_cache_path(key, z, n_settle, early_ana, early_frac)
+  if use_cache and os.path.isfile(path):
+    with np.load(path, allow_pickle=False) as d:
+      if int(d['version']) == _SCAN_CACHE_VERSION and np.array_equal(d['k'], klist):
+        cols = [str(c) for c in d['inj_cols']]
+        return dict(k=d['k'], usable=d['usable'], nrows=d['nrows'],
+                    barT_on=d['barT_on'], n_prepended=int(d['n_prepended']),
+                    inj=_inj_frame(d['inj'], cols, key))
+      print(f'cell scan cache {os.path.basename(path)} does not match this shell '
+            '(version or cell list); rebuilding')
+
+  n = len(klist)
+  bounds = _chunk_bounds(np.ones(n), max(1, int(np.ceil(n/_SCAN_CELLS_PER_CHUNK))))
+  specs = [(c, i0, i1) for c, (i0, i1) in enumerate(bounds)]
+  ctx = SimpleNamespace(key=key, klist=klist, n_settle=n_settle, env=env,
+                        sh_data=sh_data, early_frac=early_frac)
+  rows = [None]*n
+  if nproc > 1 and len(specs) > 1:
+    npr = cell_pool.resolve_nproc(nproc, cap=len(specs))
+    with cell_pool.cell_executor(npr, initializer=_scan_init, initargs=(ctx,)) as ex:
+      for _, out in ex.map(_scan_chunk, specs):
+        for r in out:
+          rows[r[0]] = r
+  else:
+    _scan_init(ctx)
+    for spec in specs:
+      for r in _scan_chunk(spec)[1]:
+        rows[r[0]] = r
+
+  usable = np.array([r[1] for r in rows], dtype=bool)
+  nrows = np.array([r[2] for r in rows], dtype=np.int64)
+  barT_on = np.array([r[4] for r in rows], dtype=float)
+  n_prepended = int(sum(r[5] for r in rows))
+  first = next((r[3] for r in rows if r[3] is not None), None)
+  if first is None:
+    raise RuntimeError(f'no usable cell history in shell z={z} of {key}: nothing to scan')
+  cols = [str(c) for c in first.index]
+  inj = np.full((n, len(cols)), np.nan)
+  for i, r in enumerate(rows):
+    if r[3] is not None:
+      inj[i] = r[3].to_numpy(dtype=float)
+  if use_cache:
+    np.savez(path, version=_SCAN_CACHE_VERSION, k=klist, usable=usable, nrows=nrows,
+             barT_on=barT_on, n_prepended=n_prepended, inj=inj,
+             inj_cols=np.array(cols))
+  return dict(k=klist, usable=usable, nrows=nrows, barT_on=barT_on,
+              n_prepended=n_prepended, inj=_inj_frame(inj, cols, key))
+
+
+def _inj_frame(values, cols, key):
+  '''The scan's injection rows as a frame carrying the run attributes open_celldata puts
+  on a cell history, so a row taken out of it is interchangeable with the shocked.iloc[0]
+  the shell pass used to carry around.'''
+  df = pd.DataFrame(values, columns=cols)
+  mode, runname, rhoNorm, geometry = get_runatts(key)
+  df.attrs.update(key=key, mode=mode, runname=runname, rhoNorm=rhoNorm,
+                  geometry=geometry)
+  return df
+
+
+def _chunk_bounds(weights, nchunks):
+  '''
+  Split a weighted sequence into <= nchunks CONTIGUOUS [i0, i1) runs of roughly equal
+  cumulative weight. Depends only on (weights, nchunks) -- never on the worker count,
+  which is what keeps the reduction reproducible across machines.
+  '''
+  w = np.asarray(weights, dtype=float)
+  n = w.size
+  nchunks = max(1, min(int(nchunks), n))
+  if nchunks == 1:
+    return [(0, n)]
+  cw = np.cumsum(w)
+  tot = cw[-1]
+  if tot <= 0.:
+    edges = np.linspace(0, n, nchunks + 1).astype(int)
+  else:
+    cuts = np.searchsorted(cw, tot*np.arange(1, nchunks)/nchunks, side='left') + 1
+    edges = np.concatenate([[0], cuts, [n]])
+  edges = np.unique(np.clip(edges, 0, n))
+  return [(int(a), int(b)) for a, b in zip(edges[:-1], edges[1:]) if b > a]
+
+
+def _new_acc(ctx):
+  '''One accumulator set per variant, in `variants` order (None where the flux is not
+  being computed at all, so it cannot be mistaken for a zero lightcurve).'''
+  nv = len(ctx.variants)
+  return SimpleNamespace(
+      nuFnu=[None]*nv if ctx.energies_only
+            else [np.zeros((len(ctx.Tobs), len(ctx.nuobs))) for _ in range(nv)],
+      E_rad=[0.]*nv, E_int=[0.]*nv, E_inj=[0.]*nv, skipped=[])
+
+
+def _merge_acc(dst, src):
+  '''Reduce one chunk's partial sums into the running total. Called in chunk-index
+  order, which is what makes the total independent of completion order.'''
+  for iv in range(len(dst.E_rad)):
+    if dst.nuFnu[iv] is not None:
+      dst.nuFnu[iv] += src.nuFnu[iv]
+    dst.E_rad[iv] += src.E_rad[iv]
+    dst.E_int[iv] += src.E_int[iv]
+    dst.E_inj[iv] += src.E_inj[iv]
+  dst.skipped.extend(src.skipped)
+
+
+def _accum_energy(ctx, acc, iv, cell, cell_env):
+  acc.E_rad[iv] += cell_radiated_energy(cell, cell_env)
+  acc.E_inj[iv] += cell_injected_energy(cell, cell_env)
+  c0 = cell.iloc[0]
+  acc.E_int[iv] += get_variable(c0, 'ei', cell_env) * get_variable(c0, 'V3p', cell_env)
+
+
+def _make_cell(ctx, hist, attrs, kk):
+  '''Build one cell per variant from a shared history; None where it is unusable.'''
+  out = []
+  for _, rmap, kw in ctx.variants:
+    c, ce = generate_cell_fromHistory(hist, attrs, ctx.env,
+        u_scale=ctx.u_scale, alpha=ctx.alpha, zeta=ctx.zeta, r_ref=ctx.r_ref,
+        Tmax=ctx.Tmax, dlnrho_max=ctx.dlnrho_max, dlnsyn_max=ctx.dlnsyn_max,
+        rar_ratio=(rar_map_lookup(rmap, kk) if rmap is not None else None), **kw)
+    out.append((c, ce))
+  return out
+
+
+def _emit(ctx, acc, cells):
+  '''Accumulate one cell's flux (+ energies) into every variant. With two variants
+  the pair evaluator computes their shared leading steps ONCE -- the whole point of
+  rar_cut='both' -- and is bit-identical to evaluating them separately.'''
+  if ctx.energies_only:
+    ok = False
+    for iv, (cell, cell_env) in enumerate(cells):
+      if cell is False:
+        continue
+      _accum_energy(ctx, acc, iv, cell, cell_env)
+      ok = True
+    return ok
+  if ctx.paired and cells[0][0] is not False and cells[1][0] is not False \
+      and ctx.func_Fnu is get_Fnu_cell_evolving:
+    (cf, ef), (cc, _) = cells
+    Ff, Fc = get_Fnu_cell_evolving_pair(ctx.nuobs, ctx.Tobs, cf, cc, ef, **ctx.kwargs)
+    # nu F_nu exactly as get_nuFnu does it (same nu0 branch, same broadcast), so the
+    # paired path differs from the separate one in nothing but evaluation order
+    norm = ctx.kwargs.get('norm', True)
+    for iv, F in enumerate((Ff, Fc)):
+      cell_iv, env_iv = cells[iv]
+      nu0 = env_iv.nu0FS if (cell_iv.iloc[0].trac > 1.5) else env_iv.nu0
+      nub_iv = (ctx.nuobs/nu0 if norm else ctx.nuobs)[np.newaxis, :]
+      acc.nuFnu[iv] += nub_iv * F
+      if ctx.return_energies: _accum_energy(ctx, acc, iv, cell_iv, env_iv)
+    return True
+  ok = False
+  for iv, (cell, cell_env) in enumerate(cells):
+    if cell is False:
+      continue
+    acc.nuFnu[iv] += get_nuFnu(ctx.func_Fnu, ctx.nuobs, ctx.Tobs, cell, cell_env,
+                               **ctx.kwargs)
+    if ctx.return_energies: _accum_energy(ctx, acc, iv, cell, cell_env)
+    ok = True
+  return ok
+
+
+def _process_subcells(ctx, acc, idx, hist, attrs, j0, j1):
+  '''
+  Sub-cells [j0, j1) of cell idx: its onset interval split into flux-conserving
+  sub-cells at geometrically-spaced onsets, reusing its actual history shape.
+
+  The range exists so a chunk boundary can fall INSIDE a heavily refined cell -- each
+  sub-cell is built from (inj_par, inj_next, edges) alone, so any sub-range is
+  computable on its own.
+  '''
+  a, b, edges = ctx.sub_edges[idx]
+  inj_par = ctx.inj.iloc[idx]
+  inj_next = ctx.inj.iloc[idx+1]
+  for j in range(j0, j1):
+    e0, e1 = edges[j], edges[j+1]
+    onset_c = np.sqrt(e0*e1)                       # geometric centre
+    f = float(np.clip((onset_c - a)/(b - a), 0., 1.))
+    dx_w = inj_par.dx * (e1 - e0)/(b - a)          # onset-width weight => flux conserved
+    sub_st = _interp_state(inj_par, inj_next, f, dx_w)
+    # place the sub-cell onset exactly at onset_c: shift the anchor state
+    # along its worldline (dt, dx = beta*dt => dbarT = (1+z)(1-beta)dt/T0).
+    # Backward shifts (onset_c below the measured onsets) extrapolate the
+    # parent's injection state to where the snapshot cadence could not see --
+    # the data analog of the fit path's sub-states interpolated on the
+    # reconstructed shock front (which reaches barT = 0 at collision).
+    barT_sub = (get_variable(sub_st, 'Ton', ctx.env) - ctx.env.Ts)/ctx.env.T0
+    beta = sub_st['vx']
+    delta = (onset_c - barT_sub)*ctx.env.T0/((1. + ctx.env.z)*(1. - beta))
+    sub_st['t'] += delta
+    sub_st['x'] += beta*delta
+    hist_sub = _subcell_history(hist, sub_st)
+    # sub-cells look the map up on their own INTERPOLATED index, as the fit path
+    # does -- R_rar/R_injection varies smoothly across the shell
+    _emit(ctx, acc, _make_cell(ctx, hist_sub, attrs, sub_st['i']))
+
+
+_EMIT_CTX = None
+
+def _emit_init(ctx):
+  global _EMIT_CTX
+  _EMIT_CTX = ctx
+
+def _emit_chunk(spec):
+  '''
+  One contiguous run [e0, e1) of the flat emitter list: read the cells it touches, emit
+  them, return the partial sums. Module-level so it is picklable; the read-only shell
+  context arrives once per worker through the pool initializer, so the per-task payload
+  is three ints.
+
+  Emitters of the same cell are adjacent in the list, so walking them in runs reads each
+  cell's history exactly once per chunk -- a chunk boundary landing inside a refined cell
+  costs one extra read of that cell, nothing more.
+  '''
+  cid, e0, e1 = spec
+  ctx = _EMIT_CTX
+  acc = _new_acc(ctx)
+  em = ctx.emitters
+  i = e0
+  while i < e1:
+    idx = em[i][0]
+    j = i
+    while j < e1 and em[j][0] == idx:      # the run of this cell's emitters in the chunk
+      j += 1
+    hist, attrs, _ = _load_cell_history(key=ctx.key, k=int(ctx.klist[idx]),
+                                        n_settle=ctx.n_settle, env=ctx.env,
+                                        sh_data=ctx.sh_data, early_frac=ctx.early_frac)
+    if hist is None:
+      acc.skipped.append(ctx.klist[idx])
+    elif em[i][1] < 0:                     # unsplit cell: one emitter, the cell itself
+      if not _emit(ctx, acc, _make_cell(ctx, hist, attrs, ctx.klist[idx])):
+        acc.skipped.append(ctx.klist[idx])
+    else:
+      _process_subcells(ctx, acc, idx, hist, attrs, em[i][1], em[j-1][1] + 1)
+    i = j
+  return cid, acc
+
+
+def _run_cell_loop(ctx, weights, ncell_proc):
+  '''
+  Map the shell's cells over chunks and reduce them in index order.
+
+  Serial (ncell_proc None/1) walks every cell in klist order into one accumulator --
+  the historical evaluation order, bit for bit.
+
+  Parallel keeps at most 2*nproc partial (T, nu) arrays alive in the parent by
+  submitting through a bounded window and consuming the OLDEST future each time: the
+  reduction stays in chunk order (reproducible) without buffering every chunk (a
+  (2000, 650) float64 partial is ~10 MB, and there are hundreds of chunks).
+  '''
+  ne = len(ctx.emitters)
+  acc = _new_acc(ctx)
+  if ncell_proc in (None, 1):
+    _emit_init(ctx)
+    _merge_acc(acc, _emit_chunk((0, 0, ne))[1])
+    return acc
+
+  nchunks = max(1, int(np.ceil(ne / EMITTERS_PER_CHUNK)))
+  specs = [(c, i0, i1) for c, (i0, i1) in enumerate(_chunk_bounds(weights, nchunks))]
+  npr = cell_pool.resolve_nproc(ncell_proc, cap=len(specs))
+  if npr == 1:
+    _emit_init(ctx)
+    for spec in specs:
+      _merge_acc(acc, _emit_chunk(spec)[1])
+    return acc
+  print(f'  shell pass: {len(ctx.klist)} cells / {ne} emitters -> {len(specs)} chunks '
+        f'on {npr} workers')
+  window = 2*npr
+  with cell_pool.cell_executor(npr, initializer=_emit_init, initargs=(ctx,)) as ex:
+    pending, nxt = collections.deque(), 0
+    for out in range(len(specs)):
+      while nxt < len(specs) and len(pending) < window:
+        pending.append(ex.submit(_emit_chunk, specs[nxt])); nxt += 1
+      cid, part = pending.popleft().result()
+      assert cid == out, f'chunk {cid} out of order (expected {out})'
+      _merge_acc(acc, part)
+      del part
+  return acc
+
+
 def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     VFC=False, r_ref=1.2, Tmax=5, NT=500, lognu_min=-2.5, lognu_max=2.5, Nnu=400,
     dlnrho_max=DLNRHO_MAX, dlnsyn_max=DLNSYN_MAX, Tb_min=None, Tb_lin=None, n_settle=1,
     subcell_dlogT=None, subcell_max=32, early_ana=None, early_frac=0.,
-    rar_cut=None, norar=None, r_cap=None,
+    rar_cut=None, norar=None, r_cap=None, ncell_proc=None,
     return_energies=False, energies_only=False, **kwargs):
   '''
   Total nu F_nu from shell z of simulation key, summed over its cells, from the
@@ -797,6 +1202,14 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     PARENT's actual history shape rescaled to its interpolated injection state
     (_subcell_history -- the data analog of reusing the parent's fitted
     profile). None keeps the raw one-cell-per-cell sum.
+  ncell_proc: workers for the CELL loop (None/1 = serial). The shell sum is a
+    map-reduce over cells, so this is the parallelism that scales -- the sweep drivers'
+    own pool is capped at the number of sweep points (8), which wastes an HPC
+    allocation. Chunking is keyed on EMITTERS_PER_CHUNK, never on the worker count, so
+    any two worker counts give BIT-IDENTICAL results; against the historical serial
+    reduction the difference is float associativity alone (~1e-15 relative), and
+    ncell_proc=1 reproduces the old order exactly. Never combine with a point-level
+    pool: nested pools multiply the forkserver cost and the peak memory (see cell_pool).
   return_energies: as get_shell_nuFnu -- returns (nuobs, Tobs, env_rs,
     nuFnu_shell, E_rad, E_int, E_inj) with eps_rad = E_rad/E_inj.
   energies_only: skip the flux kernel entirely and return the energy budget
@@ -825,6 +1238,7 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
   kCD = k4 + env.Nsh4
   k1 = kCD + env.Nsh1
   kmin, kmax = (k4, kCD) if (z==4) else (kCD, k1)
+  klist_default = klist is None       # only the whole shell may use the shared scan cache
   if klist is None:
     klist = np.arange(kmin, kmax)
     if z==4: klist = np.flip(klist)
@@ -874,33 +1288,17 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
   sh_data = load_shockfront_states(key, z, env, source=early_ana) \
             if early_ana is not None else None
 
-  # first pass: post-shock histories + injection rows (klist = onset order),
-  # so the sub-cell edges can be computed from the cells' own onsets. The
-  # early reconstruction (prepend) happens here, BEFORE rescaling, so the
-  # onset ladder and injection states already carry it.
-  hists, attrs_l, inj_rows = [], [], []
-  n_prepended = 0
-  for k in klist:
-    cell_data = open_celldata(key, k)
-    if cell_data is False:
-      hists.append(None); attrs_l.append(None); inj_rows.append(None)
-      continue
-    t_off = cell_data.t.iloc[0] if (len(cell_data) and cell_data.index[0] == 0) else 0.
-    shocked = select_postshock_rows(cell_data, n_settle)
-    if len(shocked) < 2:
-      hists.append(None); attrs_l.append(None); inj_rows.append(None)
-      continue
-    shocked['t'] = shocked['t'] - t_off
-    if sh_data is not None:
-      sel = sh_data.loc[sh_data.i == k]
-      if len(sel):
-        n0 = len(shocked)
-        shocked = _prepend_shocked_row(shocked, sel.iloc[0], env, early_frac)
-        n_prepended += len(shocked) - n0
-    hists.append(shocked); attrs_l.append(cell_data.attrs); inj_rows.append(shocked.iloc[0])
+  # first pass: injection rows + usability + cost weights (klist = onset order), so the
+  # sub-cell edges can be computed from the cells' own onsets. The early reconstruction
+  # (prepend) happens here, BEFORE rescaling, so the onset ladder and injection states
+  # already carry it. The histories themselves are NOT kept: they are re-read per chunk
+  # in the cell loop below, which is what bounds the parent's memory at hi-res.
+  scan = scan_shell_cells(key, z, klist, env, n_settle=n_settle, early_ana=early_ana,
+      early_frac=early_frac, sh_data=sh_data, nproc=(ncell_proc or 1),
+      use_cache=klist_default)
   if early_ana is not None:
     print(f'get_shell_nuFnu_fromData early reconstruction ({early_ana}): '
-          f'prepended shock-front states to {n_prepended} cells')
+          f"prepended shock-front states to {scan['n_prepended']} cells")
 
   # adaptive sub-cell onset edges (shared with the fit driver); onsets from the
   # cells' own injection rows, unrescaled env (dimensionless bar{T} convention)
@@ -908,8 +1306,7 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
   floor = barT_grid[barT_grid > 0.].min()   # earliest resolved bar{T} on the obs grid
   sub_edges = [None]*len(klist)
   if subcell_dlogT is not None:
-    barT_on = np.array([((get_variable(r, 'Ton', env) - env.Ts)/env.T0) if r is not None else np.nan
-                        for r in inj_rows])
+    barT_on = scan['barT_on'].copy()
     # measured onsets are late by the settle + snapshot-cadence delay (the first
     # settled row is 1+ snapshots after the crossing), so they cannot reach below
     # the cadence; the CD-adjacent first cell is physically shocked at collision
@@ -922,106 +1319,42 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
       barT_on[finite[0]] = 0.
     sub_edges = compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max)
 
-  skipped = []
-  n_refined = 0
-  # one accumulator set per variant, in `variants` order (None where the flux is
-  # not being computed at all, so it cannot be mistaken for a zero lightcurve)
-  nuFnu_v = [None]*len(variants) if energies_only \
-            else [np.zeros((len(Tobs), len(nuobs))) for _ in variants]
-  E_rad_v, E_int_v, E_inj_v = ([0.]*len(variants) for _ in range(3))
-  def _accum_energy(iv, cell, cell_env):
-    E_rad_v[iv] += cell_radiated_energy(cell, cell_env)
-    E_inj_v[iv] += cell_injected_energy(cell, cell_env)
-    c0 = cell.iloc[0]
-    E_int_v[iv] += get_variable(c0, 'ei', cell_env) * get_variable(c0, 'V3p', cell_env)
-
-  def _make_cell(hist, attrs, kk):
-    '''Build one cell per variant from a shared history; None where it is unusable.'''
-    out = []
-    for _, rmap, kw in variants:
-      c, ce = generate_cell_fromHistory(hist, attrs, env,
-          u_scale=u_scale, alpha=alpha, zeta=zeta, r_ref=r_ref, Tmax=Tmax,
-          dlnrho_max=dlnrho_max, dlnsyn_max=dlnsyn_max,
-          rar_ratio=(rar_map_lookup(rmap, kk) if rmap is not None else None), **kw)
-      out.append((c, ce))
-    return out
-
-  def _emit(cells):
-    '''Accumulate one cell's flux (+ energies) into every variant. With two variants
-    the pair evaluator computes their shared leading steps ONCE -- the whole point of
-    rar_cut='both' -- and is bit-identical to evaluating them separately.'''
-    if energies_only:
-      ok = False
-      for iv, (cell, cell_env) in enumerate(cells):
-        if cell is False:
-          continue
-        _accum_energy(iv, cell, cell_env)
-        ok = True
-      return ok
-    if paired and cells[0][0] is not False and cells[1][0] is not False \
-        and func_Fnu is get_Fnu_cell_evolving:
-      (cf, ef), (cc, _) = cells
-      Ff, Fc = get_Fnu_cell_evolving_pair(nuobs, Tobs, cf, cc, ef, **kwargs)
-      # nu F_nu exactly as get_nuFnu does it (same nu0 branch, same broadcast), so the
-      # paired path differs from the separate one in nothing but evaluation order
-      norm = kwargs.get('norm', True)
-      for iv, F in enumerate((Ff, Fc)):
-        cell_iv, env_iv = cells[iv]
-        nu0 = env_iv.nu0FS if (cell_iv.iloc[0].trac > 1.5) else env_iv.nu0
-        nub_iv = (nuobs/nu0 if norm else nuobs)[np.newaxis, :]
-        nuFnu_v[iv] += nub_iv * F
-        if return_energies: _accum_energy(iv, cell_iv, env_iv)
-      return True
-    ok = False
-    for iv, (cell, cell_env) in enumerate(cells):
-      if cell is False:
-        continue
-      nuFnu_v[iv] += get_nuFnu(func_Fnu, nuobs, Tobs, cell, cell_env, **kwargs)
-      if return_energies: _accum_energy(iv, cell, cell_env)
-      ok = True
-    return ok
-
-  for idx, k in enumerate(klist):
-    if hists[idx] is None:
-      skipped.append(k)
-      continue
-    if sub_edges[idx] is None:
-      cells = _make_cell(hists[idx], attrs_l[idx], k)
-      if not _emit(cells):
-        skipped.append(k)
-        continue
+  # flat emitter list, in the historical evaluation order: one entry per unsplit cell
+  # (j = -1), else one per sub-cell. This is the unit of work AND the unit of chunking --
+  # see EMITTERS_PER_CHUNK for why cells are too coarse an atom. The weight of an emitter
+  # is its cell's post-shock row count, the best cheap proxy for its cooling-step count
+  # (every sub-cell re-walks the parent's history shape, so they weigh the same).
+  # Unusable cells keep an entry so the worker still reports them as skipped.
+  emitters, weights = [], []
+  for idx in range(len(klist)):
+    w = float(max(int(scan['nrows'][idx]), 1))
+    s = sub_edges[idx] if scan['usable'][idx] else None
+    if s is None:
+      emitters.append((idx, -1)); weights.append(w)
     else:
-      # split the parent's onset interval into flux-conserving sub-cells at
-      # geometrically-spaced onsets, reusing its actual history shape
-      a, b, edges = sub_edges[idx]
-      inj_par = inj_rows[idx]
-      for j in range(len(edges)-1):
-        e0, e1 = edges[j], edges[j+1]
-        onset_c = np.sqrt(e0*e1)                       # geometric centre
-        f = float(np.clip((onset_c - a)/(b - a), 0., 1.))
-        dx_w = inj_par.dx * (e1 - e0)/(b - a)          # onset-width weight => flux conserved
-        sub = _interp_state(inj_par, inj_rows[idx+1], f, dx_w)
-        # place the sub-cell onset exactly at onset_c: shift the anchor state
-        # along its worldline (dt, dx = beta*dt => dbarT = (1+z)(1-beta)dt/T0).
-        # Backward shifts (onset_c below the measured onsets) extrapolate the
-        # parent's injection state to where the snapshot cadence could not see --
-        # the data analog of the fit path's sub-states interpolated on the
-        # reconstructed shock front (which reaches barT = 0 at collision).
-        barT_sub = (get_variable(sub, 'Ton', env) - env.Ts)/env.T0
-        beta = sub['vx']
-        delta = (onset_c - barT_sub)*env.T0/((1. + env.z)*(1. - beta))
-        sub['t'] += delta
-        sub['x'] += beta*delta
-        hist = _subcell_history(hists[idx], sub)
-        # sub-cells look the map up on their own INTERPOLATED index, as the fit path
-        # does -- R_rar/R_injection varies smoothly across the shell
-        _emit(_make_cell(hist, attrs_l[idx], sub['i']))
-      n_refined += len(edges) - 2
-  if skipped:
-    print(f'get_shell_nuFnu_fromData on sim {key}: skipped {len(skipped)} cells '
-          f'(no data or no usable post-shock history): {skipped}')
+      for j in range(len(s[2]) - 1):
+        emitters.append((idx, j)); weights.append(w)
+  ctx = SimpleNamespace(
+      key=key, klist=np.asarray(klist), env=env, nuobs=nuobs, Tobs=Tobs,
+      variants=variants, paired=paired, func_Fnu=func_Fnu,
+      u_scale=u_scale, alpha=alpha, zeta=zeta, r_ref=r_ref, Tmax=Tmax,
+      dlnrho_max=dlnrho_max, dlnsyn_max=dlnsyn_max, n_settle=n_settle,
+      early_frac=early_frac, sh_data=sh_data, energies_only=energies_only,
+      return_energies=return_energies, kwargs=kwargs, sub_edges=sub_edges,
+      inj=scan['inj'], emitters=emitters)
+  acc = _run_cell_loop(ctx, np.asarray(weights), ncell_proc)
+  nuFnu_v, E_rad_v, E_int_v, E_inj_v = acc.nuFnu, acc.E_rad, acc.E_int, acc.E_inj
+
+  if acc.skipped:
+    # a cell can only be reported once: its emitters are adjacent, and only the run that
+    # fails to load (or the single unsplit emitter) records it
+    print(f'get_shell_nuFnu_fromData on sim {key}: skipped {len(acc.skipped)} cells '
+          f'(no data or no usable post-shock history): {acc.skipped}')
   if subcell_dlogT is not None:
     kr = [int(klist[i]) for i in range(len(klist)) if sub_edges[i] is not None]
+    # from sub_edges directly, not accumulated: a refined cell may be split across
+    # chunks, and this is a property of the ladder rather than of the walk
+    n_refined = sum(len(s[2]) - 2 for s in sub_edges if s is not None)
     print(f'get_shell_nuFnu_fromData subcell refinement: +{n_refined} sub-cells over '
           f'{len(kr)} cells' + (f' (k={min(kr)}..{max(kr)})' if kr else ''))
 

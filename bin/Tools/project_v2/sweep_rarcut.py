@@ -289,3 +289,12 @@ def slopes_all_shells(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, verbo
   trim_pngs(outdir)
   print(f'\nlow-energy slope figure + table saved to {outdir}')
   return tables
+
+
+if __name__ == '__main__':
+  # REQUIRED under the forkserver start method: a worker re-imports this module as
+  # __mp_main__, and without a main guard the driver's top level would re-run inside
+  # the forkserver, which then sits in a second sweep and never serves a worker -- a
+  # silent stall, not an error. Harmless when driven via `python -c` (no main path),
+  # which is how this file was used before; needed the moment it goes in a batch script.
+  main()

@@ -6,6 +6,7 @@ Reading and writing data
 # --------------------------------------------------------------------------------------------------
 import os
 import glob
+import functools
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -42,9 +43,16 @@ def get_physfile(key):
   else:
     return GAMMA_dir + "/phys_input.ini"
 
+@functools.lru_cache(maxsize=None)
 def get_runatts(key):
   '''
   Returns attributes of the selected run
+
+  Memoized: open_celldata calls this once per CELL, so a shell pass re-opened and
+  re-parsed phys_input.ini 500 times at the fiducial resolution and 10000 times at
+  hi-res. A run's inputs are frozen once it has been run, so caching them for the life
+  of the process is safe; call get_runatts.cache_clear() if a .ini is edited in place
+  from a live session.
   '''
 
   physpath  = get_physfile(key)
@@ -317,31 +325,94 @@ def dataList(key, itmin=0, itmax=None, itstep=None):
     its = [it for it in its if (it%itstep == 0)]
   return its
 
-def get_cellfile(key, k):
+# Storage format for NEW cell extractions. 'npz' is an uncompressed np.savez of one array
+# per column: same bytes as the in-memory float64, no text round-trip, and np.load reads
+# it with a header parse + memcpy instead of a CSV tokenizer. On a hi-res run a cell
+# history is ~90k rows x 15 columns, the sweep re-reads every cell once per point, and
+# read_csv is ~100x slower than np.load on that shape -- at 1e4 cells that is the
+# difference between minutes and hours of pure parsing, per point.
+# 'csv' remains readable forever (see get_cellfile): existing runs are NOT re-extracted,
+# so no published number moves.
+CELL_FMT = 'npz'
+CELL_EXTS = ('npz', 'csv')      # read preference order
+
+# reserved np.savez keys for what a DataFrame carries besides its columns. Prefixed so
+# they cannot collide with a hydro column name.
+_CELL_IDX, _CELL_IDXNAME, _CELL_COLS = '__index__', '__index_name__', '__columns__'
+
+def get_cellfile(key, k, fmt=None):
   '''
-  Returns path of file with data of cell k and boolean for its existence
+  Returns path of file with data of cell k and boolean for its existence.
+  fmt: None (default) resolves for READING -- the first extension in CELL_EXTS that
+    exists, so a run extracted to either format just works, and falls back to the
+    CELL_FMT path (with False) when the cell is absent. An explicit 'npz'/'csv' returns
+    that exact path, which is what writing wants.
   '''
   dir_path = get_dirpath(key)
-  file_path = dir_path + f'cells/{k:04d}.csv'
-  file_bool = os.path.isfile(file_path)
-  return file_path, file_bool
+  stem = dir_path + f'cells/{k:04d}'
+  if fmt is not None:
+    file_path = f'{stem}.{fmt}'
+    return file_path, os.path.isfile(file_path)
+  for ext in CELL_EXTS:
+    file_path = f'{stem}.{ext}'
+    if os.path.isfile(file_path):
+      return file_path, True
+  return f'{stem}.{CELL_FMT}', False
+
+def _read_cell_npz(path):
+  '''Rebuild the extracted-cell DataFrame written by _write_cell_npz (columns, order,
+  dtypes and index all preserved exactly -- unlike the CSV path, which re-infers them).'''
+  with np.load(path, allow_pickle=False) as d:
+    cols = [str(c) for c in d[_CELL_COLS]]
+    df = pd.DataFrame({c: d[c] for c in cols}, columns=cols)
+    name = str(d[_CELL_IDXNAME])
+    df.index = pd.Index(d[_CELL_IDX], name=(name if name else None))
+  return df
+
+def _write_cell_npz(path, df):
+  '''One array per column + the index, uncompressed (savez, not savez_compressed: the
+  point is load speed, and these are dense float64 with nothing to gain from deflate).'''
+  name = df.index.name
+  np.savez(path, **{c: df[c].to_numpy() for c in df.columns},
+           **{_CELL_COLS: np.array([str(c) for c in df.columns]),
+              _CELL_IDX: df.index.to_numpy(),
+              _CELL_IDXNAME: np.array(name if name is not None else '')})
 
 def open_celldata(key, k):
   '''
   Returns a pandas dataframe with the extracted data from cell k
+  (either storage format -- see CELL_FMT), or False if the cell is not extracted.
   '''
   dfile_path, dfile_bool = get_cellfile(key, k)
-  mode, runname, rhoNorm, geometry = get_runatts(key)
-  if dfile_bool:
-    df = pd.read_csv(dfile_path, index_col=0)
-    df.attrs['key'] = key
-    df.attrs['mode']    = mode
-    df.attrs['runname'] = runname 
-    df.attrs['rhoNorm'] = rhoNorm
-    df.attrs['geometry'] = geometry
-    return df
-  else:
+  if not dfile_bool:
     return dfile_bool
+  mode, runname, rhoNorm, geometry = get_runatts(key)
+  if dfile_path.endswith('.npz'):
+    df = _read_cell_npz(dfile_path)
+  else:
+    df = pd.read_csv(dfile_path, index_col=0)
+  df.attrs['key'] = key
+  df.attrs['mode']    = mode
+  df.attrs['runname'] = runname
+  df.attrs['rhoNorm'] = rhoNorm
+  df.attrs['geometry'] = geometry
+  return df
+
+def save_celldata(key, k, df, fmt=None):
+  '''
+  Write one extracted cell history in CELL_FMT (or an explicit fmt). Counterpart of
+  open_celldata: the two formats must stay round-trip identical, which is what the
+  npz path buys by storing dtypes instead of re-inferring them from text.
+  '''
+  fmt = CELL_FMT if fmt is None else fmt
+  path, _ = get_cellfile(key, k, fmt=fmt)
+  if fmt == 'npz':
+    _write_cell_npz(path, df)
+  elif fmt == 'csv':
+    df.to_csv(path, index=True)
+  else:
+    raise ValueError(f"unknown cell format {fmt!r} (expected one of {CELL_EXTS})")
+  return path
 
 def get_fitsfile(key, z):
   # path = GAMMA_dir+'/extracted_data/'

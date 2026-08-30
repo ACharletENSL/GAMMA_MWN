@@ -1605,13 +1605,21 @@ def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max):
 def check_extracted_cells(key):
   '''
   Return a sorted array of cell ids k already extracted with extract_data_cells
-  (i.e. cells with a saved results/{key}/cells/{k:04d}.csv file)
+  (i.e. cells with a saved results/{key}/cells/{k:04d}.{ext} file, ext in IO.CELL_EXTS)
+
+  Both storage formats count, and a cell present in both counts once: old runs are on
+  CSV, new ones on npz (IO.CELL_FMT), and a partially re-extracted run is legitimate.
+
+  Only all-digit stems are cells. The same directory holds the per-cell fit caches
+  ({k:04d}_fit.npz, load_or_fit_celldata), which are npz too and would otherwise be
+  picked up as cells the moment npz became a cell format.
   '''
   cells_dir = get_dirpath(key) + 'cells/'
   if not os.path.isdir(cells_dir):
     return np.array([], dtype=int)
-  ks = [int(os.path.splitext(os.path.basename(f))[0])
-        for f in glob.glob(cells_dir + '*.csv')]
+  stems = (os.path.splitext(os.path.basename(f))[0]
+           for ext in CELL_EXTS for f in glob.glob(cells_dir + f'*.{ext}'))
+  ks = {int(s) for s in stems if s.isdigit()}
   return np.array(sorted(ks), dtype=int)
 
 def get_shell_nuFnu(key, z, u_scale=1., alpha=1., zeta=1., klist=None,

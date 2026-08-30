@@ -39,7 +39,8 @@ from working_cooling_data import get_shell_nuFnu_fromData
 from plotting_functions import COL_RS, COL_FS, COL_TOT
 from sweep_gammacm import (GAMMA_dir, DEFAULT_KEY, Z_SHELL, TMAX, NT, TB_MIN, TB_LIN,
     SUBCELL_DLOGT, SUBCELL_MAX, R_REF, EARLY_ANA, compute_alpha_sweep, compute_efficiency,
-    method_outdir, load_sweep, trim_pngs, _pool_context, _resolve_nproc, _data_method_spec)
+    method_outdir, load_sweep, trim_pngs, _data_method_spec)
+from cell_pool import pool_context, resolve_nproc, set_thread_env
 
 LOG10RATIO_FINE = np.linspace(-5., 5., 101)  # 10 points/decade, both endpoints included
 LOG10RATIO_MODELS = np.linspace(-5., 5., 51)  # 5 points/decade for the NON-reference models.
@@ -161,7 +162,7 @@ def load_efficiency_sweep(outdir=OUTDIR, z=Z_SHELL, method=METHOD):
 
 
 def _compute_point(key, z, logr, alpha, outdir, subcell_dlogT=SUBCELL_DLOGT, Tmax=TMAX,
-    method=METHOD):
+    method=METHOD, ncell_proc=None):
   '''
   Compute + cache one (regime, shell, model) point: the comoving energy budget alone.
   Module-level so it is picklable for the process pool.
@@ -177,7 +178,7 @@ def _compute_point(key, z, logr, alpha, outdir, subcell_dlogT=SUBCELL_DLOGT, Tma
       key, z, alpha=alpha, energies_only=True, early_ana=EARLY_ANA,
       Tmax=Tmax, NT=NT, Tb_min=TB_MIN, Tb_lin=TB_LIN, subcell_dlogT=subcell_dlogT,
       subcell_max=SUBCELL_MAX, r_ref=R_REF, Nnu=2, lognu_min=0., lognu_max=1.,
-      **_method_kwargs(method))
+      ncell_proc=ncell_proc, **_method_kwargs(method))
   r = dict(log10ratio=float(logr), alpha=float(alpha), env=env, E_rad=E_rad,
            E_int=E_int, E_inj=E_inj, key=key, z=z, method=method,
            subcell_dlogT=subcell_dlogT)
@@ -200,7 +201,7 @@ def cached_targets(outdir=OUTDIR, z=Z_SHELL, method=METHOD):
 
 def run_sweep(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST,
     outdir=OUTDIR, nproc=None, subcell_dlogT=SUBCELL_DLOGT, Tmax=TMAX,
-    skip_cached=True, methods=(METHOD,)):
+    skip_cached=True, methods=(METHOD,), ncell_proc=None):
   '''
   Energy budget of every (target log10(gma_c/gma_m), shell, model) triple, via the
   alpha lever (zeta=1, u_scale=1) exactly as sweep_gammacm.run_sweep drives it -- the
@@ -216,6 +217,10 @@ def run_sweep(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST,
   only the reference has ever run before.
   skip_cached: leave points already in outdir/cache alone, so an interrupted sweep
   resumes where it stopped (delete the point files, or pass False, to recompute).
+  ncell_proc: workers for the CELL loop inside each point. Left at None (point mode)
+  because this sweep already has hundreds of independent tasks and saturates a large
+  core count on its own -- unlike sweep_gammacm, which has only 8. Set it (with
+  nproc=1) for a short target list, where there are fewer tasks than cores.
   Returns {method: {z: results list}} rebuilt from the cache.
   '''
   alpha_arr, log10ratio0 = compute_alpha_sweep(key, log10ratio_arr)
@@ -232,21 +237,22 @@ def run_sweep(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST,
   print(f'{len(log10ratio_arr)} targets x {len(z_list)} shells x {len(methods)} models '
         f'= {n_all} points, {n_all - len(tasks)} already cached, {len(tasks)} to compute '
         f'(subcell_dlogT={subcell_dlogT})')
-  npr = _resolve_nproc(nproc, max(len(tasks), 1))
+  npr = resolve_nproc(nproc, cap=max(len(tasks), 1))
   if not tasks:
     pass
   elif npr == 1:
     for t in tasks:
-      _print_point(_compute_point(*t))
+      _print_point(_compute_point(*t, ncell_proc))
   else:
     pairs = {(t[-1], t[1]) for t in tasks}          # (model, shell) still to compute
     warm = [next(t for t in tasks if (t[-1], t[1]) == pr) for pr in sorted(pairs)]
     print(f'sweep on {npr} workers ({len(warm)} serial warm-up points, then pool)')
+    set_thread_env()      # before the pool, so forkserver children inherit it
     for t in warm:
-      _print_point(_compute_point(*t))
+      _print_point(_compute_point(*t, ncell_proc))
     import concurrent.futures as cf
-    with cf.ProcessPoolExecutor(max_workers=npr, mp_context=_pool_context()) as ex:
-      futs = [ex.submit(_compute_point, *t) for t in tasks if t not in warm]
+    with cf.ProcessPoolExecutor(max_workers=npr, mp_context=pool_context()) as ex:
+      futs = [ex.submit(_compute_point, *t, ncell_proc) for t in tasks if t not in warm]
       for fut in cf.as_completed(futs):
         _print_point(fut.result())
   return {m: {z: load_efficiency_sweep(outdir, z, m) for z in z_list} for m in methods}

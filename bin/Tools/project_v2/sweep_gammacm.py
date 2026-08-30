@@ -38,6 +38,7 @@ from working_cooling_data import (get_shell_nuFnu_fromData, data_method_name,
     select_postshock_rows, NORAR_LAW)
 from IO import get_variable
 from plotting_functions import nF_label, sci_notation
+import cell_pool
 
 # env scalars kept per sweep point (enough for nu_over_num + the regime analysis)
 _ENV_KEYS = ('nu0', 'nuc', 'T0', 'Ts', 'nu0F0', 'gma_c', 'gma_m', 'gma_max', 'psyn')
@@ -277,51 +278,20 @@ def compute_alpha_sweep(key, log10ratio_arr):
 
 
 def _pool_context():
-  '''
-  Start method for the sweep's process pool: 'forkserver', explicitly, on every Python
-  version. Both alternatives are broken here, in ways that cost hours because neither
-  raises -- the pool just stops.
-
-  NOT 'fork'. The parent is multi-threaded by the time the pool is built: numpy's BLAS
-  spins up one thread per core on the serial warm-up point. A forked child gets a copy
-  of the parent's memory but only the forking thread, so any mutex a BLAS thread held at
-  fork time is locked forever in the child. Measured here: sweep 1 finished, sweep 2's
-  four workers each sat in futex_wait_queue at 25 MB RSS -- a bare interpreter, blocked
-  before it could load a single cell -- for six hours with no error. Python 3.14
-  deprecated fork in multi-threaded processes for exactly this, and made forkserver the
-  Linux default; do not "restore" fork to get the old behaviour back.
-
-  NOT the platform default either, which is still fork on <=3.13 and would silently
-  reintroduce the above wherever this runs.
-
-  The forkserver cost is that workers do NOT inherit the in-process state the warm-up
-  point builds (_RAR_HEAD_MEM, _DATA_END_MEM, loaded cell fits, numba's JIT) and re-read
-  it from disk instead. That is a slowdown, not a correctness problem -- every one of
-  those caches is backed by a file, which is what the warm-up point is really for: it
-  populates them serially so parallel workers only ever READ those shared paths.
-
-  Callers must be import-safe: a forkserver child re-imports the main module (as
-  __mp_main__), so a driver SCRIPT needs its work behind `if __name__ == '__main__':`.
-  Without it the driver's top level re-runs inside the forkserver, which then sits in a
-  second sweep and never serves a worker -- the same silent stall, different cause.
-  Driving via `python -c` has no main path and is unaffected.
-
-  Falls back to the default context where forkserver is unavailable (Windows: spawn).
-  '''
-  import multiprocessing as mp
-  try:
-    return mp.get_context('forkserver')
-  except ValueError:
-    return mp.get_context()
+  '''Start method for the sweep's process pool. Moved to cell_pool.pool_context (which
+  carries the full rationale) so the point-level and cell-level pools cannot disagree
+  about it; kept here as an alias for existing importers.'''
+  return cell_pool.pool_context()
 
 
 def _resolve_nproc(nproc, npoints):
-  '''Resolve the worker count: explicit arg > env GAMMACM_NPROC > cpu_count()-1
-  (leave one core free). Clamped to [1, npoints].'''
-  if nproc is None:
-    env_np = os.environ.get('GAMMACM_NPROC')
-    nproc = int(env_np) if env_np else max(1, (os.cpu_count() or 1) - 1)
-  return max(1, min(int(nproc), npoints))
+  '''Resolve the POINT-level worker count: explicit arg > env GAMMACM_NPROC >
+  cpu_count()-1 (leave one core free), clamped to [1, npoints].
+
+  The clamp is what makes this point-level: the sweep has 8 points, so this caps at 8
+  however many cores the machine has. cell_pool.resolve_nproc(nproc) with no cap is the
+  budget; run_sweep spends it on cells instead when there is more of it than points.'''
+  return cell_pool.resolve_nproc(nproc, cap=npoints)
 
 
 def _nu_window(key, alpha, lognu_min=LOGNU_MIN, lognu_above=LOGNU_ABOVE_NUM):
@@ -422,7 +392,7 @@ def method_outdir(method=DEFAULT_METHOD, key=None, z=Z_SHELL):
 
 
 def _compute_point(key, z, logr, alpha, Tmax, NT, lognu_min, lognu_above, outdir,
-    method='fit'):
+    method='fit', ncell_proc=None):
   '''
   Compute + cache one sweep point (module-level so it is picklable for the
   process pool). Returns a small picklable summary dict (no env / arrays).
@@ -438,11 +408,16 @@ def _compute_point(key, z, logr, alpha, Tmax, NT, lognu_min, lognu_above, outdir
   that method's name, so the cache layout is exactly what running them separately
   produces and every downstream consumer is untouched. `outdir` is then ignored --
   the two real destinations are derived from (key, z).
+
+  ncell_proc: workers for the CELL loop inside the point (data methods only; the fit
+  path has no cell-level parallelism). Set by run_sweep's mode choice, and mutually
+  exclusive with a point-level pool -- see run_sweep.
   '''
   lo, hi, Nnu = _nu_window(key, alpha, lognu_min, lognu_above)
   kw = dict(alpha=alpha, Tmax=Tmax, NT=NT, Nnu=Nnu, lognu_min=lo, lognu_max=hi,
             Tb_min=TB_MIN, Tb_lin=TB_LIN, subcell_dlogT=SUBCELL_DLOGT,
-            subcell_max=SUBCELL_MAX, r_ref=R_REF, return_energies=True)
+            subcell_max=SUBCELL_MAX, r_ref=R_REF, return_energies=True,
+            ncell_proc=ncell_proc)
   if method == 'data+rarcut':
     nuobs, Tobs, env, res = get_shell_nuFnu_fromData(
         key, z, early_ana=EARLY_ANA, rar_cut='both', **kw)
@@ -470,7 +445,10 @@ def _compute_point(key, z, logr, alpha, Tmax, NT, lognu_min, lognu_above, outdir
         key, z, early_ana=EARLY_ANA, norar=law, r_cap=cap, **kw)
     variants = [(method, outdir, nuFnu, E_rad, E_int, E_inj)]
   elif method == 'fit':
-    nuobs, Tobs, env, nuFnu, E_rad, E_int, E_inj = get_shell_nuFnu(key, z, **kw)
+    # the fit path reconstructs the hydro from per-cell fits and has no cell loop to
+    # spread, so it never takes ncell_proc
+    nuobs, Tobs, env, nuFnu, E_rad, E_int, E_inj = get_shell_nuFnu(
+        key, z, **{k: v for k, v in kw.items() if k != 'ncell_proc'})
     variants = [(method, outdir, nuFnu, E_rad, E_int, E_inj)]
   else:
     raise ValueError(f"unknown method {method!r}")
@@ -516,13 +494,33 @@ def cached_targets(outdir):
 
 def run_sweep(key, log10ratio_arr, z=Z_SHELL, Tmax=TMAX, NT=NT,
     lognu_min=LOGNU_MIN, lognu_above=LOGNU_ABOVE_NUM, outdir=None, nproc=None,
-    method=DEFAULT_METHOD, skip_cached=True):
+    method=DEFAULT_METHOD, skip_cached=True, ncell_proc=None):
   '''
   Run the shell nuFnu computation once per target log10(gma_c/gma_m), via the alpha
   lever (zeta=1, u_scale=1). Each point gets its own frequency window (_nu_window:
   shared low end, top anchored on that point's nu_M). The 8 points are independent;
   nproc>1 runs them across a process pool (nproc: explicit > env GAMMACM_NPROC >
   cpu_count()-1).
+
+  TWO PLACES TO SPEND CORES, and the driver picks one:
+    POINT mode (the historical one) gives each worker a whole sweep point. Capped at
+      the number of points -- 8 -- so cores past that do nothing, and badly balanced
+      besides (a fast-cooling point costs far more than a slow-cooling one).
+    CELL mode runs the points SERIALLY and spends the whole budget inside each one, on
+      the shell's cell loop (get_shell_nuFnu_fromData(ncell_proc=...)). There are ~500
+      cells at the fiducial resolution and ~1e4 at hi-res, so this is what makes an HPC
+      core count usable; it also holds peak memory at one point's worth instead of
+      eight.
+  ncell_proc=None chooses: CELL mode when the budget exceeds the number of points to
+  compute, POINT mode otherwise. Force either with ncell_proc=1 (point) or nproc=1 plus
+  an explicit ncell_proc (cell). They are never combined -- nested pools multiply the
+  forkserver cost and the peak memory, and are the hardest thing here to debug when
+  they stall.
+
+  NB GAMMACM_NPROC is no longer silently clamped to the point count: it is the total
+  budget, and in cell mode all of it is used. Cell mode's answer differs from point
+  mode's by float associativity alone (~1e-15 relative), and is bit-identical across
+  worker counts -- see working_cooling_data.EMITTERS_PER_CHUNK.
   method: 'data' (the reference; get_shell_nuFnu_fromData with rar_cut=None) |
   'data_rarcut' (same with the modelled cut) | 'data_norar[_prerar]' and their '_cap'
   variants (the no-rarefaction counterfactual, sweep_prerar) | the paired 'data+rarcut'
@@ -553,14 +551,33 @@ def run_sweep(key, log10ratio_arr, z=Z_SHELL, Tmax=TMAX, NT=NT,
       print(f'{n0 - len(pts)} of {n0} points already cached, {len(pts)} to compute')
   if not pts:
     return load_sweep(outdir)
-  npr = _resolve_nproc(nproc, len(pts))
+  budget = cell_pool.resolve_nproc(nproc)             # total cores, uncapped
+  if ncell_proc is None:
+    # more cores than points to compute -> the surplus is only reachable inside a point.
+    # 'fit' is excluded: get_shell_nuFnu reconstructs the hydro from per-cell fits and
+    # has no cell loop to spread, so cell mode would serialise it to one core.
+    ncell_proc = budget if (budget > len(pts) and method != 'fit') else 1
+  ncell_proc = max(1, int(ncell_proc))
+  npr = 1 if ncell_proc > 1 else cell_pool.resolve_nproc(budget, cap=len(pts))
+  assert npr == 1 or ncell_proc == 1, 'point-level and cell-level pools must not nest'
   args = lambda logr, alpha: (key, z, float(logr), float(alpha), Tmax, NT,
-                              lognu_min, lognu_above, outdir, method)
-  if npr == 1:
+                              lognu_min, lognu_above, outdir, method, ncell_proc)
+  if ncell_proc > 1:
+    # cell mode: points serially, each spending the whole budget on its own cell loop.
+    # No serial warm-up point is needed -- every point's parent runs the whole
+    # disk-writing prologue (extract_data_cells, the rarefaction head, the cell scan)
+    # before its pool exists, and cell_pool warms numba.
+    print(f'sweep on {ncell_proc} workers per point, {len(pts)} points serially '
+          '(cell mode)')
+    for logr, alpha in pts:
+      _print_point(_compute_point(*args(logr, alpha)))
+  elif npr == 1:
     for logr, alpha in pts:
       _print_point(_compute_point(*args(logr, alpha)))
   else:
     print(f'sweep on {npr} workers (1 serial warm-up point, then pool)')
+    cell_pool.set_thread_env()      # before the pool: workers inherit it, and per-worker
+                                    # BLAS threading here is pure oversubscription
     _print_point(_compute_point(*args(*pts[0])))          # serial: warms caches + numba
     import concurrent.futures as cf
     with cf.ProcessPoolExecutor(max_workers=npr, mp_context=_pool_context()) as ex:
