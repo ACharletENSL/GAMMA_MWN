@@ -24,6 +24,7 @@ import glob
 from types import SimpleNamespace
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.transforms as mtransforms
 
 from scipy.optimize import least_squares
 
@@ -141,8 +142,14 @@ XLIM_LIN = (0., 4.)                          # bar{T}/bar{T}_f range of every LI
                                              # full/cut divergence sweep_compare tracks is
                                              # still creeping up at the right edge (it tops
                                              # out near x~5-6), which is the price of the
-                                             # shared scale. The log panels need no such
-                                             # constant: they all run from xmin=1e-3.
+                                             # shared scale.
+XLIM_LOG = (1e-3, 1e3)                       # and the LOG-time window, likewise shared. The
+                                             # top is where the runs end: the observer grid
+                                             # stops at bar{T} = Tmax = 1000 (x = 764) and the
+                                             # cells themselves run out of snapshots at
+                                             # bar{T} = 646..650 (x = 493..497, data_end_barT),
+                                             # so nothing is drawn past 1e3 and letting the
+                                             # axis autoscale only added empty decades.
 SPEC_YSPAN = 3.55                            # decades of flux shown on the spectral-evolution
                                              # plots (same fixed range on all, for comparison)
 NU_REF = 1.0                                 # reference freq for rise/peak/tail detection
@@ -801,6 +808,11 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
       4/3, 1-p/2 only        MC    marginal: no mid segment survives between them, the
                                    spectrum goes from one asymptote to the other
       1/2, 1-p/2 (no 4/3)    VFC   nothing below the 1/2 segment: nu_c is off the band
+      the same, but the      FC*   the VFC set with the band bottom already turning up
+      band bottom is above         toward 4/3: no lower break is resolved in the data, yet
+      1/2 and rising               the transition to it HAS begun at the lowest frequency
+                                   sampled. Between VFC and FC: the cooling break sits at
+                                   the edge of the array rather than below it
       4/3, (3-p)/2 (no 1-p/2)  VSC nothing above the (3-p)/2 segment: nothing has cooled
 
   These are SHAPE classes -- statements about what the spectrum displays, not about
@@ -814,7 +826,9 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   (spectral_breaks.edge_slope, over the lowest decade of usable band): the claim that the
   nu^(4/3) segment lies below the band requires the lowest in-band slope to still BE the 1/2
   one. A spectrum bending up toward 4/3 without having got there has its cooling break AT the
-  band edge, supports no verdict, and is returned as regime None rather than guessed.
+  band edge; it is NOT a VFC and is returned as FC* -- a statement about what the band bottom
+  is doing, not a guess at a segment nobody can see. The declines that remain regime None are
+  the ones with no such evidence either way (edge slope below 1/2, or unmeasurable).
   Measured on the rarcut sweep, five of the seven VFC candidates sit at 0.50-0.60 and are
   clean; the two declined sit at 0.69 (logr=-5 rise) and 0.82 (-3 tail), the latter being the
   population edge_slope was written for. The other classes are NOT gated this way -- their
@@ -834,7 +848,7 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   the HELD slope, the intercept in log10, the window it was identified over and its width in
   decades, then -- for the two mid candidates only -- the width over which the free slope
   settles, the value it settles on, and dep = a_core - a. regime is None when the identified
-  set matches no case above, or when the low end supports no verdict.
+  set matches no case above, or when the low end supports neither VFC nor FC*.
 
   dep IS A RESULT, not a diagnostic of the fit. The identification holds the slope at the
   one-zone asymptote because that is what makes the segment identifiable; dep says how far the
@@ -844,13 +858,13 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   SEG_FC_TOL_HI for the measured tables). Anyone quoting a measured fast-cooling spectral
   index should quote a + dep, not a.
 
-  a_drift (spectral_breaks.edge_slope_drift) DIAGNOSES a decline without changing it. On the
-  rarcut sweep 20 of the 23 no-verdict spectra are the same population -- {fc, hi} identified,
-  VFC declined -- and every one of the 23 has a_drift >= 0.115 (median 0.259), i.e. the low
-  end is one knee in transit (4/3 softening toward 1/2) and there is no segment being missed.
-  The verdicts that ARE returned sit far below that: median a_drift 0.000 (SC, VSC), 0.011
-  (MC), 0.039 (VFC, max 0.104). Accepted and declined VFCs do not overlap in drift, so the
-  gate is not cutting through a continuum.
+  a_drift (spectral_breaks.edge_slope_drift) DIAGNOSES the VFC decline without changing it.
+  On the rarcut sweep 20 of the 23 declines were the same population -- {fc, hi} identified,
+  VFC declined -- which is exactly the population now labelled FC*, and every one of the 23
+  has a_drift >= 0.115 (median 0.259), i.e. the low end is one knee in transit (4/3 softening
+  toward 1/2) and there is no segment being missed. The VFCs that ARE returned sit far below
+  that: median a_drift 0.039, max 0.104 (SC and VSC 0.000, MC 0.011). Accepted VFCs and FC*
+  do not overlap in drift, so the gate is not cutting through a continuum.
 
   A decline with SMALL a_drift at a non-1/2 slope would be the opposite case: a real straight
   segment at a slope none of the four candidates looks for, which is the only evidence that
@@ -902,6 +916,12 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   # 4/3 window is only just reached, over a decade that still averages in the knee.
   a_edge = edge_slope(x, sp, cut['nuM'])
   vfc_ok = bool(np.isfinite(a_edge) and abs(a_edge - 0.5) <= EDGE_VFC_TOL)
+  # ... and where that gate declines because the low end is ALREADY ABOVE 1/2, the decline
+  # itself is the measurement: the band bottom has started to turn up toward 4/3, so the
+  # cooling break is at the edge of the array rather than below it. That is a state between
+  # VFC and FC -- FC* -- and it is reported as such instead of as no verdict. Only upward:
+  # an edge slope BELOW 1/2 is not a break in transit and stays a decline (regime None).
+  fcs = bool(np.isfinite(a_edge) and a_edge > 0.5 + EDGE_VFC_TOL)
   # ANNOTATION ONLY -- a_drift enters no verdict, and vfc_ok above is untouched by it. It
   # records WHY a decline happened, which a_edge alone cannot: a single fit over the lowest
   # decade returns the same 0.72 for a genuine segment at 0.72 and for a knee averaging
@@ -912,6 +932,7 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   elif {'lo', 'sc', 'hi'} <= has:      regime = 'SC'
   elif {'lo', 'hi'} <= has:            regime = 'MC'
   elif {'fc', 'hi'} <= has and vfc_ok: regime = 'VFC'
+  elif {'fc', 'hi'} <= has and fcs:    regime = 'FC*'
   elif {'lo', 'sc'} <= has:            regime = 'VSC'
   else:                                regime = None
   return dict(regime=regime, segs=segs, nuM=float(cut['nuM']), a_edge=float(a_edge),
@@ -1697,32 +1718,117 @@ def _draw_order(pairs):
   return list(pairs)[::-1]
 
 
+SLOPE_NMIN = 7                     # points in the local-slope fit. The obs grid mixes a
+SLOPE_HALF0 = 0.04                 # geometric ladder with 200 LINEAR samples over TB_LIN,
+                                   # so a fixed +-dex window holds ~11 points near the peak
+                                   # but only ~3.6 past x ~ 7. The window starts at
+                                   # +-SLOPE_HALF0 dex and widens until it holds SLOPE_NMIN
+                                   # points, which keeps the resolution where the grid is
+                                   # dense without going NaN where it is not.
+SLOPE_YLIM = (-3.6, 2.6)           # y-range of every temporal-index panel, fixed across the
+                                   # suite so the panels of different figures read at the same
+                                   # scale. Held just outside the physical range -- the rise
+                                   # tops out at ~+2.3 and the high-latitude asymptote is
+                                   # -(2+p/2) = -3.25 -- so the guides at +2, +1 and the
+                                   # asymptote span most of the panel. It deliberately CLIPS
+                                   # the onset spike at the first few grid points (the index
+                                   # reaches +12 on the reference method and +42 on the cut one
+                                   # at x ~ 9e-5, where the flux switches on faster than the
+                                   # observer grid resolves; that is the grid, not the pulse).
+
+
+def local_index(x, y, nmin=SLOPE_NMIN, half0=SLOPE_HALF0):
+  '''Local log-log index d ln(y)/d ln(x) at every grid point, from a straight-line
+  fit over a log-x window widened until it holds nmin points. Used for the temporal
+  index d ln(nuFnu)/d ln(bar{T}) of a lightcurve (the panel under every lightcurve
+  figure, and lightcurve_shape's decay measurements); any constant rescaling of
+  either axis leaves it unchanged, so peak-normalised flux may be passed as is.'''
+  lx, ly = np.log10(x), np.log10(np.maximum(y, 1e-300))
+  good = (y > 0.) & np.isfinite(x) & (x > 0.)
+  s = np.full(len(x), np.nan)
+  for i in np.where(good)[0]:
+    h, m = half0, None
+    for _ in range(8):
+      m = good & (np.abs(lx - lx[i]) <= h)
+      if m.sum() >= nmin:
+        break
+      h *= 1.6
+    if m.sum() >= 4:
+      s[i] = np.polyfit(lx[m], ly[m], 1)[0]
+  return s
+
+
+def _hle_index(results, key='env'):
+  '''The high-latitude asymptote of the temporal index, -(2+p/2): where every
+  lightcurve ends up once its cells stop emitting on-axis. Drawn as the lower guide
+  of the index panels. p is a property of the emission model, the same for the whole
+  sweep, so it is read off the first point.'''
+  r0 = results[0] if isinstance(results, (list, tuple)) else results
+  return -(2. + float(r0[key].psyn)/2.)
+
+
+def _index_panel(ax, a_hle=None, ylim=SLOPE_YLIM):
+  '''Common decoration of a temporal-index panel: guides at +2 and +1 -- the two
+  segments of the broken rise, steep early and shallow under the peak (see
+  lightcurve_shape.RISE_LEVELS / RISE_BREAK) -- and the high-latitude asymptote,
+  plus the shared y-range. y=0 is NOT marked: the peak is already read off the flux
+  panels, and on this axis the sign change is the least informative of the levels.
+  The asymptote is labelled in place rather than through a legend -- it is one line
+  and the panels are short, so a legend box would cover the curves it explains.
+  Labelled at the LEFT edge: that is where the index is still on its rise (~+2) and
+  the bottom of the panel is empty, while on the right the curves land on the line.'''
+  for a in (1., 2.):
+    ax.axhline(a, color='grey', ls=':', lw=.7)
+  if a_hle is not None:
+    ax.axhline(a_hle, color='grey', ls='-.', lw=.7)
+    ax.text(0.06, a_hle + 0.006*(ylim[1] - ylim[0]), '$-(2+p/2)$', color='grey',
+            fontsize=9, ha='left', va='bottom',
+            transform=mtransforms.blended_transform_factory(ax.transAxes, ax.transData))
+  ax.set_ylim(*ylim)
+  ax.set_ylabel('$d\\ln(\\nu F_\\nu)/d\\ln\\bar{T}$')
+
+
 def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     outdir=OUTDIR, annotate=True):
   '''
   Shape-normalised lightcurves at a fixed fraction nu_t of each curve's own peak
   frequency nu_pk = max(nu_m, nu_c) (= nu_m for fast cooling, nu_c for slow; this
   is the stored nub axis) -- so every curve is sampled at the same RELATIVE
-  spectral position, not at nu_m for all. For each nu_t, one 2-panel figure
-  (linear left, log-log right): flux normalised to each curve's own peak, time to
-  bar{T}_f = the onset of the last-shocked (shell-exit) cell = the shell-crossing
-  time (a common hydro timescale, same for every sweep point). So x=1 marks
-  crossing (grey guide) and each curve's flux peak sits at x_pk<1 on the y=1 line.
-  barT_off: (first, last) rarefaction cut-off times from rarefaction_off_barT. Shaded
-  as the band over which the rarefaction progressively switches the shell off, with a
-  line at `last` = when emission stops everywhere; right of it the decay is pure
-  high-latitude. Deep in slow cooling that line, not the cooling time, ends the pulse.
+  spectral position, not at nu_m for all. For each nu_t, one 3-panel figure (flux on
+  a linear then a log time axis, then the temporal index): flux normalised to each
+  curve's own peak, time to bar{T}_f = the onset of the last-shocked (shell-exit)
+  cell = the shell-crossing time (a common hydro timescale, same for every sweep
+  point). So x=1 marks crossing (grey guide) and each curve's flux peak sits at
+  x_pk<1 on the y=1 line.
+  The THIRD panel carries the LOCAL temporal index d ln(nuFnu)/d ln(bar{T})
+  (local_index, the same measurement lightcurve_shape tabulates), which is what
+  separates the phases the flux panels only suggest: the broken rise (steep ~2
+  early, shallow ~1 under the peak), the sign change at the peak, the steepening
+  through the rarefaction band and the settling onto the high-latitude asymptote
+  -(2+p/2) (the dash-dotted guide). It is drawn on the LOG time axis only -- an index
+  is a log-log quantity and the whole story (early rise, break, asymptote) is spread
+  over decades, which the linear window would show a corner of. The index is invariant
+  under the peak normalisation, so it reads the same as it would on raw flux.
+  barT_off: (first, last) rarefaction cut-off times from rarefaction_off_barT, shaded as
+  the band over which the rarefaction progressively switches the shell off. Its right edge
+  is where emission stops everywhere; right of it the decay is pure high-latitude, and deep
+  in slow cooling that edge, not the cooling time, ends the pulse. The band alone carries
+  it -- the bar{T}_rf line that used to be drawn on top of the band said nothing the band's
+  own edge does not, and cost a legend box on every time-axis figure in the suite.
 
-  annotate=False drops that whole annotation -- band, bar{T}_rf line and its legend -- and
-  writes the figures as a SEPARATE '_plain' series, leaving the curves and the two grey
-  guides. Same data, nothing marked on it, for use where the rarefaction cut-off is not the
-  point being made. Both series are produced by main.
+  annotate=False drops the band and writes the figures as a SEPARATE '_plain' series,
+  leaving the curves and the two grey guides. Same data, nothing marked on it, for use
+  where the rarefaction cut-off is not the point being made. Both series are produced by
+  main.
   '''
   colors, sm = _sweep_colors(results)
   tag = '' if annotate else '_plain'
   xoff = tuple(b/barT_f for b in barT_off) if (annotate and barT_off and barT_f > 0.) else None
+  a_hle = _hle_index(results)
   for nu_t in nu_targets:
-    fig, axs = plt.subplots(1, 2, figsize=(11, 4.5))
+    # three panels side by side: the same curves on a linear and a log time axis, then
+    # their local index on the log axis (the last two share XLIM_LOG)
+    fig, axs = plt.subplots(1, 3, figsize=(15.5, 4.5))
     for r, c in _draw_order(zip(results, colors)):
       barT = r['Tb'] - 1.
       inu = min(np.searchsorted(r['nub'], nu_t), len(r['nub']) - 1)
@@ -1733,21 +1839,26 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
       x, y = barT / barT_f, lc / lc[ipk]
       axs[0].plot(x, y, color=c)
       axs[1].loglog(x, y, color=c)
-    for ax, sc in zip(axs, ('linear', 'log')):
-      ax.axhline(1., color='grey', ls=':', lw=.7); ax.axvline(1., color='grey', ls=':', lw=.7)
+      axs[2].semilogx(x, local_index(x, y), color=c, lw=.9)
+    for ax, sc in zip(axs, ('linear', 'log', 'temporal index')):
+      ax.axvline(1., color='grey', ls=':', lw=.7)
       if xoff is not None:
         ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
-        ax.axvline(xoff[1], color='k', ls='--', lw=.9,
-                   label='$\\bar{T}_{\\rm rf}$')
       ax.set_xlabel('$\\bar{T}/\\bar{T}_f$')
-      ax.set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm max}$')
       ax.set_title(sc)
+    for ax in axs[:2]:
+      ax.axhline(1., color='grey', ls=':', lw=.7)
+    # the flux label goes on the LEFT panel only: the log panel shows the same quantity,
+    # and its label sat right against the linear panel's tick labels
+    axs[0].set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm max}$')
+    _index_panel(axs[2], a_hle)
     axs[0].set_xlim(*XLIM_LIN)
-    axs[1].set_xlim(xmin=1e-3)
+    axs[1].set_xlim(*XLIM_LOG); axs[2].set_xlim(*XLIM_LOG)
     axs[1].set_ylim(ymin=1e-8)
-    if xoff is not None:
-      axs[0].legend(fontsize=10, loc='upper right')
-    fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+    # pad/fraction are fractions of the COMBINED width of the three panels, so the
+    # defaults (0.05/0.15) leave a gap and a bar sized for a single-panel figure
+    fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035,
+                 label='log$_{10}(\\gamma_c/\\gamma_m)$')
     fig.suptitle(f'Lightcurve shape at $\\nu={nu_t:g}\\,\\nu_{{\\rm pk}}$ ')
     fig.savefig(os.path.join(outdir, f'lightcurve_shape{tag}_nu={nu_t:g}.png'), dpi=300)
     plt.close(fig)
@@ -1765,17 +1876,22 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
   to the end of the band for the 1-p/2 one) so that every adjacent pair is seen to cross.
   Nothing is anchored on the spectral peak or on a break: no shape is fitted, the crossings
   are read off the drawn lines rather than computed into a break, and the spectrum's own
-  turnovers are left undescribed, which is the honest statement about them. The grey dotted line at
-  x=1 is the collision nu_m (the fixed x-axis unit). All plots share the same fixed y-range
-  (SPEC_YSPAN decades below the peak); x is clipped to the visible spectra.
+  turnovers are left undescribed, which is the honest statement about them. Nothing marks
+  x=1: it is the COLLISION nu_m, the fixed unit of the axis, and not a feature of any
+  spectrum drawn on it -- the instantaneous nu_m has moved away from it by the time of every
+  phase shown, so a guide there invited the eye to read a break that is not there. All plots
+  share the same fixed y-range (SPEC_YSPAN decades below the peak); x is clipped to the
+  visible spectra.
 
   The legend names the regime the identified SET implies -- FC and SC when a mid segment
   survives between the two asymptotes, MC when none does, VFC when there is nothing below
-  the nu^(1/2) segment, VSC when there is nothing above the nu^((3-p)/2) one -- and '?'
-  where the bottom of the band has converged to neither asymptote, so that no statement
-  about a MISSING segment is supportable (see identify_segments). Those are shape classes;
-  measure_regime's labels (a bin on the break ratio, tabulated by build_regime_table)
-  answer a different question and need not agree.
+  the nu^(1/2) segment, FC* when that same set has its band bottom already turning up toward
+  4/3 (the cooling break at the edge of the array, not below it), VSC when there is nothing
+  above the nu^((3-p)/2) one -- and '?' where the bottom of the band has converged to neither
+  asymptote and is not rising either, so that no statement about a MISSING segment is
+  supportable (see identify_segments). Those are shape classes; measure_regime's labels (a
+  bin on the break ratio, tabulated by build_regime_table) answer a different question and
+  need not agree.
 
   segments=False draws the spectra alone -- no segment lines, no regime in the legend, only
   the phase -- and writes them as a SEPARATE '_plain' series. Nothing is measured in that
@@ -1820,7 +1936,6 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
       handles.append(h)
       labels.append(which if not segments else
                     f"{which}: {(ident['regime'] or '?') if ident else '?'}")
-    ax.axvline(1., color='grey', ls=':', lw=.9)                # nu_m at collision (x-axis unit)
     ax.set_ylim(ylo, 3.)
     # clip x to where the (y-clipped) spectra are actually visible, +half a decade
     vis = np.any(np.array(sps) > ylo, axis=0)
@@ -1931,11 +2046,11 @@ def _gap(y, mask):
 
 def _mark_hydro_times(ax, barT_f, barT_off=None):
   '''bar{T}_f (shell crossing) and the rarefaction band, the common hydro times of
-  every sweep point -- same guides as plot_lightcurve_shape, on a bar{T} axis.'''
+  every sweep point -- same guides as plot_lightcurve_shape, on a bar{T} axis. The band
+  alone marks the cut-off: its right edge IS bar{T}_rf (see plot_lightcurve_shape).'''
   ax.axvline(barT_f, color='grey', ls=':', lw=.9)
   if barT_off is not None:
     ax.axvspan(barT_off[0], barT_off[1], color='grey', alpha=0.15, lw=0, zorder=0)
-    ax.axvline(barT_off[1], color='k', ls='--', lw=.9)
 
 
 def _guide(ax, x, slope, y_at, **kw):
@@ -2554,12 +2669,20 @@ def trim_pngs(outdir=OUTDIR):
 
 ARTICLE_DIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'article_choice')
 ARTICLE_SERIES = {        # {source figure dir: globs of the series picked for the article}
-  'gammacm_sweep_data': ('lightcurve_shape_nu=*.png', 'peak_spectra_norm-*.png'),
-  'rarcut_compare': ('lightcurve_cmp_lin_nu=*.png',   # the LINEAR series only: a bare
-                                                      # 'lightcurve_cmp_lin*' would also
-                                                      # sweep up the linlog variants
-                     'fluence_spectra_cmp_norm-*.png',
-                     'spectrum_evolution_cmp_logr=*.png'),
+  # The article figures all come from ONE sweep: the rarefaction-cut method on the reverse
+  # shock (sweep_rarcut's METHOD_A, z=4), so every figure in the folder describes the same
+  # prescription on the same shell. The A/B comparison figures of rarcut_compare are the
+  # evidence for choosing it, not the article's own figures, and are no longer mirrored.
+  'gammacm_sweep_data_rarcut': (
+      'lightcurve_shape_nu=*.png',     # the three NU_TARGETS; the '_plain' series and the
+                                       # 'vs_nu' ones below break this glob by construction
+      'peak_spectra_norm-eff.png',     # peak-normalised x eps_rad: shapes stacked by how
+      'fluence_spectra_norm-eff.png',  # much each regime actually radiates (_plot_spectra_all)
+      'spectrum_evolution_logr=*.png', # rise/peak/tail per regime (NOT the '_plain' series)
+      'lightcurve_shape_vs_nu.png',    # pulse shape across the whole band, in nu/nu_m ...
+      'lightcurve_shape_vs_nu_pk.png', # ... and in nu/nu_pk (lightcurve_shape.py)
+      'mid_slope_evolution.png',       # mid-segment slope vs time (mid_slope_evolution.py)
+  ),
 }
 
 

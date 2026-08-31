@@ -81,7 +81,12 @@ import matplotlib.pyplot as plt
 
 from sweep_gammacm import (DEFAULT_KEY, DEFAULT_METHOD, Z_SHELL, NU_TARGETS, XLIM_LIN,
     load_sweep, method_outdir, exit_onset_barT, rarefaction_off_barT, run_sweep,
-    LOG10RATIO_ARR, nu_over_num, nu_M_over_num, trim_pngs)
+    LOG10RATIO_ARR, nu_over_num, nu_M_over_num, trim_pngs, copy_article_figures,
+    local_index as _slope_profile)
+                                   # the local temporal index (and its fit window, SLOPE_NMIN
+                                   # / SLOPE_HALF0) lives in sweep_gammacm, where the
+                                   # lightcurve figures draw it as a panel under every curve;
+                                   # measured and plotted must stay the same function
 
 RISE_LEVELS = (1e-2, 1e-1, 0.5)    # flux fractions of the peak at which the LOCAL rise index
                                    # is read. The rise is NOT one power law: it is broken,
@@ -192,13 +197,6 @@ FLAT_FRAC = 0.9                    # 'flat top' = the bar{T} span over which the
                                    # fast-cooling curves, so no threshold separates them. It
                                    # shows up instead in flat90 and in the decay index at
                                    # bar{T}_rf, which that point alone brings to ~0.
-SLOPE_NMIN = 7                     # points in the local-slope fit. The obs grid mixes a
-SLOPE_HALF0 = 0.04                 # geometric ladder with 200 LINEAR samples over
-                                   # bar{T} = 0.5..9 (TB_LIN), so a fixed +-dex window holds
-                                   # ~11 points near the peak but only ~3.6 past x ~ 7. The
-                                   # window starts at +-SLOPE_HALF0 dex and widens until it
-                                   # holds SLOPE_NMIN points, which keeps the resolution where
-                                   # the grid is dense without going NaN where it is not.
 NU_COLORS = {1e-2: 'tab:purple', 1e-1: 'tab:orange', 1.: 'tab:green'}
 RISE_EDGE_N = 3                    # the tenth-maximum RISE crossing is rejected if it lands
                                    # within this many samples of the start of the observer
@@ -247,24 +245,6 @@ def lightcurve_at(r, nu_t, unit='pk'):
   y = np.where(ok, np.exp((1.-w)*np.log(np.where(ok, a, 1.)) + w*np.log(np.where(ok, b, 1.))),
                (1.-w)*a + w*b)
   return r['Tb'] - 1., y, nub_t*ratio2
-
-
-def _slope_profile(x, y, nmin=SLOPE_NMIN, half0=SLOPE_HALF0):
-  '''Local log-log index d ln(nuFnu)/d ln(bar{T}) at every grid point, from a
-  straight-line fit over a log-x window widened until it holds nmin points.'''
-  lx, ly = np.log10(x), np.log10(np.maximum(y, 1e-300))
-  good = (y > 0.) & np.isfinite(x) & (x > 0.)
-  s = np.full(len(x), np.nan)
-  for i in np.where(good)[0]:
-    h, m = half0, None
-    for _ in range(8):
-      m = good & (np.abs(lx - lx[i]) <= h)
-      if m.sum() >= nmin:
-        break
-      h *= 1.6
-    if m.sum() >= 4:
-      s[i] = np.polyfit(lx[m], ly[m], 1)[0]
-  return s
 
 
 def _comb_sigma(x, y, ipk, Fpk, half=COMB_HALF):
@@ -678,7 +658,10 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   colors, sm = _sweep_colors(results)
   nu_all = np.array([m[xkey] for m in scan_rows], float)
   nu_lo, nu_hi = nu_all.min(), nu_all.max()
-  fig, axs = plt.subplots(1, 3, figsize=(15, 4.6), sharex=True)
+  # wspace above the default 0.2: each panel carries its own y label and tick labels, and
+  # at the default the right panel's label lands on the middle panel's frame
+  fig, axs = plt.subplots(1, 3, figsize=(15, 4.6), sharex=True,
+                          gridspec_kw={'wspace': 0.28})
   seen = [[], [], []]
   for r, c in _draw_order(zip(results, colors)):
     logr = r['log10ratio']
@@ -716,7 +699,10 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   for ax, yl in zip(axs, ylim):
     if yl is not None:
       ax.set_ylim(*yl)
-  fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  # pad/fraction are fractions of the COMBINED width of the three panels (as in
+  # sweep_gammacm.plot_lightcurve_shape): the defaults size the gap for one panel
+  fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035,
+               label='log$_{10}(\\gamma_c/\\gamma_m)$')
   fig.suptitle('Pulse shape against frequency: peak time, width and rise/fall asymmetry'
                f'   (in ${ref}$)')
   fn = os.path.join(outdir, f'lightcurve_shape_vs_nu{tag}.png')
@@ -900,5 +886,8 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGET
     for u in _SCAN_UNITS:                  # same measurements, both frequency references
       plot_shape_vs_nu(scan_rows, results, outdir, x_rf=x_rf, unit=u)
   trim_pngs(outdir)
+  # the two vs-nu figures are in ARTICLE_SERIES, and this main is what writes them, so the
+  # article folder is refreshed here too (no-op for a directory that is not selected)
+  copy_article_figures(outdir)
   print(f'\nFigures saved to {outdir}')
   return rows, rows_num, scan_rows

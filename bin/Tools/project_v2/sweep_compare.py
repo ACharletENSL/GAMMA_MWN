@@ -32,8 +32,9 @@ from plotting_functions import slope_label, transx
 from sweep_gammacm import (load_sweep, method_outdir, _sweep_colors, _draw_order, nu_over_num,
     compute_fluence_spectrum, detect_rise_peak_tail, compute_efficiency,
     exit_onset_barT, rarefaction_off_barT, data_end_barT, run_sweep, trim_pngs,
+    local_index, _hle_index, _index_panel,
     LOG10RATIO_ARR, NU_TARGETS, NU_M_LABEL, NU_REF, Z_SHELL, DEFAULT_KEY, SPEC_YSPAN,
-    XLIM_LIN, SPEC_MODES, _MODE_TITLE)
+    XLIM_LIN, XLIM_LOG, SPEC_MODES, _MODE_TITLE)
 
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'gammacm_sweep_compare')
 YCLIP_DEC = 3.5           # decades below the highest curve shown on the spectral panels
@@ -380,7 +381,6 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
     vis = np.any(np.array(sps) > ylo, axis=0)      # clip x to the visible spectra
     if vis.any():
       ax.set_xlim(x[vis].min()/3., x[vis].max()*3.)
-    ax.axvline(1., color='grey', ls=':', lw=.9)     # nu_m at collision = the x unit
     (ha,) = ax.plot([], [], 'k--')                # side keys, colour-neutral
     (hb,) = ax.plot([], [], 'k-')
     # upper RIGHT here, unlike the other spectral panels: these curves peak near nu_m and
@@ -400,15 +400,23 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
 
 def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     outdir=OUTDIR, labels=LABELS, barT_end=None, scale='log', xlim_lin=XLIM_LIN,
-    norm_side='B'):
+    norm_side='B', slope=True):
   '''
   Lightcurves at a fixed fraction nu_t of each point's own peak frequency, both
   sides overlaid, time normalised to the shell-crossing bar{T}_f, flux to the peak of
   the norm_side side of that point (see LABELS), so that side peaks at 1 and the other
   reads directly as a fraction of it. The B/A ratio panel is unaffected by the choice:
   it is a ratio of the two curves, and both are divided by the same number.
-  One figure per nu_t: lightcurves on top, B/A ratio below -- the panel where the
-  early rise (cadence / injection) and the rarefaction-tail treatment show up.
+  One figure per nu_t: lightcurves on top, then (slope=True) the local temporal index
+  of both sides, then the B/A ratio -- the panel where the early rise (cadence /
+  injection) and the rarefaction-tail treatment show up.
+  slope: draw the middle panel, d ln(nuFnu)/d ln(bar{T}) at every grid point
+  (sweep_gammacm.local_index), same linestyles as the flux panel. It is the SHAPE
+  counterpart of the ratio panel below it: the ratio says how much emission a
+  prescription costs, the index says what it does to the decay -- where the cut
+  steepens away from the reference and whether it comes back to the same
+  high-latitude asymptote -(2+p/2) (the dash-dotted guide). Invariant under the flux
+  normalisation, so norm_side does not move it.
   barT_off: rarefaction cut-off band (rarefaction_off_barT); a pure hydro/geometry
   quantity of the simulation, so the same band annotates both sides.
   barT_end: optional ((first,last)_A, (first,last)_B) from data_end_barT -- where
@@ -417,7 +425,8 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   (dashed A / solid B) at that side's LAST cell.
   scale: which axes the top panel uses, each written to its own file so the
   variants coexist.
-    'log'    log-log (default, the wide view: 1e-3..1e2 in bar{T}/bar{T}_f)
+    'log'    log-log (default, the wide view: XLIM_LOG = 1e-3..1e3 in bar{T}/bar{T}_f,
+             i.e. out to where the runs themselves end)
     'linlog' linear time, log flux -- a linear clock on the decay, where the whole
              cut-vs-full difference lives; the readable one for these comparisons
     'lin'    both axes linear -- the pulse shape (rise/peak/early decay). The late
@@ -434,9 +443,12 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   colors, sm = _sweep_colors([rf for rf, _ in pairs])
   xoff = tuple(b/barT_f for b in barT_off) if (barT_off and barT_f > 0.) else None
   xend = [(b[1]/barT_f if b else None) for b in barT_end] if barT_end else None
+  a_hle = _hle_index([rf for rf, _ in pairs])
+  hr = [2.4, 1.1, 1] if slope else [2.4, 1]
   for nu_t in nu_targets:
-    fig, axs = plt.subplots(2, 1, figsize=(7.5, 7.), sharex=True,
-                            gridspec_kw={'height_ratios': [2.4, 1]})
+    fig, axs = plt.subplots(len(hr), 1, figsize=(7.5, 8.8 if slope else 7.), sharex=True,
+                            gridspec_kw={'height_ratios': hr})
+    ax_f, ax_s, ax_r = axs[0], (axs[1] if slope else None), axs[-1]
     ratios, ymax_win = [], 0.
     for (rf, rd), c in _draw_order(zip(pairs, colors)):
       x = (rf['Tb'] - 1.)/barT_f
@@ -446,8 +458,11 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
       pk = lf.max() if norm_side == 'A' else pk_b   # the anchor (see LABELS)
       if pk <= 0. or pk_b <= 0. or barT_f <= 0.:
         continue
-      axs[0].plot(x, lf/pk, color=c, lw=1.1, ls='--')
-      axs[0].plot(x, ld/pk, color=c, lw=1.1)
+      ax_f.plot(x, lf/pk, color=c, lw=1.1, ls='--')
+      ax_f.plot(x, ld/pk, color=c, lw=1.1)
+      if ax_s is not None:
+        ax_s.plot(x, local_index(x, lf), color=c, lw=.9, ls='--')
+        ax_s.plot(x, local_index(x, ld), color=c, lw=.9)
       if scale != 'log':      # peak inside the linear window, over BOTH sides. The
         win = (x >= xlim_lin[0]) & (x <= xlim_lin[1])   # normalising side peaks at 1 on the
         if win.any():                                   # full grid, but its peak can fall
@@ -456,42 +471,43 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
       with np.errstate(divide='ignore', invalid='ignore'):
         rr = np.where(lf > 1e-6*pk_b, ld/lf, np.nan)  # ratio only where side A has flux
       ratios.append(rr)
-      axs[1].plot(x, rr, color=c, lw=.9)
+      ax_r.plot(x, rr, color=c, lw=.9)
+    if ax_s is not None:
+      _index_panel(ax_s, a_hle)
     for ax in axs:
       ax.axvline(1., color='grey', ls=':', lw=.7)
       if xoff is not None:
+        # the band alone, as in sweep_gammacm.plot_lightcurve_shape: its right edge is
+        # bar{T}_rf. The black dashed line that used to be drawn there is gone, so where a
+        # side stops exactly AT the cut-off (sweep_rarcut passes barT_off as side A's end)
+        # that x now carries only the crimson end-of-data line below.
         ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
-        # bar{T}_rf: black dashed, as in sweep_gammacm.plot_lightcurve_shape. Drawn ABOVE
-        # the crimson end-of-data lines -- a side that stops exactly AT the cut-off puts one
-        # of those at the same x (sweep_rarcut passes barT_off as side A's end), and T_rf
-        # must read the same colour here as it does in the single-method figures.
-        ax.axvline(xoff[1], color='k', ls='--', lw=.9, zorder=3)
       if xend is not None:
         for xe, ls in zip(xend, ('--', '-')):
           if xe is not None:
             ax.axvline(xe, color='crimson', ls=ls, lw=.9, alpha=.8)
-    axs[0].set_xscale('log' if logx else 'linear')
-    axs[0].set_yscale('log' if logy else 'linear')
+    ax_f.set_xscale('log' if logx else 'linear')
+    ax_f.set_yscale('log' if logy else 'linear')
     if scale == 'log':
-      axs[0].set_ylim(ymin=1e-8)
-      axs[0].set_xlim(xmin=1e-3)
+      ax_f.set_ylim(ymin=1e-8)
+      ax_f.set_xlim(*XLIM_LOG)
     else:
-      axs[0].set_xlim(*xlim_lin)
+      ax_f.set_xlim(*xlim_lin)
       # scale the flux axis to what is actually inside the linear time window, not to
       # the full grid: the rise starts ~8 decades down at bar{T} -> 0 and a fixed floor
       # would spend most of the panel on empty space (linlog) or clip side B's peak (lin).
       ymax_win = ymax_win or 1.
-      axs[0].set_ylim(ymax_win*10.**-YSPAN_LINLOG, ymax_win*1.6) if logy \
-          else axs[0].set_ylim(0., ymax_win*1.05)
-    axs[0].set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm max}}$ ({ln} norm.)')
-    axs[0].plot([], [], 'k--', label=la); axs[0].plot([], [], 'k-', label=lb)
-    axs[0].legend(loc='upper right', fontsize=9)   # the decay tail leaves this corner free
-    axs[1].axhline(1., color='grey', ls=':', lw=.9)
-    axs[1].set_yscale('log' if logy else 'linear')
-    _ratio_ylim(axs[1], ratios)
-    axs[1].set_ylabel(f'{lb} / {la}')
-    axs[1].set_xlabel('$\\bar{T}/\\bar{T}_f$')
-    axs[0].set_title(f'Lightcurve at $\\nu={nu_t:g}\\,\\nu_{{\\rm pk}}$, {la} vs {lb}')
+      ax_f.set_ylim(ymax_win*10.**-YSPAN_LINLOG, ymax_win*1.6) if logy \
+          else ax_f.set_ylim(0., ymax_win*1.05)
+    ax_f.set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm max}}$ ({ln} norm.)')
+    ax_f.plot([], [], 'k--', label=la); ax_f.plot([], [], 'k-', label=lb)
+    ax_f.legend(loc='upper right', fontsize=9)   # the decay tail leaves this corner free
+    ax_r.axhline(1., color='grey', ls=':', lw=.9)
+    ax_r.set_yscale('log' if logy else 'linear')
+    _ratio_ylim(ax_r, ratios)
+    ax_r.set_ylabel(f'{lb} / {la}')
+    ax_r.set_xlabel('$\\bar{T}/\\bar{T}_f$')
+    ax_f.set_title(f'Lightcurve at $\\nu={nu_t:g}\\,\\nu_{{\\rm pk}}$, {la} vs {lb}')
     fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
     fig.savefig(os.path.join(outdir, f'lightcurve_cmp{suff}_nu={nu_t:g}.png'), dpi=300)
     plt.close(fig)
