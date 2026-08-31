@@ -697,8 +697,10 @@ def paired_syn_bpl(x, num, nuc, p, peak=1., xM=None, s=0.4):
 # both the GS02 fit and the segment method call it FC. The gate turned those into MC, i.e. it
 # claimed the breaks were too close to show a mid segment at a separation of over 4 decades.
 # Scored against the break separation, it had four false negatives (3.50, 4.08, 4.34, 2.91 dex,
-# all real segments) and no true positives: the one spectrum it rejected correctly, the logr=
-# +0.0 rise at 2.35 dex, was already rejected by the width gate below.
+# all real segments) and no true positives. The one spectrum it looked right about, the logr=
+# +0.0 rise at 2.35 dex, is now labelled SC on that same separation evidence (SEG_SC_TOL_LO) --
+# its core sits 0.079 below the asymptote, which is exactly what such a gate keys on and exactly
+# what the label does not claim.
 # The width gate is not the crude proxy it looks like: the window is a calibrated stand-in for
 # the break SEPARATION, which is the physical quantity. Measured over the sweep, separation
 # minus window is 0.84 dex with the asymmetric fc window below (it was 1.06 with a symmetric
@@ -717,7 +719,10 @@ def paired_syn_bpl(x, num, nuc, p, peak=1., xM=None, s=0.4):
 #         logr=-3   median +0.062   (+0.043 .. +0.098)
 #     SLOW (a_th = 0.250)   n=69   median -0.008, min -0.034
 #         logr=+2 -0.008, +1 -0.032, +0.0 -0.007, -1 -0.014, -2 -0.013
-#   (measured with the asymmetric window below, i.e. as the code now runs)
+#   (measured with the asymmetric fc window and a SYMMETRIC sc one. SEG_SC_TOL_LO widened the
+#    latter afterwards, which adds one spectrum to the slow set, the logr=+0.0 rise at -0.079 --
+#    softer than anything in the table above, and the reason that constant spells out what an
+#    SC label does and does not assert. The fast rows are untouched.)
 #
 # Two things to read off. The departure is ONE-SIDED on each branch -- fast cooling hardens,
 # slow cooling softens -- and it is an order of magnitude larger in fast cooling. And it is a
@@ -727,10 +732,12 @@ def paired_syn_bpl(x, num, nuc, p, peak=1., xM=None, s=0.4):
 # expected direction: the closer the two breaks, the more the per-cell nu_c spread matters
 # relative to the width of the segment it is smearing.
 #
-# CONSEQUENCE FOR DETECTION: a symmetric +-SLOPE_TOL window around 1/2 clips the hardened
-# segment and loses real fast-cooling spectra to MC. The fc candidate therefore gets an
-# asymmetric window, widened UPWARD only -- the direction the physics goes -- while the slow
-# candidate keeps the symmetric one it does not need widened.
+# CONSEQUENCE FOR DETECTION: a symmetric +-SLOPE_TOL window around the asymptote clips the
+# displaced segment and loses real spectra to MC. Each mid candidate therefore gets an
+# asymmetric window, widened on the side its own physics goes: fc UPWARD (SEG_FC_TOL_HI,
+# 17 spectra recovered) and sc DOWNWARD (SEG_SC_TOL_LO, one). The sc widening came last, and
+# only because leaving it symmetric while fc was not gave the two sides of the marginal point
+# opposite labels at the same break separation -- see SEG_SC_TOL_LO.
 SEG_FC_TOL_HI = 0.25      # upper half-width of the fc window: samples with 0.5-SLOPE_TOL <
                           # s < 0.5+SEG_FC_TOL_HI. Recovers 17 spectra that the symmetric
                           # window called MC, every one of which the GS02 fit independently
@@ -742,6 +749,33 @@ SEG_FC_TOL_HI = 0.25      # upper half-width of the fc window: samples with 0.5-
                           # and the fc/sc clash counter stays at 0 for every value tested.
                           # Read the departure itself off segs['fc']['dep'] -- it is a physical
                           # quantity, not a tolerance artefact.
+SEG_SC_TOL_LO = 0.25      # lower half-width of the sc window: samples with (3-p)/2 -
+                          # SEG_SC_TOL_LO < s < (3-p)/2 + SLOPE_TOL. The MIRROR of
+                          # SEG_FC_TOL_HI, for the same reason and in the same direction as the
+                          # physics: shell integration moves the mid segment off the one-zone
+                          # value, UP in fast cooling and DOWN in slow. Over the 1729 settled sc
+                          # cores of the time-resolved scan (mid_slope_evolution.py) dep is
+                          # negative everywhere -- median -0.003 to -0.020 by regime, min -0.055
+                          # -- against fc's +0.107.
+                          # A symmetric window clipped the sc candidate exactly as it clipped
+                          # the fc one before SEG_FC_TOL_HI, and the two sides of the marginal
+                          # point then got OPPOSITE labels at the same break separation:
+                          # logr=-3 rise (separation 2.37 dex by the GS02 fit) admitted as FC on
+                          # a 1.55-dex run with no settled core, while logr=+0 rise (2.35 dex,
+                          # and the fit calls that one SC too) was rejected to MC on a 1.18-dex
+                          # run that DOES have a 0.60-dex core.
+                          # 0.25 takes that run to 1.61 dex, so it passes the UNCHANGED
+                          # SEG_MIN_MID_DEX: the fix is to the window, not to the criterion, and
+                          # the separation the gate asserts is untouched. Exactly one of the 24
+                          # rise/peak/tail spectra moves, the count saturates immediately (0.30
+                          # and 0.35 identical), and the fc/sc clash counter stays at 0 at every
+                          # value tested. Nothing else is close: the next-widest rejected mid run
+                          # in the sweep is 0.82 dex.
+                          # WHAT IT DOES NOT ASSERT. That spectrum settles at 0.171, i.e. dep =
+                          # -0.079, softer than any core measured under the old window. SC means
+                          # the breaks are RESOLVED and the spectrum is locally a power law near
+                          # the mid asymptote, never that the asymptote is reached -- read
+                          # segs['sc']['dep'] and ['core'] before quoting a slow-cooling index.
 SEG_MIN_MID_DEX = 1.45    # decades of MID segment required before it counts as identified.
                           # The low and high segments are ASYMPTOTES -- a spectrum can only
                           # approach them -- so MIN_DEX (0.25) is enough there; the mid slope
@@ -777,6 +811,23 @@ SEG_EXT = 0.5             # decades each identified segment is drawn past its ow
                           # window is still legible on a 15-decade axis. Cosmetic only: the
                           # window is what the identification and the regime rest on, and the
                           # crossing is read off the drawn lines, never computed into one.
+SEG_DRAW_TOL = 0.25       # ... but a line stops there, wherever it has left the spectrum by
+                          # this many decades (_seg_draw_extent). The crossing extension is
+                          # blind to the data: it runs each line toward its neighbour whether
+                          # or not the spectrum is still near it, and where a segment is short
+                          # relative to its neighbours' crossings the extension is LONGER than
+                          # the window it comes from -- 1.83 dex of extension on a 1.61 dex
+                          # window at logr=+0.0 rise -- so most of the drawn line described
+                          # nothing, and on that figure it rode over the spectral peak while
+                          # the spectrum turned over beneath it (0.63 dex out at the far end).
+                          # The 1-p/2 line was worse: drawn to the end of the band, it crossed
+                          # the exponential cutoff and left the spectrum by 10-21 dex.
+                          # Capping is drawing-only and cannot move a verdict. Measured over
+                          # the sweep, it trims 0.5-2 dex off each line and every adjacent pair
+                          # still crosses visibly, because inside its own window a held line
+                          # tracks the spectrum to 0.11-0.19 dex (max; rms 0.02-0.07) -- the
+                          # departure of the held slope from the real one, i.e. dep, not a
+                          # drawing error. 0.25 leaves room for that and stops at the knee.
 
 
 def _seg_cross(g1, g2):
@@ -786,9 +837,37 @@ def _seg_cross(g1, g2):
   return (g1['c'] - g2['c'])/(g2['a'] - g1['a'])
 
 
+def _seg_draw_extent(name, sg, k, segs, x, sp, tol=SEG_DRAW_TOL, ext=SEG_EXT):
+  '''
+  The log10-x range one identified segment's line is DRAWN over -- cosmetic, nothing in the
+  identification uses it. Starts from the identified window, runs outward toward the crossing
+  with each neighbour (SEG_EXT past it, or to the end of the band for the 1-p/2 line, which
+  has no neighbour above), and stops early on either side as soon as the line has left the
+  spectrum by more than tol decades. A drawn line is then a claim the reader can check
+  against the curve it sits on, and the crossings stay visible wherever the two segments
+  really do meet near the data. segs must be the steepest-first list, k this segment's index
+  in it. tol=None restores the uncapped extension.
+  '''
+  lx, ly = np.log10(x), np.log10(np.maximum(sp, 1e-300))
+  w0, w1 = np.log10(sg['x0']), np.log10(sg['x1'])
+  l0 = min(w0, _seg_cross(segs[k-1][1], sg)) if k else w0
+  l1 = max(w1, _seg_cross(sg, segs[k+1][1])) if k + 1 < len(segs) else w1
+  a0, a1 = l0 - ext, (lx.max() if name == 'hi' else l1 + ext)
+  iw = np.where((lx >= w0) & (lx <= w1))[0]
+  if tol is None or not iw.size:
+    return a0, a1
+  ok = np.abs(sg['c'] + sg['a']*lx - ly) <= tol
+  lo, hi = iw[0], iw[-1]
+  while lo > 0 and ok[lo-1] and lx[lo-1] >= a0:
+    lo -= 1
+  while hi < len(lx) - 1 and ok[hi+1] and lx[hi+1] <= a1:
+    hi += 1
+  return max(a0, lx[lo]), min(a1, lx[hi])
+
+
 def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
-    min_mid_dex=SEG_MIN_MID_DEX, fc_tol_hi=SEG_FC_TOL_HI, smooth=SLOPE_SMOOTH,
-    min_pts=MIN_PTS):
+    min_mid_dex=SEG_MIN_MID_DEX, fc_tol_hi=SEG_FC_TOL_HI, sc_tol_lo=SEG_SC_TOL_LO,
+    smooth=SLOPE_SMOOTH, min_pts=MIN_PTS):
   '''
   Which synchrotron power-law segments one nuFnu spectrum sp(x) actually shows, and the
   cooling regime that follows from the answer.
@@ -852,11 +931,13 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
 
   dep IS A RESULT, not a diagnostic of the fit. The identification holds the slope at the
   one-zone asymptote because that is what makes the segment identifiable; dep says how far the
-  spectrum actually departs from it, and in fast cooling that departure is physical -- the
-  shell-integrated segment is hardened by the cell-to-cell spread in nu_c, by up to +0.098 as
-  gamma_c climbs toward gamma_m, while slow cooling softens by at most -0.034 (see
-  SEG_FC_TOL_HI for the measured tables). Anyone quoting a measured fast-cooling spectral
-  index should quote a + dep, not a.
+  spectrum actually departs from it, and that departure is physical -- the shell-integrated
+  segment is moved by the cell-to-cell spread in nu_c, HARDENED by up to +0.098 in fast cooling
+  as gamma_c climbs toward gamma_m and SOFTENED in slow, which is why both mid windows are
+  asymmetric (SEG_FC_TOL_HI, SEG_SC_TOL_LO, each with its measured table). The softening is the
+  smaller effect: over the time-resolved scan it reaches -0.055, and the one spectrum the wider
+  sc window admits sits at -0.079. Anyone quoting a measured mid-segment spectral index should
+  quote a + dep, not a.
 
   a_drift (spectral_breaks.edge_slope_drift) DIAGNOSES the VFC decline without changing it.
   On the rarcut sweep 20 of the 23 declines were the same population -- {fc, hi} identified,
@@ -881,14 +962,17 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   idx = np.arange(len(lx))
   keep = (ly > ly.max() - FIT_DEC) & (lx < np.log10(cut['nuM']/CUT_FAC))
   segs = {}
-  # tol_hi is the UPPER half-width of each candidate's slope window. Only 'fc' differs: the
-  # shell-integrated fast-cooling segment sits above 1/2 by up to +0.098, so a symmetric window
-  # clips it (see SEG_FC_TOL_HI). Every other candidate keeps +-slope_tol.
-  for name, a, below, mdex, tol_hi in (('lo', 4./3., True, min_dex, slope_tol),
-                                       ('fc', 0.5, True, min_mid_dex, fc_tol_hi),
-                                       ('sc', (3. - psyn)/2., True, min_mid_dex, slope_tol),
-                                       ('hi', 1. - psyn/2., False, min_dex, slope_tol)):
-    m = keep & np.isfinite(s) & (s > a - slope_tol) & (s < a + tol_hi)
+  # tol_lo/tol_hi are the half-widths of each candidate's slope window. The two ASYMPTOTES
+  # keep +-slope_tol; the two MID candidates are widened on the side shell integration moves
+  # them -- fc upward (it sits above 1/2 by up to +0.098, SEG_FC_TOL_HI) and sc downward (it
+  # sits below (3-p)/2, SEG_SC_TOL_LO) -- so that neither is clipped by a symmetric window
+  # while the other is not.
+  for name, a, below, mdex, tol_lo, tol_hi in (
+      ('lo', 4./3., True, min_dex, slope_tol, slope_tol),
+      ('fc', 0.5, True, min_mid_dex, slope_tol, fc_tol_hi),
+      ('sc', (3. - psyn)/2., True, min_mid_dex, sc_tol_lo, slope_tol),
+      ('hi', 1. - psyn/2., False, min_dex, slope_tol, slope_tol)):
+    m = keep & np.isfinite(s) & (s > a - tol_lo) & (s < a + tol_hi)
     m &= (idx < i_pk) if below else (idx > i_pk)
     w = _widest_run(m, lx, min_pts, mdex)
     if w is None:
@@ -1872,8 +1956,12 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
   nu_c for slow), so the peak-phase curve tops out at 1 and rise/tail show their
   brightness evolution below it. Over each spectrum are drawn the synchrotron power-law
   SEGMENTS it actually shows (dash-dotted; identify_segments), each on its own fitted
-  intercept over the window it was identified on, run out until it meets its neighbours (and
-  to the end of the band for the 1-p/2 one) so that every adjacent pair is seen to cross.
+  intercept over the window it was identified on, run out toward its neighbours so that
+  every adjacent pair is seen to cross -- but stopped wherever the line has left the
+  spectrum by more than SEG_DRAW_TOL, so no drawn line claims more than it describes
+  (_seg_draw_extent). Inside its own window a line still departs from the curve by up to
+  ~0.2 dex: the slope is HELD at the one-zone value while the shell-integrated segment sits
+  off it, and that departure is the measurement (dep), not a drawing error.
   Nothing is anchored on the spectral peak or on a break: no shape is fitted, the crossings
   are read off the drawn lines rather than computed into a break, and the spectrum's own
   turnovers are left undescribed, which is the honest statement about them. Nothing marks
@@ -1920,17 +2008,10 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
       # steepest first = left to right, so consecutive entries are the adjacent pairs
       segs = sorted(ident['segs'].items(), key=lambda kv: -kv[1]['a']) if ident else []
       for k, (name, sg) in enumerate(segs):
-        # the segment on its OWN intercept and slope, run out far enough to meet its
-        # neighbours: down to the crossing with the previous one, up to the crossing with the
-        # next, each by SEG_EXT further, so the pair is seen to cross. The 1-p/2 segment has
-        # no neighbour above it and runs to the end of the band.
-        l0, l1 = np.log10(sg['x0']), np.log10(sg['x1'])
-        if k:
-          l0 = min(l0, _seg_cross(segs[k-1][1], sg))
-        if k + 1 < len(segs):
-          l1 = max(l1, _seg_cross(sg, segs[k+1][1]))
-        lxs = np.array([l0 - SEG_EXT,
-                        np.log10(x.max()) if name == 'hi' else l1 + SEG_EXT])
+        # the segment on its OWN intercept and slope, run out toward its neighbours so the
+        # pairs are seen to cross -- but never past where it stops describing the spectrum
+        # (_seg_draw_extent / SEG_DRAW_TOL)
+        lxs = np.array(_seg_draw_extent(name, sg, k, segs, x, sp))
         ax.loglog(10**lxs, 10**(sg['c'] + sg['a']*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
