@@ -13,9 +13,15 @@ while slow cooling softens by at most -0.034 (see SEG_FC_TOL_HI). This module tr
 over the whole pulse, one measurement per sampled observer time, so the hardening can be
 read against the hydro clock rather than at three phases.
 
-Two ways of measuring the same segment, and the figure distinguishes them:
+The measured quantity is a_mid: the slope the mid segment of the SHELL-INTEGRATED
+spectrum actually shows. a_th is the one-zone asymptote it is held at while the segment
+is being identified, and dep = a_mid - a_th is the departure described above. The two
+names are not interchangeable -- a_th is an input, a_mid the measurement.
+
+Two ways of measuring a_mid, and the figure distinguishes them:
   SOLID   a_core -- the slope where the segment SETTLES (flat_core), i.e. the value it
-          holds over its flat interior. Defined only where such an interior exists.
+          holds over its flat interior. Defined only where such an interior exists, and
+          the estimator of a_mid to quote wherever it is.
   HOLLOW  a_win -- a free straight-line fit over the whole identified window, used where
           no settled core exists. The slope is sweeping through the window there, so the
           number is an average over a knee and must not be read as a segment slope.
@@ -68,8 +74,8 @@ FIELDS = ('logr', 'barT', 'x', 'step', 'branch', 'a_th', 'a_core', 'dep', 'core'
 def measure(key=DEFAULT_KEY, method=METHOD, z=Z_SHELL, verbose=True):
   '''
   The mid segment of every sampled spectrum of every sweep point: its held asymptote
-  a_th, the settled slope a_core and their difference dep, the free-window slope a_win,
-  and the shape class the whole spectrum falls in. One row per (sweep point, step,
+  a_th, the settled estimate of a_mid (a_core) and their difference dep, the free-window
+  estimate a_win, and the shape class the whole spectrum falls in. One row per (sweep point, step,
   branch), where branch is 'fc' or 'sc' -- the two mid candidates. A spectrum has at
   most one of them (identify_segments drops the narrower where both linger), so the two
   branches never describe the same step.
@@ -173,7 +179,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
     for sp in ('left', 'bottom'):
       ax.spines[sp].set_color(MUTED)
     ax.tick_params(colors=MUTED, labelsize=9)
-    ax.set_ylabel('measured mid slope', color=INK, fontsize=10)
+    ax.set_ylabel('$a_{\\rm mid}$', color=INK, fontsize=11)
     ax.set_title(title, color=INK, fontsize=11, loc='left', pad=6)
     leg = ax.legend(title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
                     title_fontsize=8.5, ncol=2, loc='upper left', frameon=True,
@@ -203,9 +209,9 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
                    xytext=(-4, 6), textcoords='offset points', ha='right', va='bottom',
                    fontsize=8.5, color=MUTED)
   axes[1].set_xlabel('$\\bar{T}/\\bar{T}_f$', color=INK, fontsize=10)
-  fig.suptitle('Measured mid-segment slope vs cooling regime and time',
+  fig.suptitle('Measured mid-segment slope $a_{\\rm mid}$ vs cooling regime and time',
                color=INK, fontsize=12.5, x=0.055, ha='left', y=0.985)
-  fig.text(0.055, 0.938, 'Solid: slope where the segment settles (flat_core).  '
+  fig.text(0.055, 0.938, 'Solid: $a_{\\rm mid}$ where the segment settles (flat_core).  '
            'Hollow: no settled core - free fit over the identified window.',
            color=MUTED, fontsize=9, ha='left')
   fig.tight_layout(rect=[0, 0, 1, 0.925])
