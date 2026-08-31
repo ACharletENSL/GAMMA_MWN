@@ -534,10 +534,12 @@ def plot_lengths(cells, outdir, barT_f, key=KEY, fname=FIG_LEN):
                     loc='left', pad=6)
   axes[1].set_title('Radial length, over the one-zone scaling', color=INK, fontsize=11,
                     loc='left', pad=6)
-  for ax in axes:
-    ax.annotate(f'$f={F_MAIN:g}$ solid, $f={min(FRACS):g}$ dotted', xy=(0.98, 0.02),
-                xycoords='axes fraction', ha='right', va='bottom', fontsize=8,
-                color=MUTED)
+  # what f is, on the figure: it is the threshold that DEFINES R_f, and a reader who has
+  # to open the module to find that out is being asked too much. One line under both
+  # panels rather than a note in each -- inside the axes it lands on the curves.
+  fig.text(0.008, 0.008, '$f$ = fraction of the cell\'s injected electron energy it has '
+           f'radiated.   $f={F_MAIN:g}$ solid, $f={min(FRACS):g}$ dotted.',
+           ha='left', va='bottom', fontsize=8.5, color=MUTED)
   cens = {lr: np.mean([not np.isfinite(r[f'dT{F_MAIN:g}'])
                        for r in cells if r['logr'] == lr])
           for lr in sorted({r['logr'] for r in cells})}
@@ -551,7 +553,7 @@ def plot_lengths(cells, outdir, barT_f, key=KEY, fname=FIG_LEN):
   leg.get_title().set_color(MUTED)
   for t in leg.get_texts():
     t.set_color(INK)
-  fig.tight_layout()
+  fig.tight_layout(rect=[0, 0.045, 1, 1])
   path = os.path.join(outdir, fname)
   fig.savefig(path, dpi=200, facecolor='white')
   plt.close(fig)

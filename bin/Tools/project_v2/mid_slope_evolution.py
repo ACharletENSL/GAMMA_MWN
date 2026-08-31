@@ -142,9 +142,9 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
   '''
   Two panels, one per branch, on a shared log time axis. Each holds its asymptote as a
   dashed guide and the sweep points as one curve per log10(gma_c/gma_m). ONE horizontal
-  legend sits between the panels, over the union of the two branches' regimes -- the
-  colour map is global (COL), so a legend built per panel would say the same thing twice
-  and split the shared entries across two keys.
+  legend, along the empty top of the slow-cooling panel, covers the union of the two
+  branches' regimes -- the colour map is global (COL), so a legend built per panel would
+  say the same thing twice and split the shared entries across two keys.
   barT_off shades the rarefaction band; no line is drawn at its right edge (the band's
   own edge IS bar{T}_rf -- see sweep_gammacm.plot_lightcurve_shape).
   '''
@@ -186,22 +186,23 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
                    xytext=(-4, 6), textcoords='offset points', ha='right', va='bottom',
                    fontsize=8.5, color=MUTED)
   axes[1].set_xlabel('$\\bar{T}/\\bar{T}_f$', color=INK, fontsize=10)
-  # one legend for both panels, laid out horizontally in the gap between them. The
-  # handles are built by hand rather than harvested from either axes: the union of the
-  # two branches' regimes is what has to appear, and neither panel carries all of it.
+  # ONE legend for both panels, in a single row along the top of the slow-cooling panel:
+  # that band is empty (every sc track sits at or below a_th = 0.25) and the gap between
+  # the panels then costs nothing. The handles are built by hand rather than harvested
+  # from either axes -- the union of the two branches' regimes is what has to appear, and
+  # neither panel carries all of it.
   lrs = sorted({int(r['logr']) for r in rows})
   handles = [Line2D([], [], color=COL[lr], lw=1.8) for lr in lrs]
-  fig.tight_layout(rect=[0, 0, 1, 1])
-  fig.subplots_adjust(hspace=0.34)
-  p0, p1 = axes[0].get_position(), axes[1].get_position()
-  leg = fig.legend(handles, [f'{lr:+d}' for lr in lrs],
-                   title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=9,
-                   title_fontsize=9, ncol=len(lrs), frameon=False, loc='center',
-                   bbox_to_anchor=(0.5, 0.5*(p0.y0 + p1.y1)),
-                   columnspacing=1.6, handlelength=1.6, handletextpad=0.5)
+  leg = axes[1].legend(handles, [f'{lr:+d}' for lr in lrs],
+                       title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
+                       title_fontsize=8.5, ncol=len(lrs), loc='upper left',
+                       frameon=True, framealpha=0.92, edgecolor=GRID,
+                       columnspacing=1.2, handlelength=1.5, handletextpad=0.4,
+                       borderaxespad=0.4)
   leg.get_title().set_color(MUTED)
   for t in leg.get_texts():
     t.set_color(INK)
+  fig.tight_layout()
   path = os.path.join(outdir, fname)
   fig.savefig(path, dpi=200, facecolor='white')
   plt.close(fig)
