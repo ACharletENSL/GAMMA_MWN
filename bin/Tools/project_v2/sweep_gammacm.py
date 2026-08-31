@@ -811,58 +811,29 @@ SEG_EXT = 0.5             # decades each identified segment is drawn past its ow
                           # window is still legible on a 15-decade axis. Cosmetic only: the
                           # window is what the identification and the regime rest on, and the
                           # crossing is read off the drawn lines, never computed into one.
-SEG_DRAW_TOL = 0.25       # ... but a line stops there, wherever it has left the spectrum by
-                          # this many decades (_seg_draw_extent). The crossing extension is
-                          # blind to the data: it runs each line toward its neighbour whether
-                          # or not the spectrum is still near it, and where a segment is short
-                          # relative to its neighbours' crossings the extension is LONGER than
-                          # the window it comes from -- 1.83 dex of extension on a 1.61 dex
-                          # window at logr=+0.0 rise -- so most of the drawn line described
-                          # nothing, and on that figure it rode over the spectral peak while
-                          # the spectrum turned over beneath it (0.63 dex out at the far end).
-                          # The 1-p/2 line was worse: drawn to the end of the band, it crossed
-                          # the exponential cutoff and left the spectrum by 10-21 dex.
-                          # Capping is drawing-only and cannot move a verdict. Measured over
-                          # the sweep, it trims 0.5-2 dex off each line and every adjacent pair
-                          # still crosses visibly, because inside its own window a held line
-                          # tracks the spectrum to 0.11-0.19 dex (max; rms 0.02-0.07) -- the
-                          # departure of the held slope from the real one, i.e. dep, not a
-                          # drawing error. 0.25 leaves room for that and stops at the knee.
-
-
-def _seg_cross(g1, g2):
-  '''log10 of the frequency where two identified segments' lines meet. For DRAWING only --
-  it decides how far each line is extended so the pair crosses inside the panel; nothing in
-  the identification or the regime uses it.'''
-  return (g1['c'] - g2['c'])/(g2['a'] - g1['a'])
-
-
-def _seg_draw_extent(name, sg, k, segs, x, sp, tol=SEG_DRAW_TOL, ext=SEG_EXT):
+def _seg_line(name, sg):
   '''
-  The log10-x range one identified segment's line is DRAWN over -- cosmetic, nothing in the
-  identification uses it. Starts from the identified window, runs outward toward the crossing
-  with each neighbour (SEG_EXT past it, or to the end of the band for the 1-p/2 line, which
-  has no neighbour above), and stops early on either side as soon as the line has left the
-  spectrum by more than tol decades. A drawn line is then a claim the reader can check
-  against the curve it sits on, and the crossings stay visible wherever the two segments
-  really do meet near the data. segs must be the steepest-first list, k this segment's index
-  in it. tol=None restores the uncapped extension.
+  The (slope, intercept) one identified segment is DRAWN with. The two ASYMPTOTES are drawn
+  at the held theory slope: the identification's claim about them is that the spectrum has
+  converged there, and a held line sits on the data to 0.06-0.10 dex.
+  The two MID candidates are drawn at their MEASURED slope (a_fit, the free fit over the same
+  window). The claim there is weaker -- locally a power law NEAR the asymptote -- and the
+  shell-integrated segment genuinely sits off it (dep, +0.107 fast to -0.079 slow), so a held
+  line fans away from the curve by up to 0.19 dex across the window and further once extended.
+  Drawing the measured slope puts the line on the spectrum it describes, and dep is then read
+  off the figure as the tilt against the neighbouring asymptotes rather than hidden in it.
+  Falls back to the held pair if the free fit is unavailable.
   '''
-  lx, ly = np.log10(x), np.log10(np.maximum(sp, 1e-300))
-  w0, w1 = np.log10(sg['x0']), np.log10(sg['x1'])
-  l0 = min(w0, _seg_cross(segs[k-1][1], sg)) if k else w0
-  l1 = max(w1, _seg_cross(sg, segs[k+1][1])) if k + 1 < len(segs) else w1
-  a0, a1 = l0 - ext, (lx.max() if name == 'hi' else l1 + ext)
-  iw = np.where((lx >= w0) & (lx <= w1))[0]
-  if tol is None or not iw.size:
-    return a0, a1
-  ok = np.abs(sg['c'] + sg['a']*lx - ly) <= tol
-  lo, hi = iw[0], iw[-1]
-  while lo > 0 and ok[lo-1] and lx[lo-1] >= a0:
-    lo -= 1
-  while hi < len(lx) - 1 and ok[hi+1] and lx[hi+1] <= a1:
-    hi += 1
-  return max(a0, lx[lo]), min(a1, lx[hi])
+  if name in ('fc', 'sc') and np.isfinite(sg.get('a_fit', np.nan)):
+    return sg['a_fit'], sg['c_fit']
+  return sg['a'], sg['c']
+
+
+def _seg_cross(l1, l2):
+  '''log10 of the frequency where two drawn segment lines (slope, intercept) meet. For
+  DRAWING only -- it decides how far each line is extended so the pair crosses inside the
+  panel; nothing in the identification or the regime uses it.'''
+  return (l1[1] - l2[1])/(l2[0] - l1[0])
 
 
 def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
@@ -923,10 +894,11 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   of every high-latitude tail unfindable.
 
   Returns dict(regime, segs, nuM, a_edge, a_drift), or None if the spectrum is unusable.
-  segs maps the name ('lo', 'fc', 'sc', 'hi') to dict(a, c, x0, x1, dex, core, a_core, dep):
-  the HELD slope, the intercept in log10, the window it was identified over and its width in
-  decades, then -- for the two mid candidates only -- the width over which the free slope
-  settles, the value it settles on, and dep = a_core - a. regime is None when the identified
+  segs maps the name ('lo', 'fc', 'sc', 'hi') to dict(a, c, a_fit, c_fit, x0, x1, dex, core,
+  a_core, dep): the HELD slope and its intercept in log10, the FREE line over the same window
+  (a_fit, c_fit -- what the mid segments are drawn with, see _seg_line), the window it was
+  identified over and its width in decades, then -- for the two mid candidates only -- the
+  width over which the free slope settles, the value it settles on, and dep = a_core - a. regime is None when the identified
   set matches no case above, or when the low end supports neither VFC nor FC*.
 
   dep IS A RESULT, not a diagnostic of the fit. The identification holds the slope at the
@@ -984,7 +956,13 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
     # measurement of the shell-integration hardening, not a fitting residual.
     core = flat_core(lx, ly, lx[i], lx[j]) if name in ('fc', 'sc') else \
            dict(dex=np.nan, slope=np.nan, n=0)
+    # (a_fit, c_fit): the FREE straight line over the same window, nothing held. It is what
+    # the mid segments are DRAWN with (see plot_spectra_per_regime) and what
+    # mid_slope_evolution reports where no core settles; a_fit - a is the same departure
+    # a_core - a measures, over the whole window rather than over the settled part.
+    fit = np.polyfit(lx[i:j+1], ly[i:j+1], 1) if j - i >= 2 else (np.nan, np.nan)
     segs[name] = dict(a=a, c=float(np.mean(ly[i:j+1] - a*lx[i:j+1])),
+                      a_fit=float(fit[0]), c_fit=float(fit[1]),
                       x0=float(10**lx[i]), x1=float(10**lx[j]), dex=float(lx[j] - lx[i]),
                       core=float(core['dex']), a_core=float(core['slope']),
                       dep=float(core['slope'] - a))
@@ -1955,13 +1933,19 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
   brightest of the three spectra, at its spectral peak -- nu_m for fast cooling,
   nu_c for slow), so the peak-phase curve tops out at 1 and rise/tail show their
   brightness evolution below it. Over each spectrum are drawn the synchrotron power-law
-  SEGMENTS it actually shows (dash-dotted; identify_segments), each on its own fitted
-  intercept over the window it was identified on, run out toward its neighbours so that
-  every adjacent pair is seen to cross -- but stopped wherever the line has left the
-  spectrum by more than SEG_DRAW_TOL, so no drawn line claims more than it describes
-  (_seg_draw_extent). Inside its own window a line still departs from the curve by up to
-  ~0.2 dex: the slope is HELD at the one-zone value while the shell-integrated segment sits
-  off it, and that departure is the measurement (dep), not a drawing error.
+  SEGMENTS it actually shows (dash-dotted; identify_segments), each over the window it was
+  identified on and run out until it meets its neighbours (and to the end of the band for the
+  1-p/2 one) so that every adjacent pair is seen to cross. Running the lines off the curve is
+  deliberate -- a segment drawn only over its own window disappears under the spectrum it
+  describes.
+  WHICH SLOPE IS DRAWN (see _seg_line). The two ASYMPTOTES are drawn at the held theory value,
+  which is what they claim and what they sit on. The two MID candidates are drawn at their
+  MEASURED slope, because the shell-integrated mid segment does not sit on its one-zone value
+  (dep: +0.107 fast, -0.079 slow) and a held line therefore fans away from the very curve it
+  is pointing at -- worst where the segment is short, which is where the reader most needs to
+  see what it is attached to. The theory value is still what the SEGMENT WAS IDENTIFIED AS and
+  what the regime label rests on; the difference between the two is dep, and on the figure it
+  is the tilt of the mid line against its neighbours.
   Nothing is anchored on the spectral peak or on a break: no shape is fitted, the crossings
   are read off the drawn lines rather than computed into a break, and the spectrum's own
   turnovers are left undescribed, which is the honest statement about them. Nothing marks
@@ -2005,14 +1989,24 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
       (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
       sps.append(sp/pkmax)
       ident = identify_segments(x, sp, p) if segments else None
-      # steepest first = left to right, so consecutive entries are the adjacent pairs
-      segs = sorted(ident['segs'].items(), key=lambda kv: -kv[1]['a']) if ident else []
-      for k, (name, sg) in enumerate(segs):
-        # the segment on its OWN intercept and slope, run out toward its neighbours so the
-        # pairs are seen to cross -- but never past where it stops describing the spectrum
-        # (_seg_draw_extent / SEG_DRAW_TOL)
-        lxs = np.array(_seg_draw_extent(name, sg, k, segs, x, sp))
-        ax.loglog(10**lxs, 10**(sg['c'] + sg['a']*lxs)/pkmax,
+      # each segment as the line it is DRAWN with (_seg_line: held slope for the asymptotes,
+      # measured for the mid ones), steepest first = left to right, so consecutive entries
+      # are the adjacent pairs and the crossings below are between the lines actually drawn
+      segs = sorted(((n, _seg_line(n, g), g) for n, g in ident['segs'].items()),
+                    key=lambda t: -t[1][0]) if ident else []
+      for k, (name, ln, sg) in enumerate(segs):
+        # run out far enough to meet its neighbours: down to the crossing with the previous
+        # one, up to the crossing with the next, each by SEG_EXT further, so the pair is seen
+        # to cross. The 1-p/2 segment has no neighbour above it and runs to the end of the
+        # band. Running the lines off the curve is deliberate -- see the docstring.
+        l0, l1 = np.log10(sg['x0']), np.log10(sg['x1'])
+        if k:
+          l0 = min(l0, _seg_cross(segs[k-1][1], ln))
+        if k + 1 < len(segs):
+          l1 = max(l1, _seg_cross(ln, segs[k+1][1]))
+        lxs = np.array([l0 - SEG_EXT,
+                        np.log10(x.max()) if name == 'hi' else l1 + SEG_EXT])
+        ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
       labels.append(which if not segments else

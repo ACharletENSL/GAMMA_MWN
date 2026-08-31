@@ -40,7 +40,6 @@ import csv
 import numpy as np
 import matplotlib.pyplot as plt
 
-import spectral_breaks as sb
 from sweep_gammacm import (DEFAULT_KEY, Z_SHELL, load_sweep, method_outdir,
     exit_onset_barT, rarefaction_off_barT, identify_segments, trim_pngs,
     copy_article_figures)
@@ -98,11 +97,11 @@ def measure(key=DEFAULT_KEY, method=METHOD, z=Z_SHELL, verbose=True):
         if br not in d['segs']:
           continue
         g = d['segs'][br]
-        # the free fit over the identified window, for the steps with no settled core:
-        # same slopes segment_slopes returns, refitted over [x0, x1] with nothing held
-        lx, ly, _ = sb.segment_slopes(nub, nuFnu[i])
-        m = (lx >= np.log10(g['x0'])) & (lx <= np.log10(g['x1']))
-        a_win = float(np.polyfit(lx[m], ly[m], 1)[0]) if m.sum() >= 3 else np.nan
+        # the free fit over the identified window, for the steps with no settled core.
+        # identify_segments already computes it (a_fit, the line the mid segments are DRAWN
+        # with); refitting it here was one extra segment_slopes call per row for a
+        # bit-identical number.
+        a_win = g['a_fit']
         rows.append(dict(logr=r['log10ratio'], barT=barT[i], x=x[i], step=i, branch=br,
                          a_th=g['a'], a_core=g['a_core'], dep=g['dep'], core=g['core'],
                          dex=g['dex'], a_win=a_win, regime=d['regime'] or 'None'))
