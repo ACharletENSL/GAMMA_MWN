@@ -691,7 +691,7 @@ def main(key=KEY, z=Z, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=Tru
   p1 = plot_lengths(cells, outdir, barT_f, key=key)
   p2 = plot_link(times, mid_rows, outdir, barT_f, rarefaction_off_barT(key, z=z))
   summarise(cells, times, mid_rows, key=key)
-  trim_pngs(outdir)
+  trim_pngs([p1, p2])
   copy_article_figures(outdir)
   print(f'-> {p1}\n-> {p2}')
   return cells, times

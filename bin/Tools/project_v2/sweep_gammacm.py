@@ -21,6 +21,7 @@ Example use in command line:
 
 import os
 import glob
+import time
 from types import SimpleNamespace
 import numpy as np
 import matplotlib.pyplot as plt
@@ -40,6 +41,11 @@ from working_cooling_data import (get_shell_nuFnu_fromData, data_method_name,
 from IO import get_variable
 from plotting_functions import nF_label, sci_notation
 import cell_pool
+
+_T_IMPORT = time.time()   # start of the process, for every practical purpose: these mains
+                          # are run as `python -c "import X; X.main()"`, so nothing has been
+                          # drawn yet when this module is imported. trim_pngs uses it to
+                          # trim only what the run actually wrote.
 
 # env scalars kept per sweep point (enough for nu_over_num + the regime analysis)
 _ENV_KEYS = ('nu0', 'nuc', 'T0', 'Ts', 'nu0F0', 'gma_c', 'gma_m', 'gma_max', 'psyn')
@@ -2729,17 +2735,39 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   return results, detections
 
 
-def trim_pngs(outdir=OUTDIR):
-  '''Auto-trim surrounding whitespace from the saved figures, i.e. run
-  'mogrify -trim *.png' (ImageMagick) on outdir. No-op if mogrify is absent.'''
-  import subprocess, shutil
+def trim_pngs(target=OUTDIR, since=_T_IMPORT):
+  '''
+  Auto-trim surrounding whitespace from the figures THIS RUN produced, i.e. run
+  'mogrify -trim' (ImageMagick) on them. No-op if mogrify is absent.
+
+  A sweep directory accumulates ~50 figures from half a dozen modules, and mogrify is
+  ~0.1 s each, so trimming the whole directory to publish one figure was the dominant
+  cost of re-drawing that figure -- and it rewrote figures the run had not touched.
+
+  target: a directory, or an iterable of png paths. Pass the paths when the caller has
+  them (mid_slope_evolution, radiative_length): that is the exact answer, no clock.
+  since: with a DIRECTORY target, trim only the pngs modified at or after this timestamp.
+  The default is the moment this module was imported, which for the `python -c "import X;
+  X.main()"` invocations these mains are written for is the start of the process -- so
+  every figure the run wrote is covered and nothing else is, with no bookkeeping at any
+  call site. Pass an explicit time.time() taken at the top of a long-lived session's
+  routine to be exact there, or since=0 to trim every png in the directory.
+  '''
+  import subprocess, shutil, numbers
   if shutil.which('mogrify') is None:
     print('trim_pngs: mogrify (ImageMagick) not found; skipping whitespace trim')
     return
-  pngs = glob.glob(os.path.join(outdir, '*.png'))
+  if isinstance(target, (str, bytes, os.PathLike)):
+    pngs = glob.glob(os.path.join(target, '*.png'))
+    if isinstance(since, numbers.Real) and since > 0.:
+      # a millisecond of slack: mtime resolution is coarser than the clock on some
+      # filesystems, and it cannot reach back to a figure written before the run
+      pngs = [p for p in pngs if os.path.getmtime(p) >= since - 1e-3]
+  else:
+    pngs = [p for p in target if p]
   if pngs:
     subprocess.run(['mogrify', '-trim'] + pngs, check=False)
-    print(f'trimmed {len(pngs)} figures with mogrify -trim')
+    print(f'trimmed {len(pngs)} figure{"s" if len(pngs) > 1 else ""} with mogrify -trim')
 
 
 ARTICLE_DIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'article_choice')
@@ -2754,8 +2782,12 @@ ARTICLE_SERIES = {        # {source figure dir: globs of the series picked for t
       'peak_spectra_norm-eff.png',     # peak-normalised x eps_rad: shapes stacked by how
       'fluence_spectra_norm-eff.png',  # much each regime actually radiates (_plot_spectra_all)
       'spectrum_evolution_logr=*.png', # rise/peak/tail per regime (NOT the '_plain' series)
-      'lightcurve_shape_vs_nu.png',    # pulse shape across the whole band, in nu/nu_m ...
-      'lightcurve_shape_vs_nu_pk.png', # ... and in nu/nu_pk (lightcurve_shape.py)
+      'pulse_characteristics_vs_nu.png',    # measured peak time / width / asymmetry across
+      'pulse_characteristics_vs_nu_pk.png', # the band, in nu/nu_m and nu/nu_pk. NB these are
+                                       # the pulse CHARACTERISTICS (lightcurve_shape.
+                                       # plot_shape_vs_nu); the pulse PROFILES are
+                                       # pulse_profiles_collapsed.png and the lightcurves
+                                       # themselves are lightcurve_shape_nu=*.png above
       'mid_slope_evolution.png',       # mid-segment slope vs time (mid_slope_evolution.py)
   ),
 }

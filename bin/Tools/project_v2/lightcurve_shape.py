@@ -16,6 +16,17 @@ Everything is measured on the SAME cached sweep the figures are drawn from
 (method_outdir, default the 'data' reference), so the tables and the pngs
 cannot drift apart.
 
+WHAT IS CALLED WHAT. Three families, and they used to be three different things all
+called "shape", with only the file name telling them apart:
+  lightcurve_shape_nu=*.png        the LIGHTCURVES themselves, one figure per plotted
+                                   frequency (sweep_gammacm.plot_lightcurve_shape)
+  pulse_characteristics_vs_nu*.png the three MEASURED numbers -- peak time, width,
+  pulse_characteristics_vs_regime  asymmetry -- against frequency and against the
+                                   cooling regime (plot_shape_vs_nu, plot_shape_metrics)
+  pulse_profiles_collapsed.png     the PROFILES, peak-normalised and shifted to
+                                   bar{T}/bar{T}_pk (plot_normalised_pulses)
+"Pulse characteristics" is never a curve and "pulse profile" is never a number.
+
 THE PEAK TIME IS CHOSEN PER CURVE. Neither estimator works everywhere: the argmax
 is exact on a real peak but hops between comb teeth on a flat top (these curves
 hold within 0.02% of their maximum over x = 0.8-1.0 in slow cooling, far below the
@@ -30,7 +41,7 @@ x_amax/x_flat keep both raw estimates. Every quantity measured about the peak
 The three metrics that answer 'how does the PULSE run with frequency' -- peak
 time x_pk, half-maximum width FWHM and the rise/fall asymmetry asym10 -- are
 also measured across the WHOLE frequency grid, not just at NU_TARGETS
-(measure_frequency_scan -> lightcurve_freqscan_nu_m.csv, lightcurve_shape_vs_nu.png).
+(measure_frequency_scan -> lightcurve_freqscan_nu_m.csv, pulse_characteristics_vs_nu.png).
 That scan is on the nu/nu_m axis alone: LOGNU_MIN is defined in log10(nu/nu_m),
 so every sweep point's grid starts at the same 1e-6 there and the regimes are
 directly comparable, which the stored nub = nu/nu_pk axis cannot be (see the
@@ -632,12 +643,29 @@ def _by_logr(scan_rows, logr, key, mask_edge=False, xkey='nu_num'):
 
 def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   '''
+  PULSE CHARACTERISTICS, not pulse profiles -- this figure carries three MEASURED
+  numbers against frequency, while plot_normalised_pulses draws the curves themselves.
+  The two used to share the name "pulse shape" in their titles, which made the two
+  filenames the only thing telling them apart.
+
   The three pulse observables against frequency, one curve per cooling regime:
   peak time x_pk = bar{T}_pk/bar{T}_f, half-maximum width, and the 10% rise/fall
   asymmetry. Log-log throughout -- over the ~6-16 decades between the grid floor and
   nu_M all three span decades themselves, and the peak time in particular drops from
   x_pk > 1 (the pulse still building at shell crossing) at low frequency to x_pk << 1
   (an early flash) above nu_c.
+
+  Each regime's SECOND break frequency is marked with a dashed vertical in its own
+  colour, so the frequency at which each curve turns can be read against the break that
+  causes it. Which break that is follows the axis: on nu/nu_m it is nu_c/nu_m =
+  (gma_c/gma_m)^2, which is below 1 in fast cooling and above it in slow; on nu/nu_pk the
+  reference is already max(nu_m, nu_c), so the mark is the OTHER one, min(q, 1/q) with
+  q = nu_c/nu_m -- always at or below 1, and nu_c in fast cooling, nu_m in slow.
+  Two consequences to expect rather than debug. On nu/nu_m the deepest fast-cooling marks
+  fall off the axis (nu_c/nu_m = 1e-10 and 1e-8 at logr = -5 and -4, against a grid floor
+  at 1e-6), which is the statement that those spectra have no cooling break inside the
+  band at all. On nu/nu_pk the mark is a function of |logr|, so +k and -k land on the same
+  vertical and the later-drawn colour covers the earlier -- the line is there for both.
 
   unit: 'num' -> the axis is nu/nu_m, shared by every point (LOGNU_MIN is defined there),
   so the regimes are directly comparable; 'pk' -> nu/nu_pk = the stored nub axis, matching
@@ -648,9 +676,9 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   Rows whose rise is unresolved by the observer grid (rise_edge) are dropped from the
   asymmetry panel rather than drawn.
 
-  Only x_pk is drawn -- x_amax, and the per-regime nu_c/nu_M ticks, are in the csv and
-  in the spectral figures respectively. Each panel's y range is clipped to its own data,
-  so a horizontal guide is drawn only where it actually falls inside.
+  Only x_pk is drawn -- x_amax, and the per-regime nu_M ticks, are in the csv and in the
+  spectral figures respectively. Each panel's y range is clipped to its own data, so a
+  horizontal guide is drawn only where it actually falls inside.
   '''
   from matplotlib.lines import Line2D
   from sweep_gammacm import _sweep_colors, _draw_order
@@ -665,12 +693,18 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   seen = [[], [], []]
   for r, c in _draw_order(zip(results, colors)):
     logr = r['log10ratio']
+    # the regime's second break, on this axis (see docstring). q = nu_c/nu_m is taken
+    # from the point's own env rather than from 10**logr: logr is the sweep TARGET, and
+    # compute_alpha_sweep lands on it to round-off, not exactly.
+    q = (r['env'].gma_c/r['env'].gma_m)**2
+    x_break = q if unit == 'num' else min(q, 1./q)
     for i, (key, edge) in enumerate((('x_pk', False), ('fwhm', False), ('asym10', True))):
       xn, v = _by_logr(scan_rows, logr, key, mask_edge=edge, xkey=xkey)
       ok = np.isfinite(v) & (v > 0.)
       if ok.any():
         axs[i].semilogx(xn[ok], v[ok], color=c, lw=1.)
         seen[i].append(v[ok])
+      axs[i].axvline(x_break, color=c, ls='--', lw=.7, alpha=.75, zorder=1)
 
   ylim = []
   for s in seen:                         # clip each panel to its own data, 3% margin
@@ -691,11 +725,14 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
       ax.axhline(1., color='grey', ls=':', lw=.8)
     ax.set_xlim(nu_lo, nu_hi)
     ax.set_xlabel(xlab); ax.set_ylabel(ylab); ax.set_title(ttl)
+  # one legend, on the peak-time panel: the break marks (always drawn) and the
+  # rarefaction line (only where it falls inside that panel's clipped range)
+  brk = '$\\nu_c$' if unit == 'num' else '$\\nu_c$ or $\\nu_m$, whichever is not $\\nu_{\\rm pk}$'
+  handles = [Line2D([], [], color='grey', ls='--', lw=.7, label=brk)]
   if x_rf is not None and inside(0, x_rf):
     axs[0].axhline(x_rf, color='k', ls='--', lw=.8)
-    axs[0].legend(handles=[Line2D([], [], color='k', ls='--', lw=.8,
-                                  label='$\\bar{T}_{\\rm rf}$')],
-                  fontsize=8, loc='upper right')
+    handles.append(Line2D([], [], color='k', ls='--', lw=.8, label='$\\bar{T}_{\\rm rf}$'))
+  axs[0].legend(handles=handles, fontsize=8, loc='upper right')
   for ax, yl in zip(axs, ylim):
     if yl is not None:
       ax.set_ylim(*yl)
@@ -703,19 +740,21 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   # sweep_gammacm.plot_lightcurve_shape): the defaults size the gap for one panel
   fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035,
                label='log$_{10}(\\gamma_c/\\gamma_m)$')
-  fig.suptitle('Pulse shape against frequency: peak time, width and rise/fall asymmetry'
-               f'   (in ${ref}$)')
-  fn = os.path.join(outdir, f'lightcurve_shape_vs_nu{tag}.png')
+  fig.suptitle('Pulse characteristics against frequency: peak time, width and '
+               f'rise/fall asymmetry   (in ${ref}$)')
+  fn = os.path.join(outdir, f'pulse_characteristics_vs_nu{tag}.png')
   fig.savefig(fn, dpi=200)
   plt.close(fig)
-  print(f'shape-vs-frequency figure -> {fn}')
+  print(f'pulse-characteristics figure -> {fn}')
+  return fn
 
 
 def plot_shape_metrics(rows, outdir, barT_f=None, x_rf=None, unit='pk'):
   '''
-  Six panels vs log10(gma_c/gma_m), one line per plotted frequency: peak time,
-  widths, asymmetry, rise index, decay index, flat top. The horizontal guides on
-  the peak-time panel are the crossing (x=1) and the last rarefaction cut-off.
+  The same PULSE CHARACTERISTICS as plot_shape_vs_nu, against the cooling regime instead
+  of against frequency: six panels vs log10(gma_c/gma_m), one line per plotted frequency
+  -- peak time, widths, asymmetry, rise index, decay index, flat top. The horizontal
+  guides on the peak-time panel are the crossing (x=1) and the last rarefaction cut-off.
   '''
   sub = 'm' if unit == 'num' else 'pk'
   nus = sorted({m['nu_t'] for m in rows})
@@ -775,13 +814,15 @@ def plot_shape_metrics(rows, outdir, barT_f=None, x_rf=None, unit='pk'):
                'flux level of the rise break (dashed)')
   ax.set_xlabel('log$_{10}(\\gamma_c/\\gamma_m)$')
 
-  fig.suptitle('Lightcurve shape across the cooling sweep'
+  fig.suptitle('Pulse characteristics across the cooling sweep'
                + ('   (at fixed $\\nu/\\nu_m$)' if unit == 'num' else ''))
   fig.tight_layout()
-  fn = os.path.join(outdir, f'lightcurve_shape_metrics{"_num" if unit == "num" else ""}.png')
+  fn = os.path.join(outdir,
+                    f'pulse_characteristics_vs_regime{"_num" if unit == "num" else ""}.png')
   fig.savefig(fn, dpi=200)
   plt.close(fig)
-  print(f'shape-metric figure -> {fn}')
+  print(f'pulse-characteristics figure -> {fn}')
+  return fn
 
 
 def plot_peaktime_reference(rows_pk, rows_num, outdir, x_rf=None):
@@ -814,9 +855,10 @@ def plot_peaktime_reference(rows_pk, rows_num, outdir, x_rf=None):
 
 def plot_normalised_pulses(results, rows, barT_f, outdir, x_rf=None):
   '''
-  The measured shape, drawn: each frequency's curves normalised to their own peak
-  AND shifted to x/x_pk, so what is left is the shape alone. Half-max markers on
-  every curve; the sweep's colour scale is kept (jet in log10(gma_c/gma_m)).
+  PULSE PROFILES -- the curves themselves, as against plot_shape_vs_nu's measured
+  characteristics. Each frequency's curves normalised to their own peak AND shifted to
+  x/x_pk, so what is left is the shape alone. Half-max markers on every curve; the
+  sweep's colour scale is kept (jet in log10(gma_c/gma_m)).
   '''
   from sweep_gammacm import _sweep_colors, _draw_order
   colors, sm = _sweep_colors(results)
@@ -839,11 +881,12 @@ def plot_normalised_pulses(results, rows, barT_f, outdir, x_rf=None):
     ax.set_title(f'$\\nu={nu:g}\\,\\nu_{{\\rm pk}}$')
   axs[0].set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm max}$')
   fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
-  fig.suptitle('Pulse shape with the peak time divided out')
-  fn = os.path.join(outdir, 'lightcurve_shape_collapsed.png')
+  fig.suptitle('Pulse profiles, with the peak time divided out')
+  fn = os.path.join(outdir, 'pulse_profiles_collapsed.png')
   fig.savefig(fn, dpi=200)
   plt.close(fig)
-  print(f'collapsed-shape figure -> {fn}')
+  print(f'pulse-profile figure -> {fn}')
+  return fn
 
 
 def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGETS,

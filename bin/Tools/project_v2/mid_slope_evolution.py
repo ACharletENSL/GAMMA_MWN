@@ -151,7 +151,9 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
   xoff = tuple(b/barT_f for b in barT_off) if (barT_off and barT_f > 0.) else None
   fig, axes = plt.subplots(2, 1, figsize=(8.4, 7.6), sharex=True)
   panels = (('fc', 0.5, 'Fast-cooling branch', '$a_{\\rm th}=1/2$', (0.478, 0.615)),
-            ('sc', 0.25, 'Slow-cooling branch', '$a_{\\rm th}=(3-p)/2$', (0.205, 0.272)))
+            ('sc', 0.25, 'Slow-cooling branch', '$a_{\\rm th}=(3-p)/2$', (0.205, 0.266)))
+            # the sc top is set by the legend, not by the data: no track goes above
+            # a_th = 0.25, so what is left above it is exactly the legend's band
   for ax, (br, a_th, title, a_lab, ylim) in zip(axes, panels):
     sub = [r for r in rows if r['branch'] == br]
     if xoff is not None:
@@ -195,7 +197,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
   handles = [Line2D([], [], color=COL[lr], lw=1.8) for lr in lrs]
   leg = axes[1].legend(handles, [f'{lr:+d}' for lr in lrs],
                        title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
-                       title_fontsize=8.5, ncol=len(lrs), loc='upper left',
+                       title_fontsize=8.5, ncol=len(lrs), loc='upper center',
                        frameon=True, framealpha=0.92, edgecolor=GRID,
                        columnspacing=1.2, handlelength=1.5, handletextpad=0.4,
                        borderaxespad=0.4)
@@ -225,7 +227,7 @@ def main(key=DEFAULT_KEY, method=METHOD, z=Z_SHELL, outdir=None, use_cache=True)
     print(f'{len(rows)} rows -> {write_rows(rows, outdir)}')
   barT_f = exit_onset_barT(key, z=z)
   path = plot(rows, outdir, barT_f, rarefaction_off_barT(key, z=z))
-  trim_pngs(outdir)
+  trim_pngs([path])
   copy_article_figures(outdir)
   print(f'-> {path}')
   return rows
