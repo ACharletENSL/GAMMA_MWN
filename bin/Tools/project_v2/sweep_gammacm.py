@@ -2365,7 +2365,9 @@ def plot_gs02_fits(results, detections, outdir=OUTDIR):
     if not drawn:
       plt.close(fig); continue
     axs[0].set_ylim(10.**(-SPEC_YSPAN), 3.)
-    axs[0].axvline(1., color='grey', ls=':', lw=.9)
+    # no nu = nu_m guide here either (see _plot_spectra_all); the per-regime FITTED
+    # breaks above are the marks this figure is read for, and the grey line at 1 sat
+    # among them saying only what the axis label already says
     axs[0].set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}$')
     axs[0].set_title('Granot & Sari (2002) shape vs computed spectra, '
                      f"$\\log_{{10}}(\\gamma_c/\\gamma_m)={r['log10ratio']:+.0f}$\n"
@@ -2573,7 +2575,13 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
   ylo = (min(ypks) if mode == 'eff' else ymax)/10.**yclip_dec if ymax > 0. else None
   for x, y, c in _draw_order(curves):
     ax.loglog(x, y, color=c)
-  ax.axvline(1., color='grey', ls=':', lw=.7)
+  # NO nu = nu_m guide. The x axis is already labelled in nu_m (NU_M_LABEL) and its 10^0
+  # tick says the same thing, so the line was a second copy of the axis; and on the nu_pk
+  # normalisation x = 1 is nu_c in slow cooling, which made the same grey line mean two
+  # different frequencies across one figure suite. Removed everywhere a SPECTRUM is drawn
+  # (here, plot_gs02_fits, sweep_compare.plot_spectra_compare). The per-shell nu_m marks
+  # in sweep_shells.plot_peak_spectra_per_regime are a different thing -- labelled, one
+  # per shell, and the point of that figure -- and stay.
   if ylo is not None:
     ax.set_ylim(ylo, ymax*3.)
     xhi = max(x[y > ylo].max() for x, y, _ in curves if np.any(y > ylo))

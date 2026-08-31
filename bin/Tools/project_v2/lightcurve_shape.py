@@ -83,6 +83,7 @@ Example use in command line:
   python -c "import lightcurve_shape as L; L.main()"
   python -c "import lightcurve_shape as L; L.main(method='data_rarcut')"
   python -c "import lightcurve_shape as L; L.main(z=1)"
+  python -c "import lightcurve_shape as L; L.replot(method='data_rarcut')"  # figures only
 '''
 
 import os
@@ -585,6 +586,8 @@ def build_shape_table(rows, outdir, unit='pk'):
   return csv_path
 
 
+SCAN_CSV = 'lightcurve_freqscan_nu_m.csv'   # written by build_scan_table, read back by
+                                            # read_scan_table -- one name, both ways
 _SCAN_COLS = [('log10(gc/gm)', 'logr', '{:+.0f}'), ('nu/nu_m', 'nu_num', '{:.6g}'),
               ('nu/nu_pk', 'nub', '{:.6g}'),
               ('x_pk', 'x_pk', '{:.4f}'), ('bar_T_pk', 'barT_pk', '{:.4f}'),
@@ -603,7 +606,7 @@ def build_scan_table(scan_rows, outdir):
   png table: this is thousands of rows, and plot_shape_vs_nu is what it is meant to
   be read as.
   '''
-  csv_path = os.path.join(outdir, 'lightcurve_freqscan_nu_m.csv')
+  csv_path = os.path.join(outdir, SCAN_CSV)
   with open(csv_path, 'w', newline='') as f:
     w = csv.writer(f); w.writerow([c[0] for c in _SCAN_COLS])
     for m in scan_rows:
@@ -613,6 +616,34 @@ def build_scan_table(scan_rows, outdir):
   print(f'frequency scan -> {csv_path}  ({len(scan_rows)} rows, '
         f'{n_edge} with an unresolved rise)')
   return csv_path
+
+
+def read_scan_table(outdir, fname=SCAN_CSV):
+  '''
+  The frequency scan back off disk, in the form measure_frequency_scan returns it.
+
+  The scan is the expensive half of this module -- a peak measurement per sweep point
+  per grid frequency, ~3400 rows and minutes of it -- while the figures drawn from it
+  are the ones most often restyled. So it round-trips: build_scan_table writes every
+  column plot_shape_vs_nu reads and this is its exact inverse, both driven off the one
+  _SCAN_COLS specification, so a column added there is carried by both without further
+  edits. Non-finite entries were written as '--' and come back NaN.
+
+  Returns None if the csv is not there.
+  '''
+  path = os.path.join(outdir, fname)
+  if not os.path.isfile(path):
+    return None
+  rows = []
+  for d in csv.DictReader(open(path)):
+    m = {}
+    for hdr, key, _fmt in _SCAN_COLS:
+      v = d[hdr]
+      m[key] = bool(int(v)) if key == 'rise_edge' else \
+               (float(v) if v not in ('', '--') else np.nan)
+    rows.append(m)
+  print(f'{len(rows)} scan rows reloaded from {path}')
+  return rows
 
 
 # ---------------------------------------------------------------------------
@@ -889,6 +920,68 @@ def plot_normalised_pulses(results, rows, barT_f, outdir, x_rf=None):
   return fn
 
 
+def _time_marks(key, z, verbose=True):
+  '''(barT_f, barT_rf, x_rf) -- the shell's clock, shared by main and replot.'''
+  barT_f = exit_onset_barT(key, z=z)
+  off = rarefaction_off_barT(key, z=z)
+  barT_rf = off[1] if off else None
+  x_rf = barT_rf/barT_f if barT_rf else None
+  if verbose:
+    print(f'bar_T_f = {barT_f:.4f}'
+          + (f',  bar_T_rf = {barT_rf:.4f}  (x_rf = {x_rf:.3f})' if x_rf else ''))
+  return barT_f, barT_rf, x_rf
+
+
+def _figures(results, rows, rows_num, scan_rows, barT_f, x_rf, outdir):
+  '''
+  Every table and figure this module draws, from measurements already in hand. main and
+  replot both go through here, which is what stops the two from drifting apart -- the
+  only difference between them is where the measurements came from.
+  scan_rows empty (or None) drops the two vs-frequency figures and nothing else.
+  '''
+  build_shape_table(rows, outdir, unit='pk')
+  plot_shape_metrics(rows, outdir, barT_f=barT_f, x_rf=x_rf, unit='pk')
+  plot_normalised_pulses(results, rows, barT_f, outdir, x_rf=x_rf)
+  build_shape_table(rows_num, outdir, unit='num')
+  plot_peaktime_reference(rows, rows_num, outdir, x_rf=x_rf)
+  if scan_rows:
+    for u in _SCAN_UNITS:                  # same measurements, both frequency references
+      plot_shape_vs_nu(scan_rows, results, outdir, x_rf=x_rf, unit=u)
+  trim_pngs(outdir)
+  # the two vs-nu figures are in ARTICLE_SERIES, and this module is what writes them, so
+  # the article folder is refreshed here too (no-op for a directory that is not selected)
+  copy_article_figures(outdir)
+
+
+def replot(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGETS,
+    outdir=None, scan=True):
+  '''
+  Redraw every figure from what is already on disk -- for anything that changes only
+  how a figure looks.
+
+  Nothing is recomputed except the NU_TARGETS measurements, which are three frequencies
+  per sweep point and cost seconds. The expensive half, the frequency scan over the whole
+  grid, is read back from its csv (read_scan_table). scan=False skips the two
+  vs-frequency figures; so does a missing csv, with a warning rather than a rescan --
+  producing that file is main's job, and doing it silently here would turn a restyle into
+  a ten-minute run.
+  '''
+  outdir = method_outdir(method, key, z) if outdir is None else outdir
+  results = load_sweep(outdir)
+  if not results:
+    raise FileNotFoundError(f'no cached sweep in {outdir} -- run main first')
+  barT_f, barT_rf, x_rf = _time_marks(key, z)
+  rows = measure_sweep(results, barT_f, barT_rf, nu_targets, unit='pk')
+  rows_num = measure_sweep(results, barT_f, barT_rf, nu_targets, unit='num')
+  scan_rows = read_scan_table(outdir) if scan else None
+  if scan and not scan_rows:
+    print(f'replot: no {SCAN_CSV} in {outdir}; skipping the vs-frequency figures '
+          '(run main to measure the scan)')
+  _figures(results, rows, rows_num, scan_rows, barT_f, x_rf, outdir)
+  print(f'\nFigures redrawn in {outdir}')
+  return rows, rows_num, scan_rows
+
+
 def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGETS,
     outdir=None, nproc=None, scan=True):
   '''
@@ -896,6 +989,8 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGET
   if its cache is missing (run_sweep, same (key, method, z) directory).
   scan=False drops the frequency scan (measure_frequency_scan and its csv/figure),
   leaving only the NU_TARGETS tables and figures.
+  Use replot() instead when only the figures have changed: it reads the scan back off
+  disk rather than measuring it again.
   '''
   outdir = method_outdir(method, key, z) if outdir is None else outdir
   os.makedirs(outdir, exist_ok=True)
@@ -903,22 +998,10 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGET
   if results is None:
     results = run_sweep(key, LOG10RATIO_ARR, z=z, outdir=outdir, nproc=nproc, method=method)
 
-  barT_f = exit_onset_barT(key, z=z)
-  off = rarefaction_off_barT(key, z=z)
-  barT_rf = off[1] if off else None
-  x_rf = barT_rf/barT_f if barT_rf else None
-  print(f'bar_T_f = {barT_f:.4f}'
-        + (f',  bar_T_rf = {barT_rf:.4f}  (x_rf = {x_rf:.3f})' if x_rf else ''))
-
+  barT_f, barT_rf, x_rf = _time_marks(key, z)
   rows = measure_sweep(results, barT_f, barT_rf, nu_targets, unit='pk')
-  build_shape_table(rows, outdir, unit='pk')
-  plot_shape_metrics(rows, outdir, barT_f=barT_f, x_rf=x_rf, unit='pk')
-  plot_normalised_pulses(results, rows, barT_f, outdir, x_rf=x_rf)
-
   # same measurements at fixed nu/nu_m: isolates the pulse from the nu_pk switch
   rows_num = measure_sweep(results, barT_f, barT_rf, nu_targets, unit='num')
-  build_shape_table(rows_num, outdir, unit='num')
-  plot_peaktime_reference(rows, rows_num, outdir, x_rf=x_rf)
 
   # peak time, width and asymmetry across the WHOLE frequency grid, on the nu/nu_m axis
   scan_rows = []
@@ -926,11 +1009,6 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGET
     print('\nfrequency scan:')
     scan_rows = measure_frequency_scan(results, barT_f, barT_rf)
     build_scan_table(scan_rows, outdir)
-    for u in _SCAN_UNITS:                  # same measurements, both frequency references
-      plot_shape_vs_nu(scan_rows, results, outdir, x_rf=x_rf, unit=u)
-  trim_pngs(outdir)
-  # the two vs-nu figures are in ARTICLE_SERIES, and this main is what writes them, so the
-  # article folder is refreshed here too (no-op for a directory that is not selected)
-  copy_article_figures(outdir)
+  _figures(results, rows, rows_num, scan_rows, barT_f, x_rf, outdir)
   print(f'\nFigures saved to {outdir}')
   return rows, rows_num, scan_rows

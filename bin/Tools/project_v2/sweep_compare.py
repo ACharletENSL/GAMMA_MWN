@@ -291,12 +291,13 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
   sub = f'({sym})_{{\\nu_m}}' if mode == 'nu_m' else f'({sym})_{{\\rm max}}'
   pre = '\\varepsilon_{\\rm rad}\\,' if mode == 'eff' else ''
   ax_s.set_ylabel(f'${pre}{sym}/{sub}$  ({ln} norm.)')
-  ax_s.axvline(1., color='grey', ls=':', lw=.7)
+  # no nu = nu_m guide on either panel -- see sweep_gammacm._plot_spectra_all for why it
+  # went from every spectrum figure. ax_r keeps its HORIZONTAL unity line: that one marks
+  # the two sides agreeing, which is the whole point of the ratio panel.
   ax_s.plot([], [], 'k--', label=la); ax_s.plot([], [], 'k-', label=lb)
   ax_s.legend(loc='upper left', fontsize=9)
   if ax_r is not None:
     ax_r.axhline(1., color='grey', ls=':', lw=.9)
-    ax_r.axvline(1., color='grey', ls=':', lw=.7)
     ax_r.set_xscale('log'); ax_r.set_yscale('log')
     _ratio_ylim(ax_r, ratios)
     ax_r.set_ylabel(f'{lb} / {la}')
