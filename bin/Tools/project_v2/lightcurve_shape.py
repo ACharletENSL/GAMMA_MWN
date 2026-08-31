@@ -727,7 +727,7 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
     ax.set_xlabel(xlab); ax.set_ylabel(ylab); ax.set_title(ttl)
   # one legend, on the peak-time panel: the break marks (always drawn) and the
   # rarefaction line (only where it falls inside that panel's clipped range)
-  brk = '$\\nu_c$' if unit == 'num' else '$\\nu_c$ or $\\nu_m$, whichever is not $\\nu_{\\rm pk}$'
+  brk = '$\\nu_c$' if unit == 'num' else '$\\min(\\nu_m,\\nu_c)$'
   handles = [Line2D([], [], color='grey', ls='--', lw=.7, label=brk)]
   if x_rf is not None and inside(0, x_rf):
     axs[0].axhline(x_rf, color='k', ls='--', lw=.8)
