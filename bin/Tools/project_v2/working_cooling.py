@@ -1565,7 +1565,7 @@ def _interp_state(a, b, f, dx):
   out['dx'] = dx
   return out
 
-def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max):
+def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max, subcell_min=2):
   '''
   Adaptive sub-cell onset edges for the early-lightcurve staircase smoothing.
   The cell onsets bar{T}_on are ~linearly spaced, so the earliest cells (near the
@@ -1575,19 +1575,43 @@ def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max):
   resolved bar{T} on the obs grid. Returns a list (len(barT_on)) of
   (a, b, edges) tuples or None (never the last index).
 
-  Each parent's interval [a,b] is split into n_k = ceil(gap/subcell_dlogT) equal
-  log-intervals; only cells whose interval spans more than subcell_dlogT get n_k > 1
-  (the CD-adjacent ones).
+  Each parent's interval [a,b] is split into n_k = clip(ceil(gap/subcell_dlogT),
+  subcell_min, subcell_max) equal log-intervals. Sub-cell weights follow the interval
+  widths (dx * (e1-e0)/(b-a) in the emitters), so the split is flux-conserving.
 
-  NB n_k is an integer, so the realised onset SPACING steps discontinuously wherever
-  ceil() does -- by a factor of 2 at the n_k = 2 -> 1 boundary, which on cooling_g100
-  falls at cell k=497 (0.0101 -> 0.0193 dex). That is real, but it was MEASURED not to
-  be observable in the lightcurves: replacing this with a single global ladder, whose
-  onset density is continuous by construction, leaves the fast-cooling feature at
-  bar{T}/bar{T}_f = 0.044 unchanged (|d slope| 10.755 -> 10.924, and 10.122 when the
-  ladder is also refined to dlogT=0.008 over a completely different cell range). So do
-  not rewrite this scheme expecting a smoother lightcurve -- that feature is the
-  early_ana='shockfit' prepend boundary, not this.
+  subcell_min = 2 IS WHAT KEEPS THE EMITTER DENSITY SMOOTH, and it is not free (it
+  splits every parent, +51% emitters on cooling_g100 z=4: 872 -> 1316). n_k is an
+  integer per parent, so the realised onset SPACING steps wherever ceil() does; the
+  worst step is the last one, n_k = 2 -> 1, where refinement switches OFF and the
+  spacing doubles in one cell. A floor of 2 removes that step by never reaching n=1 --
+  past the refined region the spacing is just gap/2, which varies as smoothly as the
+  gaps do. The remaining steps (3->2, 4->3, ...) are 1.5x, 1.33x, ... and shrink as they
+  move inward. Measured on the real onsets, the spacing through the old crossover is
+  then even to max/min = 1.2 per bin, against 3.9 with the floor at 1.
+
+  THE n_k = 2 -> 1 STEP WAS OBSERVABLE, contrary to what this docstring used to say.
+  That claim was measured with subcell_dlogT = 0.05, where the boundary sat at cell
+  k=497 -- onsets are ~linearly spaced, so the log gap falls as 0.434/rank and the
+  boundary MOVES with the setting. At 0.008 it moved to cell k=465 (bar{T} = 0.1421,
+  bar{T}/bar{T}_f = 0.1085) and showed up in the FAST-cooling lightcurves as a step in
+  the local temporal index: detrending d ln(nuFnu)/d ln(bar{T}) against a smooth decline
+  over bar{T}/bar{T}_f = 0.02..0.4 put the largest departure at 0.107-0.117 for every
+  fast-cooling point at every plotted frequency, +0.056 to +0.068 in the index (~0.2-0.6%
+  in flux, which is why the flux panels never showed it). Slow cooling saw nothing:
+  there each emitter contributes a long smooth decay rather than a spike, so halving the
+  emitter density does not alias.
+  A SINGLE GLOBAL LADDER WAS TRIED FOR THIS AND REJECTED -- do not re-derive it. Onsets
+  at bar{T} = 10^(j*subcell_dlogT) clipped to each parent have a continuous density by
+  construction, but a parent whose edge falls near a ladder point is then split into a
+  sliver and a near-full piece: the spacing goes uneven by max/min = 50-140 past the
+  crossover, against 1.2 here, and on a recomputed logr=-4 point it removed only part of
+  the feature (index residual 0.068 -> 0.030 at nu = 0.01 nu_pk, 0.068 -> 0.042 at
+  nu_pk, and 0.044 -> 0.045, i.e. nothing, at 0.1 nu_pk). Merging the slivers back trades
+  that for unevenness of 5-7 in the refined region. Uniform-within-parent is the property
+  worth keeping; the floor is the cheap way to keep it AND lose the step.
+  What the old measurement DID establish stands, and is a different feature: the
+  fast-cooling kink at bar{T}/bar{T}_f = 0.044 is the early_ana='shockfit' prepend
+  boundary, and no change to this scheme moves it.
   '''
   sub_edges = [None]*len(barT_on)
   for idx in range(len(barT_on)-1):
@@ -1597,7 +1621,8 @@ def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max):
     lo = max(a, floor)                     # first cell (a=0) starts at the grid floor
     if b <= lo:
       continue
-    nk = int(np.clip(np.ceil((np.log10(b)-np.log10(lo))/subcell_dlogT), 1, subcell_max))
+    nk = int(np.clip(np.ceil((np.log10(b)-np.log10(lo))/subcell_dlogT),
+                     subcell_min, subcell_max))
     if nk > 1:
       sub_edges[idx] = (a, b, np.geomspace(lo, b, nk+1))
   return sub_edges
