@@ -13,7 +13,8 @@ reaches a fraction f of the energy injected into the cell's electrons (cell_inje
 is R_f, and
 
     ell_f = R_f/R_inj - 1        the RADIATIVE LENGTH, in units of the injection radius
-    dT_f  = barT_f - barT_inj    the same thing on the observer clock, in units of env.T0
+    dT_f  = barT_f - barT_inj    the same phase on the observer clock, in units of env.T0
+                                 -- the form to compare with anything (COMPARED WITH WHAT)
 
 are what this module measures. f = 0.9 is the working value: "all of its energy" cannot be
 taken literally (the last percent is radiated by electrons that have cooled to gamma ~ 1,
@@ -24,10 +25,10 @@ the four points, i.e. a constant of the geometry and not a regime dependence.
 WHAT IT COMES OUT AT (cooling_g100 RS, data_rarcut, 500 parent cells per point):
 
     log10(gc/gm)      -5        -4        -3        -2
-    ell_50/R       7.7e-06   7.4e-05   7.2e-04   7.1e-03
-    ell_90/R       1.1e-04   1.1e-03   1.1e-02   9.8e-02
-    ell_90/(gc/gm)   11.0      10.8      10.7       9.8
-    dT_90/barT_f   1.1e-04   8.2e-04   6.4e-03   7.8e-02
+    ell_0.5/R      7.7e-06   7.4e-05   7.2e-04   7.1e-03
+    ell_0.9/R      1.1e-04   1.1e-03   1.1e-02   9.8e-02
+    ell_0.9/(gc/gm)  11.0      10.8      10.7       9.8
+    dT_0.9         1.1e-04   1.1e-03   8.4e-03   1.0e-01
     cells that never reach f=0.9        0%        0%        0%       21%
 
 i.e. ell ~ 10 (gamma_c/gamma_m) R over three decades, which is the closed-form expectation
@@ -40,6 +41,39 @@ dependence of ell is gamma_c/gamma_m and the rest is the shell's own history (B'
 it expands, so every later cell cools in a weaker field). The distance is MEASURED here,
 but it is also predictable; the value of measuring it is that it is the same number the
 spectrum sees.
+
+COMPARED WITH WHAT. dT is the form to quote, because it is the one with something to be
+compared against, and it is NOT ell times a constant: dTon/dR is ~1/2Gamma^2 and Gamma
+moves fastest just after a cell is shocked, so dT/ell falls from ~5 over the first steps to
+a plateau of 0.74 and a deep-cooling cell -- whose whole radiative phase sits inside that
+transient -- averages a different part of it than a marginal one. (That is the bump around
+bar{T}_inj/bar{T}_f ~ 0.15 in the left panel, largest where ell is smallest; its top is
+jittery because dT is then a difference of nearly equal arrival times. It is not in ell,
+which is why the collapse panel is drawn on ell.)
+
+Two scales to read dT against, both in the left panel:
+
+    log10(gc/gm)          -5        -4        -3        -2
+    dT_0.9 / grid step   0.031     0.306     2.963    38.94     median over cells
+      cells under 1        99%       82%        0%        0%
+    dT_0.9 / barT_theta  8.0e-05   8.1e-04   7.9e-03   9.2e-02
+      cells under 1       100%      100%      100%       79%
+
+  GRID STEP is the local sampling interval of the observer grid the CACHED SPECTRA were
+  computed on (sweep_time_grid, sweep_gammacm's NT/TB_MIN/TB_LIN). Below it, a cell's
+  entire radiative phase falls inside one time bin of the sweep.
+  barT_theta is the equal-arrival-time spread of the cell's own injection step. This one is
+  physics, not sampling: a cell's emission arrives smeared over that window whatever the
+  grid does. On the whole fast-cooling branch dT sits 1-4 decades under it, so a cell's
+  radiative phase is never resolved IN THE LIGHTCURVE, at any regime here.
+
+  What changes across the sweep is therefore only whether the SAMPLING also loses it, and
+  that crossover sits between logr = -4 and -3 -- exactly where a_mid departs from 1/2.
+  Worth stating and not worth over-reading: nothing here shows the hardening is a sampling
+  effect (get_Fnu_cell_evolving evaluates each step's flux ON the requested grid, it does
+  not bin cells into it, and the departure is a slope in FREQUENCY at fixed time). It is
+  the first thing a referee will ask about, and settling it needs the sweep re-run at
+  finer NT, which has not been done.
 
 THE LINK TO a_mid. The shell-integrated fast-cooling mid slope is not the one-zone 1/2
 (see sweep_gammacm.SEG_FC_TOL_HI): cells shocked at different times carry different
@@ -120,13 +154,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from IO import get_variable
+from obs_functions import obs_arrays
 from cooling_distribution import norm_plaw_distrib
 from radiation_cooling import precompute_step_cols, step_view, step_radiated_energy
 from working_cooling import cell_injected_energy
 import cooling_frequency as cf
-from sweep_gammacm import (DEFAULT_KEY, Z_SHELL, TMAX, TB_MIN, TB_LIN, R_REF, EARLY_ANA,
-    compute_alpha_sweep, exit_onset_barT, rarefaction_off_barT, method_outdir,
-    trim_pngs, copy_article_figures)
+from sweep_gammacm import (DEFAULT_KEY, Z_SHELL, TMAX, NT as NT_SWEEP, TB_MIN, TB_LIN,
+    R_REF, EARLY_ANA, compute_alpha_sweep, exit_onset_barT, rarefaction_off_barT,
+    method_outdir, trim_pngs, copy_article_figures)
 from mid_slope_evolution import COL, INK, MUTED, GRID, read_rows, METHOD
 
 KEY = DEFAULT_KEY
@@ -145,6 +180,9 @@ NT_HARVEST = 250          # observer grid handed to iter_shell_cells. It fixes t
 BART_GRID = np.geomspace(1e-3, 900., 200)    # composition sampling, log in barT: the
                           # a_mid rows run from 3e-4 to 9e2 and nothing here has structure
                           # finer than ~10 points/decade
+GRID_WIN = 21             # sliding-median window (in intervals) for the sweep's local time
+                          # sampling. See sweep_time_grid: TB_LIN interleaves with the
+                          # geometric grid, so the raw diff is a sawtooth there
 BART_LO = 1e-2            # below this the parent-cell population is still arriving one cell
                           # at a time (see SCOPE); composition rows survive but are excluded
                           # from every correlation, exactly as nuc_validation.BART_LO does
@@ -153,7 +191,7 @@ CELLS_CSV = 'radiative_length_cells.csv'
 TIME_CSV = 'radiative_length_time.csv'
 FIG_LEN = 'radiative_length.png'
 FIG_LINK = 'radiative_length_amid.png'
-CELL_FIELDS = ('logr', 'cell', 'barT0', 'R0', 'eps', 'nstep') \
+CELL_FIELDS = ('logr', 'cell', 'barT0', 'R0', 'Tth0', 'eps', 'nstep') \
               + tuple(f'{p}{f:g}' for f in FRACS for p in ('ell', 'dT'))
 TIME_FIELDS = ('logr', 'barT', 'nact', 'f_act', 'frac_w', 'age_w', 'ell_w',
                'nuc_q10', 'nuc_q50', 'nuc_q90', 'spread', 'num_q50', 'sep')
@@ -193,16 +231,20 @@ def radiative_length(cell, env, dE=None, fracs=FRACS):
   than its last radius: those are CENSORED, not long, and averaging their last radius in
   would bias the answer short exactly where the true value is longest.
 
-  Returns dict(R0, barT0, eps, nstep, ell<f>, dT<f>) -- ell in units of R_inj, dT in
-  units of env.T0, eps = the cell's own E_rad/E_inj.
+  Returns dict(R0, barT0, Tth0, eps, nstep, ell<f>, dT<f>) -- ell in units of R_inj, dT
+  and Tth0 in units of env.T0, eps = the cell's own E_rad/E_inj. Tth0 is the angular
+  spread of the injection step's arrival window, the floor dT has to be read against
+  (see COMPARED WITH WHAT in the module docstring).
   '''
   if dE is None:
     dE = cell_radiated_profile(cell, env)
   E_inj = cell_injected_energy(cell, env)
   x = cell['x'].to_numpy(dtype=float)
   barT = np.asarray((get_variable(cell, 'Ton', env) - env.Ts)/env.T0, dtype=float)
+  Tth = np.asarray(get_variable(cell, 'Tth', env)/env.T0, dtype=float)
   cum = np.cumsum(dE)/E_inj if E_inj > 0. else np.full(len(dE), np.nan)
-  out = dict(R0=float(x[0]), barT0=float(barT[0]), eps=float(cum[-1]), nstep=len(cell))
+  out = dict(R0=float(x[0]), barT0=float(barT[0]), Tth0=float(Tth[0]),
+             eps=float(cum[-1]), nstep=len(cell))
   for f in fracs:
     j = int(np.searchsorted(cum, f))
     if j >= len(cum):
@@ -401,6 +443,27 @@ def _furniture(ax, barT_f, xoff=None, crossing=True):
   ax.tick_params(colors=MUTED, labelsize=9)
 
 
+def sweep_time_grid(key=KEY, win=GRID_WIN):
+  '''
+  (barT at the interval midpoints, local sampling interval) of the observer grid the
+  CACHED SPECTRA were computed on -- sweep_gammacm's NT/TB_MIN/TB_LIN/TMAX, not this
+  module's NT_HARVEST, since the question is what the sweep can resolve.
+
+  The interval is a SLIDING MEDIAN over `win` neighbours, not the raw diff. TB_LIN splices
+  200 linearly spaced points into the geometric grid around the crossing, and where the two
+  interleave the raw diffs alternate between almost nothing and a full geometric step --
+  a sawtooth that says nothing about how finely that stretch is sampled. The median over a
+  window is the honest local answer, and outside the spliced range it is the diff exactly.
+  '''
+  _nub, T, _env = obs_arrays(key, normed=True, Tmax=TMAX, NT=NT_SWEEP, Tb_min=TB_MIN,
+                             Tb_lin=TB_LIN)
+  b = np.asarray(T, dtype=float) - 1.
+  d = np.diff(b)
+  pad = np.pad(d, win//2, mode='edge')
+  dm = np.array([np.median(pad[i:i+win]) for i in range(len(d))])
+  return 0.5*(b[1:] + b[:-1]), dm
+
+
 def _by_logr(rows, key):
   '''{logr: (x, y)} sorted in x, NaNs kept out.'''
   out = {}
@@ -413,13 +476,30 @@ def _by_logr(rows, key):
   return out
 
 
-def plot_lengths(cells, outdir, barT_f, fname=FIG_LEN):
+def plot_lengths(cells, outdir, barT_f, key=KEY, fname=FIG_LEN):
   '''
-  The radiative length itself. LEFT: ell_f of every cell against the observer time at
-  which that cell was shocked, so the x axis is a position along the shell (0 = first
-  shocked, 1 = shell crossing) and not the emission clock. RIGHT: the same divided by
-  gamma_c/gamma_m = 10**logr, which is the closed-form scaling -- four curves collapsing
-  onto one is the statement that ell IS the cooling length of the gamma_m electrons.
+  The radiative phase in OBSERVER time, which is the form of the measurement that can be
+  compared with anything: dT_f of every cell against the observer time at which that cell
+  was shocked, so the x axis is a position along the shell (0 = first shocked, 1 = shell
+  crossing) and not the emission clock.
+
+  LEFT, with the two scales dT has to be read against drawn over it:
+    -- the width of one interval of the observer grid the CACHED SPECTRA use
+       (sweep_time_grid), evaluated at the cell's own onset. Below it the whole radiative
+       phase of a cell falls inside a single time bin of the sweep.
+    -- bar{T}_theta, the equal-arrival-time spread of the cell's injection step. This one
+       is physics, not sampling: emission from a cell arrives smeared over that window
+       whatever the grid does, so a dT below it is unresolvable in principle.
+  RIGHT: the RADIAL length ell divided by gamma_c/gamma_m = 10**logr, the closed-form
+  scaling -- four curves collapsing onto one is the statement that this IS the cooling
+  length of the gamma_m electrons. The collapse is shown on ell and not on dT on purpose:
+  dTon/dR is itself a function of position ALONG the worldline (it is ~1/2Gamma^2, and
+  Gamma moves fastest right after the cell is shocked), so dT/ell runs from ~5 in the
+  first steps to a plateau of 0.74, and a deep-cooling cell -- whose whole radiative phase
+  sits inside that transient -- picks up a different average of it than a marginal one.
+  That is physics, not scatter, but it is not the one-zone scaling and does not belong in
+  the same panel as it.
+
   Censored cells (never reach f) are simply absent; the count is annotated.
   '''
   fig, axes = plt.subplots(1, 2, figsize=(10.4, 4.3))
@@ -429,19 +509,36 @@ def plot_lengths(cells, outdir, barT_f, fname=FIG_LEN):
     ax.set_yscale('log')
     ax.set_xlabel('$\\bar{T}_{\\rm inj}/\\bar{T}_f$ (position along the shell)',
                   color=INK, fontsize=10)
+  bg, dg = sweep_time_grid(key)
   for f, ls, lw in ((F_MAIN, '-', 1.8), (min(FRACS), ':', 1.3)):
-    for lr, (x, y) in _by_logr(cells, ('barT0', f'ell{f:g}')).items():
+    for lr, (x, y) in _by_logr(cells, ('barT0', f'dT{f:g}')).items():
       m = x > 0.
       axes[0].plot(x[m]/barT_f, y[m], ls, color=COL[int(lr)], lw=lw, zorder=3,
                    label=f'{lr:+.0f}' if f == F_MAIN else None)
+    for lr, (x, y) in _by_logr(cells, ('barT0', f'ell{f:g}')).items():
+      m = x > 0.
       axes[1].plot(x[m]/barT_f, y[m]/10**lr, ls, color=COL[int(lr)], lw=lw, zorder=3)
-  axes[0].set_ylabel('$\\ell_f = R_f/R_{\\rm inj} - 1$', color=INK, fontsize=11)
+  # the two reference scales. Both are alpha-invariant, so one curve each: Tth comes off
+  # whichever regime is first in the file, and the grid off the sweep's own settings
+  lr0 = sorted({r['logr'] for r in cells})[0]
+  xt, yt = _by_logr([r for r in cells if r['logr'] == lr0], ('barT0', 'Tth0'))[lr0]
+  mt = xt > 0.
+  axes[0].plot(xt[mt]/barT_f, yt[mt], '-', color=MUTED, lw=1.4, zorder=4,
+               label='$\\bar{T}_\\theta$')
+  axes[0].plot(bg/barT_f, dg, '--', color=INK, lw=1.2, zorder=4, label='grid step')
+  axes[0].set_ylabel('$\\Delta\\bar{T}_f$', color=INK, fontsize=11)
   axes[1].set_ylabel('$\\ell_f\\,/\\,(\\gamma_c/\\gamma_m)$', color=INK, fontsize=11)
-  axes[0].set_title(f'Radiative length, $f={F_MAIN:g}$ (solid) and $f={min(FRACS):g}$ '
-                    '(dotted)', color=INK, fontsize=11, loc='left', pad=6)
-  axes[1].set_title('divided by the one-zone scaling: one curve, not four',
-                    color=INK, fontsize=11, loc='left', pad=6)
-  cens = {lr: np.mean([not np.isfinite(r[f'ell{F_MAIN:g}'])
+  axes[0].set_xlim(right=1.2)
+  axes[0].set_ylim(bottom=0.3*np.nanmin([r[f'dT{min(FRACS):g}'] for r in cells]))
+  axes[0].set_title('Observed span of the radiative phase', color=INK, fontsize=11,
+                    loc='left', pad=6)
+  axes[1].set_title('Radial length, over the one-zone scaling', color=INK, fontsize=11,
+                    loc='left', pad=6)
+  for ax in axes:
+    ax.annotate(f'$f={F_MAIN:g}$ solid, $f={min(FRACS):g}$ dotted', xy=(0.98, 0.02),
+                xycoords='axes fraction', ha='right', va='bottom', fontsize=8,
+                color=MUTED)
+  cens = {lr: np.mean([not np.isfinite(r[f'dT{F_MAIN:g}'])
                        for r in cells if r['logr'] == lr])
           for lr in sorted({r['logr'] for r in cells})}
   axes[1].annotate('censored at $f=%g$: ' % F_MAIN
@@ -449,14 +546,12 @@ def plot_lengths(cells, outdir, barT_f, fname=FIG_LEN):
                    xy=(0.02, 0.97), xycoords='axes fraction', ha='left', va='top',
                    fontsize=8, color=MUTED)
   leg = axes[0].legend(title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
-                       title_fontsize=8.5, loc='upper left', frameon=True,
+                       title_fontsize=8.5, loc='upper left', frameon=True, ncol=2,
                        framealpha=0.92, edgecolor=GRID)
   leg.get_title().set_color(MUTED)
   for t in leg.get_texts():
     t.set_color(INK)
-  fig.suptitle('How far a cell propagates before it has radiated its energy away',
-               color=INK, fontsize=12.5, x=0.045, ha='left', y=0.99)
-  fig.tight_layout(rect=[0, 0, 1, 0.94])
+  fig.tight_layout()
   path = os.path.join(outdir, fname)
   fig.savefig(path, dpi=200, facecolor='white')
   plt.close(fig)
@@ -531,32 +626,42 @@ def plot_link(times, mid_rows, outdir, barT_f, barT_off=None, fname=FIG_LINK):
   return path
 
 
-def summarise(cells, times, mid_rows, verbose=True):
+def summarise(cells, times, mid_rows, key=KEY, verbose=True):
   '''
   The table quoted in the module docstring: per sweep point, the median radiative length
-  (radial and observer-time), its ratio to the one-zone scaling gamma_c/gamma_m, the
-  censored fraction, and the a_mid departure the same point shows. Returns the rows.
+  (radial and observer-time), its ratio to the one-zone scaling gamma_c/gamma_m, how the
+  observed span compares with the sweep's time-grid step and with the equal-arrival window
+  at the same instant, the censored fraction, and the a_mid departure the same point
+  shows. Returns the rows.
   '''
+  bg, dg = sweep_time_grid(key)
   out = []
   for lr in sorted({r['logr'] for r in cells}):
     c = [r for r in cells if r['logr'] == lr]
+    b0 = np.array([r['barT0'] for r in c], float)
     e9 = np.array([r[f'ell{F_MAIN:g}'] for r in c], float)
     e5 = np.array([r[f'ell{min(FRACS):g}'] for r in c], float)
     t9 = np.array([r[f'dT{F_MAIN:g}'] for r in c], float)
+    r_grid = t9/np.interp(b0, bg, dg)
+    r_th = t9/np.array([r['Tth0'] for r in c], float)
     dep = [r['a_core'] - r['a_th'] for r in mid_rows
            if r['branch'] == 'fc' and r['logr'] == lr and np.isfinite(r['a_core'])
            and r['x'] > BART_LO]
     out.append(dict(logr=lr, n=len(c), ell50=np.nanmedian(e5), ell90=np.nanmedian(e9),
                     ratio=np.nanmedian(e9)/10.**lr, dT90=np.nanmedian(t9),
+                    r_grid=np.nanmedian(r_grid), under_grid=float(np.nanmean(r_grid < 1.)),
+                    r_th=np.nanmedian(r_th), under_th=float(np.nanmean(r_th < 1.)),
                     cens=float(np.isnan(e9).mean()),
                     dep_med=float(np.median(dep)) if dep else np.nan,
                     dep_max=float(np.max(dep)) if dep else np.nan, n_dep=len(dep)))
   if verbose:
-    print(f'{"logr":>5} {"ell_0.5":>10} {"ell_0.9":>10} {"/(gc/gm)":>9} {"dT_0.9":>10} '
-          f'{"cens":>6} {"dep med":>8} {"dep max":>8}')
+    print(f'{"logr":>5} {"ell_0.9":>10} {"dT_0.9":>10} {"/(gc/gm)":>9} '
+          f'{"/grid":>8} {"<grid":>6} {"/Tth":>8} {"<Tth":>6} {"cens":>6} '
+          f'{"dep med":>8} {"dep max":>8}')
     for r in out:
-      print(f'{r["logr"]:+5.0f} {r["ell50"]:10.2e} {r["ell90"]:10.2e} {r["ratio"]:9.1f} '
-            f'{r["dT90"]:10.2e} {100*r["cens"]:5.0f}% '
+      print(f'{r["logr"]:+5.0f} {r["ell90"]:10.2e} {r["dT90"]:10.2e} {r["ratio"]:9.1f} '
+            f'{r["r_grid"]:8.2f} {100*r["under_grid"]:5.0f}% '
+            f'{r["r_th"]:8.2f} {100*r["under_th"]:5.0f}% {100*r["cens"]:5.0f}% '
             + (f'{r["dep_med"]:+8.3f} {r["dep_max"]:+8.3f}' if r['n_dep']
                else f'{"--":>8} {"--":>8}'))
   return out
@@ -581,9 +686,9 @@ def main(key=KEY, z=Z, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=Tru
   if mid_rows is None:
     raise RuntimeError(f'no {outdir}/mid_slopes.csv; run mid_slope_evolution.main first')
   barT_f = exit_onset_barT(key, z=z)
-  p1 = plot_lengths(cells, outdir, barT_f)
+  p1 = plot_lengths(cells, outdir, barT_f, key=key)
   p2 = plot_link(times, mid_rows, outdir, barT_f, rarefaction_off_barT(key, z=z))
-  summarise(cells, times, mid_rows)
+  summarise(cells, times, mid_rows, key=key)
   trim_pngs(outdir)
   copy_article_figures(outdir)
   print(f'-> {p1}\n-> {p2}')

@@ -45,6 +45,7 @@ import os
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 from sweep_gammacm import (DEFAULT_KEY, Z_SHELL, load_sweep, method_outdir,
     exit_onset_barT, rarefaction_off_barT, identify_segments, trim_pngs,
@@ -140,9 +141,10 @@ def read_rows(outdir, fname=CSV_NAME):
 def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
   '''
   Two panels, one per branch, on a shared log time axis. Each holds its asymptote as a
-  dashed guide and the sweep points as one curve per log10(gma_c/gma_m). Curves are
-  labelled at their right end where they are far enough apart to be told apart, and in
-  the legend always.
+  dashed guide and the sweep points as one curve per log10(gma_c/gma_m). ONE horizontal
+  legend sits between the panels, over the union of the two branches' regimes -- the
+  colour map is global (COL), so a legend built per panel would say the same thing twice
+  and split the shared entries across two keys.
   barT_off shades the rarefaction band; no line is drawn at its right edge (the band's
   own edge IS bar{T}_rf -- see sweep_gammacm.plot_lightcurve_shape).
   '''
@@ -166,11 +168,10 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
       sweeping = [r for r in d if not np.isfinite(r['a_core'])]
       if settled:
         ax.plot([r['x'] for r in settled], [r['a_core'] for r in settled], '-', color=c,
-                lw=1.8, solid_capstyle='round', zorder=3, label=f'{lr:+.0f}')
+                lw=1.8, solid_capstyle='round', zorder=3)
       if sweeping:   # no settled core: the slope sweeps. Free window fit, hollow.
         ax.plot([r['x'] for r in sweeping], [r['a_win'] for r in sweeping], 'o', mfc='none',
-                mec=c, ms=3.6, mew=1.0, ls='none', zorder=2,
-                label=None if settled else f'{lr:+.0f}')
+                mec=c, ms=3.6, mew=1.0, ls='none', zorder=2)
     ax.set_xscale('log'); ax.set_ylim(*ylim)
     ax.grid(True, which='major', color=GRID, lw=0.6, alpha=0.9)
     ax.set_axisbelow(True)
@@ -181,40 +182,26 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
     ax.tick_params(colors=MUTED, labelsize=9)
     ax.set_ylabel('$a_{\\rm mid}$', color=INK, fontsize=11)
     ax.set_title(title, color=INK, fontsize=11, loc='left', pad=6)
-    leg = ax.legend(title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
-                    title_fontsize=8.5, ncol=2, loc='upper left', frameon=True,
-                    framealpha=0.92, edgecolor=GRID)
-    leg.get_title().set_color(MUTED)
-    for t in leg.get_texts():
-      t.set_color(INK)
-  # end-of-curve labels, but only where the ends are resolved: two curves ending within
-  # 5% of the panel height of each other get neither, since the label could not be
-  # attributed. Short tracks (<25 settled samples) are skipped -- they end mid-panel.
-  for ax, (br, _a, _t, _l, ylim) in zip(axes, panels):
-    sub = [r for r in rows if r['branch'] == br]
-    ends = []
-    for lr in sorted({r['logr'] for r in sub}):
-      d = sorted([r for r in sub if r['logr'] == lr and np.isfinite(r['a_core'])],
-                 key=lambda r: r['x'])
-      if len(d) >= 25:
-        ends.append((lr, d[-1]['x'], d[-1]['a_core']))
-    span = ylim[1] - ylim[0]
-    for lr, bx, by in ends:
-      if any(abs(by - o[2]) < 0.05*span for o in ends if o[0] != lr):
-        continue
-      ax.annotate(f'{lr:+.0f}', xy=(bx, by), xytext=(5, 0), textcoords='offset points',
-                  va='center', ha='left', fontsize=8.5, color=COL[int(lr)],
-                  fontweight='bold', clip_on=False)
   axes[1].annotate('crossing', xy=(1., 0.), xycoords=('data', 'axes fraction'),
                    xytext=(-4, 6), textcoords='offset points', ha='right', va='bottom',
                    fontsize=8.5, color=MUTED)
   axes[1].set_xlabel('$\\bar{T}/\\bar{T}_f$', color=INK, fontsize=10)
-  fig.suptitle('Measured mid-segment slope $a_{\\rm mid}$ vs cooling regime and time',
-               color=INK, fontsize=12.5, x=0.055, ha='left', y=0.985)
-  fig.text(0.055, 0.938, 'Solid: $a_{\\rm mid}$ where the segment settles (flat_core).  '
-           'Hollow: no settled core - free fit over the identified window.',
-           color=MUTED, fontsize=9, ha='left')
-  fig.tight_layout(rect=[0, 0, 1, 0.925])
+  # one legend for both panels, laid out horizontally in the gap between them. The
+  # handles are built by hand rather than harvested from either axes: the union of the
+  # two branches' regimes is what has to appear, and neither panel carries all of it.
+  lrs = sorted({int(r['logr']) for r in rows})
+  handles = [Line2D([], [], color=COL[lr], lw=1.8) for lr in lrs]
+  fig.tight_layout(rect=[0, 0, 1, 1])
+  fig.subplots_adjust(hspace=0.34)
+  p0, p1 = axes[0].get_position(), axes[1].get_position()
+  leg = fig.legend(handles, [f'{lr:+d}' for lr in lrs],
+                   title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=9,
+                   title_fontsize=9, ncol=len(lrs), frameon=False, loc='center',
+                   bbox_to_anchor=(0.5, 0.5*(p0.y0 + p1.y1)),
+                   columnspacing=1.6, handlelength=1.6, handletextpad=0.5)
+  leg.get_title().set_color(MUTED)
+  for t in leg.get_texts():
+    t.set_color(INK)
   path = os.path.join(outdir, fname)
   fig.savefig(path, dpi=200, facecolor='white')
   plt.close(fig)
