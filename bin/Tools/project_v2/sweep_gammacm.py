@@ -844,7 +844,7 @@ def _seg_cross(l1, l2):
 
 def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
     min_mid_dex=SEG_MIN_MID_DEX, fc_tol_hi=SEG_FC_TOL_HI, sc_tol_lo=SEG_SC_TOL_LO,
-    smooth=SLOPE_SMOOTH, min_pts=MIN_PTS):
+    smooth=SLOPE_SMOOTH, min_pts=MIN_PTS, cut=None):
   '''
   Which synchrotron power-law segments one nuFnu spectrum sp(x) actually shows, and the
   cooling regime that follows from the answer.
@@ -894,7 +894,11 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
 
   Everything is done on the spectrum AS PLOTTED, with no cutoff division: measure_cutoff_nuM
   is called only to locate nu_M, above which the 1-p/2 candidate is not searched (the
-  rolloff is not a power law). Flattening the cutoff instead -- what spectral_breaks does --
+  rolloff is not a power law). `cut` supplies that measurement instead of taking it here,
+  which is how spectral_breaks.breaks_from_identified feeds the SMEARED nu_M through: one
+  cut-off measurement then serves the window cap, the flattening and the smoothing fit,
+  rather than each step scanning its own. Default None reproduces the single-zone shape
+  exactly, so nothing that does not pass `cut` moves. Flattening the cutoff instead -- what spectral_breaks does --
   widens the high window but leaves the identified low and mid segments bit-identical here,
   and its flattened spectrum turns back UP past nu_M, which is what made the high segment
   of every high-latitude tail unfindable.
@@ -930,7 +934,7 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   would justify revisiting the candidate set. None has been seen yet.
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
-  cut = measure_cutoff_nuM(x, sp, psyn, flatten=False)
+  cut = measure_cutoff_nuM(x, sp, psyn, flatten=False) if cut is None else cut
   if not cut['ok']:
     return None
   lx, ly, s = segment_slopes(x, sp, smooth)

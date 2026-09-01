@@ -1281,8 +1281,23 @@ S_FIT_BOUNDS = (0.15, 10.)   # bounds on a fitted smoothing exponent; a fit reac
                              # them is reported at_bound rather than as a value
 
 
+def _flatten_cutoff(x, sp, nuM, sigma=None):
+  '''
+  sp divided by the cut-off shape at nuM: the single-zone syn_cutoff_R, or the SMEARED
+  syn_cutoff_R_smeared when a finite sigma (the dex spread of nu_M across the contributing
+  cells) is given. sigma None or <= 0 is bit-identical to the unsmeared division, which is
+  what keeps every existing caller where it was.
+  '''
+  x = np.asarray(x, float)
+  with np.errstate(divide='ignore', invalid='ignore'):
+    R = (syn_cutoff_R(x/nuM) if sigma is None or not np.isfinite(sigma) or sigma <= 0.
+         else syn_cutoff_R_smeared(x/nuM, float(sigma)))
+  return np.asarray(sp, float)/np.where(np.isfinite(R) & (R > 0.), R, np.nan)
+
+
 def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
-    cutfac=CUT_FAC, fit_dec=FIT_DEC, vfc=False, bounds=S_FIT_BOUNDS, s_hold=None):
+    cutfac=CUT_FAC, fit_dec=FIT_DEC, vfc=False, bounds=S_FIT_BOUNDS, s_hold=None,
+    sigma=None):
   '''
   s1, s2 by fitting granot_sari_syn with the BREAK POSITIONS AND ALL THREE SLOPES HELD, so
   the smoothing is the only shape freedom left. The replacement for the deficit estimator of
@@ -1319,6 +1334,11 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
   same spectrum with s free, is exactly the cost of tabulating a fixed pair. In VFC only s2 is
   used. Returned s1, s2 are then the held values, and at_bound is False by construction.
 
+  sigma is the dex spread of nu_M across the contributing cells: given, the SMEARED cut-off
+  shape is divided out instead of the single-zone one (see _flatten_cutoff). It must be the
+  same shape the breaks were measured against, or the held b_hi and the flattened spectrum
+  are describing two different rolloffs.
+
   Returns dict(s1, s2, b_hi_fit, rms, npts, at_bound, ok).
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
@@ -1333,9 +1353,7 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
   if g.sum() < 12:
     return out
   xg, spg = x[g], sp[g]
-  with np.errstate(divide='ignore', invalid='ignore'):
-    R = syn_cutoff_R(xg/nuM)
-  flat = spg/np.where(np.isfinite(R) & (R > 0.), R, np.nan)
+  flat = _flatten_cutoff(xg, spg, nuM, sigma)
   ok = np.isfinite(flat) & (flat > 0.) & (xg < nuM/cutfac)
   if ok.sum() < 12:
     return out
@@ -1406,7 +1424,7 @@ S1BRK_BOUNDS = (0.02, 15.)   # bounds on the single-break smoothing, in the GS02
 
 
 def fit_single_break(x, sp, psyn, nuM, cutfac=CUT_FAC, fit_dec=FIT_DEC,
-    s_bounds=S1BRK_BOUNDS, s_hold=None):
+    s_bounds=S1BRK_BOUNDS, s_hold=None, sigma=None):
   '''
   ONE broad break, nu^(4/3) straight to nu^(1-p/2), both asymptotes HELD at the values
   slope_validation has verified. Free: break position, smoothing, scale -- three parameters,
@@ -1449,6 +1467,8 @@ def fit_single_break(x, sp, psyn, nuM, cutfac=CUT_FAC, fit_dec=FIT_DEC,
 
   s_hold FREEZES the smoothing instead of fitting it, leaving (nu_b, A) free -- the same
   prescription test fit_smoothing_held's s_hold provides for the two-break form.
+  sigma divides out the SMEARED cut-off shape instead of the single-zone one, as in
+  fit_smoothing_held.
 
   Returns dict(nu_b, s, rms, npts, at_bound, ok).
   '''
@@ -1461,9 +1481,7 @@ def fit_single_break(x, sp, psyn, nuM, cutfac=CUT_FAC, fit_dec=FIT_DEC,
   if g.sum() < 12:
     return out
   xg, spg = x[g], sp[g]
-  with np.errstate(divide='ignore', invalid='ignore'):
-    R = syn_cutoff_R(xg/nuM)
-  flat = spg/np.where(np.isfinite(R) & (R > 0.), R, np.nan)
+  flat = _flatten_cutoff(xg, spg, nuM, sigma)
   ok = np.isfinite(flat) & (flat > 0.) & (xg < nuM/cutfac)
   if ok.sum() < 12:
     return out
@@ -1500,4 +1518,329 @@ def fit_single_break(x, sp, psyn, nuM, cutfac=CUT_FAC, fit_dec=FIT_DEC,
   out['at_bound'] = bool(not held
                          and min(abs(r.x[2] - ls_lo), abs(r.x[2] - ls_hi)) < 1e-3)
   out['ok'] = not out['at_bound']
+  return out
+
+
+# ---------------------------------------------------------------------------------------
+# THE SELF-CONTAINED ROUTE: identified segments -> crossings -> smoothing
+# ---------------------------------------------------------------------------------------
+# One chain, rooted in the spectrum alone:
+#
+#   sweep_gammacm.identify_segments   which power-law segments the spectrum SHOWS, and the
+#                                     shape class that follows from the set of them
+#   breaks_from_identified            the breaks, as the crossings of exactly those segments
+#   smoothing_from_identified         s, by refitting granot_sari_syn with those crossings
+#                                     and those slopes HELD -- the only freedom left
+#
+# WHY IT IS NOT free_slopes + fit_smoothing_held, which fits the same shape from the same
+# kind of ingredients. That route places its windows a fixed factor away from breaks taken
+# from a GS02 template fit, and labels the regime from the TEMPLATE's fitted beta_mid
+# (classify_regime reads tr['beta_mid']). Neither enters a fitted parameter, so the slopes
+# and the smoothing it returns are not circular -- but the ROWS of its per-regime table are
+# a template verdict, and its coverage is a template's coverage: a window can always be
+# placed once a break has been fitted, whether or not the spectrum shows a segment there.
+# This route cannot place a window the spectrum does not support. Where no mid segment is
+# resolved it says MC and offers the merged shape instead of a two-break fit, so its
+# coverage is lower BY CONSTRUCTION and the bins it does report are the ones a segment was
+# actually measured in.
+#
+# WHAT IS HELD, AND WHY THAT IS CONSISTENT HERE. The outer slopes are held at 4/3 and 1-p/2
+# in all three steps -- identification, crossing, smoothing -- so the smoothing fit holds
+# exactly what the identification asserted, which is the sense in which the route is
+# self-consistent. slope_validation is what makes that legitimate rather than circular: it
+# measures both asymptotes with no slope imposed anywhere and recovers them (a_hi to 0.2%,
+# a_lo to 1.3220 against 4/3 with the residual traced to window curvature).
+# The MID slope is NOT held. It is taken at the free value identify_segments already fits
+# over its own window (a_fit), because shell integration moves the mid segment off the
+# one-zone asymptote by a measured +0.098 (fast) to -0.079 (slow) -- see SEG_FC_TOL_HI. A
+# held mid line would fan away from the data across the window and drag both crossings with
+# it.
+
+
+def _line_on(lx, ly, x0, x1, a=None, min_pts=MIN_PTS):
+  '''
+  The straight line of one identified window, re-measured on whatever (lx, ly) is passed in:
+  free when a is None, otherwise the least-squares intercept of a line of known slope.
+  Returns (slope, intercept), NaN where the window carries too few samples.
+  '''
+  m = (lx >= np.log10(x0) - 1e-12) & (lx <= np.log10(x1) + 1e-12)
+  if m.sum() < min_pts:
+    return np.nan, np.nan
+  if a is None:
+    if m.sum() < 3:
+      return np.nan, np.nan
+    A = np.polyfit(lx[m], ly[m], 1)
+    return float(A[0]), float(A[1])
+  return float(a), float(np.mean(ly[m] - a*lx[m]))
+
+
+def _cross(l1, l2):
+  '''log10 of the frequency where two (slope, intercept) lines meet; NaN if parallel'''
+  (a1, c1), (a2, c2) = l1, l2
+  if not all(np.isfinite(v) for v in (a1, c1, a2, c2)) or a1 == a2:
+    return np.nan
+  return (c1 - c2)/(a2 - a1)
+
+
+def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=True,
+    mid='measured', mid_fallback=True, smooth=SLOPE_SMOOTH, slope_tol=SLOPE_TOL,
+    min_pts=MIN_PTS, **kw):
+  '''
+  The breaks of one nuFnu spectrum as the crossings of the segments identify_segments found,
+  with no template anywhere in the chain.
+
+  The shape class decides which crossings exist, and there is no case where a crossing is
+  invented for a segment that was not identified:
+
+      FC, SC     lo x mid -> b_lo,  mid x hi -> b_hi          two breaks
+      VFC, FC*   mid x hi -> the single break                 one break, no nu^(4/3) in band
+      MC         lo x hi  -> the merged break                 one break, no mid segment
+                 ... and, with mid_fallback, ALSO the tangent-anchored two-break geometry
+      VSC        lo x mid -> b_lo                             upper break above the band
+      None       nothing
+
+  THE CUT-OFF IS MEASURED WITH THE SMEARED SHAPE (smear=True, the default here and only
+  here). The observed spectrum sums cells carrying a spread of nu_M, so its rolloff is the
+  single-electron R(x) convolved with that spread; fitting one zone to it biases nu_M high
+  by +23-35% at peak epochs (syn_cutoff_R_smeared). That bias barely propagates into a slope,
+  which is why the rest of the project leaves the option off -- but this route divides the
+  cut-off out before locating a CROSSING, and the high line's intercept is fitted partly
+  inside the rolloff, where dlog b_hi = dc_hi/(a_hi - a_mid) levers it. One measurement is
+  made here and then used everywhere -- the window cap inside identify_segments (via `cut`),
+  the flattening below, and the smoothing fit downstream (via `sigma`) -- so no two steps
+  ever assume different rolloffs. Pass smear=False to reproduce the single-zone shape.
+
+  flatten=True (default) re-measures the three lines on the CUTOFF-FLATTENED spectrum over
+  the same windows identify_segments selected on the raw one. Identification and geometry
+  are deliberately split that way. identify_segments works on the spectrum as plotted because
+  flattening turns the high-latitude tails back UP past nuM and makes their high segment
+  unfindable; but its `hi` window is capped only at nuM/CUT_FAC, where the raw spectrum is
+  already sagging into the rolloff, and that sag goes straight into c_hi and is levered into
+  b_hi by the same denominator. Flattening removes it without touching which windows were
+  chosen.
+
+  mid='measured' (default) takes the mid line at the FREE slope fitted over its window;
+  'held' takes the one-zone asymptote instead. The default is the physical one -- see the
+  section header.
+
+  mid_fallback=True adds the TANGENT anchor (_tangent_mid) wherever the mid slope cannot be
+  properly measured -- i.e. no mid window was identified at all, which is what an MC class
+  means. A spectrum whose slope runs monotonically from 4/3 to 1-p/2 must pass through the
+  mid asymptote exactly once on the way, and at that point the tangent IS that asymptote, so
+  a mid line can be anchored with no plateau and no free fit: the slope is held and only the
+  intercept comes from the data. It recovers a two-break geometry (shape '2brk_tangent')
+  where the plateau route has nothing to fit, at a measured 1-3% on the breaks down to 3.0
+  dex of separation.
+  WHAT IT MUST NOT BE READ AS: the mid slope is HELD there, so those bins carry no evidence
+  about whether the spectrum is marginal, and the merged single break remains the better
+  description of an on-axis MC spectrum (2.5-2.6x in rms). Both are returned -- the tangent
+  two-break geometry and the merged break -- and `mid_from` says which line the crossings
+  came from. Never pool 'tangent' bins into a regime census.
+
+  Returns dict(regime, b_lo, b_hi, a_lo, a_mid, a_hi, c_lo, c_mid, c_hi, nuM, sigma,
+  mid_name, mid_from, shape, n_breaks, dex_*, ok, det), shape being which model the
+  smoothing step should use ('2brk', '2brk_tangent', '1brk_vfc', '1brk_mc', None).
+  '''
+  from sweep_gammacm import identify_segments
+  x = np.asarray(x, float); sp = np.asarray(sp, float)
+  nan = np.nan
+  out = dict(regime=None, b_lo=nan, b_hi=nan, a_lo=nan, a_mid=nan, a_hi=nan, c_lo=nan,
+             c_mid=nan, c_hi=nan, nuM=nan, sigma=nan, mid_name=None, mid_from=None,
+             shape=None, n_breaks=0, dex_lo=nan, dex_mid=nan, dex_hi=nan, ok=False,
+             det=None)
+  # ONE cut-off measurement for the whole chain (see the docstring): flatten=False because
+  # the flattening below is done against the windows, not the peak-anchored scan's own grid
+  if cut is None:
+    cut = measure_cutoff_nuM(x, sp, psyn, smooth=smooth, flatten=False, smear=smear)
+  if not cut['ok']:
+    return out
+  sigma = float(cut.get('sigma', np.nan)) if smear else np.nan
+  det = identify_segments(x, sp, psyn, smooth=smooth, slope_tol=slope_tol,
+                          min_pts=min_pts, cut=cut, **kw) if det is None else det
+  if det is None:
+    return out
+  out['det'] = det
+  out['regime'] = det['regime']
+  out['nuM'] = float(det['nuM'])
+  out['sigma'] = sigma
+  segs, nuM = det['segs'], det['nuM']
+  if det['regime'] is None or not segs:
+    return out
+
+  g = np.isfinite(sp) & (sp > 0.) & np.isfinite(x) & (x > 0.)
+  if g.sum() < min_pts:
+    return out
+  xg, spg = x[g], sp[g]
+  yv = _flatten_cutoff(xg, spg, nuM, sigma) if flatten else spg
+  ok = np.isfinite(yv) & (yv > 0.)
+  if ok.sum() < min_pts:
+    return out
+  lx, ly = np.log10(xg[ok]), np.log10(yv[ok])
+  o = np.argsort(lx); lx, ly = lx[o], ly[o]
+
+  mid_name = 'fc' if 'fc' in segs else ('sc' if 'sc' in segs else None)
+  out['mid_name'] = mid_name
+  lines = {}
+  for name in ('lo', mid_name, 'hi'):
+    if name is None or name not in segs:
+      continue
+    sg = segs[name]
+    # the mid line free (its slope is a measurement), the two asymptotes held (the
+    # identification's claim about them is that the spectrum has converged there)
+    a = None if (name == mid_name and mid == 'measured') else sg['a']
+    lines[name] = _line_on(lx, ly, sg['x0'], sg['x1'], a=a, min_pts=min_pts)
+    out[f'dex_{"mid" if name == mid_name else name}'] = float(sg['dex'])
+  if mid_name is not None and mid_name in lines:
+    out['mid_from'] = 'plateau'
+
+  # no mid window at all: anchor one by tangency instead of declining the geometry
+  if mid_fallback and mid_name is None and {'lo', 'hi'} <= set(lines):
+    a_lo_th, a_hi_th = 4./3., 1. - psyn/2.
+    lxs, lys, s = segment_slopes(10**lx, 10**ly, smooth)
+    interior = np.zeros(len(lxs), bool)
+    i_lo = np.searchsorted(lxs, np.log10(segs['lo']['x1']), 'right')
+    i_hi = np.searchsorted(lxs, np.log10(segs['hi']['x0']), 'left')
+    interior[i_lo:i_hi] = True
+    interior &= np.isfinite(s) & (lys > lys.max() - FIT_DEC)
+    interior &= (s < a_lo_th - slope_tol) & (s > a_hi_th + slope_tol)
+    tan = _tangent_mid(lxs, lys, s, interior, psyn)
+    if tan is not None:
+      lines['mid'] = (tan[0], tan[1])
+      mid_name = 'mid'
+      out['mid_from'] = 'tangent'
+  for key, name in (('lo', 'lo'), ('mid', mid_name), ('hi', 'hi')):
+    if name in lines:
+      out[f'a_{key}'], out[f'c_{key}'] = lines[name]
+
+  rg = det['regime']
+  tangent = out['mid_from'] == 'tangent'
+  if rg in ('FC', 'SC', 'MC') and mid_name is not None \
+     and {'lo', mid_name, 'hi'} <= set(lines):
+    lb = _cross(lines['lo'], lines[mid_name])
+    hb = _cross(lines[mid_name], lines['hi'])
+    if np.isfinite(lb) and np.isfinite(hb) and lb < hb:
+      out.update(b_lo=float(10**lb), b_hi=float(10**hb), n_breaks=2,
+                 shape='2brk_tangent' if tangent else '2brk')
+  elif rg in ('VFC', 'FC*') and mid_name is not None and {mid_name, 'hi'} <= set(lines):
+    hb = _cross(lines[mid_name], lines['hi'])
+    if np.isfinite(hb):
+      out.update(b_hi=float(10**hb), shape='1brk_vfc', n_breaks=1)
+  elif rg == 'VSC' and mid_name is not None and {'lo', mid_name} <= set(lines):
+    lb = _cross(lines['lo'], lines[mid_name])
+    if np.isfinite(lb):
+      out.update(b_lo=float(10**lb), n_breaks=1)      # no shape: nothing to fit s on
+  if rg == 'MC' and out['shape'] is None and {'lo', 'hi'} <= set(lines):
+    # the merged break, where even the tangent found no crossing
+    hb = _cross(lines['lo'], lines['hi'])
+    if np.isfinite(hb):
+      out.update(b_lo=float(10**hb), b_hi=float(10**hb), shape='1brk_mc', n_breaks=1)
+
+  # a crossing outside the sampled band is an extrapolation of two lines, not a measurement
+  lo_b, hi_b = float(lx.min()), float(lx.max())
+  inband = [lo_b <= np.log10(b) <= hi_b
+            for b in (out['b_lo'], out['b_hi']) if np.isfinite(b)]
+  out['ok'] = bool(out['n_breaks'] and inband and all(inband))
+  return out
+
+
+def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_hold=None,
+    s1brk_hold=None, **kw):
+  '''
+  s of every break the identified segments define, by refitting granot_sari_syn with those
+  crossings and those slopes held -- the third step of the self-contained route.
+
+  The shape follows the class, so each spectrum is fitted with the model it actually shows:
+
+      FC, SC     two-break form, s1 and s2, beta_mid at its MEASURED value
+      VFC, FC*   single break, -1/2 to -p/2: s2 only (granot_sari_syn's nuc=None branch)
+      MC         single BROAD break, 4/3 to -p/2, no mid slope: fit_single_break -- and,
+                 where the tangent fallback anchored a mid line, ALSO the two-break form on
+                 that geometry, so the two descriptions can be compared on the same bin
+      VSC, None  declined -- the upper break is out of band, so no shape is constrained
+
+  Every fit divides out the SAME cut-off breaks_from_identified measured, smeared shape
+  included (sigma is carried through): the held break positions and the flattened spectrum
+  would otherwise be describing two different rolloffs.
+
+  s_hold=(s1, s2) freezes the two-break exponents and s1brk_hold the merged one, exactly as
+  in fit_smoothing_held / fit_single_break: the residual against the free fit is then the
+  cost of tabulating that value.
+
+  Returns the breaks_from_identified dict plus s1, s2, s_1brk, rms, rms_1brk, npts,
+  at_bound, s_ok.
+  '''
+  br = breaks_from_identified(x, sp, psyn, det=det, **kw) if br is None else br
+  out = dict(br, s1=np.nan, s2=np.nan, s_1brk=np.nan, rms=np.nan, rms_1brk=np.nan,
+             nu_b1=np.nan, npts=0, at_bound=False, s_ok=False)
+  if not br['ok']:
+    return out
+  sig = br.get('sigma', np.nan)
+  if br['shape'] in ('2brk', '2brk_tangent'):
+    f = fit_smoothing_held(x, sp, psyn, br['b_lo'], br['b_hi'], br['nuM'],
+                           br['a_mid'] - 1., free_bhi=free_bhi, s_hold=s_hold, sigma=sig)
+    out.update(s1=f['s1'], s2=f['s2'], rms=f['rms'], npts=f['npts'],
+               at_bound=f['at_bound'], s_ok=f['ok'])
+  elif br['shape'] == '1brk_vfc':
+    # the single break is b_hi here; fit_smoothing_held's vfc branch takes it as b_lo and
+    # uses neither b_hi nor beta_mid (nuc=None joins -1/2 straight to -p/2)
+    f = fit_smoothing_held(x, sp, psyn, br['b_hi'], np.nan, br['nuM'], np.nan,
+                           vfc=True, s_hold=s_hold, sigma=sig)
+    out.update(s2=f['s2'], rms=f['rms'], npts=f['npts'], at_bound=f['at_bound'],
+               s_ok=f['ok'])
+  # the merged shape is the reference description of an MC spectrum, so it is measured on
+  # EVERY MC bin -- including the ones the tangent fallback just gave a two-break geometry
+  if br['regime'] == 'MC':
+    f1 = fit_single_break(x, sp, psyn, br['nuM'], s_hold=s1brk_hold, sigma=sig)
+    out.update(s_1brk=f1['s'], rms_1brk=f1['rms'], nu_b1=f1['nu_b'])
+    if br['shape'] == '1brk_mc':
+      out.update(rms=f1['rms'], npts=f1['npts'], at_bound=f1['at_bound'], s_ok=f1['ok'])
+  return out
+
+
+def track_segment_route(r, flux_floor=1e-10, **kw):
+  '''
+  The self-contained route on EVERY time bin of one sweep point: what the spectrum shows,
+  where its segments cross, and how sharp those crossings are -- with no GS02 fit anywhere,
+  so nothing here needs track_breaks_gs02 and the regime column is the SHAPE CLASS rather
+  than a template verdict.
+
+  Bins where identify_segments finds no usable set are simply not measurements (regime None,
+  s_ok False); the coverage is lower than track_free_slopes' and honestly so.
+
+  Returns dict of arrays over bar{T}: regime, b_lo, b_hi, a_lo, a_mid, a_hi, dex_*, s1, s2,
+  s_1brk, rms, rms_1brk, nuM, sigma, a_edge, shape, mid_from, n_breaks, s_ok, br_ok, plus
+  barT, Fpk, psyn.
+  '''
+  from sweep_gammacm import nu_over_num
+  x = nu_over_num(r)
+  nuFnu = r['nuFnu']
+  env = r['env']
+  barT = np.asarray(r['Tb'], float) - 1.
+  n = len(barT)
+  fkeys = ('b_lo', 'b_hi', 'a_lo', 'a_mid', 'a_hi', 'dex_lo', 'dex_mid', 'dex_hi',
+           's1', 's2', 's_1brk', 'rms', 'rms_1brk', 'nu_b1', 'nuM', 'sigma',
+           'a_edge', 'a_drift')
+  out = {k: np.full(n, np.nan) for k in fkeys}
+  out['regime'] = np.array([None]*n, dtype=object)
+  out['shape'] = np.array([None]*n, dtype=object)
+  out['mid_from'] = np.array([None]*n, dtype=object)
+  out['mid_name'] = np.array([None]*n, dtype=object)
+  out['n_breaks'] = np.zeros(n, int)
+  s_ok = np.zeros(n, bool); br_ok = np.zeros(n, bool)
+  Fpk = np.nanmax(nuFnu, axis=1)
+  bright = (np.isfinite(Fpk) & (Fpk > flux_floor*np.nanmax(Fpk))
+            & ((np.isfinite(nuFnu) & (nuFnu > 0.)).sum(axis=1) >= 12))
+  for i in np.flatnonzero(bright):
+    f = smoothing_from_identified(x, nuFnu[i, :], env.psyn, **kw)
+    for k in fkeys:
+      if k in f and f[k] is not None:
+        out[k][i] = f[k]
+    if f['det'] is not None:
+      out['a_edge'][i], out['a_drift'][i] = f['det']['a_edge'], f['det']['a_drift']
+    out['regime'][i], out['shape'][i] = f['regime'], f['shape']
+    out['mid_name'][i], out['n_breaks'][i] = f['mid_name'], f['n_breaks']
+    out['mid_from'][i] = f['mid_from']
+    br_ok[i], s_ok[i] = f['ok'], f['s_ok']
+  out.update(barT=barT, Fpk=Fpk, s_ok=s_ok, br_ok=br_ok, psyn=env.psyn,
+             a_lo_exp=4./3., a_hi_exp=1. - env.psyn/2.)
   return out
