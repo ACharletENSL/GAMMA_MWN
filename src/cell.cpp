@@ -44,7 +44,7 @@ void Cell::resetLocaldt(){
 }
 
 
-void Cell::update_dt(int dim, Interface IL, Interface IR){
+void Cell::update_dt(int dim, const Interface &IL, const Interface &IR){
 
   double a = G.dl[dim];
   double dt_cand;

@@ -39,7 +39,11 @@ int main(int argc, char *argv[]){
     printf("\n");
   }
   MPI_Barrier(MPI_COMM_WORLD);
-  printf("Node %d: %d OMP procs \n", worldrank, omp_get_num_procs());
+  // omp_get_num_procs is the machine's core count, which says nothing about how many
+  // threads this run will use -- report max_threads too, so the log records what
+  // OMP_NUM_THREADS actually gave us
+  printf("Node %d: %d OMP procs, %d OMP threads \n",
+    worldrank, omp_get_num_procs(), omp_get_max_threads());
   
   if (flags.resume){
     DIR* dir = opendir("../results/Last");

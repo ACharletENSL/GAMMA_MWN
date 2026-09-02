@@ -62,7 +62,9 @@ public:
   void computeAllGeom(s_cell_geometry *geom = NULL);
 
   void resetLocaldt();
-  void update_dt(int dim, Interface IL, Interface IR=NULL);
+  // interfaces by const reference: Interface carries three FluidStates, and this is
+  // called once per cell per computeFluxes (three times an iteration)
+  void update_dt(int dim, const Interface &IL, const Interface &IR = Interface());
 
   // AMR
   double regridVal();

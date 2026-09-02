@@ -172,7 +172,15 @@
     cR->Sd = fmax(cR->Sd, Sd);
     if (pspec > cR->pspec) cR->pspec = pspec;
 
-  }  
+  }
+
+  void Interface :: measureShock(){
+
+    // Same two compute_Sd calls as above, stored instead of applied. See interface.h.
+    Sd_fwd = compute_Sd(SL, SR, dim, &pspec_fwd);
+    Sd_rev = compute_Sd(SR, SL, dim, &pspec_rev, true);
+
+  }
 
   void Cell :: detectShock(){
 

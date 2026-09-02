@@ -17,7 +17,7 @@ from environment import MyEnv
 
 Initial_path = str(Path().absolute() / 'src/Initial/')
 
-def main(alpha=1., zeta=1.):
+def main(alpha=1., zeta=1., src='./phys_input.ini'):
   # update .cpp file and copies phys_input.ini in the results folder
   # to come: add file check and automatic moving results in new folder
   # alpha, zeta: Granot (2012) hydro unit-rescaling of the inputs before setup,
@@ -26,7 +26,7 @@ def main(alpha=1., zeta=1.):
   # always write the (possibly identity) rescaled input to a temp file, so the
   # setup below and the copy into results/Last both use the same, consistent
   # inputs (identity when alpha=zeta=1)
-  rescale_input(alpha, zeta, dst='./phys_input_temp.ini')
+  rescale_input(alpha, zeta, src=src, dst='./phys_input_temp.ini')
   env = MyEnv('./phys_input_temp.ini')
 
   if env.mode == 'shells':
@@ -229,8 +229,8 @@ if __name__ == "__main__":
       help='pristine phys_input.ini to rescale FROM (avoids compounding); '
            'defaults to in-place ./phys_input.ini')
     args = parser.parse_args()
-    if (args.alpha != 1. or args.zeta != 1.) and args.src:
-      rescale_input(args.alpha, args.zeta, src=args.src)
-      main()  # inputs already rescaled from pristine src
-    else:
-      main(alpha=args.alpha, zeta=args.zeta)
+    # --src is honoured on its own too, so an alternative config (e.g. phys_input_hires.ini)
+    # can be launched without overwriting the tracked phys_input.ini. It used to be ignored
+    # unless a rescaling was also asked for, which made `--src foo.ini` silently a no-op.
+    src = args.src if args.src else './phys_input.ini'
+    main(alpha=args.alpha, zeta=args.zeta, src=src)

@@ -268,9 +268,12 @@ int Grid::checkCellForRegrid(int j, int i){
 
   int iin  = iLbnd+1;
   int iout = iRbnd-1;
-  Cell c  = Ctot[i];
-  double r   = c.G.x[r_];
-  double dr  = c.G.dx[r_]*lNorm;
+  // by reference: Cell holds two std::vectors (neigh), so taking it by value allocated
+  // and freed them on every call -- in a SERIAL loop over every active cell, every
+  // iteration, just to read two doubles
+  const Cell *c = &Ctot[i];
+  double r   = c->G.x[r_];
+  double dr  = c->G.dx[r_]*lNorm;
   double dr0 = (D01+D04)/(Nsh1+Nsh4);
   double ar  = dr/dr0;
 

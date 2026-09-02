@@ -40,6 +40,9 @@ ifeq ($(HOME), /u/g/rwe22)
 	IFLAGS = -I/usr/local/include -I/usr/include -I/usr/lib/openmpi/include
 else
 ifeq ($(HOME), /home/arthurc)
+	# the gsl module does not export GSL_ROOT, so derive it from gsl-config (which the
+	# module does put on PATH). ?= leaves an externally exported GSL_ROOT winning.
+	GSL_ROOT ?= $(shell gsl-config --prefix)
 	CXX      = mpicxx
 	CXXFLAGS = -Wall -Wextra -std=c++11 -O3 -fopenmp
 	LFLAGS   = -fopenmp -L$(GSL_ROOT)/lib -lgsl -lgslcblas -lm

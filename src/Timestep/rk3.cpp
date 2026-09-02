@@ -24,6 +24,7 @@
     update(dt);
     // do not evolve border cells because they are going to be copied anyways
     // and it can lead to non-physical states
+    #pragma omp parallel for schedule(static)
     for (int i = iLbnd+1; i <= iRbnd-1; ++i){
       Cell *c = &Ctot[i];
       double dV  = c->G.dV;
@@ -35,6 +36,7 @@
       }
     }
 
+    #pragma omp parallel for schedule(static)
     for (int i = iLbnd; i <= iRbnd-1; ++i){
       Interface *I = &Itot[i];
       double x  = I->x[MV];
@@ -46,6 +48,7 @@
 
     CellGeomFromInterfacePos();
 
+    #pragma omp parallel for schedule(static)
     for (int i = iLbnd+1; i <= iRbnd-1; ++i){
       Cell *c = &Ctot[i];
       for (int q = 0; q < NUM_Q; ++q){
@@ -60,6 +63,7 @@
     prepForUpdate(it, t);
     update(dt);
 
+    #pragma omp parallel for schedule(static)
     for (int i = iLbnd+1; i <= iRbnd-1; ++i){
       Cell *c = &Ctot[i];
       double dV  = c->G.dV;
@@ -72,6 +76,7 @@
     }
   
 
+    #pragma omp parallel for schedule(static)
     for (int i = iLbnd; i <= iRbnd-1; ++i){
       Interface *I = &Itot[i];
       double x  = I->x[MV];
@@ -83,6 +88,7 @@
 
     CellGeomFromInterfacePos();
 
+    #pragma omp parallel for schedule(static)
     for (int i = iLbnd+1; i <= iRbnd-1; ++i){
       Cell *c = &Ctot[i];
       for (int q = 0; q < NUM_Q; ++q){

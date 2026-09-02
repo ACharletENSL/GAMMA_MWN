@@ -465,16 +465,21 @@ void Grid::computeNeighbors(bool print){
 
   UNUSED(print);
 
+  // In 1D a cell's neighbours are always i-1 and i+1, so the list is always of length 1.
+  // The clear() + shrink_to_fit() + push_back() this used to do freed and reallocated
+  // both vectors on every call, i.e. 4 malloc/free per cell -- and prepForUpdate runs
+  // three times per iteration, so ~250k allocations per iteration at 20800 cells. That
+  // is a serial hotspot and, under OpenMP, allocator contention. Overwrite in place
+  // instead, and only allocate on the first call or after a regrid changed the size.
+  #pragma omp parallel for schedule(static)
   for (int i = 1; i < ntrack-1; ++i){
     Cell *c = &Ctot[i];
     for (int d = 0; d < NUM_D; ++d){
-      c->neigh[d][0].clear(); // resetting neighbors
-      c->neigh[d][0].shrink_to_fit(); // resetting capacity
-      c->neigh[d][1].clear();
-      c->neigh[d][1].shrink_to_fit();
+      if (c->neigh[d][0].size() == 1) { c->neigh[d][0][0] = Ctot[i-1].nde_id; }
+      else { c->neigh[d][0].clear(); c->neigh[d][0].push_back(Ctot[i-1].nde_id); }
 
-      c->neigh[d][0].push_back(Ctot[i-1].nde_id);
-      c->neigh[d][1].push_back(Ctot[i+1].nde_id);
+      if (c->neigh[d][1].size() == 1) { c->neigh[d][1][0] = Ctot[i+1].nde_id; }
+      else { c->neigh[d][1].clear(); c->neigh[d][1].push_back(Ctot[i+1].nde_id); }
     }
   }
 
@@ -731,6 +736,8 @@ void Grid::merge(int j, int i){
 void Grid::movDir_ComputeLambda(){
 
   int j=0;
+  // reconstructStates reads Ctot[i-1..i+2] but writes only Itot[i], so the loop is safe
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < ntrack-1; ++i){
     reconstructStates(j,i,MV);
     Itot[i].computeLambda();
@@ -740,6 +747,7 @@ void Grid::movDir_ComputeLambda(){
 
 void Grid::updateKinematics(int it, double t){
 
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < ntrack-1; ++i){
     double v = VI * Itot[i].lS;
     double lfac = 1./sqrt(1.- v*v);
@@ -753,19 +761,41 @@ void Grid::updateKinematics(int it, double t){
 void Grid::computeFluxes(){
 
   // flux in MV direction (looping over interfaces)
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < ntrack-1; ++i){
     Itot[i].computeFlux();
 
     #if SHOCK_DETECTION_ == ENABLED_
-      Cell *cL = &Ctot[i];
-      Cell *cR = &Ctot[i+1];
-      Itot[i].measureShock(cL, cR);
+      // Parked on the interface rather than written into Ctot[i]/Ctot[i+1]: interfaces
+      // i-1 and i share cell i, so applying them here would race. Folded in below.
+      Itot[i].measureShock();
     #endif
-      
+
   }
+
+  #if SHOCK_DETECTION_ == ENABLED_
+    // Cell i takes the reverse contribution of interface i-1 and the forward one of
+    // interface i -- the same two the serial loop applied, in the same order (rev then
+    // fwd, since interface i-1 was visited first). fmax against the cell's current value
+    // preserves the accumulation across the three RK substeps, and both reductions are
+    // order-independent anyway, so this is bit-identical.
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < ntrack; ++i){
+      if (i > 0){
+        Ctot[i].Sd = fmax(Ctot[i].Sd, Itot[i-1].Sd_rev);
+        if (Itot[i-1].pspec_rev > Ctot[i].pspec) Ctot[i].pspec = Itot[i-1].pspec_rev;
+      }
+      if (i < ntrack-1){
+        Ctot[i].Sd = fmax(Ctot[i].Sd, Itot[i].Sd_fwd);
+        if (Itot[i].pspec_fwd > Ctot[i].pspec) Ctot[i].pspec = Itot[i].pspec_fwd;
+      }
+    }
+  #endif
+
+  #pragma omp parallel for schedule(static)
   for (int i = 1; i < ntrack-1; ++i){
     // can't do the edges
-    
+
     Ctot[i].update_dt(MV, Itot[i-1], Itot[i]);
     for (int q = 0; q < NUM_Q; ++q){
       Ctot[i].flux[0][MV][q] = Itot[i-1].flux[q];
@@ -780,6 +810,9 @@ double Grid::collect_dt(){
 
   double dt = 1.e15;
   double local_dt = 1.e15;
+  // fmin is exact and order-independent, so the reduction is bit-identical to the
+  // serial sweep; the dt_loc reset is a per-cell write and rides along
+  #pragma omp parallel for schedule(static) reduction(min:local_dt)
   for (int i = 0; i < ntrack; ++i){
     local_dt = fmin(local_dt, Ctot[i].dt_loc);
     Ctot[i].dt_loc = 1.e15;  // resetting dt_loc for next update
@@ -797,10 +830,12 @@ double Grid::collect_dt(){
 
 void Grid::update(double dt){
 
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < ntrack-1; ++i){
     Itot[i].move(dt);
   }
   // do not update border cells because can lead to non-physical states
+  #pragma omp parallel for schedule(static)
   for (int i = iLbnd+1; i <= iRbnd-1; ++i){
     double xL = Itot[i-1].x[MV];
     double xR = Itot[i].x[MV];
@@ -813,12 +848,14 @@ void Grid::update(double dt){
 void Grid::copyState0(){
   // Copies the current state of the grid into S0 for higher order time-stepping
 
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < ntrack; ++i){
     Cell *c = &Ctot[i];
     c->S0 = c->S;
     c->G0 = c->G;
   }
 
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < ntrack-1; ++i){
     Interface *I = &Itot[i];
     for (int d = 0; d < NUM_D; ++d) I->x0[d] = I->x[d];
@@ -831,6 +868,7 @@ void Grid::copyState0(){
 void Grid::CellGeomFromInterfacePos(){
   // pos in F1 needs to already be updated
 
+  #pragma omp parallel for schedule(static)
   for (int i = 1; i < ntrack-1; ++i){
     Cell *c = &Ctot[i];
     double xL = Itot[i-1].x[MV];
@@ -843,6 +881,7 @@ void Grid::CellGeomFromInterfacePos(){
 
 void Grid::interfaceGeomFromCellPos(){
 
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < ntrack-1; ++i){
     if (i != iLbnd){
       Itot[i].x[MV] = Ctot[i].G.x[MV] + Ctot[i].G.dx[MV]/2.;
@@ -859,6 +898,7 @@ void Grid::interfaceGeomFromCellPos(){
 void Grid::interfaceGeomFromCellPos(int j){
 
   UNUSED(j);
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < ntrack-1; ++i){
     Itot[i].x[MV] = Ctot[i+1].G.x[MV] - Ctot[i+1].G.dx[MV]/2.;
     Itot[i].computedA();
@@ -878,7 +918,9 @@ void Grid::destruct(){
 void Grid::apply(void (Cell::*func)()){
 
   // usage: grid.apply(&Cell::func_name);
-  
+  // callers are Cell::resetShock / Cell::detectShock, both of which touch only their
+  // own cell -- keep that true of anything else passed here
+  #pragma omp parallel for schedule(static)
   for (int i = 0; i < nde_nax[MV]; ++i){
     (Ctot[i].*func)();
   }
@@ -911,6 +953,7 @@ void Grid::prim2cons(){
 
   int iL = 0;
   int iR = ntrack;
+  #pragma omp parallel for schedule(static)
   for (int i = iL; i < iR; ++i){
     double r = Ctot[i].G.cen[r_];
     Ctot[i].S.prim2cons(r);
@@ -923,6 +966,7 @@ void Grid::state2flux(){
 
   int iL = 0;
   int iR = ntrack;
+  #pragma omp parallel for schedule(static)
   for (int i = iL; i < iR; ++i){
     double r = Ctot[i].G.cen[r_];
     Ctot[i].S.state2flux(r);

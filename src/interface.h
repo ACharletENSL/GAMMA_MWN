@@ -40,6 +40,15 @@ public:
 
   #if SHOCK_DETECTION_ == ENABLED_
     void measureShock(Cell *cL, Cell *cR);
+
+    // Thread-safe variant, used by the 1D path. Interfaces i-1 and i share cell i, so
+    // the two-argument form above cannot be called from a parallel loop over interfaces
+    // without racing on that cell. This one computes the same two contributions and
+    // parks them on the interface; Grid::computeFluxes folds them into the cells in a
+    // separate loop, with the same reduction and in the same order.
+    void measureShock();
+    double Sd_fwd, pspec_fwd;   // forward shock  -> the LEFT  cell (i)
+    double Sd_rev, pspec_rev;   // reverse shock  -> the RIGHT cell (i+1)
   #endif
 
 };
