@@ -76,7 +76,13 @@ Z_RS, Z_FS = 4, 1
 # break rather than a pair, and VSC has no upper break in band at all -- both are reported,
 # neither is pooled into an s1/s2 row.
 CLASSES = ('VFC', 'FC*', 'FC', 'MC', 'SC', 'VSC')
-TWO_BREAK = ('FC', 'SC')          # the classes whose s1 AND s2 are both measured
+# MC is a two-break class here, but not on the same footing as FC and SC: its mid slope is
+# FITTED inside the shape fit rather than held (spectral_breaks.smoothing_from_identified's
+# free_bmid='mc'), because an MC spectrum displays no mid segment to measure beforehand. Its
+# s1 and s2 therefore come out of a four-parameter fit and carry a much wider spread -- quote
+# them with it, never as a tabulated pair. The merged single break is still measured on every
+# MC bin and reported alongside, as the alternative description.
+TWO_BREAK = ('FC', 'SC', 'MC')    # the classes whose s1 AND s2 are both measured
 ONE_BREAK = ('VFC', 'FC*')        # ... s2 only: no nu^(4/3) segment in band
 PRESC_RMS_MAX = 0.05              # as in slope_validation: a frozen fit worse than this
 PRESC_BAD_MAX = 0.10              # ... and a case failing more than this fraction is split
@@ -255,8 +261,11 @@ def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False):
   sp, p, sig = r['nuFnu'][i, :], r['env'].psyn, tk['sigma'][i]
   shape = '1brk_mc' if merged else tk['shape'][i]
   if shape in ('2brk', '2brk_tangent', '2brk_free'):
+    # the mid slope stays as free as it was in the bin's own fit, so the residual difference
+    # is the frozen SMOOTHING and nothing else; freezing a_mid too would price two changes
     return sb.fit_smoothing_held(x, sp, p, tk['b_lo'][i], tk['b_hi'][i], tk['nuM'][i],
-                                 tk['a_mid'][i] - 1., s_hold=s_hold, sigma=sig)['rms']
+                                 tk['a_mid'][i] - 1., s_hold=s_hold, sigma=sig,
+                                 free_bmid=bool(tk['mid_fitted'][i]))['rms']
   if shape == '1brk_vfc':
     return sb.fit_smoothing_held(x, sp, p, tk['b_hi'][i], np.nan, tk['nuM'][i], np.nan,
                                  vfc=True, s_hold=s_hold, sigma=sig)['rms']
@@ -288,7 +297,10 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
       n = int(sum(m(tk).sum() for tk in sides))
       if not n:
         continue
-      merged = cls == 'MC'          # the value tabulated for MC is the merged break's s
+      # MC is now tabulated on the two-break shape with its mid slope fitted, like every
+      # other two-break class; the merged break is measured too but is no longer the value
+      # being tested, since it is not the shape the route reports for MC.
+      merged = False
       s1 = np.nanmedian(_cat(sides, 's1', m)) if cls in TWO_BREAK else np.nan
       s2 = np.nanmedian(_cat(sides, 's2', m)) if cls in TWO_BREAK + ONE_BREAK else np.nan
       sg = np.nanmedian(_cat(sides, 's_1brk', m)) if merged else np.nan

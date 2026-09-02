@@ -1855,7 +1855,7 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
 
 
 def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_hold=None,
-    s1brk_hold=None, free_bmid=False, **kw):
+    s1brk_hold=None, free_bmid='mc', **kw):
   '''
   s of every break the identified segments define, by refitting granot_sari_syn with those
   crossings and those slopes held -- the third step of the self-contained route.
@@ -1868,6 +1868,30 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
                  where the tangent fallback anchored a mid line, ALSO the two-break form on
                  that geometry, so the two descriptions can be compared on the same bin
       VSC, None  declined -- the upper break is out of band, so no shape is constrained
+
+  free_bmid='mc' (the DEFAULT) frees the mid slope inside the shape fit for the MARGINAL
+  class alone, holding it everywhere else. True or False force it either way.
+
+  WHY MC AND ONLY MC. FC, SC and VFC display a mid segment (or none at all, in VFC), so their
+  mid slope is measured before the fit and holding it there is a measurement, not an
+  assumption. An MC spectrum displays no mid segment by definition, so whatever is held there
+  is a guess -- and both ways of guessing fail: the tangent anchor pins a_mid at an asymptote
+  and jumps discontinuously when the nearest one switches, while a free line across the knee
+  displaces the lower break by a factor ~2. Freeing a_mid inside the fit, with b_lo still
+  anchored at its crossing, does better on every count: measured over 1419 MC bins of both
+  shells it gives a_mid = 0.70 [0.60-0.96] evolving CONTINUOUSLY in time (median step 0.003
+  between bins, against the tangent's five hard jumps per shell), at rms 0.0086/0.0060 --
+  2-3x better than the tangent and 3-4x better than the merged single break, a margin far
+  beyond what its two extra parameters can buy.
+  THE PRICE, which callers must not paper over: MC's s1 and s2 then come from a
+  four-parameter fit and do NOT agree with the held-mid values -- s2 falls to 1.12/1.40
+  against 2.28/2.16, and s1 grows a long upper tail [0.67-3.37]. Quote MC's smoothing with
+  its spread, never as a tabulated pair. And a_mid ~ 0.70 is the effective slope of a
+  TRANSITION, not a cooling index: it sits well above the +0.098 hardening measured where a
+  genuine fast-cooling segment is resolved, and does not belong on the same axis as those.
+
+  Bins whose fitted mid slope runs into its bound (~4%) are declined -- s_ok False -- because
+  a mid slope outside what a three-segment spectrum can carry is not a measurement.
 
   Every fit divides out the SAME cut-off breaks_from_identified measured, smeared shape
   included (sigma is carried through): the held break positions and the flattened spectrum
@@ -1883,17 +1907,25 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
   br = breaks_from_identified(x, sp, psyn, det=det, **kw) if br is None else br
   out = dict(br, s1=np.nan, s2=np.nan, s_1brk=np.nan, rms=np.nan, rms_1brk=np.nan,
              nu_b1=np.nan, npts=0, at_bound=False, s_ok=False, a_mid_fit=np.nan,
-             bmid_at_bound=False, b_hi_fit=np.nan)
+             a_mid_seed=br.get('a_mid', np.nan), bmid_at_bound=False, b_hi_fit=np.nan,
+             mid_fitted=False)
   if not br['ok']:
     return out
   sig = br.get('sigma', np.nan)
+  fb = (br['regime'] == 'MC') if free_bmid == 'mc' else bool(free_bmid)
   if br['shape'] in ('2brk', '2brk_tangent', '2brk_free'):
     f = fit_smoothing_held(x, sp, psyn, br['b_lo'], br['b_hi'], br['nuM'],
                            br['a_mid'] - 1., free_bhi=free_bhi, s_hold=s_hold, sigma=sig,
-                           free_bmid=free_bmid)
+                           free_bmid=fb)
+    # a fitted mid slope is the better estimate of the mid index, so it becomes a_mid;
+    # what was held going in is kept as a_mid_seed. A bin whose fit hit the mid-slope
+    # bound is declined outright -- see the docstring.
     out.update(s1=f['s1'], s2=f['s2'], rms=f['rms'], npts=f['npts'],
-               at_bound=f['at_bound'], s_ok=f['ok'], b_hi_fit=f['b_hi_fit'],
-               a_mid_fit=f['beta_mid'] + 1., bmid_at_bound=f['bmid_at_bound'])
+               at_bound=f['at_bound'], b_hi_fit=f['b_hi_fit'], mid_fitted=fb,
+               a_mid_fit=f['beta_mid'] + 1., bmid_at_bound=f['bmid_at_bound'],
+               s_ok=bool(f['ok'] and not f['bmid_at_bound']))
+    if fb and np.isfinite(f['beta_mid']):
+      out['a_mid'] = f['beta_mid'] + 1.
   elif br['shape'] == '1brk_vfc':
     # the single break is b_hi here; fit_smoothing_held's vfc branch takes it as b_lo and
     # uses neither b_hi nor beta_mid (nuc=None joins -1/2 straight to -p/2)
@@ -1931,9 +1963,9 @@ def track_segment_route(r, flux_floor=1e-10, **kw):
   env = r['env']
   barT = np.asarray(r['Tb'], float) - 1.
   n = len(barT)
-  fkeys = ('b_lo', 'b_hi', 'a_lo', 'a_mid', 'a_hi', 'dex_lo', 'dex_mid', 'dex_hi',
-           's1', 's2', 's_1brk', 'rms', 'rms_1brk', 'nu_b1', 'nuM', 'sigma',
-           'a_edge', 'a_drift')
+  fkeys = ('b_lo', 'b_hi', 'b_hi_fit', 'a_lo', 'a_mid', 'a_mid_seed', 'a_hi',
+           'dex_lo', 'dex_mid', 'dex_hi', 's1', 's2', 's_1brk', 'rms', 'rms_1brk',
+           'nu_b1', 'nuM', 'sigma', 'a_edge', 'a_drift')
   out = {k: np.full(n, np.nan) for k in fkeys}
   out['regime'] = np.array([None]*n, dtype=object)
   out['shape'] = np.array([None]*n, dtype=object)
@@ -1941,6 +1973,7 @@ def track_segment_route(r, flux_floor=1e-10, **kw):
   out['mid_name'] = np.array([None]*n, dtype=object)
   out['n_breaks'] = np.zeros(n, int)
   s_ok = np.zeros(n, bool); br_ok = np.zeros(n, bool)
+  mid_fitted = np.zeros(n, bool); bmid_bound = np.zeros(n, bool)
   Fpk = np.nanmax(nuFnu, axis=1)
   bright = (np.isfinite(Fpk) & (Fpk > flux_floor*np.nanmax(Fpk))
             & ((np.isfinite(nuFnu) & (nuFnu > 0.)).sum(axis=1) >= 12))
@@ -1955,6 +1988,8 @@ def track_segment_route(r, flux_floor=1e-10, **kw):
     out['mid_name'][i], out['n_breaks'][i] = f['mid_name'], f['n_breaks']
     out['mid_from'][i] = f['mid_from']
     br_ok[i], s_ok[i] = f['ok'], f['s_ok']
+    mid_fitted[i], bmid_bound[i] = f['mid_fitted'], f['bmid_at_bound']
+  out.update(mid_fitted=mid_fitted, bmid_at_bound=bmid_bound)
   out.update(barT=barT, Fpk=Fpk, s_ok=s_ok, br_ok=br_ok, psyn=env.psyn,
              a_lo_exp=4./3., a_hi_exp=1. - env.psyn/2.)
   return out
