@@ -254,7 +254,7 @@ def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False):
   x = swp.nu_over_num(r)
   sp, p, sig = r['nuFnu'][i, :], r['env'].psyn, tk['sigma'][i]
   shape = '1brk_mc' if merged else tk['shape'][i]
-  if shape in ('2brk', '2brk_tangent'):
+  if shape in ('2brk', '2brk_tangent', '2brk_free'):
     return sb.fit_smoothing_held(x, sp, p, tk['b_lo'][i], tk['b_hi'][i], tk['nuM'][i],
                                  tk['a_mid'][i] - 1., s_hold=s_hold, sigma=sig)['rms']
   if shape == '1brk_vfc':
@@ -345,6 +345,136 @@ def coverage_table(sides_by_z, verbose=True):
   if verbose and len(df):
     print(f"\n{'=== COVERAGE ':=<96}")
     print(df.to_string(index=False))
+  return df
+
+
+# ---------------------------------------------------------------------------------------
+# Which fallback should supply the mid line where none is identified?
+# ---------------------------------------------------------------------------------------
+def _compare_point(args):
+  '''
+  One sweep point, in a worker: every MC bin measured BOTH ways. The cut-off scan and the
+  identification are done once per bin and shared between the two fallbacks, so the second
+  costs only its crossings and its smoothing fit -- the comparison is on identical
+  identifications by construction, not merely on the same spectra.
+  '''
+  key, method, z, logr = args
+  res = swp.load_sweep(swp.method_outdir(method, key, z))
+  r = [q for q in res if abs(q['log10ratio'] - logr) < 1e-9][0]
+  x = swp.nu_over_num(r)
+  nuFnu, p = r['nuFnu'], r['env'].psyn
+  barT = np.asarray(r['Tb'], float) - 1.
+  Fpk = np.nanmax(nuFnu, axis=1)
+  bright = (np.isfinite(Fpk) & (Fpk > 1e-10*np.nanmax(Fpk))
+            & ((np.isfinite(nuFnu) & (nuFnu > 0.)).sum(axis=1) >= 12))
+  rows = []
+  for i in np.flatnonzero(bright):
+    sp = nuFnu[i, :]
+    cut = sb.measure_cutoff_nuM(x, sp, p, flatten=False, smear=True)
+    if not cut['ok']:
+      continue
+    det = swp.identify_segments(x, sp, p, cut=cut)
+    if det is None or det['regime'] != 'MC':
+      continue
+    row = dict(z=z, logr=logr, i=int(i), barT=float(barT[i]))
+    # 'fitted' is the CONSTRAINED variant: the tangent geometry, but the mid slope freed
+    # inside the shape fit rather than held, with b_lo still anchored at its crossing
+    for mode, geom, fb in (('tangent', 'tangent', False), ('free', 'free', False),
+                           ('fitted', 'tangent', True)):
+      br = sb.breaks_from_identified(x, sp, p, det=det, cut=cut, mid_fallback=geom)
+      f = sb.smoothing_from_identified(x, sp, p, br=br, free_bmid=fb)
+      row.update({f'{mode}_{k}': f[k] for k in
+                  ('a_mid', 'b_lo', 'b_hi', 's1', 's2', 'rms', 'dex_mid')})
+      row[f'{mode}_ok'] = bool(f['s_ok'])
+      row[f'{mode}_from'] = f['mid_from']
+      if fb:   # the fitted mid slope, and the upper break the same fit chose
+        row[f'{mode}_a_mid'] = f['a_mid_fit']
+        row[f'{mode}_b_hi'] = f['b_hi_fit']
+        row[f'{mode}_at_bound'] = bool(f['bmid_at_bound'])
+      row['s_1brk'], row['rms_1brk'] = f['s_1brk'], f['rms_1brk']
+    rows.append(row)
+  return rows
+
+
+def compare_mid_fallbacks(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), nproc=NPROC,
+    verbose=True, outdir=OUTDIR):
+  '''
+  Tangent versus free mid line, on every MC bin of the sweep.
+
+  The two answer different questions and the comparison has to keep them apart. The tangent
+  HOLDS the mid slope at a theory asymptote, so it cannot be wrong about it and cannot be
+  informative about it either; the free line MEASURES it, so it can report a mid slope that
+  evolves through the FC/SC crossing -- the physical expectation -- but pays for it wherever
+  the knee has no straight part.
+
+  Reported per shell: how often each yields a usable geometry, what each returns for the mid
+  slope and the two breaks, how well the resulting held-break fit describes the spectrum, and
+  -- the point of the exercise -- how CONTINUOUS a_mid(bar{T}) is in each, measured as the
+  median absolute step between consecutive MC bins. The tangent's steps include the jumps
+  where the nearest asymptote switches from 1/2 to (3-p)/2, which the free line cannot make.
+  '''
+  jobs = [(key, method, z, float(r['log10ratio']))
+          for z in zlist
+          for r in swp.load_sweep(swp.method_outdir(method, key, z))]
+  np_ = cell_pool.resolve_nproc(nproc, cap=len(jobs))
+  if np_ > 1:
+    with cell_pool.pool_context().Pool(np_) as pool:
+      out = pool.map(_compare_point, jobs)
+  else:
+    out = [_compare_point(j) for j in jobs]
+  df = pd.DataFrame([w for rows in out for w in rows])
+  if not len(df):
+    return df
+  if verbose:
+    print(f"\n{'=== MID-LINE FALLBACK: TANGENT vs FREE, on MC bins ':=<100}")
+    print('Identical identifications and cut-offs; only the mid line differs. "step" is the '
+          'median\n|delta a_mid| between consecutive MC bins of one sweep point -- the '
+          'continuity in time.\n"switch" counts bins where the tangent changed which '
+          'asymptote it holds.')
+    hdr = (f"{'shell':>5} {'mode':>8} {'usable':>7} | {'a_mid':>18} | {'step':>7} "
+           f"{'switch':>7} | {'s1':>18} | {'s2':>18} | {'rms':>7} | {'vs 1brk':>8}")
+    print(hdr); print('-'*len(hdr))
+    for z in zlist:
+      d = df[df.z == z]
+      for mode in ('tangent', 'free', 'fitted'):
+        ok = d[d[f'{mode}_ok']]
+        steps, switches = [], 0
+        for lr, g in d.groupby('logr'):
+          g = g.sort_values('barT')
+          v = g[f'{mode}_a_mid'].to_numpy(float)
+          v = v[np.isfinite(v)]
+          if len(v) > 1:
+            steps += list(np.abs(np.diff(v)))
+            if mode == 'tangent':
+              switches += int((np.abs(np.diff(v)) > 1e-9).sum())
+        b_am, _, _ = _band(ok[f'{mode}_a_mid'])
+        b_s1, _, _ = _band(ok[f'{mode}_s1'])
+        b_s2, _, _ = _band(ok[f'{mode}_s2'])
+        rms = np.nanmedian(ok[f'{mode}_rms']) if len(ok) else np.nan
+        r1 = np.nanmedian(ok['rms_1brk']) if len(ok) else np.nan
+        # for the fitted variant, "switch" instead counts fits that ran into the bound --
+        # a mid slope outside what a three-segment spectrum can carry, i.e. not a measurement
+        flag = switches if mode == 'tangent' else (
+            int(ok[f'{mode}_at_bound'].sum()) if f'{mode}_at_bound' in ok else 0)
+        print(f"{z:>5} {mode:>8} {len(ok):>7} | {b_am} | "
+              f"{np.median(steps) if steps else np.nan:7.4f} "
+              f"{flag:>7} | {b_s1} | {b_s2} | {rms:7.4f} | {rms/r1:8.2f}")
+    # where both work, how far apart are the breaks they return?
+    both = df[df.tangent_ok & df.free_ok]
+    if len(both):
+      rl = (both.free_b_lo/both.tangent_b_lo).to_numpy(float)
+      rh = (both.free_b_hi/both.tangent_b_hi).to_numpy(float)
+      q = lambda v: f'{np.median(v):.3f} [{np.percentile(v, 16):.3f}-{np.percentile(v, 84):.3f}]'
+      print(f'\n  on the {len(both)} bins where both work, free/tangent break ratio: '
+            f'nu_1 {q(rl)}, nu_2 {q(rh)}')
+      w = int((both.free_rms < both.tangent_rms).sum())
+      print(f'  free fits better in {w}/{len(both)} of them '
+            f'(median rms {np.nanmedian(both.free_rms):.4f} vs '
+            f'{np.nanmedian(both.tangent_rms):.4f})')
+  if outdir:
+    _ensure_outdir()
+    df.to_csv(os.path.join(outdir, 'mid_fallback_comparison.csv'), index=False)
+    print(f"  wrote {os.path.join(outdir, 'mid_fallback_comparison.csv')}")
   return df
 
 

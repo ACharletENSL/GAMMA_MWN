@@ -1328,9 +1328,19 @@ def _flatten_cutoff(x, sp, nuM, sigma=None):
   return np.asarray(sp, float)/np.where(np.isfinite(R) & (R > 0.), R, np.nan)
 
 
+# Bounds on a FITTED mid slope, in nuFnu index. Deliberately NOT the asymptote interval
+# [(3-p)/2, 1/2] that fit_gs02_spectrum's free_bmid uses: the shell-integrated mid segment is
+# measured OUTSIDE that interval on exactly the spectra this is for -- the free line across an
+# MC knee returns 0.64 [0.47-0.76] -- so those bounds would pin it at 1/2 and reproduce the
+# tangent by construction. The only defensible limits are the ones the shape itself needs, a
+# mid slope strictly between the two outer asymptotes, with a margin so the fit cannot
+# degenerate into a single break.
+BMID_MARGIN = 0.05
+
+
 def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     cutfac=CUT_FAC, fit_dec=FIT_DEC, vfc=False, bounds=S_FIT_BOUNDS, s_hold=None,
-    sigma=None):
+    sigma=None, free_bmid=False, bmid_margin=BMID_MARGIN):
   '''
   s1, s2 by fitting granot_sari_syn with the BREAK POSITIONS AND ALL THREE SLOPES HELD, so
   the smoothing is the only shape freedom left. The replacement for the deficit estimator of
@@ -1372,11 +1382,23 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
   same shape the breaks were measured against, or the held b_hi and the flattened spectrum
   are describing two different rolloffs.
 
+  free_bmid FITS the mid slope as a parameter of the shape instead of holding it, seeded at
+  the `beta_mid` passed in and bounded by BMID_MARGIN inside the two outer asymptotes. This
+  is the CONSTRAINED version of the template's free-beta_mid fit: b_lo stays held at the
+  measured crossing, so one anchor survives and the fit cannot slide both breaks against the
+  smoothing the way fit_gs02_spectrum(free_s=True) does. It exists for the marginal spectra,
+  where no mid segment can be measured before the fit and holding an asymptote is an
+  assumption rather than a measurement. The fitted value comes back as out['beta_mid'], with
+  out['bmid_at_bound'] flagging a fit that ran into the margin -- which means the shape wanted
+  a mid slope outside what a three-segment spectrum can carry, and the result is not a
+  measurement.
+
   Returns dict(s1, s2, b_hi_fit, rms, npts, at_bound, ok).
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
   out = dict(s1=np.nan, s2=np.nan, b_hi_fit=np.nan, rms=np.nan, npts=0,
-             at_bound=False, ok=False, F_ext=np.nan, y0=np.nan)
+             at_bound=False, ok=False, F_ext=np.nan, y0=np.nan,
+             beta_mid=(np.nan if free_bmid else beta_mid), bmid_at_bound=False)
   # VFC carries ONE break and no nu^(4/3) segment, so b_lo is that break and b_hi/beta_mid
   # are not used at all (granot_sari_syn's nuc=None branch joins -1/2 straight to -p/2)
   need = (b_lo, nuM) if vfc else (b_lo, b_hi, nuM, beta_mid)
@@ -1403,10 +1425,14 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
 
   # The free vector is assembled by NAME, not by fixed index: with s_hold the exponents drop
   # out of it entirely, and hard-coded slots (an earlier r.x[3]) are how that goes wrong.
+  fit_bmid = bool(free_bmid) and not vfc      # VFC has no mid segment to free
+
   names = [] if s_hold is not None else (['s2'] if vfc else ['s1', 's2'])
   names.append('A')
   if fit_bhi:
     names.append('b_hi')
+  if fit_bmid:
+    names.append('bmid')
   slot = {n: i for i, n in enumerate(names)}
 
   def unpack(q):
@@ -1417,12 +1443,13 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     else:
       s1, s2 = 10**q[slot['s1']], 10**q[slot['s2']]
     bh = 10**q[slot['b_hi']] if fit_bhi else b_hi
-    return s1, s2, 10**q[slot['A']], bh
+    bm = q[slot['bmid']] if fit_bmid else beta_mid
+    return s1, s2, 10**q[slot['A']], bh, bm
 
   def resid(q):
-    s1, s2, A, bh = unpack(q)
+    s1, s2, A, bh, bm = unpack(q)
     m = granot_sari_syn(xf, b_lo, (None if vfc else bh), psyn, s1=s1, s2=s2, nuM=None,
-                        F_ext=A, nuFnu=True, beta_mid=beta_mid)
+                        F_ext=A, nuFnu=True, beta_mid=bm)
     return np.log10(np.maximum(m, 1e-300)) - yf
 
   init = {'s1': (np.log10(1.3), lb, ub), 's2': (np.log10(2.), lb, ub), 'A': (0., -8., 8.)}
@@ -1430,6 +1457,12 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     if not (b_lo < b_hi < nuM):
       return out
     init['b_hi'] = (np.log10(b_hi), np.log10(b_lo), np.log10(nuM))
+  if fit_bmid:
+    # in nuFnu index: a_hi + margin < a_mid < a_lo - margin, i.e. what a three-segment
+    # spectrum can carry. Converted to the F_nu index granot_sari_syn takes.
+    bm_lo, bm_hi = (1. - psyn/2.) + bmid_margin - 1., 4./3. - bmid_margin - 1.
+    bm0 = float(np.clip(beta_mid if np.isfinite(beta_mid) else -0.5, bm_lo, bm_hi))
+    init['bmid'] = (bm0, bm_lo, bm_hi)
   q0 = [init[n][0] for n in names]
   blo = [init[n][1] for n in names]
   bhi = [init[n][2] for n in names]
@@ -1437,11 +1470,15 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     r = least_squares(resid, q0, bounds=(blo, bhi))
   except ValueError:
     return out
-  s1, s2, A, bh = unpack(r.x)
+  s1, s2, A, bh, bm = unpack(r.x)
   out['F_ext'], out['y0'] = float(A), y0
   out['s1'] = np.nan if vfc else float(s1)
   out['s2'] = float(s2)
   out['b_hi_fit'] = float(bh)
+  out['beta_mid'] = float(bm) if np.isfinite(bm) else np.nan
+  if fit_bmid:
+    e = init['bmid']
+    out['bmid_at_bound'] = bool(min(abs(bm - e[1]), abs(bm - e[2])) < 1e-3)
   out['rms'] = float(np.sqrt(np.mean(r.fun**2)))
   out['npts'] = int(len(xf))
   # only exponents actually fitted can pin at a bound: none when s_hold is given, and in VFC
@@ -1590,6 +1627,28 @@ def fit_single_break(x, sp, psyn, nuM, cutfac=CUT_FAC, fit_dec=FIT_DEC,
 # it.
 
 
+def _free_mid(lx, ly, interior, min_pts=FREE_MIN_PTS, min_dex=FREE_MIN_DEX):
+  '''
+  The mid line MEASURED where there is no plateau to hold it: a free straight line over the
+  widest contiguous run of the interior, with no slope value entering the selection.
+
+  This is the fallback the GS02-scaffolded route used, transplanted into the self-contained
+  one. There, free_slopes placed a mid window geometrically between two fitted breaks and fit
+  a free line in it; the window selection knew nothing about the expected slope, and the
+  resulting a_mid evolved continuously through the FC/SC crossing rather than jumping between
+  asymptotes. Here the same idea uses the identified windows to bound the interior instead of
+  a template's breaks, so no fit from outside is needed.
+
+  Returns (slope, intercept, width in dex) or None.
+  '''
+  w = _widest_run(interior, lx, min_pts, min_dex)
+  if w is None:
+    return None
+  i, j = w
+  A = np.polyfit(lx[i:j+1], ly[i:j+1], 1)
+  return float(A[0]), float(A[1]), float(lx[j] - lx[i])
+
+
 def _line_on(lx, ly, x0, x1, a=None, min_pts=MIN_PTS):
   '''
   The straight line of one identified window, re-measured on whatever (lx, ly) is passed in:
@@ -1656,19 +1715,30 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
   'held' takes the one-zone asymptote instead. The default is the physical one -- see the
   section header.
 
-  mid_fallback=True adds the TANGENT anchor (_tangent_mid) wherever the mid slope cannot be
-  properly measured -- i.e. no mid window was identified at all, which is what an MC class
-  means. A spectrum whose slope runs monotonically from 4/3 to 1-p/2 must pass through the
-  mid asymptote exactly once on the way, and at that point the tangent IS that asymptote, so
-  a mid line can be anchored with no plateau and no free fit: the slope is held and only the
-  intercept comes from the data. It recovers a two-break geometry (shape '2brk_tangent')
-  where the plateau route has nothing to fit, at a measured 1-3% on the breaks down to 3.0
-  dex of separation.
-  WHAT IT MUST NOT BE READ AS: the mid slope is HELD there, so those bins carry no evidence
-  about whether the spectrum is marginal, and the merged single break remains the better
-  description of an on-axis MC spectrum (2.5-2.6x in rms). Both are returned -- the tangent
-  two-break geometry and the merged break -- and `mid_from` says which line the crossings
-  came from. Never pool 'tangent' bins into a regime census.
+  mid_fallback supplies a mid line wherever the mid slope cannot be properly measured -- i.e.
+  no mid window was identified at all, which is what an MC class means. Two are available and
+  they differ in what they assume:
+
+    'tangent' (or True)  HOLDS the slope at a theory asymptote. A spectrum whose slope runs
+        monotonically from 4/3 to 1-p/2 passes through the mid asymptote exactly once, and at
+        that point the tangent IS that asymptote, so the line needs no plateau and no free
+        fit: only the intercept comes from the data. Recovers the breaks to 1-3% on
+        synthetics down to 3.0 dex of separation. Shape '2brk_tangent'.
+        It carries NO evidence about marginality -- the slope is imposed, so beta_mid comes
+        back exactly at an asymptote by construction -- and it is discontinuous in time,
+        since which asymptote is nearest can switch from bin to bin.
+    'free'               FITS the slope over the widest straight run of the interior, with no
+        slope value entering the selection (_free_mid). This is what the GS02-scaffolded
+        route did, and its virtue is that a_mid then evolves CONTINUOUSLY through the FC/SC
+        crossing, which is the physical expectation: the mid slope of a shell-integrated
+        spectrum moves smoothly as nu_c passes nu_m, it does not jump between asymptotes.
+        The cost is that a line fitted across a knee is window-dependent where the knee has
+        no straight part at all. Shape '2brk_free'.
+    False                no fallback: MC keeps only the merged single break.
+
+  The merged single break is measured on every MC bin whatever the fallback, so the two
+  descriptions can always be compared; `mid_from` records which line the crossings came from
+  ('plateau', 'tangent' or 'free'). Never pool 'tangent' bins into a regime census.
 
   Returns dict(regime, b_lo, b_hi, a_lo, a_mid, a_hi, c_lo, c_mid, c_hi, nuM, sigma,
   mid_name, mid_from, shape, n_breaks, dex_*, ok, det), shape being which model the
@@ -1726,7 +1796,7 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
   if mid_name is not None and mid_name in lines:
     out['mid_from'] = 'plateau'
 
-  # no mid window at all: anchor one by tangency instead of declining the geometry
+  # no mid window at all: supply one instead of declining the geometry
   if mid_fallback and mid_name is None and {'lo', 'hi'} <= set(lines):
     a_lo_th, a_hi_th = 4./3., 1. - psyn/2.
     lxs, lys, s = segment_slopes(10**lx, 10**ly, smooth)
@@ -1735,25 +1805,33 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
     i_hi = np.searchsorted(lxs, np.log10(segs['hi']['x0']), 'left')
     interior[i_lo:i_hi] = True
     interior &= np.isfinite(s) & (lys > lys.max() - FIT_DEC)
+    # drop the samples still hugging either asymptote: the knee is what is left
     interior &= (s < a_lo_th - slope_tol) & (s > a_hi_th + slope_tol)
-    tan = _tangent_mid(lxs, lys, s, interior, psyn)
-    if tan is not None:
-      lines['mid'] = (tan[0], tan[1])
-      mid_name = 'mid'
-      out['mid_from'] = 'tangent'
+    if mid_fallback == 'free':
+      fr = _free_mid(lxs, lys, interior)
+      if fr is not None:
+        lines['mid'] = (fr[0], fr[1])
+        mid_name = 'mid'
+        out['mid_from'] = 'free'
+        out['dex_mid'] = fr[2]
+    else:
+      tan = _tangent_mid(lxs, lys, s, interior, psyn)
+      if tan is not None:
+        lines['mid'] = (tan[0], tan[1])
+        mid_name = 'mid'
+        out['mid_from'] = 'tangent'
   for key, name in (('lo', 'lo'), ('mid', mid_name), ('hi', 'hi')):
     if name in lines:
       out[f'a_{key}'], out[f'c_{key}'] = lines[name]
 
   rg = det['regime']
-  tangent = out['mid_from'] == 'tangent'
+  fb = {'tangent': '2brk_tangent', 'free': '2brk_free'}.get(out['mid_from'], '2brk')
   if rg in ('FC', 'SC', 'MC') and mid_name is not None \
      and {'lo', mid_name, 'hi'} <= set(lines):
     lb = _cross(lines['lo'], lines[mid_name])
     hb = _cross(lines[mid_name], lines['hi'])
     if np.isfinite(lb) and np.isfinite(hb) and lb < hb:
-      out.update(b_lo=float(10**lb), b_hi=float(10**hb), n_breaks=2,
-                 shape='2brk_tangent' if tangent else '2brk')
+      out.update(b_lo=float(10**lb), b_hi=float(10**hb), n_breaks=2, shape=fb)
   elif rg in ('VFC', 'FC*') and mid_name is not None and {mid_name, 'hi'} <= set(lines):
     hb = _cross(lines[mid_name], lines['hi'])
     if np.isfinite(hb):
@@ -1777,7 +1855,7 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
 
 
 def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_hold=None,
-    s1brk_hold=None, **kw):
+    s1brk_hold=None, free_bmid=False, **kw):
   '''
   s of every break the identified segments define, by refitting granot_sari_syn with those
   crossings and those slopes held -- the third step of the self-contained route.
@@ -1804,15 +1882,18 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
   '''
   br = breaks_from_identified(x, sp, psyn, det=det, **kw) if br is None else br
   out = dict(br, s1=np.nan, s2=np.nan, s_1brk=np.nan, rms=np.nan, rms_1brk=np.nan,
-             nu_b1=np.nan, npts=0, at_bound=False, s_ok=False)
+             nu_b1=np.nan, npts=0, at_bound=False, s_ok=False, a_mid_fit=np.nan,
+             bmid_at_bound=False, b_hi_fit=np.nan)
   if not br['ok']:
     return out
   sig = br.get('sigma', np.nan)
-  if br['shape'] in ('2brk', '2brk_tangent'):
+  if br['shape'] in ('2brk', '2brk_tangent', '2brk_free'):
     f = fit_smoothing_held(x, sp, psyn, br['b_lo'], br['b_hi'], br['nuM'],
-                           br['a_mid'] - 1., free_bhi=free_bhi, s_hold=s_hold, sigma=sig)
+                           br['a_mid'] - 1., free_bhi=free_bhi, s_hold=s_hold, sigma=sig,
+                           free_bmid=free_bmid)
     out.update(s1=f['s1'], s2=f['s2'], rms=f['rms'], npts=f['npts'],
-               at_bound=f['at_bound'], s_ok=f['ok'])
+               at_bound=f['at_bound'], s_ok=f['ok'], b_hi_fit=f['b_hi_fit'],
+               a_mid_fit=f['beta_mid'] + 1., bmid_at_bound=f['bmid_at_bound'])
   elif br['shape'] == '1brk_vfc':
     # the single break is b_hi here; fit_smoothing_held's vfc branch takes it as b_lo and
     # uses neither b_hi nor beta_mid (nuc=None joins -1/2 straight to -p/2)
