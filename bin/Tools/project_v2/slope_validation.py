@@ -2,6 +2,28 @@
 # @Author: acharlet
 
 '''
+WHAT IN HERE IS STILL CURRENT, AND WHAT IS NOT.
+
+  LIVE, and the reason the segment route is allowed to hold anything: the free-slope
+  validation itself. a_lo, a_mid and a_hi measured with no slope imposed anywhere, windows
+  placed geometrically from an independent fit. That is what says the computed spectra carry
+  4/3 and 1-p/2 (a_hi to 0.2%, p reading back 2.506), and every route that HOLDS those
+  asymptotes -- identify_segments and the whole segment route included -- rests on it. Quote
+  it in the paper as the validation it is.
+
+  SUPERSEDED: the SMOOTHING measured here (regime_table's s1/s2 columns,
+  prescription_check, prescription_summary, prescription_refine) and the per-regime tables
+  quoted further down this docstring. The paper takes s from segment_route.py, whose regime
+  rows are the shape class rather than the GS02 template's fitted beta_mid, and whose
+  geometry comes from the identified segments rather than from template breaks.
+
+  DOUBLY STALE, so do not quote them even as a cross-check: the specific numbers in the
+  "BY DETECTED REGIME" table below are from a run of 2026-08-25, before the edge-slope gate
+  and the tangent fallback landed on 2026-08-29. Re-running the same code on the same
+  (unchanged) spectra on 2026-09-01 gives FC s1 = 1.14/1.22 where the table says 0.73/0.69,
+  and SC s2 = 1.54/1.51 where it says 1.68/1.66. The prose either side of the table is still
+  a fair description of the METHOD; the digits are not a record of anything current.
+
 Do the computed shell spectra actually carry the synchrotron asymptotes that every
 measurement in this project HOLDS?
 

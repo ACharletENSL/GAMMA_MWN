@@ -2,6 +2,14 @@
 # @Author: acharlet
 
 '''
+THE PAPER'S SPECTRAL-SHAPE MEASUREMENT. Charlet et al. (cooling regimes) takes its regimes,
+its break frequencies and its smoothing exponents from this module and from nothing else.
+The other routes in the project -- sweep_gammacm.measure_regime, fit_gs02_spectrum /
+track_breaks_gs02, spectral_breaks.breaks_from_segments, and slope_validation's smoothing
+tables -- are superseded for that purpose and carry banners saying so. The one thing that is
+NOT superseded is slope_validation's free-slope validation of the 4/3 and 1-p/2 asymptotes,
+which is what makes holding them here legitimate.
+
 The smoothing exponents measured by the SELF-CONTAINED route, per break and per regime.
 
 One chain, rooted in the spectrum and nothing else:

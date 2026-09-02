@@ -2,6 +2,34 @@
 # @Author: acharlet
 
 '''
+WHICH ROUTE THE PAPER USES -- read this before quoting any number out of this module.
+
+The paper (Charlet et al., cooling regimes) uses ONE route and one only: the self-contained
+segment route at the bottom of this file,
+
+    sweep_gammacm.identify_segments -> breaks_from_identified -> smoothing_from_identified
+
+driven by segment_route.py. Everything else here is SUPERSEDED for the paper and kept only
+because other modules still stand on it:
+
+  breaks_from_segments / track_breaks_segments   SUPERSEDED by breaks_from_identified. Same
+      idea -- breaks as the crossing of fitted segments -- but it selects its windows with
+      fit_segments (which thresholds the slope around the expected value on the FLATTENED
+      spectrum) rather than with identify_segments, and it returns no shape class. Still
+      referenced by nuc_validation.TRACKERS as a cross-check.
+  free_slopes / track_free_slopes                NOT stale, and not a break-measurement route:
+      it is the test that the computed spectra carry the 4/3 and 1-p/2 asymptotes at all
+      (slope_validation), which is exactly what makes HOLDING them in the segment route
+      legitimate. Keep. Its per-regime SMOOTHING table, however, is superseded -- see
+      slope_validation's own banner.
+  fit_smoothing_held / fit_single_break          LIVE. These are the estimators the segment
+      route calls; nothing about them is stale, only the geometry that used to be fed to them.
+
+The rest of this docstring describes breaks_from_segments and is kept for the reasoning it
+records, not as a description of the current method.
+
+---
+
 Spectral breaks measured as the INTERSECTION OF THE ASYMPTOTIC POWER-LAW SEGMENTS,
 independently of how sharply the spectrum turns over at them.
 
@@ -29,10 +57,15 @@ what makes the smoothing recoverable afterwards (smoothing_from_deficit).
 This is a third method, not a variant of an existing one:
   measure_regime (sweep_gammacm:604)  - knee scan: takes the nuFnu PEAK as the upper break
     and scans down to where the slope steepens past ~0.92. Both are smoothing-dependent
-    positions, hence its documented bias (0.73 low-side, 1.5-2.7 high-side).
+    positions, hence its documented bias (0.73 low-side, 1.5-2.7 high-side). SUPERSEDED.
   fit_gs02_spectrum                   - full template, smoothing held: the degeneracy above.
+    SUPERSEDED as a measurement; still the scaffold slope_validation places its windows from.
   breaks_from_segments (here)         - asymptote intersection: smoothing-free by construction,
     and NaN rather than a biased number when the segments are too short to be seen.
+    SUPERSEDED by the fourth method below, which is the one the paper uses.
+  breaks_from_identified (here, bottom) - the same intersection, but of the segments
+    identify_segments found, so the regime is the shape class and no window is placed where
+    no segment was identified. THE PAPER ROUTE.
 
 A fourth method is deliberately ABSENT: detecting the segments without saying what slope to
 expect, i.e. finding where the spectrum is straight rather than where it matches one of the

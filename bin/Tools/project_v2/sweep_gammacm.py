@@ -1063,6 +1063,14 @@ GS02_S_VFC = 2.0          # smoothing of the VERY-fast-cooling single break (gri
 def fit_gs02_spectrum(x, sp, psyn, nuM, s=(GS02_S1, GS02_S2), free_s=False,
     free_nuM=True, fit_dec=GS02_FIT_DEC, cutoff=GS02_CUTOFF, free_bmid=False):
   '''
+  SUPERSEDED AS A MEASUREMENT -- the paper takes its breaks and its smoothing from the
+  segment route (spectral_breaks.breaks_from_identified / smoothing_from_identified), which
+  never fits a whole template and so cannot trade a break position against a smoothing it
+  cannot constrain (the degeneracy spectral_breaks' header documents). This function remains
+  LIVE in two supporting roles: it is the scaffold slope_validation places its free-slope
+  windows from, and track_breaks_gs02 built on it is still the reference track in
+  nuc_validation and cooling_frequency. Do not quote its breaks or its s in the paper.
+
   Fit the Granot & Sari (2002) shape (phys_functions.granot_sari_syn) to ONE nuFnu
   spectrum sp(x), x = nu/nu_m_collision. Free parameters: the two breaks and F_ext,
   plus s1, s2 if free_s and nuM if free_nuM.
@@ -1244,6 +1252,13 @@ GMA_VFC = 1     # VFC boundary: gamma_c << 1, read strictly as one decade below 
 
 def measure_regime(x, sp, p, env):
   '''
+  SUPERSEDED -- do not use for a paper number. The regime is now read from the segments the
+  spectrum displays (identify_segments), and the breaks from where those segments cross
+  (spectral_breaks.breaks_from_identified). Both positions this function returns are
+  smoothing-dependent, which is the documented bias below. Kept because build_regime_table
+  still tabulates its gamma_c-based labels, which answer a different question than a shape
+  class does.
+
   Measure the cooling regime of one nuFnu spectrum sp(x), x=nu/nu_m_collision, from
   its TWO breaks -- the peak (= max(nu_m,nu_c) at the emission time) and the lower
   knee to the nu^4/3 segment (= min(nu_m,nu_c)). Which knee is nu_m is set by the
