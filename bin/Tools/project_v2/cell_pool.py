@@ -66,17 +66,33 @@ def pool_context():
 
 def resolve_nproc(nproc=None, cap=None, env_var='GAMMACM_NPROC'):
   '''
-  Resolve a worker count: explicit arg > env GAMMACM_NPROC > cpu_count()-1 (leave one
-  core free). Clamped to [1, cap]; cap=None leaves it UNCAPPED.
+  Resolve a worker count: explicit arg > env GAMMACM_NPROC > the number of cores this
+  process may actually run on, minus one (leave one core free). Clamped to [1, cap];
+  cap=None leaves it UNCAPPED.
 
   The cap is the caller's, not this function's: a point-level pool caps at the number of
   points, a cell-level pool at the number of chunks. Resolving the budget and clamping it
   used to be one step, which is precisely what limited the sweep to 8 workers -- the cap
   was baked in at the only place that knew the budget.
+
+  NOT os.cpu_count(): that is the machine's core count and ignores the allocation. Under
+  Slurm a job granted 8 of a node's 64 CPUs would otherwise start 63 workers on 8 cores.
+  SLURM_CPUS_PER_TASK first, then the affinity mask (which the cgroup pins for us), then
+  cpu_count as the last resort.
   '''
   if nproc is None:
     env_np = os.environ.get(env_var)
-    nproc = int(env_np) if env_np else max(1, (os.cpu_count() or 1) - 1)
+    if env_np:
+      nproc = int(env_np)
+    else:
+      slurm_np = os.environ.get('SLURM_CPUS_PER_TASK')
+      if slurm_np:
+        navail = int(slurm_np)
+      elif hasattr(os, 'sched_getaffinity'):
+        navail = len(os.sched_getaffinity(0))
+      else:
+        navail = os.cpu_count() or 1
+      nproc = max(1, navail - 1)
   nproc = max(1, int(nproc))
   return nproc if cap is None else max(1, min(nproc, int(cap)))
 

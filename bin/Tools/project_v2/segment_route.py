@@ -89,21 +89,26 @@ PRESC_BAD_MAX = 0.10              # ... and a case failing more than this fracti
 NPROC = None                      # None -> cell_pool.resolve_nproc (GAMMACM_NPROC or ncpu-1)
 
 
-def _ensure_outdir():
-  os.makedirs(OUTDIR, exist_ok=True)
+def _ensure_outdir(outdir=OUTDIR):
+  os.makedirs(outdir, exist_ok=True)
 
 
 def _run_point(args):
-  '''One sweep point, in a worker: load the cache, run the route on every time bin.'''
-  key, method, z, logr = args
+  '''
+  One sweep point, in a worker: load the cache, run the route on every time bin. A trailing
+  dict of keyword arguments is passed straight to the route, which is how a variant of the
+  fit (free_bhi=False, say) is measured against the shipped one without editing a default.
+  '''
+  key, method, z, logr = args[:4]
+  route_kw = args[4] if len(args) > 4 else {}
   res = swp.load_sweep(swp.method_outdir(method, key, z))
   r = [q for q in res if abs(q['log10ratio'] - logr) < 1e-9][0]
-  tk = sb.track_segment_route(r)
+  tk = sb.track_segment_route(r, **route_kw)
   tk['logr'], tk['z'] = logr, z
   return tk
 
 
-def load_side(z=Z_RS, key=KEY, method=METHOD, nproc=NPROC):
+def load_side(z=Z_RS, key=KEY, method=METHOD, nproc=NPROC, route_kw=None):
   '''
   Every cached sweep point of one shell, with the segment route run on every time bin.
   Points are independent, so they are run in parallel -- the smeared cut-off scan is ~0.8 s
@@ -114,7 +119,7 @@ def load_side(z=Z_RS, key=KEY, method=METHOD, nproc=NPROC):
     raise FileNotFoundError(f'no cached sweep for z={z} -- run sweep_gammacm.main first')
   logrs = sorted(float(r['log10ratio']) for r in res)
   barT_f = swp.exit_onset_barT(key, z=z)
-  jobs = [(key, method, z, lr) for lr in logrs]
+  jobs = [(key, method, z, lr, dict(route_kw or {})) for lr in logrs]
   np_ = cell_pool.resolve_nproc(nproc, cap=len(jobs))
   if np_ > 1:
     ctx = cell_pool.pool_context()
@@ -484,7 +489,7 @@ def compare_mid_fallbacks(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), nproc=NPRO
             f'(median rms {np.nanmedian(both.free_rms):.4f} vs '
             f'{np.nanmedian(both.tangent_rms):.4f})')
   if outdir:
-    _ensure_outdir()
+    _ensure_outdir(outdir)
     df.to_csv(os.path.join(outdir, 'mid_fallback_comparison.csv'), index=False)
     print(f"  wrote {os.path.join(outdir, 'mid_fallback_comparison.csv')}")
   return df
@@ -498,12 +503,13 @@ def write_tables(*dfs_named, outdir=OUTDIR):
       print(f'  wrote {os.path.join(outdir, name)}')
 
 
-def main(key=KEY, method=METHOD, outdir=OUTDIR, nproc=NPROC):
-  _ensure_outdir()
+def main(key=KEY, method=METHOD, outdir=OUTDIR, nproc=NPROC, route_kw=None):
+  _ensure_outdir(outdir)
   sides_by_z = []
   for z in (Z_RS, Z_FS):
     print(f'\n--- shell z={z} ---', flush=True)
-    sides_by_z.append(load_side(z=z, key=key, method=method, nproc=nproc))
+    sides_by_z.append(load_side(z=z, key=key, method=method, nproc=nproc,
+                                route_kw=route_kw))
   cov = coverage_table(sides_by_z)
   reg = regime_table(sides_by_z)
   ep = regime_table(sides_by_z, epoch=True, verbose=False)
