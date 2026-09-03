@@ -546,7 +546,7 @@ def synth_spectrum(sep, s1, s2, fast, sigma=VAL_SIGMA, mgap=VAL_MGAP, psyn=VAL_P
 
 
 def validation_sweep(seps=VAL_SEPS, s1s=VAL_S1, s2s=VAL_S2, sigma=VAL_SIGMA,
-    mgaps=(VAL_MGAP, VAL_MGAP_TIGHT), verbose=True, outdir=OUTDIR):
+    mgaps=(VAL_MGAP, VAL_MGAP_TIGHT), verbose=True, outdir=OUTDIR, route_kw=None):
   '''
   The route run over a grid of synthetic spectra of known parameters, reporting what it gets
   back. Single-process by design (see the section header).
@@ -563,7 +563,7 @@ def validation_sweep(seps=VAL_SEPS, s1s=VAL_S1, s2s=VAL_S2, sigma=VAL_SIGMA,
         for s1 in s1s:
           for s2 in s2s:
             nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sigma, mgap=mgap)
-            g = sb.smoothing_from_identified(nu, sp, t['psyn'])
+            g = sb.smoothing_from_identified(nu, sp, t['psyn'], **(route_kw or {}))
             rows.append(dict(**{k: t[k] for k in ('sep', 's1', 's2', 'mgap', 'fast')},
                              truth_regime=t['regime'], regime=g['regime'],
                              shape=g['shape'], mid_from=g['mid_from'], ok=bool(g['s_ok']),

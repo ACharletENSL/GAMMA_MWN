@@ -1627,6 +1627,46 @@ def fit_single_break(x, sp, psyn, nuM, cutfac=CUT_FAC, fit_dec=FIT_DEC,
 # it.
 
 
+def _recentred_mid(lx, ly, s, interior, a0, slope_tol=SLOPE_TOL, min_pts=MIN_PTS,
+    min_dex=MIN_DEX, n_iter=6):
+  '''
+  The mid line re-measured over a window CENTRED on its own slope, iterated to a fixed point:
+  keep the interior samples within slope_tol of the current estimate, refit, repeat.
+
+  WHY THIS IS NOT THE IDENTIFICATION WINDOW. identify_segments selects the mid candidate with
+  an ASYMMETRIC window -- widened by SEG_FC_TOL_HI above 1/2 in fast cooling and by
+  SEG_SC_TOL_LO below (3-p)/2 in slow -- because the shell-integrated segment really is
+  displaced that way and a symmetric window loses genuine FC and SC spectra to MC. That is the
+  right window for deciding WHICH segments a spectrum shows. It is the wrong one for measuring
+  a slope: an unbalanced slice of a knee tilts the line fitted through it, and on synthetic
+  spectra whose mid slope IS the asymptote by construction the identified window returns
+  a_mid = 0.536 (fast) and 0.215 (slow) against 0.500 and 0.250. That 0.036 then levers into
+  the crossings over several decades and came out as nu_c recovered 21% low in FC and 47% high
+  in SC (segment_route.validation_sweep).
+
+  Centring the window on the estimate removes the imprint without imposing a value: the
+  iteration converges to wherever the plateau actually sits, so a genuinely displaced segment
+  is still measured as displaced -- which is the whole point of reporting dep. This is the
+  same fixed-point fit_segments uses, and for the same reason its comment records.
+
+  Returns (slope, intercept, width in dex) or None if no centred window survives.
+  '''
+  a = float(a0)
+  best, prev_w = None, None
+  for _ in range(n_iter):
+    m = interior & np.isfinite(s) & (np.abs(s - a) < slope_tol)
+    w = _widest_run(m, lx, min_pts, min_dex)
+    if w is None:
+      return best
+    i, j = w
+    A = np.polyfit(lx[i:j+1], ly[i:j+1], 1)
+    best = (float(A[0]), float(A[1]), float(lx[j] - lx[i]))
+    if w == prev_w:
+      return best
+    prev_w, a = w, best[0]
+  return best
+
+
 def _free_mid(lx, ly, interior, min_pts=FREE_MIN_PTS, min_dex=FREE_MIN_DEX):
   '''
   The mid line MEASURED where there is no plateau to hold it: a free straight line over the
@@ -1749,8 +1789,8 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
   nan = np.nan
   out = dict(regime=None, b_lo=nan, b_hi=nan, a_lo=nan, a_mid=nan, a_hi=nan, c_lo=nan,
              c_mid=nan, c_hi=nan, nuM=nan, sigma=nan, mid_name=None, mid_from=None,
-             shape=None, n_breaks=0, dex_lo=nan, dex_mid=nan, dex_hi=nan, ok=False,
-             det=None)
+             shape=None, n_breaks=0, dex_lo=nan, dex_mid=nan, dex_mid_id=nan, dex_hi=nan,
+             ok=False, det=None)
   # ONE cut-off measurement for the whole chain (see the docstring): flatten=False because
   # the flattening below is done against the windows, not the peak-anchored scan's own grid
   if cut is None:
@@ -1797,17 +1837,36 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
   if mid_name is not None and mid_name in lines:
     out['mid_from'] = 'plateau'
 
-  # no mid window at all: supply one instead of declining the geometry
-  if mid_fallback and mid_name is None and {'lo', 'hi'} <= set(lines):
-    a_lo_th, a_hi_th = 4./3., 1. - psyn/2.
+  # the interior: between the two identified asymptote windows, with the samples still
+  # hugging either asymptote dropped. Both the re-centred measurement and the fallbacks
+  # below work on it.
+  a_lo_th, a_hi_th = 4./3., 1. - psyn/2.
+  need_interior = ({'lo', 'hi'} <= set(lines)) and (mid_fallback or mid_name is not None)
+  lxs = lys = s = interior = None
+  if need_interior:
     lxs, lys, s = segment_slopes(10**lx, 10**ly, smooth)
     interior = np.zeros(len(lxs), bool)
     i_lo = np.searchsorted(lxs, np.log10(segs['lo']['x1']), 'right')
     i_hi = np.searchsorted(lxs, np.log10(segs['hi']['x0']), 'left')
     interior[i_lo:i_hi] = True
     interior &= np.isfinite(s) & (lys > lys.max() - FIT_DEC)
-    # drop the samples still hugging either asymptote: the knee is what is left
     interior &= (s < a_lo_th - slope_tol) & (s > a_hi_th + slope_tol)
+
+  # RE-CENTRE the measurement window on its own slope. identify_segments chose the mid
+  # window with an asymmetric tolerance, which is right for deciding the class and wrong for
+  # measuring a slope -- see _recentred_mid for the bias it costs and the synthetic that
+  # exposed it. The identification stands; only the line is re-measured.
+  if mid_name is not None and mid_name in lines and mid == 'measured' \
+     and interior is not None and interior.any():
+    rc = _recentred_mid(lxs, lys, s, interior, lines[mid_name][0], slope_tol=slope_tol,
+                        min_pts=min_pts)
+    if rc is not None:
+      lines[mid_name] = (rc[0], rc[1])
+      out['mid_from'] = 'plateau_recentred'
+      out['dex_mid_id'], out['dex_mid'] = out['dex_mid'], rc[2]
+
+  # no mid window at all: supply one instead of declining the geometry
+  if mid_fallback and mid_name is None and interior is not None:
     if mid_fallback == 'free':
       fr = _free_mid(lxs, lys, interior)
       if fr is not None:
