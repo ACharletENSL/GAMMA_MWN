@@ -1676,7 +1676,7 @@ def _cross(l1, l2):
 
 def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=True,
     mid='measured', mid_fallback=True, smooth=SLOPE_SMOOTH, slope_tol=SLOPE_TOL,
-    min_pts=MIN_PTS, **kw):
+    min_pts=MIN_PTS, cutfac=CUT_FAC, **kw):
   '''
   The breaks of one nuFnu spectrum as the crossings of the segments identify_segments found,
   with no template anywhere in the chain.
@@ -1759,7 +1759,8 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
     return out
   sigma = float(cut.get('sigma', np.nan)) if smear else np.nan
   det = identify_segments(x, sp, psyn, smooth=smooth, slope_tol=slope_tol,
-                          min_pts=min_pts, cut=cut, **kw) if det is None else det
+                          min_pts=min_pts, cut=cut, cutfac=cutfac,
+                          **kw) if det is None else det
   if det is None:
     return out
   out['det'] = det
@@ -1855,7 +1856,7 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
 
 
 def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_hold=None,
-    s1brk_hold=None, free_bmid='mc', **kw):
+    s1brk_hold=None, free_bmid='mc', cutfac=CUT_FAC, **kw):
   '''
   s of every break the identified segments define, by refitting granot_sari_syn with those
   crossings and those slopes held -- the third step of the self-contained route.
@@ -1904,7 +1905,8 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
   Returns the breaks_from_identified dict plus s1, s2, s_1brk, rms, rms_1brk, npts,
   at_bound, s_ok.
   '''
-  br = breaks_from_identified(x, sp, psyn, det=det, **kw) if br is None else br
+  br = breaks_from_identified(x, sp, psyn, det=det, cutfac=cutfac,
+                              **kw) if br is None else br
   out = dict(br, s1=np.nan, s2=np.nan, s_1brk=np.nan, rms=np.nan, rms_1brk=np.nan,
              nu_b1=np.nan, npts=0, at_bound=False, s_ok=False, a_mid_fit=np.nan,
              a_mid_seed=br.get('a_mid', np.nan), bmid_at_bound=False, b_hi_fit=np.nan,
@@ -1916,7 +1918,7 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
   if br['shape'] in ('2brk', '2brk_tangent', '2brk_free'):
     f = fit_smoothing_held(x, sp, psyn, br['b_lo'], br['b_hi'], br['nuM'],
                            br['a_mid'] - 1., free_bhi=free_bhi, s_hold=s_hold, sigma=sig,
-                           free_bmid=fb)
+                           free_bmid=fb, cutfac=cutfac)
     # a fitted mid slope is the better estimate of the mid index, so it becomes a_mid;
     # what was held going in is kept as a_mid_seed. A bin whose fit hit the mid-slope
     # bound is declined outright -- see the docstring.
@@ -1930,13 +1932,14 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
     # the single break is b_hi here; fit_smoothing_held's vfc branch takes it as b_lo and
     # uses neither b_hi nor beta_mid (nuc=None joins -1/2 straight to -p/2)
     f = fit_smoothing_held(x, sp, psyn, br['b_hi'], np.nan, br['nuM'], np.nan,
-                           vfc=True, s_hold=s_hold, sigma=sig)
+                           vfc=True, s_hold=s_hold, sigma=sig, cutfac=cutfac)
     out.update(s2=f['s2'], rms=f['rms'], npts=f['npts'], at_bound=f['at_bound'],
                s_ok=f['ok'])
   # the merged shape is the reference description of an MC spectrum, so it is measured on
   # EVERY MC bin -- including the ones the tangent fallback just gave a two-break geometry
   if br['regime'] == 'MC':
-    f1 = fit_single_break(x, sp, psyn, br['nuM'], s_hold=s1brk_hold, sigma=sig)
+    f1 = fit_single_break(x, sp, psyn, br['nuM'], s_hold=s1brk_hold, sigma=sig,
+                          cutfac=cutfac)
     out.update(s_1brk=f1['s'], rms_1brk=f1['rms'], nu_b1=f1['nu_b'])
     if br['shape'] == '1brk_mc':
       out.update(rms=f1['rms'], npts=f1['npts'], at_bound=f1['at_bound'], s_ok=f1['ok'])

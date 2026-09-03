@@ -495,6 +495,112 @@ def compare_mid_fallbacks(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), nproc=NPRO
   return df
 
 
+# ---------------------------------------------------------------------------------------
+# End-to-end recovery: does the route return what was put in?
+# ---------------------------------------------------------------------------------------
+# slope_validation established that the computed spectra CARRY the 4/3 and 1-p/2 asymptotes,
+# which is what licenses holding them. It says nothing about whether this route, applied to a
+# spectrum of known breaks and known smoothing, returns those numbers -- and the identification
+# gates, the crossing and the held-slope fit each have their own failure modes. This is that
+# test, on synthetic superpositions where every parameter is known by construction.
+#
+# Runs SERIALLY and deliberately: a synthetic spectrum costs about a second, the grid is a
+# couple of hundred of them, and the point of a validation is not to saturate the machine it
+# runs on. There is no pool here at all.
+VAL_P = 2.5
+VAL_SEPS = (1.5, 2.0, 2.5, 3.0, 3.5, 4.0)    # log10(nu_2/nu_1)
+VAL_S1 = (0.7, 1.0, 1.4)
+VAL_S2 = (1.2, 1.8, 2.4)
+VAL_SIGMA = 0.09          # the nu_M spread the sweep spectra actually show at peak
+VAL_MGAP = 4.0            # log10(nu_M/nu_2) -- the room the high segment has
+VAL_MGAP_TIGHT = 2.0      # ... and a squeezed variant, the documented weak point for s2
+VAL_NPD = 33              # points per decade, matching sweep_gammacm.NNU_PER_DEC
+VAL_SMEAR_NODES = 61
+
+
+def synth_spectrum(sep, s1, s2, fast, sigma=VAL_SIGMA, mgap=VAL_MGAP, psyn=VAL_P,
+    npd=VAL_NPD):
+    '''
+    One superposed spectrum of known everything: two breaks a factor 10**sep apart, known
+    smoothing at each, a cut-off 10**mgap above the upper break, smeared over a lognormal
+    nu_M spread of `sigma` dex -- i.e. built the way the shape model says the observed
+    spectra are built, so what the route recovers can be compared with what went in.
+
+    Returns (nu, nuFnu, truth dict).
+    '''
+    b_lo, b_hi = 1., 10**sep
+    nuM = b_hi*10**mgap
+    num, nuc = (b_hi, b_lo) if fast else (b_lo, b_hi)
+    nu = 10**np.arange(-3., np.log10(nuM) + 0.5, 1./npd)
+    if sigma > 0:
+      s = np.linspace(-4*sigma, 4*sigma, VAL_SMEAR_NODES)
+      w = np.exp(-0.5*(s/sigma)**2); w /= w.sum()
+      sp = sum(wk*sb.granot_sari_syn(nu, num, nuc, psyn, s1=s1, s2=s2, nuM=nuM*10**sk,
+                                     nuFnu=True) for sk, wk in zip(s, w))
+    else:
+      sp = sb.granot_sari_syn(nu, num, nuc, psyn, s1=s1, s2=s2, nuM=nuM, nuFnu=True)
+    truth = dict(sep=sep, s1=s1, s2=s2, sigma=sigma, mgap=mgap, fast=fast,
+                 b_lo=b_lo, b_hi=b_hi, nuM=nuM, psyn=psyn,
+                 regime=('FC' if fast else 'SC'))
+    return nu, sp, truth
+
+
+def validation_sweep(seps=VAL_SEPS, s1s=VAL_S1, s2s=VAL_S2, sigma=VAL_SIGMA,
+    mgaps=(VAL_MGAP, VAL_MGAP_TIGHT), verbose=True, outdir=OUTDIR):
+  '''
+  The route run over a grid of synthetic spectra of known parameters, reporting what it gets
+  back. Single-process by design (see the section header).
+
+  Every ratio is recovered/true, so 1.000 is perfect; the class column says whether the
+  identification even reached the two-break shape, which is itself part of the answer -- at
+  small separations it should and does fall back to MC, and a bin the route declines is not a
+  failed measurement but a refused one.
+  '''
+  rows = []
+  for mgap in mgaps:
+    for fast in (True, False):
+      for sep in seps:
+        for s1 in s1s:
+          for s2 in s2s:
+            nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sigma, mgap=mgap)
+            g = sb.smoothing_from_identified(nu, sp, t['psyn'])
+            rows.append(dict(**{k: t[k] for k in ('sep', 's1', 's2', 'mgap', 'fast')},
+                             truth_regime=t['regime'], regime=g['regime'],
+                             shape=g['shape'], mid_from=g['mid_from'], ok=bool(g['s_ok']),
+                             b_lo_r=g['b_lo']/t['b_lo'], b_hi_r=g['b_hi']/t['b_hi'],
+                             b_hi_fit_r=g['b_hi_fit']/t['b_hi'],
+                             s1_r=g['s1']/s1, s2_r=g['s2']/s2, a_mid=g['a_mid'],
+                             nuM_r=g['nuM']/t['nuM'], sigma_fit=g['sigma'], rms=g['rms']))
+  df = pd.DataFrame(rows)
+  if verbose and len(df):
+    ok = df[df.ok]
+    print(f"\n{'=== END-TO-END RECOVERY ON SYNTHETIC SPECTRA ':=<96}")
+    print(f'{len(df)} spectra, {len(ok)} with a usable two-break measurement. Every column is '
+          f'recovered/true.\nsigma = {sigma}, p = {VAL_P}; "class" is what the identification '
+          f'returned, and MC at small\nseparation is the correct answer, not a failure.')
+    hdr = (f"  {'mgap':>5} {'sep':>5} {'truth':>6} {'class':>13} {'N':>4} | {'nu_1':>15} | "
+           f"{'nu_2':>15} | {'s1':>15} | {'s2':>15} | {'rms':>7}")
+    print(hdr); print('  ' + '-'*(len(hdr)-2))
+    band = lambda v: (f'{np.nanmedian(v):5.3f} [{np.nanpercentile(v, 16):5.3f}-'
+                      f'{np.nanpercentile(v, 84):5.3f}]' if np.isfinite(v).any()
+                      else '--'.rjust(15))
+    for mgap in mgaps:
+      for fast in (True, False):
+        for sep in seps:
+          d = df[(df.mgap == mgap) & (df.fast == fast) & (df.sep == sep)]
+          cl = '/'.join(sorted({str(q) for q in d.regime}))
+          do = d[d.ok]
+          print(f"  {mgap:5.1f} {sep:5.1f} {('FC' if fast else 'SC'):>6} {cl:>13} "
+                f"{len(do):>4} | {band(do.b_lo_r)} | {band(do.b_hi_r)} | "
+                f"{band(do.s1_r)} | {band(do.s2_r)} | "
+                f"{np.nanmedian(do.rms) if len(do) else np.nan:7.4f}")
+  if outdir:
+    _ensure_outdir(outdir)
+    df.to_csv(os.path.join(outdir, 'validation_recovery.csv'), index=False)
+    print(f"  wrote {os.path.join(outdir, 'validation_recovery.csv')}")
+  return df
+
+
 def write_tables(*dfs_named, outdir=OUTDIR):
   _ensure_outdir()
   for df, name in dfs_named:

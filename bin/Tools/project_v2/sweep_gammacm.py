@@ -844,7 +844,7 @@ def _seg_cross(l1, l2):
 
 def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
     min_mid_dex=SEG_MIN_MID_DEX, fc_tol_hi=SEG_FC_TOL_HI, sc_tol_lo=SEG_SC_TOL_LO,
-    smooth=SLOPE_SMOOTH, min_pts=MIN_PTS, cut=None):
+    smooth=SLOPE_SMOOTH, min_pts=MIN_PTS, cut=None, cutfac=CUT_FAC):
   '''
   Which synchrotron power-law segments one nuFnu spectrum sp(x) actually shows, and the
   cooling regime that follows from the answer.
@@ -942,7 +942,7 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
     return None
   i_pk = int(np.argmax(ly))
   idx = np.arange(len(lx))
-  keep = (ly > ly.max() - FIT_DEC) & (lx < np.log10(cut['nuM']/CUT_FAC))
+  keep = (ly > ly.max() - FIT_DEC) & (lx < np.log10(cut['nuM']/cutfac))
   segs = {}
   # tol_lo/tol_hi are the half-widths of each candidate's slope window. The two ASYMPTOTES
   # keep +-slope_tol; the two MID candidates are widened on the side shell integration moves
