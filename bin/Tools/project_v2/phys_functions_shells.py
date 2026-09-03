@@ -200,11 +200,15 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.nuBpFS = e_*env.BpFS/(2.*pi_*me_*c_)
   env.nu0p = env.gma_m**2 * env.nuBp
   env.nu0pFS = env.gma_mFS**2 * env.nuBpFS
+  env.nuMp = env.gma_max**2 * env.nuBp
+  env.nuMpFS = env.gma_maxFS**2 * env.nuBpFS
   env.nucp = env.gma_c**2 * env.nuBp
+  env.nucpFS = env.gma_cFS**2 * env.nuBpFS
   env.nu0 = 2.*env.lfac0*env.nu0p/(1+z)
   env.nuc = 2.*env.lfac0*env.nucp/(1+z)
-  env.nucpFS = env.gma_cFS**2 * env.nuBpFS
   env.nucFS = 2.*env.lfac0*env.nucpFS/(1+z)
+  env.nuM = 2.*env.lfac0*env.nuMp/(1+z)
+  env.nuMFS = 2.*env.lfac0*env.nuMpFS/(1+z)
 
   env.eps_rad = 1.
   env.eps_radFS = 1.

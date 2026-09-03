@@ -2153,99 +2153,118 @@ def _mark_hydro_times(ax, barT_f, barT_off=None):
     ax.axvspan(barT_off[0], barT_off[1], color='grey', alpha=0.15, lw=0, zorder=0)
 
 
-def _guide(ax, x, slope, y_at, **kw):
-  '''power-law guide line of the given slope through (x[0], y_at).'''
+def _curve_median_at(curves, x0):
+  '''median of the drawn curves [(x, y), ...] at x = x0 (nearest sample in log x),
+  the anchor that puts a guide line on the curves rather than somewhere in the panel.
+  NaN where nothing is measured there, which the caller must be ready for.'''
+  ys = [y[np.argmin(np.abs(np.log(x/x0)))] for x, y in curves if len(x)]
+  ys = [y for y in ys if np.isfinite(y)]
+  return float(np.median(ys)) if ys else np.nan
+
+
+def _guide(ax, x, slope, y_at, label=None, lpos=.5, ldy=1.9, **kw):
+  '''power-law guide line of the given slope through (x[0], y_at), optionally annotated
+  with `label` a factor ldy above the line, at the fraction lpos along its (log) span.'''
   x = np.asarray(x, float)
-  ax.plot(x, y_at*(x/x[0])**slope, color='k', lw=.8, alpha=.6, **kw)
+  y = y_at*(x/x[0])**slope
+  ax.plot(x, y, color='k', lw=.8, alpha=.6, **kw)
+  if label:
+    xt = x[0]*(x[-1]/x[0])**lpos
+    ax.text(xt, ldy*y_at*(xt/x[0])**slope, label, color='k', alpha=.8, fontsize=11,
+            ha='center', va='bottom')
+
+
+NU_RX = 1.      # common convention factor on the frequency units of
+                # plot_break_evolution. The R(x) synchrotron kernel puts the break of an
+                # electron at gamma at 1.5 x nu'_B gamma^2, while env.nu0/nuc/nuM (and
+                # with them every nu_*/nu_m stored in the tracks) were defined WITHOUT
+                # that factor in the earlier work: set this to 1.5 to quote the breaks on
+                # the R(x) convention. It multiplies all three units identically, so it
+                # slides the panels without changing any shape.
 
 
 def plot_break_evolution(results, tracks, fits, barT_f, barT_off=None, outdir=OUTDIR,
-    c25=None):
+    nu_unit=NU_RX):
   '''
-  Time evolution of the three spectral frequencies, one colour per gamma_c/gamma_m.
-  Top: nu_c(t) (solid), nu_m(t) (dashed) and the cutoff nu_M(t) (dash-dot) in
-  collision-nu_m units vs bar{T}; the stretches where a break is not measurable
-  (off-window, or within EDGE_FAC of an edge / of the cutoff nu_M) are drawn faint, and
-  the gamma=1 floor nu_B -- below which nu_c cannot go, the electrons having stopped
-  cooling -- is the dotted horizontal. Guides of slope -2 (synchrotron cooling at
-  ~constant hydro) and -1 (high-latitude Doppler slide) frame the two asymptotic laws.
-  The three carry different physics: nu_M is the synchrotron BURNOFF limit, whose
-  gma_M ~ B^-1/2 makes nu'_M ~ B*gma_M^2 independent of B -- a constant of nature
-  (3e^2/2 pi m_e c sigma_T = 25 MeV), so it moves ONLY with the Doppler factor and is
-  flat until the shell goes dark. nu_m is injection, drifting down as the shock weakens.
-  Only nu_c carries cooling, and only it has the -2 law.
-  Middle: the same nu_c divided by the nominal (gma_c/gma_m)^2 -- if the law is
-  regime-independent, every curve falls on one, with the A*bar{T}^-2 reference.
-  Bottom (only when c25 is given): the fitted nu_m against the C25 thin-shell estimate
-  (c25_num_curve). nu_m is injection, so a shell calculation that resolves the shock the
-  same way should reproduce the thin-shell value -- this is the panel that says whether it
-  does. The crossing gaps stay gaps: where the fit cannot name nu_m there is no ratio.
+  Time evolution of the two spectral breaks, one colour per gamma_c/gamma_m: nu_c(t)
+  (solid) and nu_m(t) (dashed) vs bar{T}, each against ITS OWN env normalisation
+  (nu_c/env.nuc, nu_m/env.nu0, both x nu_unit -- see NU_RX), so the two start together
+  at ~1 and the panel shows how far each DRIFTS from its injection value rather than the
+  ~12 decades that separate the regimes; the stretches where a break is not measurable
+  (off-window, or within EDGE_FAC of an edge / of the cutoff nu_M) are drawn faint.
+  Guides of slope -2 (synchrotron cooling at ~constant hydro) and -1 (high-latitude
+  Doppler slide) frame the two asymptotic laws.
+  The two carry different physics: nu_m is injection, drifting down as the shock weakens;
+  only nu_c carries cooling, and only it has the -2 law. The burnoff cutoff nu_M is not
+  drawn -- it moves ONLY with the Doppler factor (nu'_M ~ B*gma_M^2 with gma_M ~ B^-1/2
+  is a constant of nature, 25 MeV), so on its own normalisation it is 1 until the shell
+  goes dark and then slides as -1, carrying no information the guides do not.
+  Normalising nu_c by env.nuc is also what collapses the regimes onto one track, so the
+  panel doubles as the collapse figure the second panel used to carry (its A*bar{T}^-2
+  reference is now the -2 guide; A itself stays in break_evolution_table.csv).
   '''
   colors, sm = _sweep_colors(results)
-  npan = 3 if c25 is not None else 2
-  fig, axs = plt.subplots(npan, 1, figsize=(7.5, 8.5 + 2.6*(npan - 2)),
-                          sharex=True, gridspec_kw=dict(height_ratios=[3, 3, 2][:npan]))
-  A = np.nanmedian([f['A'] for f in fits])
+  fig, ax = plt.subplots(figsize=(7.5, 5.))
+  vals, nu_c_curves = [], []
   for r, tr, f, c in _draw_order(zip(results, tracks, fits, colors)):
     barT, v = tr['barT'], tr['valid']
     if not v.any():
       continue
+    # the tracks are all in nu_m,0 = env.nu0 units, so each break's own normalisation is a
+    # ratio to that: env.nuc/env.nu0 = (gma_c/gma_m)^2 = f['nominal'], exact since the two
+    # share nu'_B and the Doppler factor
+    n_c, n_m = nu_unit*f['nominal'], nu_unit
+    nu_c, nu_m = tr['nu_c']/n_c, tr['nu_m']/n_m
     # only MEASURED points are drawn: a finite fitted nu_c that failed a validity cut is a
     # break the fit placed outside the observed band (the transition into VFC), and showing
     # it even faintly asserts a cooling break where the fit found none
-    axs[0].loglog(barT, _gap(tr['nu_c'], v), color=c, lw=1.5)
+    ax.loglog(barT, _gap(nu_c, v), color=c, lw=1.5)
     v_m = tr.get('valid_m', v)
-    axs[0].loglog(barT, _gap(tr['nu_m'], v_m), color=c, lw=1.1, ls='--')
-    axs[0].loglog(barT, _gap(tr['nu_Mt'], np.isfinite(tr['nu_Mt'])), color=c, lw=1.1, ls='-.')
+    ax.loglog(barT, _gap(nu_m, v_m), color=c, lw=1.1, ls='--')
     # the blended stretch: one break, drawn as such, so the gap in the solid curves is
     # visibly "not measured" rather than "not there"
     u = tr['unres']
     if u.any():
-      axs[0].loglog(barT, _gap(tr['nu_c'], u), color=c, lw=1.2, ls=':')
-    axs[1].loglog(barT, _gap(tr['nu_c']/f['nominal'], v), color=c, lw=1.5)
+      ax.loglog(barT, _gap(nu_c, u), color=c, lw=1.2, ls=':')
+    vals.append(np.concatenate([nu_c[v], nu_m[v_m]]))
+    nu_c_curves.append((barT, _gap(nu_c, v)))
   # y-range from the MEASURED points only: the faint stretches are extrapolations of the
   # shape beyond the frequency window and can run many decades off, which would otherwise
   # squash every real curve into the middle of the panel
-  vals = np.concatenate([np.concatenate([t['nu_c'][t['valid']],
-                                         t['nu_m'][t.get('valid_m', t['valid'])]]
-                                        + [t['nu_Mt'][np.isfinite(t['nu_Mt'])]])
-                         for t in tracks if t['valid'].any()])
+  vals = np.concatenate(vals) if vals else np.array([])
   vals = vals[np.isfinite(vals) & (vals > 0.)]
   if vals.size:
-    axs[0].set_ylim(min(vals.min(), np.nanmin([t['nu_B'] for t in tracks]))/3., vals.max()*3.)
-  # guides: free-floating references, anchored on the panel's own range (the curves
-  # themselves span ~12 decades, so no single curve is a sensible anchor)
-  y0, y1 = axs[0].get_ylim()
-  _guide(axs[0], np.array(RISE_WIN), -2., y1/30., ls='-')
+    ax.set_ylim(vals.min()/3., vals.max()*3.)
+  # guides: anchored ON the nu_c curves (a small factor above them, leaving room for the
+  # label), not on the panel's range -- both laws are laws OF nu_c, so a free-floating
+  # line elsewhere in the panel is a reference the eye cannot use
+  _guide(ax, np.array(RISE_WIN), -2., 5.*_curve_median_at(nu_c_curves, RISE_WIN[0]),
+         ls='-', label='$\\bar{T}^{-2}$')
   xh = np.array([max(2., barT_off[1] if barT_off else 2.), results[0]['Tb'].max()-1.])
-  _guide(axs[0], xh, -1., np.sqrt(y0*y1), ls='-.')
-  _guide(axs[1], np.array([RISE_WIN[0], 1.]), -2., A*RISE_WIN[0]**-2, ls='-')
-  # nu_B = nu_m/gma_m^2 with gma_m the same for every point (the alpha rescaling leaves the
-  # injection Lorentz factor alone), so the floor is one shared line
-  nu_B = np.unique(np.round([t['nu_B'] for t in tracks], 12))
-  for nb in nu_B:
-    axs[0].axhline(nb, color='k', ls=':', lw=.8)
-  if c25 is not None:
-    for r, tr, c in _draw_order(zip(results, tracks, colors)):
-      v_m = tr.get('valid_m', tr['valid'])
-      if v_m.any():
-        axs[2].semilogx(tr['barT'], _gap(tr['nu_m']/c25, v_m), color=c, lw=1.3)
-    axs[2].axhline(1., color='grey', ls=':', lw=.9)
-    axs[2].set_ylim(0.3, 3.)
-    axs[2].set_ylabel('$\\nu_m$ fit / C25')
-    axs[0].loglog(results[0]['Tb'] - 1., c25, color='k', ls='--', lw=1.2, alpha=.8)
-  for ax in axs:
-    _mark_hydro_times(ax, barT_f, barT_off)
-  axs[0].set_ylabel('$\\nu_c$ (solid), $\\nu_m$ (dashed), $\\nu_M$ (dash-dot)  $/\\nu_{m,0}$')
-  axs[0].set_title('Break evolution: guides of slope $-2$ (cooling) and $-1$ (high latitude);'
-                   '\ndotted horizontal = the $\\gamma=1$ floor $\\nu_B$'
-                   + ('; black dashed = C25 $\\nu_m$' if c25 is not None else ''))
-  axs[1].set_ylabel('$\\nu_c(t)/[\\nu_{m,0}(\\gamma_c/\\gamma_m)^2]$')
-  axs[-1].set_xlabel('$\\bar{T}=(T_{\\rm obs}-T_s)/T_0$')
-  axs[1].set_title(f'collapsed on the nominal ratio; reference $A\\,\\bar{{T}}^{{-2}}$, $A={A:.2f}$')
-  fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
-  fig.savefig(os.path.join(outdir, 'break_evolution.png'), dpi=300)
+  _guide(ax, xh, -1., 4.*_curve_median_at(nu_c_curves, xh[0]), ls='-.',
+         label='$\\bar{T}^{-1}$')
+  _mark_hydro_times(ax, barT_f, barT_off)
+  # y = 1: each break AT its own env normalisation, i.e. where the measured frequency and
+  # the analytic one coincide
+  ax.axhline(1., color='grey', ls=':', lw=.7, zorder=0)
+  u = '' if nu_unit == 1. else f'{nu_unit:g}'
+  ax.set_ylabel(f'$\\nu_X/{u}\\nu_{{X,0}}$')
+  ax.set_xlabel('$\\bar{T}$')
+  ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.5, ls='-', label='$\\nu_c$'),
+                     plt.Line2D([], [], color='k', lw=1.1, ls='--', label='$\\nu_m$')],
+            loc='upper right', fontsize=11, framealpha=.9)
+  fig.colorbar(sm, ax=ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  png = os.path.join(outdir, 'break_evolution.png')
+  fig.savefig(png, dpi=300)
   plt.close(fig)
+  # trim + mirror HERE and not only at the end of main(), so that a standalone redraw of
+  # this one figure (the way it is iterated on) cannot leave a stale copy in the article
+  # folder. The ARTICLE_SERIES gate still decides: nothing is mirrored from the sweeps
+  # that are not the article's (the '_z=1' variants, the reference method, ...)
+  name = os.path.basename(os.path.normpath(outdir))
+  if os.path.basename(png) in ARTICLE_SERIES.get(name, ()):
+    trim_pngs([png])
+    copy_article_figures(outdir, series={name: (os.path.basename(png),)})
 
 
 def plot_break_ratio(results, tracks, barT_f, barT_off=None, outdir=OUTDIR):
@@ -2741,10 +2760,10 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
             for r in results]
   fits = [fit_break_evolution(r, tr, barT_f, barT_off) for r, tr in zip(results, tracks)]
   # thin-shell reference for nu_m: one curve for the whole sweep (a_u, tau are invariant
-  # under the alpha rescaling), computed once and handed to both consumers
+  # under the alpha rescaling). Table-only now -- the figure no longer carries the C25
+  # comparison (it is the thin-shell model's business, not the break evolution's)
   c25 = c25_num_curve(key, z, results[0]['Tb'])
-  plot_break_evolution(results, tracks, fits, barT_f, barT_off=barT_off, outdir=outdir,
-                       c25=c25)
+  plot_break_evolution(results, tracks, fits, barT_f, barT_off=barT_off, outdir=outdir)
   plot_break_ratio(results, tracks, barT_f, barT_off=barT_off, outdir=outdir)
   build_break_evolution_table(results, fits, outdir=outdir, tracks=tracks, c25=c25)
   plot_gs02_fits(results, detections, outdir=outdir)
@@ -2816,6 +2835,10 @@ ARTICLE_SERIES = {        # {source figure dir: globs of the series picked for t
                                        # pulse_profiles_collapsed.png and the lightcurves
                                        # themselves are lightcurve_shape_nu=*.png above
       'mid_slope_evolution.png',       # mid-segment slope vs time (mid_slope_evolution.py)
+      'break_evolution.png',           # nu_c and nu_m vs time, each on its own env
+                                       # normalisation (plot_break_evolution). The glob is
+                                       # exact, so the _table.png and break_ratio_* of the
+                                       # same family stay out
   ),
 }
 

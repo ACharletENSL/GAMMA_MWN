@@ -608,6 +608,67 @@ def validation_sweep(seps=VAL_SEPS, s1s=VAL_S1, s2s=VAL_S2, sigma=VAL_SIGMA,
   return df
 
 
+# The estimator's own bias, evaluated WHERE THE DATA SITS rather than over a generic grid.
+# validation_sweep spans a wide box and reports a single bias per regime; that is enough to
+# say the bias exists, not enough to subtract it, because it varies with break separation and
+# with the smoothing of the very breaks being measured. These cases pin those to the values
+# each class actually shows (smoothing_pooled.csv for s1, s2; the tracked break separations
+# for sep), so the residual can be quoted as a correction with a spread instead of an
+# order-of-magnitude caveat.
+CAL_CASES = (
+    ('FC on-axis',       True,  (2.5, 2.8, 3.1), 1.24, 1.72),
+    ('FC post-crossing', True,  (2.5, 2.8, 3.1), 0.87, 1.74),
+    ('SC on-axis',       False, (4.0, 4.4, 4.8), 1.11, 1.61),
+    ('SC post-crossing', False, (4.0, 4.4, 4.8), 0.58, 1.47),
+)
+CAL_SIGMAS = (0.05, 0.09)     # the nu_M spread the sweep shows on the rise and at peak
+
+
+def mid_bias_calibration(cases=CAL_CASES, sigmas=CAL_SIGMAS, mgap=VAL_MGAP, verbose=True,
+    outdir=OUTDIR):
+  '''
+  What the re-centred mid-slope estimator returns on spectra whose mid slope IS the asymptote
+  by construction, at the smoothing and break separation each class actually shows.
+
+  The number that comes back is a bias, not a measurement: subtract it from the measured
+  departure to get the part attributable to shell integration. Its spread over the sampled
+  separations and nu_M spreads is the uncertainty on that subtraction, and is what stops the
+  correction being quoted more precisely than it deserves.
+  '''
+  rows = []
+  for lab, fast, seps, s1, s2 in cases:
+    a_th = 0.5 if fast else (VAL_P - 3.)/-2.
+    for sep in seps:
+      for sig in sigmas:
+        nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sig, mgap=mgap)
+        br = sb.breaks_from_identified(nu, sp, t['psyn'])
+        rows.append(dict(case=lab, fast=fast, sep=sep, sigma=sig, s1=s1, s2=s2,
+                         regime=br['regime'], mid_from=br['mid_from'],
+                         a_th=a_th, a_mid=br['a_mid'], bias=br['a_mid'] - a_th))
+  df = pd.DataFrame(rows)
+  if verbose and len(df):
+    print(f"\n{'=== MID-SLOPE ESTIMATOR BIAS, AT THE MEASURED PARAMETERS ':=<88}")
+    print('Synthetic spectra whose mid slope is the asymptote exactly. "bias" is what the '
+          'estimator\nreturns instead; subtract it from a measured departure.')
+    hdr = (f"  {'case':>17} {'N':>3} {'classes':>10} | {'bias':>8} {'spread':>16} | "
+           f"{'a_mid':>7}")
+    print(hdr); print('  ' + '-'*(len(hdr)-2))
+    for lab, *_ in cases:
+      d = df[(df.case == lab) & np.isfinite(df.bias)]
+      if not len(d):
+        print(f'  {lab:>17}  -- no usable measurement')
+        continue
+      b = d.bias.to_numpy(float)
+      cl = '/'.join(sorted({str(q) for q in d.regime}))
+      print(f"  {lab:>17} {len(d):>3} {cl:>10} | {np.median(b):+8.4f} "
+            f"[{np.min(b):+.4f},{np.max(b):+.4f}] | {np.median(d.a_mid):7.4f}")
+  if outdir:
+    _ensure_outdir(outdir)
+    df.to_csv(os.path.join(outdir, 'mid_bias_calibration.csv'), index=False)
+    print(f"  wrote {os.path.join(outdir, 'mid_bias_calibration.csv')}")
+  return df
+
+
 def write_tables(*dfs_named, outdir=OUTDIR):
   _ensure_outdir()
   for df, name in dfs_named:

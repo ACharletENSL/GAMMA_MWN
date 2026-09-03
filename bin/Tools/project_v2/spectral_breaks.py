@@ -1337,6 +1337,22 @@ def _flatten_cutoff(x, sp, nuM, sigma=None):
 # degenerate into a single break.
 BMID_MARGIN = 0.05
 
+# The PHYSICAL alternative to BMID_MARGIN, for the marginal class. MC is not a third regime:
+# it is a fast- or slow-cooling spectrum whose two knees have fused, so its mid slope should
+# lie in the one-zone interval [(3-p)/2, 1/2] widened by the departure shell integration
+# actually produces -- +0.098 of hardening measured in fast cooling, -0.079 of softening in
+# slow (see sweep_gammacm.SEG_FC_TOL_HI) -- plus a little room for the transition itself.
+# 0.10 covers all of that; at p = 2.5 the window is [0.15, 0.60].
+# WHY IT MATTERS: bounded on the OUTER asymptotes instead, the fitted mid slope does not stay
+# anywhere near physical. Over 1419 MC bins it returns a median 0.716 with q16-q84
+# 0.572-1.108, with 100% of bins above the fast-cooling asymptote and 10% effectively merged
+# into the 4/3 line. That is not a fused-knee mid slope; it is the two-break form steepening
+# its middle segment until it imitates one broad knee, buying residual (rms 0.0056 against
+# 0.0151 for a held asymptote) by leaving the physics.
+# A bin that PINS at these bounds is therefore a result, not a nuisance: it says no attainable
+# mid slope lets the two-break shape describe that spectrum, i.e. it wants the merged break.
+BMID_DEP = 0.10
+
 # Half-width of the window the MID LINE IS MEASURED IN, once re-centred on its own slope.
 # Separate from SLOPE_TOL, which selects the identification window and must stay wide enough
 # to admit a displaced segment. This one only decides how much of the knee the fitted line
@@ -1356,7 +1372,8 @@ MID_TOL = 0.05
 
 def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     cutfac=CUT_FAC, fit_dec=FIT_DEC, vfc=False, bounds=S_FIT_BOUNDS, s_hold=None,
-    sigma=None, free_bmid=False, bmid_margin=BMID_MARGIN, free_blo=False):
+    sigma=None, free_bmid=False, bmid_margin=BMID_MARGIN, free_blo=False,
+    bmid_physical=False, bmid_dep=BMID_DEP):
   '''
   s1, s2 by fitting granot_sari_syn with the BREAK POSITIONS AND ALL THREE SLOPES HELD, so
   the smoothing is the only shape freedom left. The replacement for the deficit estimator of
@@ -1490,9 +1507,13 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
       return out
     init['b_lo'] = (np.log10(b_lo), np.log10(b_lo) - 2., np.log10(b_hi))
   if fit_bmid:
-    # in nuFnu index: a_hi + margin < a_mid < a_lo - margin, i.e. what a three-segment
-    # spectrum can carry. Converted to the F_nu index granot_sari_syn takes.
-    bm_lo, bm_hi = (1. - psyn/2.) + bmid_margin - 1., 4./3. - bmid_margin - 1.
+    # in nuFnu index, converted to the F_nu index granot_sari_syn takes. Two choices:
+    # the SHAPE limits (what a three-segment spectrum can carry at all), or the PHYSICAL
+    # ones (what a fused fast- or slow-cooling knee can produce) -- see BMID_DEP.
+    if bmid_physical:
+      bm_lo, bm_hi = (3. - psyn)/2. - bmid_dep - 1., 0.5 + bmid_dep - 1.
+    else:
+      bm_lo, bm_hi = (1. - psyn/2.) + bmid_margin - 1., 4./3. - bmid_margin - 1.
     bm0 = float(np.clip(beta_mid if np.isfinite(beta_mid) else -0.5, bm_lo, bm_hi))
     init['bmid'] = (bm0, bm_lo, bm_hi)
   q0 = [init[n][0] for n in names]
@@ -1952,7 +1973,8 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
 
 
 def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_hold=None,
-    s1brk_hold=None, free_bmid='mc', cutfac=CUT_FAC, anchor='lo', **kw):
+    s1brk_hold=None, free_bmid='mc', cutfac=CUT_FAC, anchor='lo',
+    bmid_physical=False, **kw):
   '''
   s of every break the identified segments define, by refitting granot_sari_syn with those
   crossings and those slopes held -- the third step of the self-contained route.
@@ -2030,7 +2052,7 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
     f = fit_smoothing_held(x, sp, psyn, br['b_lo'], br['b_hi'], br['nuM'],
                            br['a_mid'] - 1., free_bhi=(free_bhi and not free_lo),
                            free_blo=free_lo, s_hold=s_hold, sigma=sig,
-                           free_bmid=fb, cutfac=cutfac)
+                           free_bmid=fb, cutfac=cutfac, bmid_physical=bmid_physical)
     out['anchored'] = anc
     # a fitted mid slope is the better estimate of the mid index, so it becomes a_mid;
     # what was held going in is kept as a_mid_seed. A bin whose fit hit the mid-slope

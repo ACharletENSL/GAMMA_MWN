@@ -48,8 +48,9 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 from sweep_gammacm import (DEFAULT_KEY, Z_SHELL, load_sweep, method_outdir,
-    exit_onset_barT, rarefaction_off_barT, identify_segments, trim_pngs,
-    copy_article_figures)
+    exit_onset_barT, rarefaction_off_barT, trim_pngs, copy_article_figures)
+import spectral_breaks as sb
+import cell_pool
 
 METHOD = 'data_rarcut'        # the sweep this figure is read from: the cut is the
                               # prescription the article quotes (see sweep_rarcut)
@@ -68,52 +69,106 @@ FLUX_FLOOR = 1e-10                 # skip steps whose peak flux is this far belo
 COL = {-5: '#08306b', -4: '#1f6cb0', -3: '#4393c3', -2: '#7fb8d8',
        -1: '#a8cfe3', 0: '#737373', 1: '#ef6548', 2: '#a50f15'}
 INK, MUTED, GRID = '#1a1a1a', '#6b6b6b', '#d9d9d9'
-FIELDS = ('logr', 'barT', 'x', 'step', 'branch', 'a_th', 'a_core', 'dep', 'core', 'dex',
-          'a_win', 'regime')
+FIELDS = ('logr', 'barT', 'x', 'step', 'branch', 'a_th', 'a_mid', 'dep', 'mid_from',
+          'dex_mid', 'a_core', 'dep_core', 'core', 'dex', 'a_win', 'regime',
+          'a_mid_phys', 'rms', 'rms_phys', 'phys_at_bound')
+NPROC = 4                          # the route costs ~0.8 s a step (the smeared cut-off scan
+                                   # dominates), so the points are run in parallel -- but on
+                                   # a laptop, so this is deliberately not ncpu-1
 
 
-def measure(key=DEFAULT_KEY, method=METHOD, z=Z_SHELL, verbose=True):
+def _measure_point(args):
   '''
-  The mid segment of every sampled spectrum of every sweep point: its held asymptote
-  a_th, the settled estimate of a_mid (a_core) and their difference dep, the free-window
-  estimate a_win, and the shape class the whole spectrum falls in. One row per (sweep point, step,
-  branch), where branch is 'fc' or 'sc' -- the two mid candidates. A spectrum has at
+  One sweep point, in a worker: the mid slope THE ROUTE ACTUALLY USES on every sampled
+  spectrum. That is spectral_breaks.breaks_from_identified's a_mid -- the line re-measured
+  over a window centred on its own slope, which is the beta_mid fit_smoothing_held then
+  holds. The identification (and so the branch and the class) is unchanged; what is recorded
+  is the slope the spectral fit stands on, not the one the window was selected around.
+  '''
+  key, method, z, logr, barT_f = args
+  results = load_sweep(method_outdir(method, key, z))
+  r = [q for q in results if abs(q['log10ratio'] - logr) < 1e-9][0]
+  nub, nuFnu, p = r['nub'], r['nuFnu'], r['env'].psyn
+  barT = np.asarray(r['Tb'], float) - 1.
+  x = barT/barT_f
+  Fpk = np.nanmax(nuFnu, axis=1)
+  bright = Fpk > FLUX_FLOOR*np.nanmax(Fpk)
+  step = np.where(x < X_FINE, STEP_FINE, STEP_COARSE)
+  rows = []
+  for i in range(len(nuFnu)):
+    if not bright[i] or i % int(step[i]):
+      continue
+    br_ = sb.breaks_from_identified(nub, nuFnu[i], p)
+    d = br_['det']
+    if not d:
+      continue
+    nan = float('nan')
+    if d['regime'] == 'MC':
+      # no mid segment is displayed, so there is no branch and no asymptote to depart from.
+      # The slope the fit uses there is FITTED inside it (free_bmid='mc'), so it has to come
+      # from the fit itself rather than from the geometry -- passing br_ back in means the
+      # cut-off scan and the identification are not repeated.
+      # BOTH bounds, on the same geometry, so the comparison costs one extra least-squares
+      # and no extra cut-off scan: the shape limits (what a three-segment spectrum can carry)
+      # and the physical ones (what a fused FC or SC knee can produce, BMID_DEP).
+      gm = sb.smoothing_from_identified(nub, nuFnu[i], p, br=br_)
+      gp = sb.smoothing_from_identified(nub, nuFnu[i], p, br=br_, bmid_physical=True)
+      if np.isfinite(gm['a_mid']) or np.isfinite(gp['a_mid']):
+        rows.append(dict(logr=r['log10ratio'], barT=barT[i], x=x[i], step=i, branch='mc',
+                         a_th=nan, a_mid=(gm['a_mid'] if gm['s_ok'] else nan), dep=nan,
+                         mid_from=gm['mid_from'] or 'none', dex_mid=gm['dex_mid'],
+                         a_core=nan, dep_core=nan, core=nan, dex=nan, a_win=nan,
+                         regime='MC', a_mid_phys=gp['a_mid'], rms=gm['rms'],
+                         rms_phys=gp['rms'],
+                         phys_at_bound=float(bool(gp['bmid_at_bound']))))
+      continue
+    for br in ('fc', 'sc'):
+      if br not in d['segs']:
+        continue
+      g = d['segs'][br]
+      # a_mid: the re-centred measurement, i.e. what the spectral fit holds. a_core and
+      # a_win are kept alongside as the two window-bounded estimators they superseded --
+      # a_core the settled slope inside the identified window, a_win a free line across
+      # all of it. Both inherit that window's asymmetry; a_mid does not.
+      a_mid = br_['a_mid']
+      rows.append(dict(logr=r['log10ratio'], barT=barT[i], x=x[i], step=i, branch=br,
+                       a_th=g['a'], a_mid=a_mid, dep=a_mid - g['a'],
+                       mid_from=br_['mid_from'] or 'none', dex_mid=br_['dex_mid'],
+                       a_core=g['a_core'], dep_core=g['dep'], core=g['core'],
+                       dex=g['dex'], a_win=g['a_fit'], regime=d['regime'] or 'None',
+                       a_mid_phys=nan, rms=nan, rms_phys=nan, phys_at_bound=nan))
+  return rows
+
+
+def measure(key=DEFAULT_KEY, method=METHOD, z=Z_SHELL, verbose=True, nproc=NPROC):
+  '''
+  The mid segment of every sampled spectrum of every sweep point, measured the way the
+  spectral fit measures it: a_mid is breaks_from_identified's re-centred slope, the one
+  fit_smoothing_held holds, and dep = a_mid - a_th its departure from the one-zone
+  asymptote. a_core and a_win are still recorded so the change of estimator can be read
+  off the same rows.
+
+  One row per (sweep point, step, branch), branch being 'fc' or 'sc'. A spectrum has at
   most one of them (identify_segments drops the narrower where both linger), so the two
-  branches never describe the same step.
+  branches never describe the same step. Steps whose class is MC carry no branch and are
+  therefore absent: their mid slope is a fitted transition slope, not a segment.
   '''
   outdir = method_outdir(method, key, z)
   results = load_sweep(outdir)
   if not results:
     raise RuntimeError(f'no cached sweep in {outdir}; run sweep_gammacm.run_sweep first')
   barT_f = exit_onset_barT(key, z=z)
-  rows = []
-  for r in results:
-    nub, nuFnu, p = r['nub'], r['nuFnu'], r['env'].psyn
-    barT = np.asarray(r['Tb'], float) - 1.
-    x = barT/barT_f
-    Fpk = np.nanmax(nuFnu, axis=1)
-    bright = Fpk > FLUX_FLOOR*np.nanmax(Fpk)
-    step = np.where(x < X_FINE, STEP_FINE, STEP_COARSE)
-    for i in range(len(nuFnu)):
-      if not bright[i] or i % int(step[i]):
-        continue
-      d = identify_segments(nub, nuFnu[i], p)
-      if not d:
-        continue
-      for br in ('fc', 'sc'):
-        if br not in d['segs']:
-          continue
-        g = d['segs'][br]
-        # the free fit over the identified window, for the steps with no settled core.
-        # identify_segments already computes it (a_fit, the line the mid segments are DRAWN
-        # with); refitting it here was one extra segment_slopes call per row for a
-        # bit-identical number.
-        a_win = g['a_fit']
-        rows.append(dict(logr=r['log10ratio'], barT=barT[i], x=x[i], step=i, branch=br,
-                         a_th=g['a'], a_core=g['a_core'], dep=g['dep'], core=g['core'],
-                         dex=g['dex'], a_win=a_win, regime=d['regime'] or 'None'))
-    if verbose:
-      print(f"  logr={r['log10ratio']:+.1f} done ({len(rows)} rows)", flush=True)
+  jobs = [(key, method, z, float(r['log10ratio']), barT_f) for r in results]
+  np_ = cell_pool.resolve_nproc(nproc, cap=len(jobs))
+  if np_ > 1:
+    with cell_pool.pool_context().Pool(np_) as pool:
+      out = pool.map(_measure_point, jobs)
+  else:
+    out = [_measure_point(j) for j in jobs]
+  rows = [w for chunk in out for w in chunk]
+  if verbose:
+    for j, chunk in zip(jobs, out):
+      print(f'  logr={j[3]:+.1f} done ({len(chunk)} rows)', flush=True)
   return rows
 
 
@@ -132,7 +187,7 @@ def read_rows(outdir, fname=CSV_NAME):
   rows = []
   for r in csv.DictReader(open(path)):
     for k in FIELDS:
-      if k not in ('branch', 'regime'):
+      if k not in ('branch', 'regime', 'mid_from'):
         r[k] = float(r[k])
     rows.append(r)
   return rows
@@ -149,9 +204,14 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
   own edge IS bar{T}_rf -- see sweep_gammacm.plot_lightcurve_shape).
   '''
   xoff = tuple(b/barT_f for b in barT_off) if (barT_off and barT_f > 0.) else None
-  fig, axes = plt.subplots(2, 1, figsize=(8.4, 7.6), sharex=True)
-  panels = (('fc', 0.5, 'Fast-cooling branch', '$a_{\\rm th}=1/2$', (0.478, 0.615)),
-            ('sc', 0.25, 'Slow-cooling branch', '$a_{\\rm th}=(3-p)/2$', (0.205, 0.266)))
+  fig, axes = plt.subplots(3, 1, figsize=(8.4, 10.4), sharex=True)
+  # SC on top, MC in the middle, FC at the bottom: the panels then run in the order the
+  # spectrum passes through them as gamma_c falls, and the marginal class sits between the
+  # two branches it interpolates rather than after them.
+  panels = (('sc', 0.25, 'Slow-cooling branch', '$a_{\\rm th}=(3-p)/2$', (0.205, 0.266)),
+            ('mc', None, 'Marginal class -- mid slope fitted, no segment displayed',
+             None, (0.10, 1.35)),
+            ('fc', 0.5, 'Fast-cooling branch', '$a_{\\rm th}=1/2$', (0.478, 0.615)))
             # the sc top is set by the legend, not by the data: no track goes above
             # a_th = 0.25, so what is left above it is exactly the legend's band
   for ax, (br, a_th, title, a_lab, ylim) in zip(axes, panels):
@@ -159,20 +219,54 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
     if xoff is not None:
       ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
     ax.axvline(1., color='grey', ls=':', lw=0.9, zorder=1)
-    ax.axhline(a_th, color=MUTED, lw=1.2, ls='--', zorder=1)
-    ax.annotate(a_lab, xy=(1., a_th), xycoords=('axes fraction', 'data'),
-                xytext=(-4, 5), textcoords='offset points', ha='right', va='bottom',
-                fontsize=9, color=MUTED)
+    if a_th is not None:
+      ax.axhline(a_th, color=MUTED, lw=1.2, ls='--', zorder=1)
+      ax.annotate(a_lab, xy=(1., a_th), xycoords=('axes fraction', 'data'),
+                  xytext=(-4, 5), textcoords='offset points', ha='right', va='bottom',
+                  fontsize=9, color=MUTED)
+    else:
+      # the marginal panel has no asymptote to depart from; both one-zone values are drawn
+      # only to place the fitted slope against them
+      for v, lab in ((0.5, '$1/2$'), (4./3., '$4/3$')):
+        if ylim[0] <= v <= ylim[1]:
+          ax.axhline(v, color=GRID, lw=1.0, ls=':', zorder=1)
+          ax.annotate(lab, xy=(1., v), xycoords=('axes fraction', 'data'),
+                      xytext=(-4, 3), textcoords='offset points', ha='right',
+                      va='bottom', fontsize=8.5, color=MUTED)
     for lr in sorted({r['logr'] for r in sub}):
       d = sorted([r for r in sub if r['logr'] == lr], key=lambda r: r['x'])
       c = COL[int(lr)]
-      settled = [r for r in d if np.isfinite(r['a_core'])]
-      sweeping = [r for r in d if not np.isfinite(r['a_core'])]
-      if settled:
-        ax.plot([r['x'] for r in settled], [r['a_core'] for r in settled], '-', color=c,
+      # SOLID where the measurement window was re-centred on its own slope -- the value
+      # the spectral fit holds. HOLLOW where that re-centring found no window and the fit
+      # fell back to the line over the identified (asymmetric) window, which carries a
+      # known offset of about +0.02 fast / -0.02 slow.
+      if br == 'mc':
+        # the marginal panel carries BOTH fits: the physically bounded mid slope as the
+        # measurement (solid), the shape-bounded one faint behind it, so the excursion the
+        # bounds remove is visible rather than argued about
+        loose = [q for q in d if np.isfinite(q['a_mid'])]
+        if loose:
+          ax.plot([q['x'] for q in loose], [q['a_mid'] for q in loose], '-', color=c,
+                  lw=1.0, alpha=0.35, zorder=2)
+        phys = [q for q in d if np.isfinite(q['a_mid_phys'])]
+        pinned = [q for q in phys if q['phys_at_bound'] > 0.5]
+        free_ = [q for q in phys if q['phys_at_bound'] <= 0.5]
+        if phys:
+          ax.plot([q['x'] for q in phys], [q['a_mid_phys'] for q in phys], '-', color=c,
+                  lw=1.8, solid_capstyle='round', zorder=3)
+        if pinned:   # at a bound: no attainable mid slope describes the spectrum there
+          ax.plot([q['x'] for q in pinned], [q['a_mid_phys'] for q in pinned], 'x',
+                  color=c, ms=3.4, mew=0.9, ls='none', zorder=4)
+        continue
+      rec = [r for r in d if r['mid_from'] == 'plateau_recentred'
+             and np.isfinite(r['a_mid'])]
+      fell = [r for r in d if r['mid_from'] != 'plateau_recentred'
+              and np.isfinite(r['a_mid'])]
+      if rec:
+        ax.plot([r['x'] for r in rec], [r['a_mid'] for r in rec], '-', color=c,
                 lw=1.8, solid_capstyle='round', zorder=3)
-      if sweeping:   # no settled core: the slope sweeps. Free window fit, hollow.
-        ax.plot([r['x'] for r in sweeping], [r['a_win'] for r in sweeping], 'o', mfc='none',
+      if fell:
+        ax.plot([r['x'] for r in fell], [r['a_mid'] for r in fell], 'o', mfc='none',
                 mec=c, ms=3.6, mew=1.0, ls='none', zorder=2)
     ax.set_xscale('log'); ax.set_ylim(*ylim)
     ax.grid(True, which='major', color=GRID, lw=0.6, alpha=0.9)
@@ -184,10 +278,10 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
     ax.tick_params(colors=MUTED, labelsize=9)
     ax.set_ylabel('$a_{\\rm mid}$', color=INK, fontsize=11)
     ax.set_title(title, color=INK, fontsize=11, loc='left', pad=6)
-  axes[1].annotate('crossing', xy=(1., 0.), xycoords=('data', 'axes fraction'),
-                   xytext=(-4, 6), textcoords='offset points', ha='right', va='bottom',
-                   fontsize=8.5, color=MUTED)
-  axes[1].set_xlabel('$\\bar{T}/\\bar{T}_f$', color=INK, fontsize=10)
+  axes[-1].annotate('crossing', xy=(1., 0.), xycoords=('data', 'axes fraction'),
+                    xytext=(-4, 6), textcoords='offset points', ha='right', va='bottom',
+                    fontsize=8.5, color=MUTED)
+  axes[-1].set_xlabel('$\\bar{T}/\\bar{T}_f$', color=INK, fontsize=10)
   # ONE legend for both panels, in a single row along the top of the slow-cooling panel:
   # that band is empty (every sc track sits at or below a_th = 0.25) and the gap between
   # the panels then costs nothing. The handles are built by hand rather than harvested
@@ -195,7 +289,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
   # neither panel carries all of it.
   lrs = sorted({int(r['logr']) for r in rows})
   handles = [Line2D([], [], color=COL[lr], lw=1.8) for lr in lrs]
-  leg = axes[1].legend(handles, [f'{lr:+d}' for lr in lrs],
+  leg = axes[0].legend(handles, [f'{lr:+d}' for lr in lrs],
                        title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
                        title_fontsize=8.5, ncol=len(lrs), loc='upper center',
                        frameon=True, framealpha=0.92, edgecolor=GRID,
