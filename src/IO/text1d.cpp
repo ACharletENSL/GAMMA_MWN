@@ -64,6 +64,23 @@ public:
 }; 
 
 
+// A snapshot is phys<digits>.out, and NOTHING else. The old test was
+// fname.find("phys") != npos, which also matched the phys_input.ini that setup.py copies
+// into results/Last -- and since '_' (0x5f) sorts after '0' (0x30), "phys_input.ini"
+// sorted LAST, so every resume picked the config file: the sscanf then failed silently,
+// leaving it at 0, and the .ini was parsed as cell data.
+static bool isSnapshotName(const std::string &f){
+  const std::string suf = ".out";
+  if (f.compare(0, 4, "phys") != 0) return false;
+  if (f.size() <= 4 + suf.size()) return false;
+  if (f.compare(f.size()-suf.size(), suf.size(), suf) != 0) return false;
+  for (size_t i = 4; i < f.size()-suf.size(); ++i){
+    if (!isdigit(static_cast<unsigned char>(f[i]))) return false;
+  }
+  return true;
+}
+
+
 static void openLastSnapshot(DIR* dir, vector<Data> *data, long int *it, double *t){
 
   struct dirent  *dirp;       
@@ -74,12 +91,19 @@ static void openLastSnapshot(DIR* dir, vector<Data> *data, long int *it, double 
 
   while ((dirp = readdir(dir)) != NULL) {
     std::string fname = dirp->d_name;
-    if(fname.find("phys") != std::string::npos)
-      files.push_back(fname);
+    if (isSnapshotName(fname)) files.push_back(fname);
   }
+  if (files.empty()){
+    fprintf(stderr, "resume: no phys<digits>.out snapshot in %s\n", strFilePath);
+    exit(32);
+  }
+  // names are zero-padded to a fixed width, so lexicographic order IS numeric order
   std::sort(files.begin(), files.end());
   strcpy(strfile,files[files.size()-1].c_str());
-  sscanf(strfile, "phys%ld.h5", it);
+  if (sscanf(strfile, "phys%ld.out", it) != 1){
+    fprintf(stderr, "resume: cannot read an iteration number from '%s'\n", strfile);
+    exit(33);
+  }
 
   addr = strcat(strFilePath, strfile);
   if (worldrank == 0) printf("resuming setup from file: %s | ", addr);

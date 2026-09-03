@@ -318,6 +318,13 @@ void FluidState::cons2prim_user(double *rho, double *p, double *uu){
 // per iteration here rather than inside evalEnd. It has to live outside evalEnd: mode
 // STOP_ == 0 returns before any detection runs, and the dump cadence still needs the
 // phases in that mode.
+// WARNING -- THESE ARE NOT PERSISTED ACROSS A RESUME (./bin/GAMMA -r).
+// They restart at false, and 'established' keys on a plateau (nplat >= PLATEAU_EFRAC *
+// nshell) that a late-time run has already had eaten away by the rarefactions, so it can
+// never re-fire. The dump cadence below then falls back to ITDUMP_EARLY_ for the rest of
+// the run. On the hi-res run that is every 2 iterations instead of every 500: ~5e6 extra
+// dumps, ~30 TB. Until the phase is persisted, a resume MUST set itdump_early to the
+// cadence the run had actually reached -- see phys_input_hires_resume.ini.
 static bool   established = false;   // shock has swept PLATEAU_EFRAC of the shell
 static bool   crossed     = false;   // both shocks have finished crossing
 static double t_cross     = -1.;

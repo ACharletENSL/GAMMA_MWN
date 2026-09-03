@@ -22,3 +22,7 @@ bin/GAMMA
 notes_encours.txt
 #Makefile
 #relaunch_test.sh
+
+# setup.py scratch: it is mv'd into results/Last, but is left behind whenever that
+# directory does not exist yet
+phys_input_temp.ini
