@@ -1337,10 +1337,26 @@ def _flatten_cutoff(x, sp, nuM, sigma=None):
 # degenerate into a single break.
 BMID_MARGIN = 0.05
 
+# Half-width of the window the MID LINE IS MEASURED IN, once re-centred on its own slope.
+# Separate from SLOPE_TOL, which selects the identification window and must stay wide enough
+# to admit a displaced segment. This one only decides how much of the knee the fitted line
+# passes through, and curvature inside it is what remains of the a_mid bias after re-centring.
+# Scanned on the synthetic grid (segment_route.validation_sweep, separations >= 2.5 dex):
+#     mid_tol   a_mid bias FC / SC     nu_c FC / SC      rms
+#       0.15      +0.023 / -0.018      0.853 / 1.232    0.0075
+#       0.10      +0.021 / -0.016      0.887 / 1.167    0.0057
+#       0.05      +0.017 / -0.014      0.903 / 1.148    0.0043
+#       0.03      +0.021 / -0.022      0.889 / 1.168    0.0037
+# The optimum is shallow and at 0.05: below it the window gets too narrow and the fitted slope
+# starts picking up sampling noise instead of the plateau, so the bias turns back up while the
+# rms keeps falling -- rms is not the thing being optimised here. No bins are lost at any
+# tolerance tried (N = 36 throughout), so this is free.
+MID_TOL = 0.05
+
 
 def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     cutfac=CUT_FAC, fit_dec=FIT_DEC, vfc=False, bounds=S_FIT_BOUNDS, s_hold=None,
-    sigma=None, free_bmid=False, bmid_margin=BMID_MARGIN):
+    sigma=None, free_bmid=False, bmid_margin=BMID_MARGIN, free_blo=False):
   '''
   s1, s2 by fitting granot_sari_syn with the BREAK POSITIONS AND ALL THREE SLOPES HELD, so
   the smoothing is the only shape freedom left. The replacement for the deficit estimator of
@@ -1396,7 +1412,7 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
   Returns dict(s1, s2, b_hi_fit, rms, npts, at_bound, ok).
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
-  out = dict(s1=np.nan, s2=np.nan, b_hi_fit=np.nan, rms=np.nan, npts=0,
+  out = dict(s1=np.nan, s2=np.nan, b_hi_fit=np.nan, b_lo_fit=np.nan, rms=np.nan, npts=0,
              at_bound=False, ok=False, F_ext=np.nan, y0=np.nan,
              beta_mid=(np.nan if free_bmid else beta_mid), bmid_at_bound=False)
   # VFC carries ONE break and no nu^(4/3) segment, so b_lo is that break and b_hi/beta_mid
@@ -1426,11 +1442,22 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
   # The free vector is assembled by NAME, not by fixed index: with s_hold the exponents drop
   # out of it entirely, and hard-coded slots (an earlier r.x[3]) are how that goes wrong.
   fit_bmid = bool(free_bmid) and not vfc      # VFC has no mid segment to free
+  # ANCHOR THE WELL-MEASURED BREAK. The crossing recovers nu_m well and nu_c poorly in both
+  # regimes (segment_route.validation_sweep), and nu_c is b_lo in fast cooling but b_hi in
+  # slow -- so a fit that always holds b_lo anchors the good break in SC and the bad one in
+  # FC. free_blo mirrors free_bhi so the caller can hold whichever break its own regime
+  # measured well. Holding NEITHER is the template degeneracy this module exists to avoid,
+  # and is refused.
+  fit_blo = bool(free_blo) and not vfc
+  if fit_blo and fit_bhi:
+    return out
 
   names = [] if s_hold is not None else (['s2'] if vfc else ['s1', 's2'])
   names.append('A')
   if fit_bhi:
     names.append('b_hi')
+  if fit_blo:
+    names.append('b_lo')
   if fit_bmid:
     names.append('bmid')
   slot = {n: i for i, n in enumerate(names)}
@@ -1443,12 +1470,13 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     else:
       s1, s2 = 10**q[slot['s1']], 10**q[slot['s2']]
     bh = 10**q[slot['b_hi']] if fit_bhi else b_hi
+    bl = 10**q[slot['b_lo']] if fit_blo else b_lo
     bm = q[slot['bmid']] if fit_bmid else beta_mid
-    return s1, s2, 10**q[slot['A']], bh, bm
+    return s1, s2, 10**q[slot['A']], bh, bm, bl
 
   def resid(q):
-    s1, s2, A, bh, bm = unpack(q)
-    m = granot_sari_syn(xf, b_lo, (None if vfc else bh), psyn, s1=s1, s2=s2, nuM=None,
+    s1, s2, A, bh, bm, bl = unpack(q)
+    m = granot_sari_syn(xf, bl, (None if vfc else bh), psyn, s1=s1, s2=s2, nuM=None,
                         F_ext=A, nuFnu=True, beta_mid=bm)
     return np.log10(np.maximum(m, 1e-300)) - yf
 
@@ -1457,6 +1485,10 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     if not (b_lo < b_hi < nuM):
       return out
     init['b_hi'] = (np.log10(b_hi), np.log10(b_lo), np.log10(nuM))
+  if fit_blo:
+    if not (0. < b_lo < b_hi):
+      return out
+    init['b_lo'] = (np.log10(b_lo), np.log10(b_lo) - 2., np.log10(b_hi))
   if fit_bmid:
     # in nuFnu index: a_hi + margin < a_mid < a_lo - margin, i.e. what a three-segment
     # spectrum can carry. Converted to the F_nu index granot_sari_syn takes.
@@ -1470,8 +1502,9 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     r = least_squares(resid, q0, bounds=(blo, bhi))
   except ValueError:
     return out
-  s1, s2, A, bh, bm = unpack(r.x)
+  s1, s2, A, bh, bm, bl = unpack(r.x)
   out['F_ext'], out['y0'] = float(A), y0
+  out['b_lo_fit'] = float(bl)
   out['s1'] = np.nan if vfc else float(s1)
   out['s2'] = float(s2)
   out['b_hi_fit'] = float(bh)
@@ -1716,7 +1749,7 @@ def _cross(l1, l2):
 
 def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=True,
     mid='measured', mid_fallback=True, smooth=SLOPE_SMOOTH, slope_tol=SLOPE_TOL,
-    min_pts=MIN_PTS, cutfac=CUT_FAC, **kw):
+    min_pts=MIN_PTS, cutfac=CUT_FAC, mid_tol=MID_TOL, **kw):
   '''
   The breaks of one nuFnu spectrum as the crossings of the segments identify_segments found,
   with no template anywhere in the chain.
@@ -1858,7 +1891,11 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
   # exposed it. The identification stands; only the line is re-measured.
   if mid_name is not None and mid_name in lines and mid == 'measured' \
      and interior is not None and interior.any():
-    rc = _recentred_mid(lxs, lys, s, interior, lines[mid_name][0], slope_tol=slope_tol,
+    # the MEASUREMENT tolerance is separate from the identification one: it sets how much
+    # of the knee the line is fitted through, and curvature inside it is what remains of the
+    # a_mid bias after re-centring (validation_sweep).
+    rc = _recentred_mid(lxs, lys, s, interior, lines[mid_name][0],
+                        slope_tol=(slope_tol if mid_tol is None else mid_tol),
                         min_pts=min_pts)
     if rc is not None:
       lines[mid_name] = (rc[0], rc[1])
@@ -1915,7 +1952,7 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
 
 
 def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_hold=None,
-    s1brk_hold=None, free_bmid='mc', cutfac=CUT_FAC, **kw):
+    s1brk_hold=None, free_bmid='mc', cutfac=CUT_FAC, anchor='auto', **kw):
   '''
   s of every break the identified segments define, by refitting granot_sari_syn with those
   crossings and those slopes held -- the third step of the self-contained route.
@@ -1969,20 +2006,31 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
   out = dict(br, s1=np.nan, s2=np.nan, s_1brk=np.nan, rms=np.nan, rms_1brk=np.nan,
              nu_b1=np.nan, npts=0, at_bound=False, s_ok=False, a_mid_fit=np.nan,
              a_mid_seed=br.get('a_mid', np.nan), bmid_at_bound=False, b_hi_fit=np.nan,
-             mid_fitted=False)
+             b_lo_fit=np.nan, mid_fitted=False, anchored=None)
   if not br['ok']:
     return out
   sig = br.get('sigma', np.nan)
   fb = (br['regime'] == 'MC') if free_bmid == 'mc' else bool(free_bmid)
+  # anchor='auto': hold the break the CROSSING measures well and fit the other. That is
+  # nu_m in both regimes -- b_hi in fast cooling, b_lo in slow -- because the crossing's
+  # error is carried by the mid line, whose slope error levers hardest into the break on
+  # the nu_c side (segment_route.validation_sweep). 'lo' and 'hi' force one or the other.
+  anc = anchor
+  if anchor == 'auto':
+    anc = 'hi' if br['regime'] == 'FC' else 'lo'
+  free_lo = (anc == 'hi') and br['shape'] in ('2brk', '2brk_tangent', '2brk_free')
   if br['shape'] in ('2brk', '2brk_tangent', '2brk_free'):
     f = fit_smoothing_held(x, sp, psyn, br['b_lo'], br['b_hi'], br['nuM'],
-                           br['a_mid'] - 1., free_bhi=free_bhi, s_hold=s_hold, sigma=sig,
+                           br['a_mid'] - 1., free_bhi=(free_bhi and not free_lo),
+                           free_blo=free_lo, s_hold=s_hold, sigma=sig,
                            free_bmid=fb, cutfac=cutfac)
+    out['anchored'] = anc
     # a fitted mid slope is the better estimate of the mid index, so it becomes a_mid;
     # what was held going in is kept as a_mid_seed. A bin whose fit hit the mid-slope
     # bound is declined outright -- see the docstring.
     out.update(s1=f['s1'], s2=f['s2'], rms=f['rms'], npts=f['npts'],
-               at_bound=f['at_bound'], b_hi_fit=f['b_hi_fit'], mid_fitted=fb,
+               at_bound=f['at_bound'], b_hi_fit=f['b_hi_fit'], b_lo_fit=f['b_lo_fit'],
+               mid_fitted=fb,
                a_mid_fit=f['beta_mid'] + 1., bmid_at_bound=f['bmid_at_bound'],
                s_ok=bool(f['ok'] and not f['bmid_at_bound']))
     if fb and np.isfinite(f['beta_mid']):

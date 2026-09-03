@@ -569,6 +569,7 @@ def validation_sweep(seps=VAL_SEPS, s1s=VAL_S1, s2s=VAL_S2, sigma=VAL_SIGMA,
                              shape=g['shape'], mid_from=g['mid_from'], ok=bool(g['s_ok']),
                              b_lo_r=g['b_lo']/t['b_lo'], b_hi_r=g['b_hi']/t['b_hi'],
                              b_hi_fit_r=g['b_hi_fit']/t['b_hi'],
+                             b_lo_fit_r=g['b_lo_fit']/t['b_lo'], anchored=g['anchored'],
                              s1_r=g['s1']/s1, s2_r=g['s2']/s2, a_mid=g['a_mid'],
                              nuM_r=g['nuM']/t['nuM'], sigma_fit=g['sigma'], rms=g['rms']))
   df = pd.DataFrame(rows)
