@@ -80,7 +80,7 @@ COL = {-5: '#08306b', -4: '#1f6cb0', -3: '#4393c3', -2: '#7fb8d8',
 INK, MUTED, GRID = '#1a1a1a', '#6b6b6b', '#d9d9d9'
 FIELDS = ('logr', 'barT', 'x', 'step', 'branch', 'a_th', 'a_mid', 'dep', 'mid_from',
           'dex_mid', 'a_core', 'dep_core', 'core', 'dex', 'a_win', 'regime',
-          'a_mid_phys', 'rms', 'rms_phys', 'phys_at_bound', 'sep', 's1', 's2')
+          'a_mid_phys', 'rms', 'rms_phys', 'phys_at_bound', 'sep', 's1', 's2', 'depth')
 NPROC = 4                          # the route costs ~0.8 s a step (the smeared cut-off scan
                                    # dominates), so the points are run in parallel -- but on
                                    # a laptop, so this is deliberately not ncpu-1
@@ -129,6 +129,7 @@ def _measure_point(args):
                          a_core=nan, dep_core=nan, core=nan, dex=nan, a_win=nan,
                          regime='MC', a_mid_phys=gp['a_mid'], rms=gm['rms'],
                          rms_phys=gp['rms'], sep=nan, s1=gm['s1'], s2=gm['s2'],
+                         depth=nan,
                          phys_at_bound=float(bool(gp['bmid_at_bound']))))
       continue
     for br in ('fc', 'sc'):
@@ -148,7 +149,13 @@ def _measure_point(args):
       sep = (np.log10(br_['b_hi']/br_['b_lo'])
              if np.isfinite(br_['b_hi']) and np.isfinite(br_['b_lo'])
              and br_['b_lo'] > 0 else nan)
-      rows.append(dict(sep=sep, s1=gf['s1'], s2=gf['s2'],
+      # for a SINGLE-break spectrum (VFC, FC*) there is no separation to index a bias by;
+      # what sets the tilt there is the upper break's smoothing and how many decades of the
+      # 1/2 segment sit in band beneath it -- see segment_route.vfc_bias_grid
+      nub_lo = float(np.nanmin(nub[nub > 0.])) if np.any(nub > 0.) else nan
+      depth = (np.log10(br_['b_hi']/nub_lo)
+               if np.isfinite(br_['b_hi']) and np.isfinite(nub_lo) and nub_lo > 0 else nan)
+      rows.append(dict(sep=sep, s1=gf['s1'], s2=gf['s2'], depth=depth,
                        logr=r['log10ratio'], barT=barT[i], x=x[i], step=i, branch=br,
                        a_th=g['a'], a_mid=a_mid, dep=a_mid - g['a'],
                        mid_from=br_['mid_from'] or 'none', dex_mid=br_['dex_mid'],
@@ -211,13 +218,39 @@ def read_rows(outdir, fname=CSV_NAME):
   return rows
 
 
-BIAS_CSV = 'bias_grid.csv'    # written by segment_route.bias_grid, in ITS outdir
+BIAS_CSV = 'bias_grid.csv'      # written by segment_route.bias_grid, in ITS outdir
+VFC_BIAS_CSV = 'vfc_bias_grid.csv'   # ... and its single-break counterpart
 BIAS_MAX = 0.15               # grid cells beyond this are estimator breakdown, not a
                               # correction: the sc column at s1 = 0.4 flips sign and reaches
                               # +0.30 while its neighbours sit at -0.02. Interpolating across
                               # that would subtract more than the whole physical range of the
                               # slope, so those cells are dropped and any bin landing among
                               # them is left uncorrected and drawn as such.
+
+
+def _vfc_bias_interp():
+  '''
+  bias(depth, s2) for the SINGLE-break spectra -- VFC and FC*, which carry the 1/2 segment
+  with no lower break under it and so have no separation to index bias_grid by. Their tilt is
+  the opposite sign to the two-break case (-0.003 to -0.036): with nothing bleeding up from
+  below, only the upper break curving down into the window acts on the fitted line.
+  '''
+  from scipy.interpolate import LinearNDInterpolator
+  from segment_route import OUTDIR as SR_OUT
+  path = os.path.join(SR_OUT, VFC_BIAS_CSV)
+  if not os.path.isfile(path):
+    return None
+  pts, val = [], []
+  for r in csv.DictReader(open(path)):
+    if r['bias'] in ('', 'nan') or r['regime'] not in ('VFC', 'FC*'):
+      continue
+    b = float(r['bias'])
+    if abs(b) > BIAS_MAX:
+      continue
+    pts.append((float(r['depth']), float(r['s2']))); val.append(b)
+  if len(pts) < 4:
+    return None
+  return LinearNDInterpolator(np.array(pts), np.array(val))
 
 
 def _bias_interp(branch):
@@ -270,12 +303,16 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
     sub = [r for r in rows if r['branch'] == br]
     # subtract the estimator's own tilt, bin by bin, at that bin's separation and s1
     itp = _bias_interp(br)
+    itp1 = _vfc_bias_interp()
     n_un = 0
     for r in sub:
       b = np.nan
       if itp is not None and np.isfinite(r.get('sep', np.nan)) \
          and np.isfinite(r.get('s1', np.nan)):
         b = float(itp(r['sep'], r['s1']))
+      elif itp1 is not None and np.isfinite(r.get('depth', np.nan)) \
+           and np.isfinite(r.get('s2', np.nan)):
+        b = float(itp1(r['depth'], r['s2']))   # single break: no lower break to index by
       r['bias'] = b
       r['a_corr'] = r['a_mid'] - b if np.isfinite(b) else np.nan
       n_un += int(not np.isfinite(b))

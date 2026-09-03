@@ -725,6 +725,75 @@ def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, sigma=BIAS_SIGMA, verbos
   return df
 
 
+# The single-break analogue of BIAS_SEPS/BIAS_S1. A VFC or FC* spectrum carries the 1/2
+# segment with NO lower break under it, so nothing bleeds up into the mid window from below
+# and the only tilt available comes from the upper break curving down into it. The two
+# parameters are therefore that break's smoothing and how many decades of segment sit in band
+# beneath it -- there is no separation to index, which is why bias_grid cannot reach these
+# spectra and half the fast-cooling panel went uncorrected.
+# ranges set by what the data shows: depth 2.7-6.0 decades, s2 1.7-4.6 (2nd-98th percentile)
+VFC_S2 = (1.0, 1.4, 1.8, 2.2, 2.6, 3.2, 4.0, 5.0)
+VFC_DEPTH = (2.0, 3.0, 4.0, 5.0, 6.0, 6.5)   # decades of 1/2 segment below the break, in band
+
+
+def synth_vfc(depth, s2, sigma=BIAS_SIGMA, mgap=VAL_MGAP, psyn=VAL_P, npd=VAL_NPD):
+  '''
+  One superposed VERY-fast-cooling spectrum of known everything: a single break at nu_b
+  joining 1/2 to 1-p/2 (granot_sari_syn's nuc=None branch with beta_lo_single = -1/2), a
+  cut-off 10**mgap above it, and `depth` decades of the 1/2 segment in band beneath it.
+  '''
+  nu_b, nuM = 1., 10**mgap
+  nu = 10**np.arange(-depth, np.log10(nuM) + 0.5, 1./npd)
+  if sigma > 0:
+    sg = np.linspace(-4*sigma, 4*sigma, VAL_SMEAR_NODES)
+    w = np.exp(-0.5*(sg/sigma)**2); w /= w.sum()
+    sp = sum(wk*sb.granot_sari_syn(nu, nu_b, None, psyn, s2=s2, nuM=nuM*10**sk,
+                                   nuFnu=True, beta_lo_single=-0.5)
+             for sk, wk in zip(sg, w))
+  else:
+    sp = sb.granot_sari_syn(nu, nu_b, None, psyn, s2=s2, nuM=nuM, nuFnu=True,
+                            beta_lo_single=-0.5)
+  return nu, sp, dict(nu_b=nu_b, nuM=nuM, s2=s2, depth=depth, psyn=psyn)
+
+
+def vfc_bias_grid(depths=VFC_DEPTH, s2s=VFC_S2, sigma=BIAS_SIGMA, verbose=True,
+    outdir=OUTDIR):
+  '''
+  The mid-slope tilt on SINGLE-BREAK spectra, over (band depth below the break, s2), so the
+  VFC and FC* bins can be corrected on the same footing as the two-break ones.
+
+  Their a_mid is NOT re-centred -- breaks_from_identified only re-centres when both outer
+  windows exist, and these have no nu^(4/3) one -- so what is measured here is the free line
+  over the identified (asymmetric) window, which is exactly what those bins are plotted with.
+  '''
+  rows = []
+  for depth in depths:
+    for s2 in s2s:
+      nu, sp, t = synth_vfc(depth, s2, sigma=sigma)
+      br = sb.breaks_from_identified(nu, sp, t['psyn'])
+      rows.append(dict(depth=depth, s2=s2, regime=br['regime'], mid_from=br['mid_from'],
+                       a_mid=br['a_mid'], bias=br['a_mid'] - 0.5,
+                       dex_mid=br['dex_mid']))
+  df = pd.DataFrame(rows)
+  if verbose and len(df):
+    print(f"\n{'=== SINGLE-BREAK (VFC/FC*) MID-SLOPE BIAS ':=<70}")
+    print('  a_mid - 1/2 on spectra whose mid slope IS 1/2, by band depth below the break')
+    print('  depth   ' + '  '.join(f'{v:>6.1f}' for v in s2s) + '   <- s2')
+    for depth in depths:
+      d = df[df.depth == depth]
+      cells = '  '.join(
+          f"{d[d.s2 == v].bias.iloc[0]:+6.3f}" if len(d[d.s2 == v])
+          and np.isfinite(d[d.s2 == v].bias.iloc[0]) else '    --' for v in s2s)
+      print(f'   {depth:4.1f}   {cells}')
+    cl = sorted({str(q) for q in df.regime})
+    print(f'  classes returned: {cl}')
+  if outdir:
+    _ensure_outdir(outdir)
+    df.to_csv(os.path.join(outdir, 'vfc_bias_grid.csv'), index=False)
+    print(f"  wrote {os.path.join(outdir, 'vfc_bias_grid.csv')}")
+  return df
+
+
 def write_tables(*dfs_named, outdir=OUTDIR):
   _ensure_outdir()
   for df, name in dfs_named:
