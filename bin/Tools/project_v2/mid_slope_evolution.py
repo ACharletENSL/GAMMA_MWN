@@ -18,13 +18,22 @@ spectrum actually shows. a_th is the one-zone asymptote it is held at while the 
 is being identified, and dep = a_mid - a_th is the departure described above. The two
 names are not interchangeable -- a_th is an input, a_mid the measurement.
 
-Two ways of measuring a_mid, and the figure distinguishes them:
-  SOLID   a_core -- the slope where the segment SETTLES (flat_core), i.e. the value it
-          holds over its flat interior. Defined only where such an interior exists, and
-          the estimator of a_mid to quote wherever it is.
-  HOLLOW  a_win -- a free straight-line fit over the whole identified window, used where
-          no settled core exists. The slope is sweeping through the window there, so the
-          number is an average over a knee and must not be read as a segment slope.
+WHAT IS PLOTTED is what the spectral fit actually uses: a_mid from
+spectral_breaks.breaks_from_identified, the mid line re-measured over a window centred on
+its own slope, which is the beta_mid fit_smoothing_held then holds. The two window-bounded
+estimators it replaced are still written to the csv beside it -- a_core (the settled slope
+inside the identified window) and a_win (a free line across all of it) -- so the change of
+estimator can be read off the same rows. Both inherit the identified window's asymmetry and
+return +0.036 (fc) / -0.035 (sc) on synthetics whose mid slope IS the asymptote; a_mid does
+not, and what remains of its own bias is calibrated in segment_route.mid_bias_calibration.
+  SOLID   the window re-centred successfully -- the value the fit stands on.
+  HOLLOW  it did not, and the fit fell back to the line over the identified window.
+
+The MARGINAL class is measured (under both the shape and the physical bounds on a_mid) and
+written to the csv, but is NOT drawn. Bounded to what a fused fast- or slow-cooling knee can
+produce, [(3-p)/2 - 0.10, 1/2 + 0.10], its fitted mid slope pins at the ceiling in 83% of
+bins and at the floor in none -- so there is no track to plot. That pinning is a statement
+about which shape those spectra want, not a slope, and belongs in the text.
 
 Read the time axis as the shell's, not the spectrum's: bar{T}/bar{T}_f = 1 is the shell
 crossing and the grey band is the rarefaction switching the shell off, its right edge
@@ -204,13 +213,13 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
   own edge IS bar{T}_rf -- see sweep_gammacm.plot_lightcurve_shape).
   '''
   xoff = tuple(b/barT_f for b in barT_off) if (barT_off and barT_f > 0.) else None
-  fig, axes = plt.subplots(3, 1, figsize=(8.4, 10.4), sharex=True)
-  # SC on top, MC in the middle, FC at the bottom: the panels then run in the order the
-  # spectrum passes through them as gamma_c falls, and the marginal class sits between the
-  # two branches it interpolates rather than after them.
+  fig, axes = plt.subplots(2, 1, figsize=(8.4, 7.6), sharex=True)
+  # SC on top, FC below, the order the spectrum passes through them as gamma_c falls. The
+  # MARGINAL class is measured (both bounds, see _measure_point) and written to the csv, but
+  # NOT drawn: bounded to what a fused fc or sc knee can produce, its fitted mid slope pins
+  # at the ceiling in 83% of bins, so there is no track to plot -- that pinning is a result
+  # about which shape those spectra want, and belongs in the text.
   panels = (('sc', 0.25, 'Slow-cooling branch', '$a_{\\rm th}=(3-p)/2$', (0.205, 0.266)),
-            ('mc', None, 'Marginal class -- mid slope fitted, no segment displayed',
-             None, (0.10, 1.35)),
             ('fc', 0.5, 'Fast-cooling branch', '$a_{\\rm th}=1/2$', (0.478, 0.615)))
             # the sc top is set by the legend, not by the data: no track goes above
             # a_th = 0.25, so what is left above it is exactly the legend's band
@@ -219,20 +228,10 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
     if xoff is not None:
       ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
     ax.axvline(1., color='grey', ls=':', lw=0.9, zorder=1)
-    if a_th is not None:
-      ax.axhline(a_th, color=MUTED, lw=1.2, ls='--', zorder=1)
-      ax.annotate(a_lab, xy=(1., a_th), xycoords=('axes fraction', 'data'),
-                  xytext=(-4, 5), textcoords='offset points', ha='right', va='bottom',
-                  fontsize=9, color=MUTED)
-    else:
-      # the marginal panel has no asymptote to depart from; both one-zone values are drawn
-      # only to place the fitted slope against them
-      for v, lab in ((0.5, '$1/2$'), (4./3., '$4/3$')):
-        if ylim[0] <= v <= ylim[1]:
-          ax.axhline(v, color=GRID, lw=1.0, ls=':', zorder=1)
-          ax.annotate(lab, xy=(1., v), xycoords=('axes fraction', 'data'),
-                      xytext=(-4, 3), textcoords='offset points', ha='right',
-                      va='bottom', fontsize=8.5, color=MUTED)
+    ax.axhline(a_th, color=MUTED, lw=1.2, ls='--', zorder=1)
+    ax.annotate(a_lab, xy=(1., a_th), xycoords=('axes fraction', 'data'),
+                xytext=(-4, 5), textcoords='offset points', ha='right', va='bottom',
+                fontsize=9, color=MUTED)
     for lr in sorted({r['logr'] for r in sub}):
       d = sorted([r for r in sub if r['logr'] == lr], key=lambda r: r['x'])
       c = COL[int(lr)]
@@ -240,24 +239,6 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
       # the spectral fit holds. HOLLOW where that re-centring found no window and the fit
       # fell back to the line over the identified (asymmetric) window, which carries a
       # known offset of about +0.02 fast / -0.02 slow.
-      if br == 'mc':
-        # the marginal panel carries BOTH fits: the physically bounded mid slope as the
-        # measurement (solid), the shape-bounded one faint behind it, so the excursion the
-        # bounds remove is visible rather than argued about
-        loose = [q for q in d if np.isfinite(q['a_mid'])]
-        if loose:
-          ax.plot([q['x'] for q in loose], [q['a_mid'] for q in loose], '-', color=c,
-                  lw=1.0, alpha=0.35, zorder=2)
-        phys = [q for q in d if np.isfinite(q['a_mid_phys'])]
-        pinned = [q for q in phys if q['phys_at_bound'] > 0.5]
-        free_ = [q for q in phys if q['phys_at_bound'] <= 0.5]
-        if phys:
-          ax.plot([q['x'] for q in phys], [q['a_mid_phys'] for q in phys], '-', color=c,
-                  lw=1.8, solid_capstyle='round', zorder=3)
-        if pinned:   # at a bound: no attainable mid slope describes the spectrum there
-          ax.plot([q['x'] for q in pinned], [q['a_mid_phys'] for q in pinned], 'x',
-                  color=c, ms=3.4, mew=0.9, ls='none', zorder=4)
-        continue
       rec = [r for r in d if r['mid_from'] == 'plateau_recentred'
              and np.isfinite(r['a_mid'])]
       fell = [r for r in d if r['mid_from'] != 'plateau_recentred'
