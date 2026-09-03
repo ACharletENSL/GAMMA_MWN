@@ -1952,7 +1952,7 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
 
 
 def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_hold=None,
-    s1brk_hold=None, free_bmid='mc', cutfac=CUT_FAC, anchor='auto', **kw):
+    s1brk_hold=None, free_bmid='mc', cutfac=CUT_FAC, anchor='lo', **kw):
   '''
   s of every break the identified segments define, by refitting granot_sari_syn with those
   crossings and those slopes held -- the third step of the self-contained route.
@@ -2011,10 +2011,17 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
     return out
   sig = br.get('sigma', np.nan)
   fb = (br['regime'] == 'MC') if free_bmid == 'mc' else bool(free_bmid)
-  # anchor='auto': hold the break the CROSSING measures well and fit the other. That is
-  # nu_m in both regimes -- b_hi in fast cooling, b_lo in slow -- because the crossing's
-  # error is carried by the mid line, whose slope error levers hardest into the break on
-  # the nu_c side (segment_route.validation_sweep). 'lo' and 'hi' force one or the other.
+  # WHICH BREAK THE FIT HOLDS. 'lo' (the default) holds b_lo, whatever it is physically;
+  # 'auto' holds nu_m instead -- b_hi in fast cooling, b_lo in slow -- on the reasoning that
+  # the crossing measures nu_m well and nu_c badly, so the fit should be anchored on the good
+  # one. That reasoning is measured and does NOT hold up: freeing nu_c returns the crossing's
+  # own value back (0.848 against 0.853), because the fitted shape carries the same measured
+  # a_mid, while FC's s1 degrades from 1.108 to 1.151 and its rms from 0.0061 to 0.0075. The
+  # fit is better anchored on the break that produced the mid line, even when that break is
+  # the biased one. 'auto' is kept because it is the natural thing to try and the negative
+  # result is worth being able to reproduce.
+  # NB this choice does not touch the reported breaks: b_lo and b_hi are crossings, computed
+  # before any fit. Quote those -- the fit improves neither.
   anc = anchor
   if anchor == 'auto':
     anc = 'hi' if br['regime'] == 'FC' else 'lo'
