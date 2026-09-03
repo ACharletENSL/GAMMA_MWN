@@ -321,17 +321,23 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
       g = np.isfinite(free) & np.isfinite(held)
       if not g.any():
         continue
+      rf, rh = float(np.median(free[g])), float(np.median(held[g]))
       rows.append(dict(regime=cls, epoch=elab, n=int(g.sum()), s1=s1, s2=s2, s_1brk=sg,
-                       rms_free=float(np.median(free[g])), rms_held=float(np.median(held[g])),
-                       cost=float(np.median(held[g]) - np.median(free[g])),
+                       rms_free=rf, rms_held=rh, cost=rh - rf,
+                       cost_pct=(100.*(rh/rf - 1.) if rf > 0 else np.nan),
                        frac_bad=float(np.mean(held[g] > rms_max))))
   df = pd.DataFrame(rows)
   if verbose and len(df):
     print(f"\n{'=== DOES THE TABULATED VALUE FIT? ':=<96}")
-    print(f'"cost" is the median rms penalty against fitting s per spectrum; "%>thr" the '
-          f'fraction of bins\nthe frozen values fail to describe to {rms_max:g} dex.')
+    print('Two SEPARATE measurements, do not conflate them:')
+    print(f'  d(rms)  what freezing s costs RELATIVE to fitting it per spectrum, as a % '
+          f'increase of the\n          median rms. Small means one tabulated pair is as good '
+          f'as fitting each bin.')
+    print(f'  >thr    the ABSOLUTE adequacy of the frozen fit: the fraction of bins whose '
+          f'held rms\n          exceeds {rms_max:g} dex. A class can have a tiny d(rms) and '
+          f'a terrible >thr, which\n          just means both fits are equally poor there.')
     hdr = (f"{'class':>5} {'epoch':>14} {'N':>5} | {'s1':>6} {'s2':>6} {'s(1brk)':>8} | "
-           f"{'free':>8} {'held':>8} {'cost':>8} {'%>thr':>6} | verdict")
+           f"{'rms free':>9} {'rms held':>9} {'d(rms)':>8} | {'>thr':>6} | verdict")
     print(hdr); print('-'*len(hdr))
     f3 = lambda v: f'{v:6.3f}' if np.isfinite(v) else '    --'
     for _, w in df.iterrows():
@@ -339,8 +345,8 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
       tag = 'use' if ok and w.frac_bad <= bad_max else ('use with care' if ok
                                                         else 'DO NOT USE')
       print(f"{w.regime:>5} {w.epoch:>14} {w.n:>5} | {f3(w.s1)} {f3(w.s2)} {f3(w.s_1brk)} | "
-            f"{w.rms_free:8.4f} {w.rms_held:8.4f} {w.cost:+8.4f} {100*w.frac_bad:5.1f}% "
-            f"| {tag}")
+            f"{w.rms_free:9.4f} {w.rms_held:9.4f} {w.cost_pct:+7.1f}% | "
+            f"{100*w.frac_bad:5.1f}% | {tag}")
   return df
 
 
