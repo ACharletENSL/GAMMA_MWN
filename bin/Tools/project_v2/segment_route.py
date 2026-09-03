@@ -669,6 +669,62 @@ def mid_bias_calibration(cases=CAL_CASES, sigmas=CAL_SIGMAS, mgap=VAL_MGAP, verb
   return df
 
 
+# Grid for the PER-BIN bias correction. mid_bias_calibration gives one number per class and
+# epoch, which is enough for a table and wrong for a figure: the bias is driven by s1 (a
+# smoother lower break bleeds further into the mid window -- +0.014 at s1 = 1.24 against
+# +0.057 at 0.87, same separations), and s1 varies continuously along a track. Correcting by
+# epoch would therefore step the curve at the crossing for a reason that is not physical.
+# out to 9 dex because that is where the data goes: the slow-cooling tracks reach 8.9
+BIAS_SEPS = (2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.5, 9.0)
+BIAS_S1 = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7)
+BIAS_S2 = (1.5, 2.0)
+BIAS_SIGMA = 0.07
+
+
+def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, sigma=BIAS_SIGMA, verbose=True,
+    outdir=OUTDIR):
+  '''
+  The re-centred estimator's bias over (break separation, s1), per branch, on synthetics whose
+  mid slope IS the asymptote. Averaged over s2, which barely moves it.
+
+  This is the table a figure needs: interpolated at each bin's own measured separation and s1
+  it gives a correction that varies along the track the way the bias actually does, instead of
+  stepping at an epoch boundary. It is still a first iteration -- the s1 it is indexed by is
+  itself an output of the biased chain, and granot_sari_syn's knees are symmetric while the
+  computed ones are not.
+  '''
+  rows = []
+  for fast in (True, False):
+    a_th = 0.5 if fast else (3. - VAL_P)/2.
+    for sep in seps:
+      for s1 in s1s:
+        b = []
+        for s2 in s2s:
+          nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sigma, mgap=VAL_MGAP)
+          br = sb.breaks_from_identified(nu, sp, t['psyn'])
+          if np.isfinite(br['a_mid']) and br['regime'] in ('FC', 'SC'):
+            b.append(br['a_mid'] - a_th)
+        rows.append(dict(branch=('fc' if fast else 'sc'), sep=sep, s1=s1,
+                         bias=(float(np.mean(b)) if b else np.nan), n=len(b)))
+  df = pd.DataFrame(rows)
+  if verbose and len(df):
+    print(f"\n{'=== BIAS GRID: a_mid - a_th on synthetics, by separation and s1 ':=<78}")
+    for brn in ('sc', 'fc'):
+      d = df[df.branch == brn]
+      print(f'  {brn}:   ' + '  '.join(f'{s1:>6.1f}' for s1 in s1s) + '   <- s1')
+      for sep in seps:
+        r = d[d.sep == sep]
+        cells = '  '.join(
+            f"{r[r.s1 == s1].bias.iloc[0]:+6.3f}" if len(r[r.s1 == s1])
+            and np.isfinite(r[r.s1 == s1].bias.iloc[0]) else '    --' for s1 in s1s)
+        print(f'    sep={sep:.1f}  {cells}')
+  if outdir:
+    _ensure_outdir(outdir)
+    df.to_csv(os.path.join(outdir, 'bias_grid.csv'), index=False)
+    print(f"  wrote {os.path.join(outdir, 'bias_grid.csv')}")
+  return df
+
+
 def write_tables(*dfs_named, outdir=OUTDIR):
   _ensure_outdir()
   for df, name in dfs_named:

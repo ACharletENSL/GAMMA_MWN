@@ -80,7 +80,7 @@ COL = {-5: '#08306b', -4: '#1f6cb0', -3: '#4393c3', -2: '#7fb8d8',
 INK, MUTED, GRID = '#1a1a1a', '#6b6b6b', '#d9d9d9'
 FIELDS = ('logr', 'barT', 'x', 'step', 'branch', 'a_th', 'a_mid', 'dep', 'mid_from',
           'dex_mid', 'a_core', 'dep_core', 'core', 'dex', 'a_win', 'regime',
-          'a_mid_phys', 'rms', 'rms_phys', 'phys_at_bound')
+          'a_mid_phys', 'rms', 'rms_phys', 'phys_at_bound', 'sep', 's1', 's2')
 NPROC = 4                          # the route costs ~0.8 s a step (the smeared cut-off scan
                                    # dominates), so the points are run in parallel -- but on
                                    # a laptop, so this is deliberately not ncpu-1
@@ -128,7 +128,7 @@ def _measure_point(args):
                          mid_from=gm['mid_from'] or 'none', dex_mid=gm['dex_mid'],
                          a_core=nan, dep_core=nan, core=nan, dex=nan, a_win=nan,
                          regime='MC', a_mid_phys=gp['a_mid'], rms=gm['rms'],
-                         rms_phys=gp['rms'],
+                         rms_phys=gp['rms'], sep=nan, s1=gm['s1'], s2=gm['s2'],
                          phys_at_bound=float(bool(gp['bmid_at_bound']))))
       continue
     for br in ('fc', 'sc'):
@@ -140,12 +140,21 @@ def _measure_point(args):
       # a_core the settled slope inside the identified window, a_win a free line across
       # all of it. Both inherit that window's asymmetry; a_mid does not.
       a_mid = br_['a_mid']
-      rows.append(dict(logr=r['log10ratio'], barT=barT[i], x=x[i], step=i, branch=br,
+      # the smoothing fit is run here too, for the two numbers the bias correction is
+      # indexed by: the break separation and s1. The bias is driven by s1 (a smoother lower
+      # break bleeds further into the mid window), and s1 varies along a track, so a
+      # correction by epoch would step the curve where the physics does not.
+      gf = sb.smoothing_from_identified(nub, nuFnu[i], p, br=br_)
+      sep = (np.log10(br_['b_hi']/br_['b_lo'])
+             if np.isfinite(br_['b_hi']) and np.isfinite(br_['b_lo'])
+             and br_['b_lo'] > 0 else nan)
+      rows.append(dict(sep=sep, s1=gf['s1'], s2=gf['s2'],
+                       logr=r['log10ratio'], barT=barT[i], x=x[i], step=i, branch=br,
                        a_th=g['a'], a_mid=a_mid, dep=a_mid - g['a'],
                        mid_from=br_['mid_from'] or 'none', dex_mid=br_['dex_mid'],
                        a_core=g['a_core'], dep_core=g['dep'], core=g['core'],
                        dex=g['dex'], a_win=g['a_fit'], regime=d['regime'] or 'None',
-                       a_mid_phys=nan, rms=nan, rms_phys=nan, phys_at_bound=nan))
+                       a_mid_phys=nan, rms=gf['rms'], rms_phys=nan, phys_at_bound=nan))
   return rows
 
 
@@ -202,6 +211,40 @@ def read_rows(outdir, fname=CSV_NAME):
   return rows
 
 
+BIAS_CSV = 'bias_grid.csv'    # written by segment_route.bias_grid, in ITS outdir
+BIAS_MAX = 0.15               # grid cells beyond this are estimator breakdown, not a
+                              # correction: the sc column at s1 = 0.4 flips sign and reaches
+                              # +0.30 while its neighbours sit at -0.02. Interpolating across
+                              # that would subtract more than the whole physical range of the
+                              # slope, so those cells are dropped and any bin landing among
+                              # them is left uncorrected and drawn as such.
+
+
+def _bias_interp(branch):
+  '''
+  bias(sep, s1) for one branch, from segment_route's grid: what the estimator returns on a
+  synthetic whose mid slope IS the asymptote, at that break separation and lower-break
+  smoothing. Linear inside the sampled hull, None outside -- a bin the grid does not cover is
+  reported uncorrected rather than extrapolated.
+  '''
+  from scipy.interpolate import LinearNDInterpolator
+  from segment_route import OUTDIR as SR_OUT
+  path = os.path.join(SR_OUT, BIAS_CSV)
+  if not os.path.isfile(path):
+    return None
+  pts, val = [], []
+  for r in csv.DictReader(open(path)):
+    if r['branch'] != branch or r['bias'] in ('', 'nan'):
+      continue
+    b = float(r['bias'])
+    if abs(b) > BIAS_MAX:
+      continue
+    pts.append((float(r['sep']), float(r['s1']))); val.append(b)
+  if len(pts) < 4:
+    return None
+  return LinearNDInterpolator(np.array(pts), np.array(val))
+
+
 def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
   '''
   Two panels, one per branch, on a shared log time axis. Each holds its asymptote as a
@@ -225,6 +268,19 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
             # a_th = 0.25, so what is left above it is exactly the legend's band
   for ax, (br, a_th, title, a_lab, ylim) in zip(axes, panels):
     sub = [r for r in rows if r['branch'] == br]
+    # subtract the estimator's own tilt, bin by bin, at that bin's separation and s1
+    itp = _bias_interp(br)
+    n_un = 0
+    for r in sub:
+      b = np.nan
+      if itp is not None and np.isfinite(r.get('sep', np.nan)) \
+         and np.isfinite(r.get('s1', np.nan)):
+        b = float(itp(r['sep'], r['s1']))
+      r['bias'] = b
+      r['a_corr'] = r['a_mid'] - b if np.isfinite(b) else np.nan
+      n_un += int(not np.isfinite(b))
+    if n_un:
+      print(f'  {br}: {n_un}/{len(sub)} bins outside the bias grid, left uncorrected')
     if xoff is not None:
       ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
     ax.axvline(1., color='grey', ls=':', lw=0.9, zorder=1)
@@ -240,15 +296,19 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
       # fell back to the line over the identified (asymmetric) window, which carries a
       # known offset of about +0.02 fast / -0.02 slow.
       rec = [r for r in d if r['mid_from'] == 'plateau_recentred'
-             and np.isfinite(r['a_mid'])]
+             and np.isfinite(r['a_corr'])]
       fell = [r for r in d if r['mid_from'] != 'plateau_recentred'
-              and np.isfinite(r['a_mid'])]
+              and np.isfinite(r['a_corr'])]
+      unc = [r for r in d if not np.isfinite(r['a_corr']) and np.isfinite(r['a_mid'])]
       if rec:
-        ax.plot([r['x'] for r in rec], [r['a_mid'] for r in rec], '-', color=c,
+        ax.plot([r['x'] for r in rec], [r['a_corr'] for r in rec], '-', color=c,
                 lw=1.8, solid_capstyle='round', zorder=3)
       if fell:
-        ax.plot([r['x'] for r in fell], [r['a_mid'] for r in fell], 'o', mfc='none',
+        ax.plot([r['x'] for r in fell], [r['a_corr'] for r in fell], 'o', mfc='none',
                 mec=c, ms=3.6, mew=1.0, ls='none', zorder=2)
+      if unc:   # no correction available: plotted raw, and said so
+        ax.plot([r['x'] for r in unc], [r['a_mid'] for r in unc], '.', color=c,
+                ms=2.4, alpha=0.45, ls='none', zorder=2)
     ax.set_xscale('log'); ax.set_ylim(*ylim)
     ax.grid(True, which='major', color=GRID, lw=0.6, alpha=0.9)
     ax.set_axisbelow(True)
