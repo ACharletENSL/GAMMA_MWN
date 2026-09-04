@@ -307,11 +307,11 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
   # NOT drawn: bounded to what a fused fc or sc knee can produce, its fitted mid slope pins
   # at the ceiling in 83% of bins, so there is no track to plot -- that pinning is a result
   # about which shape those spectra want, and belongs in the text.
-  panels = (('sc', 0.25, 'Slow-cooling branch', '$a_{\\rm th}=(3-p)/2$', (0.205, 0.266)),
-            ('fc', 0.5, 'Fast-cooling branch', '$a_{\\rm th}=1/2$', (0.478, 0.615)))
+  panels = (('sc', 'Slow-cooling branch', (0.205, 0.266)),
+            ('fc', 'Fast-cooling branch', (0.478, 0.615)))
             # the sc top is set by the legend, not by the data: no track goes above
             # a_th = 0.25, so what is left above it is exactly the legend's band
-  for ax, (br, a_th, title, a_lab, ylim) in zip(axes, panels):
+  for ax, (br, title, ylim) in zip(axes, panels):
     sub = [r for r in rows if r['branch'] == br]
     # subtract the estimator's own tilt, bin by bin, at that bin's own parameters -- the
     # (separation, s1) grid for a two-break spectrum, the (band depth, s2) one for a single
@@ -335,15 +335,11 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     if xoff is not None:
       ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
     ax.axvline(1., color='grey', ls=':', lw=0.9, zorder=1)
-    ax.axhline(a_th, color=MUTED, lw=1.2, ls='--', zorder=1)
-    # the label goes on the side of the guide the data is NOT on, so it never sits over a
-    # track: fast cooling runs above its asymptote, slow cooling below.
-    drawn = [(r['a_corr'] if np.isfinite(r.get('a_corr', np.nan)) else r['a_mid'])
-             for r in sub]
-    above = np.nanmedian(drawn) > a_th if len(drawn) else False
-    ax.annotate(a_lab, xy=(1., a_th), xycoords=('axes fraction', 'data'),
-                xytext=(-4, -5 if above else 5), textcoords='offset points', ha='right',
-                va='top' if above else 'bottom', fontsize=9, color=MUTED)
+    # no asymptote guide: the panels are read against the axis, and a dashed line at 1/2 or
+    # (3-p)/2 invites the departure to be eyeballed off a figure whose y range is set by the
+    # data and differs between the corrected and raw versions.
+    val = (lambda r: r['a_corr']) if corrected else (lambda r: r['a_mid'])
+    drawn = [val(r) for r in sub]
     for lr in sorted({r['logr'] for r in sub}):
       d = sorted([r for r in sub if r['logr'] == lr], key=lambda r: r['x'])
       c = COL[int(lr)]
@@ -351,20 +347,23 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       # the spectral fit holds. HOLLOW where that re-centring found no window and the fit
       # fell back to the line over the identified (asymmetric) window, which carries a
       # known offset of about +0.02 fast / -0.02 slow.
-      rec = [r for r in d if r['mid_from'] == 'plateau_recentred'
-             and np.isfinite(r['a_corr'])]
-      fell = [r for r in d if r['mid_from'] != 'plateau_recentred'
-              and np.isfinite(r['a_corr'])]
-      unc = [r for r in d if not np.isfinite(r['a_corr']) and np.isfinite(r['a_mid'])]
+      # the split is by HOW the slope was measured, not by whether a correction existed:
+      # re-centred windows draw as a line, the fell-back ones (VFC/FC*, which have no 4/3
+      # window to re-centre against) as open circles. In the raw figure every bin has a
+      # value, so nothing is faint there.
+      rec = [r for r in d if r['mid_from'] == 'plateau_recentred' and np.isfinite(val(r))]
+      fell = [r for r in d if r['mid_from'] != 'plateau_recentred' and np.isfinite(val(r))]
+      unc = ([r for r in d if not np.isfinite(r['a_corr']) and np.isfinite(r['a_mid'])]
+             if corrected else [])
       if rec:
-        ax.plot([r['x'] for r in rec], [r['a_corr'] for r in rec], '-', color=c,
+        ax.plot([r['x'] for r in rec], [val(r) for r in rec], '-', color=c,
                 lw=1.8, solid_capstyle='round', zorder=3)
       if fell:
-        ax.plot([r['x'] for r in fell], [r['a_corr'] for r in fell], 'o', mfc='none',
+        ax.plot([r['x'] for r in fell], [val(r) for r in fell], 'o', mfc='none',
                 mec=c, ms=3.6, mew=1.0, ls='none', zorder=2)
-      if unc:   # no correction available: plotted raw, and said so
+      if unc:   # corrected figure only: no correction available, so plotted raw
         ax.plot([r['x'] for r in unc], [r['a_mid'] for r in unc], '.', color=c,
-                ms=2.4, alpha=0.45, ls='none', zorder=2)
+                ms=3.0, alpha=0.7, ls='none', zorder=2)
     ax.set_xscale('log')
     # limits from what is actually drawn, so a correction that shifts the distribution
     # cannot push points off the panel; the sc axes carry the legend and keep headroom
