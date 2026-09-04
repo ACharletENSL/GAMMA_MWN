@@ -2126,9 +2126,12 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
     ax.set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}$')
     ax.set_title(f'Spectral evolution, $\\log_{{10}}(\\gamma_c/\\gamma_m)={r["log10ratio"]:+.0f}$')
     # the time is the legend TITLE, not repeated in every entry: six entries each carrying
-    # the same axis name is a legend box wider than the panel it sits in
-    ax.legend(handles, labels, title='$\\log_{10}(\\bar{T}/\\bar{T}_f)$',
-              fontsize=9, title_fontsize=9, loc='lower left')
+    # the same axis name is a legend box wider than the panel it sits in. Two columns at
+    # the BOTTOM CENTRE -- the spectra all rise from the lower left and fall off to the
+    # right, so the floor of the panel between them is the widest empty space on the
+    # figure, and a 2-column box uses it without reaching either bundle of curves
+    ax.legend(handles, labels, title='$\\log_{10}(\\bar{T}/\\bar{T}_f)$', ncol=2,
+              fontsize=9, title_fontsize=9, loc='lower center')
     fig.tight_layout()
     fig.savefig(os.path.join(outdir,
         f'spectrum_evolution_logr={r["log10ratio"]:+.1f}.png'), dpi=300)

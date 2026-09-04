@@ -382,11 +382,12 @@ def plot_spectral_evolution_compare(pairs, barT_f, outdir=OUTDIR, labels=LABELS,
     (ha,) = ax.plot([], [], 'k--')                # side keys, colour-neutral
     (hb,) = ax.plot([], [], 'k-')
     # two legends, because one box cannot carry two keys under a single title: the time
-    # bins go under their axis name at the lower left (the corner the faint late bins
-    # leave empty), the sides in the upper right -- these curves peak near nu_m and run
-    # out to their nu_M cutoff many decades higher, so that corner is empty too
+    # bins go under their axis name in two columns along the bottom centre (the panel
+    # floor between the rising and falling bundles, as in plot_spectra_per_regime), the
+    # sides in the upper right -- these curves peak near nu_m and run out to their nu_M
+    # cutoff many decades higher, so that corner is empty too
     ax.add_artist(ax.legend(handles, labs, title='$\\log_{10}(\\bar{T}/\\bar{T}_f)$',
-                            fontsize=9, title_fontsize=9, loc='lower left'))
+                            ncol=2, fontsize=9, title_fontsize=9, loc='lower center'))
     ax.legend([ha, hb], [la, lb], fontsize=9, loc='upper right')
     ax.set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm pk}}$  ({ln} norm.)')
     ax.set_xlabel(NU_M_LABEL)
