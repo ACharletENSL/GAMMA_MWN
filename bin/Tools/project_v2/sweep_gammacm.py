@@ -10,7 +10,8 @@ z = Z_SHELL = 4; z=1 is the forward shock, on the same RS-normalised grids).
 Plot set:
   - lightcurve SHAPE: peak-normalised in bar{T}=(Tobs-Ts)/T0 and flux (every
     curve through (1,1)), linear + log, one 2-panel fig per frequency
-  - spectral EVOLUTION: rise/peak/tail spectra, one fig per gamma_c/gamma_m
+  - spectral EVOLUTION: spectra at logarithmically spaced observed times (SPEC_LOGT,
+    log10(bar{T}/bar{T}_f) = -3..2), one fig per gamma_c/gamma_m
   - peak & fluence spectra, all regimes together on a nu/nu_m axis, normalised
     to the flux at nu_m, to the peak flux, or peak-normalised and then scaled by
     each point's radiative efficiency (SPEC_MODES)
@@ -156,11 +157,41 @@ XLIM_LOG = (1e-3, 1e3)                       # and the LOG-time window, likewise
                                              # bar{T} = 646..650 (x = 493..497, data_end_barT),
                                              # so nothing is drawn past 1e3 and letting the
                                              # axis autoscale only added empty decades.
-SPEC_YSPAN = 3.55                            # decades of flux shown on the spectral-evolution
-                                             # plots (same fixed range on all, for comparison)
+SPEC_YSPAN = 3.55                            # decades of flux shown on the spectral plots (same
+                                             # fixed range on all, for comparison)
+SPEC_LOGT = np.arange(-3., 2. + 1e-9, 1.)    # the observed times the spectral-EVOLUTION figures
+                                             # sample, in log10(bar{T}/bar{T}_f): one spectrum per
+                                             # decade from a thousandth of the crossing time to a
+                                             # hundred times it. A FIXED grid in observer time,
+                                             # not phases read off each lightcurve, so every sweep
+                                             # point is shown at the same times and two regimes
+                                             # can be compared bin by bin -- which the rise/peak/
+                                             # tail sampling it replaced could not do, its three
+                                             # times being set by each point's own peak flux
+                                             # (FRAC_RISE/FRAC_TAIL) and therefore landing
+                                             # somewhere different in every panel. The observer
+                                             # grid is geometric at 0.0039 dex (NT), so every bin
+                                             # lands within 0.01 dex of its target; bins outside
+                                             # the grid are dropped, not clamped (_spectra_series).
+SPEC_SERIES_YSPAN = 9.2                      # decades of flux shown on those figures, which put
+                                             # all of SPEC_LOGT on one axis. The faintest bin
+                                             # (bar{T}/bar{T}_f = 100, deep in the high-latitude
+                                             # decay) peaks 5.45-5.62 dec below the brightest (the
+                                             # crossing bin, which is also the lightcurve peak)
+                                             # across the whole sweep, and SPEC_YSPAN more keeps
+                                             # that faintest spectrum's own shape on the figure.
+                                             # Fixed like SPEC_YSPAN, so all regimes share it.
 NU_REF = 1.0                                 # reference freq for rise/peak/tail detection
 FRAC_RISE, FRAC_TAIL = 0.1, 0.1              # rise/tail spectra are taken where the nu_ref
-                                             # lightcurve is at this fraction of its peak. 0.2 is
+                                             # lightcurve is at this fraction of its peak.
+                                             # NB the spectral-evolution figures no longer use
+                                             # these: they sample SPEC_LOGT, a fixed grid in
+                                             # observer time. What is still sampled this way is
+                                             # detect_rise_peak_tail's i_peak (the GS02 fit
+                                             # figures and tables, the peak-spectra panels) and
+                                             # build_regime_table's three phases, so the
+                                             # flux-spread argument below is now about THAT
+                                             # table's rows rather than about a figure. 0.2 is
                                              # the knee of the evolution-vs-flux-spread trade:
                                              # above it, 0.1 dex of extra rise->tail break motion
                                              # costs ~0.15 dec of spread between the curves, below
@@ -1951,13 +1982,59 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     plt.close(fig)
 
 
-def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
+def _spectra_series(r, barT_f, logt=SPEC_LOGT, tol=None):
   '''
-  One figure per gamma_c/gamma_m, overlaying the instantaneous spectra at rise,
-  peak and tail vs nu/nu_m. Flux is normalised to the plot's peak nuFnu value (the
-  brightest of the three spectra, at its spectral peak -- nu_m for fast cooling,
-  nu_c for slow), so the peak-phase curve tops out at 1 and rise/tail show their
-  brightness evolution below it. Over each spectrum are drawn the synchrotron power-law
+  Which rows of r['nuFnu'] the spectral-evolution series is drawn from: for each requested
+  observed time in logt (in log10(bar{T}/bar{T}_f)), the nearest sample of the point's own
+  observer grid, returned as (k, logt_k, row) with k the bin's position in logt -- so a
+  dropped bin does not shift the colours of the ones that survive.
+
+  A bin whose nearest sample misses it by more than tol (default half a bin) is DROPPED
+  rather than clamped: past either end of the grid the nearest sample is simply the first or
+  last row, and drawing it would put a spectrum on the figure under a time it was not taken
+  at. On this sweep nothing is dropped -- the grid runs over bar{T}/bar{T}_f = 7.6e-5..7.6e2
+  and every bin lands within 0.01 dex -- but the guard is what makes the figure safe on a
+  shorter run or a wider SPEC_LOGT.
+  '''
+  logt = np.atleast_1d(np.asarray(logt, float))
+  if tol is None:
+    tol = 0.5*float(np.min(np.diff(logt))) if logt.size > 1 else 0.5
+  barT = np.asarray(r['Tb'], float) - 1.
+  if not (barT_f > 0.):
+    return []
+  with np.errstate(divide='ignore', invalid='ignore'):
+    lx = np.log10(np.where(barT > 0., barT/barT_f, np.nan))
+  if not np.isfinite(lx).any():
+    return []
+  out = []
+  for k, l in enumerate(logt):
+    i = int(np.nanargmin(np.abs(lx - l)))
+    if abs(lx[i] - l) <= tol:
+      out.append((k, float(l), i))
+  return out
+
+
+def _series_colors(logt=SPEC_LOGT, cmap=plt.cm.viridis):
+  '''One colour per SPEC_LOGT bin, dark (early) to bright (late). Sequential, because the
+  bins are ordered in time and the eye should read the sequence as one; truncated below the
+  top of the map, whose pale yellow is unreadable on white. Deliberately NOT the sweep's own
+  colour axis (_sweep_colors, jet on log10(gamma_c/gamma_m)): colour means time here, and
+  each figure is a single sweep point.'''
+  return cmap(np.linspace(0., 0.88, len(np.atleast_1d(logt))))
+
+
+def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, segments=True, logt=SPEC_LOGT):
+  '''
+  One figure per gamma_c/gamma_m, overlaying the instantaneous spectra of a series of
+  observed times vs nu/nu_m. The times are SPEC_LOGT, logarithmically spaced bins of
+  bar{T}/bar{T}_f (default: one per decade from 1e-3 to 1e2), the same for every sweep
+  point, so a bin means the same phase of the same hydro history in every panel and the
+  regimes can be read against each other bin by bin. Flux is normalised to the plot's peak
+  nuFnu value (the brightest of the drawn spectra, at its spectral peak -- nu_m for fast
+  cooling, nu_c for slow; on this sweep that is always the bar{T}=bar{T}_f bin, which is
+  also where the lightcurve peaks), so that bin tops out at 1 and the earlier and later ones
+  show their brightness evolution below it -- 5.5 decades of it, which is what
+  SPEC_SERIES_YSPAN has to cover. Over each spectrum are drawn the synchrotron power-law
   SEGMENTS it actually shows (dash-dotted; identify_segments), each over the window it was
   identified on and run out until it meets its neighbours (and to the end of the band for the
   1-p/2 one) so that every adjacent pair is seen to cross. Running the lines off the curve is
@@ -1976,9 +2053,9 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
   turnovers are left undescribed, which is the honest statement about them. Nothing marks
   x=1: it is the COLLISION nu_m, the fixed unit of the axis, and not a feature of any
   spectrum drawn on it -- the instantaneous nu_m has moved away from it by the time of every
-  phase shown, so a guide there invited the eye to read a break that is not there. All plots
-  share the same fixed y-range (SPEC_YSPAN decades below the peak); x is clipped to the
-  visible spectra.
+  bin shown, so a guide there invited the eye to read a break that is not there. All plots
+  share the same fixed y-range (SPEC_SERIES_YSPAN decades below the peak); x is clipped to
+  the visible spectra.
 
   The legend names the regime the identified SET implies -- FC and SC when a mid segment
   survives between the two asymptotes, MC when none does, VFC when there is nothing below
@@ -1988,29 +2065,31 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
   asymptote and is not rising either, so that no statement about a MISSING segment is
   supportable (see identify_segments). Those are shape classes; measure_regime's labels (a
   bin on the break ratio, tabulated by build_regime_table) answer a different question and
-  need not agree.
+  need not agree. Read down the legend and the regime's own evolution is the column of
+  labels, one per time bin.
 
   segments=False draws the spectra alone -- no segment lines, no regime in the legend, only
-  the phase -- and writes them as a SEPARATE '_plain' series. Nothing is measured in that
+  the time -- and writes them as a SEPARATE '_plain' series. Nothing is measured in that
   pass, so it is also the figure to read when the question is what the spectra do rather
   than what can be said about them. Both series are produced by main.
   '''
-  styles = {'rise': 'C0', 'peak': 'C1', 'tail': 'C3'}
   tag = '' if segments else '_plain'
-  ylo = 10.**(-SPEC_YSPAN)
-  for r, det in zip(results, detections):
-    info = det[3]
+  ylo = 10.**(-SPEC_SERIES_YSPAN)
+  cols = _series_colors(logt)
+  for r in results:
     x = nu_over_num(r)
     p = r['env'].psyn
-    phases = [(w, r['nuFnu'][info[f'i_{w}'], :])
-              for w in ('rise', 'peak', 'tail') if info.get(f'i_{w}') is not None]
-    if not phases:
+    series = _spectra_series(r, barT_f, logt)
+    if not series:
       continue
-    pkmax = max(np.nanmax(sp) for _, sp in phases)         # plot peak nuFnu (= peak-phase peak)
-    fig, ax = plt.subplots()
+    pkmax = max(np.nanmax(r['nuFnu'][i, :]) for _, _, i in series)   # = the bar{T}_f bin's peak
+    if not (pkmax > 0.):
+      continue
+    fig, ax = plt.subplots(figsize=(7., 6.5))
     handles = []; labels = []; sps = []
-    for which, sp in phases:
-      col = styles[which]
+    for k, l, iT in series:
+      col = cols[k]
+      sp = r['nuFnu'][iT, :]
       (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
       sps.append(sp/pkmax)
       ident = identify_segments(x, sp, p) if segments else None
@@ -2034,8 +2113,8 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
         ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
-      labels.append(which if not segments else
-                    f"{which}: {(ident['regime'] or '?') if ident else '?'}")
+      labels.append(f'{l:+.0f}' if not segments else
+                    f"{l:+.0f}: {(ident['regime'] or '?') if ident else '?'}")
     ax.set_ylim(ylo, 3.)
     # clip x to where the (y-clipped) spectra are actually visible, +half a decade
     vis = np.any(np.array(sps) > ylo, axis=0)
@@ -2045,7 +2124,10 @@ def plot_spectra_per_regime(results, detections, outdir=OUTDIR, segments=True):
     ax.set_xlabel(NU_M_LABEL)
     ax.set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}$')
     ax.set_title(f'Spectral evolution, $\\log_{{10}}(\\gamma_c/\\gamma_m)={r["log10ratio"]:+.0f}$')
-    ax.legend(handles, labels, fontsize=10, loc='lower center')
+    # the time is the legend TITLE, not repeated in every entry: six entries each carrying
+    # the same axis name is a legend box wider than the panel it sits in
+    ax.legend(handles, labels, title='$\\log_{10}(\\bar{T}/\\bar{T}_f)$',
+              fontsize=9, title_fontsize=9, loc='lower left')
     fig.tight_layout()
     fig.savefig(os.path.join(outdir,
         f'spectrum_evolution{tag}_logr={r["log10ratio"]:+.1f}.png'), dpi=300)
@@ -2743,12 +2825,12 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
           f'stops) at {barT_off[1]:.4f}  -> bar_T/bar_T_f in '
           f'[{barT_off[0]/barT_f:.3f}, {barT_off[1]/barT_f:.3f}]')
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir)
-  plot_spectra_per_regime(results, detections, outdir=outdir)
+  plot_spectra_per_regime(results, barT_f, outdir=outdir)
   # the same two figures unannotated, as '_plain' series (see each function's docstring).
   # Named so that no existing glob picks them up -- ARTICLE_SERIES matches on
   # 'lightcurve_shape_nu=*', which '_plain' breaks by construction
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir, annotate=False)
-  plot_spectra_per_regime(results, detections, outdir=outdir, segments=False)
+  plot_spectra_per_regime(results, barT_f, outdir=outdir, segments=False)
   # breaks from the Granot & Sari shape fit rather than the knee scan (track_breaks):
   # unbiased break positions, a fitted nu_M, and a regime label the fit chooses
   # barT_off[1] bounds where the SC -> FC swap may be DETECTED, deliberately the same
@@ -2827,7 +2909,8 @@ ARTICLE_SERIES = {        # {source figure dir: globs of the series picked for t
                                        # 'vs_nu' ones below break this glob by construction
       'peak_spectra_norm-eff.png',     # peak-normalised x eps_rad: shapes stacked by how
       'fluence_spectra_norm-eff.png',  # much each regime actually radiates (_plot_spectra_all)
-      'spectrum_evolution_logr=*.png', # rise/peak/tail per regime (NOT the '_plain' series)
+      'spectrum_evolution_logr=*.png', # the SPEC_LOGT time series per regime (NOT the
+                                       # '_plain' series)
       'pulse_characteristics_vs_nu.png',    # measured peak time / width / asymmetry across
       'pulse_characteristics_vs_nu_pk.png', # the band, in nu/nu_m and nu/nu_pk. NB these are
                                        # the pulse CHARACTERISTICS (lightcurve_shape.

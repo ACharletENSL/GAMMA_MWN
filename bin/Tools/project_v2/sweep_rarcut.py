@@ -209,9 +209,10 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
       # see the (tiny) difference is on its own axis
       cmp.plot_spectra_compare(pairs, kind=kind, mode=mode, outdir=outdir, labels=labels,
                                ratio=(kind != 'fluence'), norm_side=norm_side)
-  # rise/peak/tail spectra per regime: the peak phase is emitted before the cut and must
-  # come out identical, so this isolates where in the spectrum the discarded tail sits
-  cmp.plot_spectral_evolution_compare(pairs, outdir=outdir, labels=labels,
+  # the SPEC_LOGT time series per regime: everything up to the crossing bin is emitted
+  # before the cut and must come out identical, so this isolates where in the spectrum --
+  # and from which bin on -- the discarded tail sits
+  cmp.plot_spectral_evolution_compare(pairs, barT_f, outdir=outdir, labels=labels,
                                       norm_side=norm_side)
   # the lin-lin variant ONLY: the cut-vs-full difference is all in the decay, a linear
   # clock is where it reads naturally, and the log / linlog views of the same curves were

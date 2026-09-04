@@ -829,7 +829,7 @@ def emission_compare(z=4, log10ratio_arr=None, nproc=None, use_cache=True,
     for mode in ('nu_m', 'max'):
       cmp.plot_spectra_compare(pairs, kind=kind, mode=mode, outdir=outdir, labels=labels,
                                ratio=(kind != 'fluence'))
-  cmp.plot_spectral_evolution_compare(pairs, outdir=outdir, labels=labels)
+  cmp.plot_spectral_evolution_compare(pairs, barT_f, outdir=outdir, labels=labels)
   for sc in ('log', 'linlog', 'lin'):
     cmp.plot_lightcurve_compare(pairs, barT_f, barT_off=barT_off, outdir=outdir,
         labels=labels, barT_end=barT_end, scale=sc)

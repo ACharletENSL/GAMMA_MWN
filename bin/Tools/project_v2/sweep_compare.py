@@ -32,9 +32,9 @@ from plotting_functions import slope_label, transx
 from sweep_gammacm import (load_sweep, method_outdir, _sweep_colors, _draw_order, nu_over_num,
     compute_fluence_spectrum, detect_rise_peak_tail, compute_efficiency,
     exit_onset_barT, rarefaction_off_barT, data_end_barT, run_sweep, trim_pngs,
-    local_index, _hle_index, _index_panel,
+    local_index, _hle_index, _index_panel, _spectra_series, _series_colors,
     LOG10RATIO_ARR, NU_TARGETS, NU_M_LABEL, NU_REF, Z_SHELL, DEFAULT_KEY, SPEC_YSPAN,
-    XLIM_LIN, XLIM_LOG, SPEC_MODES, _MODE_TITLE)
+    SPEC_LOGT, SPEC_SERIES_YSPAN, XLIM_LIN, XLIM_LOG, SPEC_MODES, _MODE_TITLE)
 
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'gammacm_sweep_compare')
 YCLIP_DEC = 3.5           # decades below the highest curve shown on the spectral panels
@@ -311,23 +311,24 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
   plt.close(fig)
 
 
-def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
-    yspan=SPEC_YSPAN, phase_col=None, norm_side='B'):
+def plot_spectral_evolution_compare(pairs, barT_f, outdir=OUTDIR, labels=LABELS,
+    yspan=SPEC_SERIES_YSPAN, logt=SPEC_LOGT, norm_side='B'):
   '''
   Spectral evolution, both sides overlaid: one figure per sweep point, showing the
-  instantaneous spectra at rise / peak / tail vs nu/nu_m on a SINGLE panel.
-  Colour = phase (as sweep_gammacm.plot_spectra_per_regime), linestyle = side
-  (dashed A / solid B), so the single-method figures stay readable against these.
+  instantaneous spectra of a series of observed times vs nu/nu_m on a SINGLE panel.
+  Colour = time bin (the SPEC_LOGT grid and colours of
+  sweep_gammacm.plot_spectra_per_regime), linestyle = side (dashed A / solid B), so the
+  single-method figures stay readable against these.
 
-  Each side is sampled at ITS OWN rise / peak / tail (detect_rise_peak_tail run per side),
-  the same convention _peak_spectrum uses for the peak-spectra figures. So a curve here is
-  'what this run looks like at its own tail'; when the two sides reach a phase at
-  different times, that timing difference is folded into the offset between the curves
-  together with the spectral one. For the fixed-observer-time view, read
-  plot_lightcurve_compare instead. The legend prints both times whenever they differ, so a
-  phase that has moved is visible on the figure. Flux is normalised to the brightest phase
-  spectrum of the norm_side side (see LABELS), so the vertical offset between a phase's
-  two curves IS the B/A ratio, read off the same axis as the shapes.
+  Both sides are sampled at the SAME observed times -- SPEC_LOGT, logarithmically spaced
+  bins of bar{T}/bar{T}_f -- so a colour pair is one instant seen twice and the offset
+  between its two curves is a spectral difference and nothing else. That is the change from
+  the rise/peak/tail sampling this replaced: there each side was taken at ITS OWN
+  peak-relative phases (detect_rise_peak_tail per side), so a phase that had moved folded a
+  timing difference into the same offset, and the legend had to print both times to admit
+  it. Flux is normalised to the brightest bin of the norm_side side (see LABELS), so the
+  vertical offset between a bin's two curves IS the B/A ratio, read off the same axis as
+  the shapes.
 
   No ratio sub-panel: the offset between the dashed and solid curve of one colour already
   carries it, and dropping it gives the spectra the full figure height -- these run many
@@ -341,54 +342,52 @@ def plot_spectral_evolution_compare(pairs, outdir=OUTDIR, labels=LABELS,
   '''
   la, lb = labels
   ln = _norm_label(labels, norm_side)
-  phase_col = phase_col or {'rise': 'C0', 'peak': 'C1', 'tail': 'C3'}
   ylo = 10.**(-yspan)
+  cols = _series_colors(logt)
   for rf, rd in pairs:
-    info_a = detect_rise_peak_tail(rf['Tb'], rf['nub'], rf['nuFnu'])[3]
-    info_b = detect_rise_peak_tail(rd['Tb'], rd['nub'], rd['nuFnu'])[3]
-    phases = [(w, info_a.get(f'i_{w}'), info_b.get(f'i_{w}'))
-              for w in ('rise', 'peak', 'tail')]
-    # a phase is drawn only where BOTH sides have one: a lone curve in a phase colour
-    # would read as a comparison when there is nothing to compare it against
-    phases = [(w, ia, ib) for w, ia, ib in phases if ia is not None and ib is not None]
-    if not phases:
+    # each side is sampled on its OWN observer grid (_spectra_series drops a bin the grid
+    # does not reach), and a bin is drawn only where BOTH sides have one: a lone curve in
+    # a bin colour would read as a comparison when there is nothing to compare it against
+    sa = {k: i for k, _, i in _spectra_series(rf, barT_f, logt)}
+    sb_ = {k: i for k, _, i in _spectra_series(rd, barT_f, logt)}
+    ks = [k for k in sorted(sa) if k in sb_]
+    if not ks:
       continue
     x = nu_over_num(rf)
-    # one side normalises (norm_side, see LABELS), at ITS OWN phase indices
-    rn, ip = (rf, 1) if norm_side == 'A' else (rd, 2)
-    norm = max(np.nanmax(rn['nuFnu'][ph[ip], :]) for ph in phases)
+    # one side normalises (norm_side, see LABELS), at ITS OWN rows
+    rn, sn = (rf, sa) if norm_side == 'A' else (rd, sb_)
+    norm = max(np.nanmax(rn['nuFnu'][sn[k], :]) for k in ks)
     if not (norm > 0.):
       continue
 
-    fig, ax = plt.subplots(figsize=(7.5, 5.))
+    fig, ax = plt.subplots(figsize=(7.5, 6.5))
     sps, handles, labs = [], [], []
-    for w, ia, ib in phases:
-      c = phase_col[w]
-      sf, sd = rf['nuFnu'][ia, :]/norm, rd['nuFnu'][ib, :]/norm
+    for k in ks:
+      c = cols[k]
+      sf, sd = rf['nuFnu'][sa[k], :]/norm, rd['nuFnu'][sb_[k], :]/norm
       ax.loglog(x, sf, color=c, lw=1.2, ls='--')
       ax.loglog(x, sd, color=c, lw=1.2)
       sps += [sf, sd]
-      # the phase key is a SOLID swatch whatever the linestyles and whichever side
-      # normalises: it names the COLOUR only, and the two black keys below it carry the
+      # the time key is a SOLID swatch whatever the linestyles and whichever side
+      # normalises: it names the COLOUR only, and the two black keys carry the
       # dashed/solid convention. Taking it from one of the drawn lines instead made the
-      # phase legend read as if that side were the phase.
+      # time legend read as if that side were the time.
       (h,) = ax.plot([], [], color=c, lw=1.2)
       handles.append(h)
-      # both times when the phase has moved between the sides, one when it has not
-      tA, tB = rf['Tb'][ia] - 1., rd['Tb'][ib] - 1.
-      labs.append(f'{w}  ($\\bar T$={tA:.2f})' if ia == ib else
-                  f'{w}  ($\\bar T$={tA:.2f}/{tB:.2f})')
+      labs.append(f'{logt[k]:+.0f}')
     ax.set_ylim(ylo, 3.)
     vis = np.any(np.array(sps) > ylo, axis=0)      # clip x to the visible spectra
     if vis.any():
       ax.set_xlim(x[vis].min()/3., x[vis].max()*3.)
     (ha,) = ax.plot([], [], 'k--')                # side keys, colour-neutral
     (hb,) = ax.plot([], [], 'k-')
-    # upper RIGHT here, unlike the other spectral panels: these curves peak near nu_m and
-    # run out to their nu_M cutoff many decades higher, so the top-left is occupied by the
-    # peak-phase spectrum and the top-right is the empty corner
-    ax.legend(handles + [ha, hb], labs + [la, lb],
-              fontsize=9, loc='upper right', ncol=2)
+    # two legends, because one box cannot carry two keys under a single title: the time
+    # bins go under their axis name at the lower left (the corner the faint late bins
+    # leave empty), the sides in the upper right -- these curves peak near nu_m and run
+    # out to their nu_M cutoff many decades higher, so that corner is empty too
+    ax.add_artist(ax.legend(handles, labs, title='$\\log_{10}(\\bar{T}/\\bar{T}_f)$',
+                            fontsize=9, title_fontsize=9, loc='lower left'))
+    ax.legend([ha, hb], [la, lb], fontsize=9, loc='upper right')
     ax.set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm pk}}$  ({ln} norm.)')
     ax.set_xlabel(NU_M_LABEL)
     ax.set_title(f'Spectral evolution, {la} vs {lb}, '
