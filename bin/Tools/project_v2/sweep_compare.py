@@ -33,7 +33,7 @@ from sweep_gammacm import (load_sweep, method_outdir, _sweep_colors, _draw_order
     compute_fluence_spectrum, detect_rise_peak_tail, compute_efficiency,
     exit_onset_barT, rarefaction_off_barT, data_end_barT, run_sweep, trim_pngs,
     local_index, _hle_index, _index_panel, _spectra_series, _series_colors,
-    LOG10RATIO_ARR, NU_TARGETS, NU_M_LABEL, NU_REF, Z_SHELL, DEFAULT_KEY, SPEC_YSPAN,
+    LOG10RATIO_ARR, NU_TARGETS, NU_M_LABEL, NU_REF, Z_SHELL, DEFAULT_KEY,
     SPEC_LOGT, SPEC_SERIES_YSPAN, XLIM_LIN, XLIM_LOG, SPEC_MODES, _MODE_TITLE)
 
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'gammacm_sweep_compare')

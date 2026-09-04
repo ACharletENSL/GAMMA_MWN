@@ -157,8 +157,11 @@ XLIM_LOG = (1e-3, 1e3)                       # and the LOG-time window, likewise
                                              # bar{T} = 646..650 (x = 493..497, data_end_barT),
                                              # so nothing is drawn past 1e3 and letting the
                                              # axis autoscale only added empty decades.
-SPEC_YSPAN = 3.55                            # decades of flux shown on the spectral plots (same
-                                             # fixed range on all, for comparison)
+SPEC_YSPAN = 3.55                            # decades of flux shown on a spectral plot below its
+                                             # own peak (same fixed range on all, for comparison).
+                                             # Nothing in THIS module draws with it any more --
+                                             # sweep_shells' per-regime peak spectra do, and it
+                                             # sets the scale SPEC_SERIES_YSPAN is built from.
 SPEC_LOGT = np.arange(-3., 2. + 1e-9, 1.)    # the observed times the spectral-EVOLUTION figures
                                              # sample, in log10(bar{T}/bar{T}_f): one spectrum per
                                              # decade from a thousandth of the crossing time to a
@@ -2023,7 +2026,7 @@ def _series_colors(logt=SPEC_LOGT, cmap=plt.cm.viridis):
   return cmap(np.linspace(0., 0.88, len(np.atleast_1d(logt))))
 
 
-def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, segments=True, logt=SPEC_LOGT):
+def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
   '''
   One figure per gamma_c/gamma_m, overlaying the instantaneous spectra of a series of
   observed times vs nu/nu_m. The times are SPEC_LOGT, logarithmically spaced bins of
@@ -2068,12 +2071,11 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, segments=True, logt=
   need not agree. Read down the legend and the regime's own evolution is the column of
   labels, one per time bin.
 
-  segments=False draws the spectra alone -- no segment lines, no regime in the legend, only
-  the time -- and writes them as a SEPARATE '_plain' series. Nothing is measured in that
-  pass, so it is also the figure to read when the question is what the spectra do rather
-  than what can be said about them. Both series are produced by main.
+  There is no unannotated '_plain' twin of this figure any more: the segment lines sit on
+  the spectra they describe rather than over them, and one series is one thing to keep
+  current. plot_lightcurve_shape keeps its '_plain' variant, whose annotation (the
+  rarefaction band) is a claim laid ON the curves rather than a reading OF them.
   '''
-  tag = '' if segments else '_plain'
   ylo = 10.**(-SPEC_SERIES_YSPAN)
   cols = _series_colors(logt)
   for r in results:
@@ -2092,29 +2094,28 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, segments=True, logt=
       sp = r['nuFnu'][iT, :]
       (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
       sps.append(sp/pkmax)
-      ident = identify_segments(x, sp, p) if segments else None
+      ident = identify_segments(x, sp, p)
       # each segment as the line it is DRAWN with (_seg_line: held slope for the asymptotes,
       # measured for the mid ones), steepest first = left to right, so consecutive entries
       # are the adjacent pairs and the crossings below are between the lines actually drawn
       segs = sorted(((n, _seg_line(n, g), g) for n, g in ident['segs'].items()),
                     key=lambda t: -t[1][0]) if ident else []
-      for k, (name, ln, sg) in enumerate(segs):
+      for j, (name, ln, sg) in enumerate(segs):
         # run out far enough to meet its neighbours: down to the crossing with the previous
         # one, up to the crossing with the next, each by SEG_EXT further, so the pair is seen
         # to cross. The 1-p/2 segment has no neighbour above it and runs to the end of the
         # band. Running the lines off the curve is deliberate -- see the docstring.
         l0, l1 = np.log10(sg['x0']), np.log10(sg['x1'])
-        if k:
-          l0 = min(l0, _seg_cross(segs[k-1][1], ln))
-        if k + 1 < len(segs):
-          l1 = max(l1, _seg_cross(ln, segs[k+1][1]))
+        if j:
+          l0 = min(l0, _seg_cross(segs[j-1][1], ln))
+        if j + 1 < len(segs):
+          l1 = max(l1, _seg_cross(ln, segs[j+1][1]))
         lxs = np.array([l0 - SEG_EXT,
                         np.log10(x.max()) if name == 'hi' else l1 + SEG_EXT])
         ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
-      labels.append(f'{l:+.0f}' if not segments else
-                    f"{l:+.0f}: {(ident['regime'] or '?') if ident else '?'}")
+      labels.append(f"{l:+.0f}: {(ident['regime'] or '?') if ident else '?'}")
     ax.set_ylim(ylo, 3.)
     # clip x to where the (y-clipped) spectra are actually visible, +half a decade
     vis = np.any(np.array(sps) > ylo, axis=0)
@@ -2130,7 +2131,7 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, segments=True, logt=
               fontsize=9, title_fontsize=9, loc='lower left')
     fig.tight_layout()
     fig.savefig(os.path.join(outdir,
-        f'spectrum_evolution{tag}_logr={r["log10ratio"]:+.1f}.png'), dpi=300)
+        f'spectrum_evolution_logr={r["log10ratio"]:+.1f}.png'), dpi=300)
     plt.close(fig)
 
 
@@ -2446,64 +2447,6 @@ GS02_NT_RMS = 120         # time samples for the rms(bar{T}) curve. A GS02 fit i
                           # samples resolve every feature of the curve in ~11 s.
 
 
-def plot_gs02_fits(results, detections, outdir=OUTDIR):
-  '''
-  One figure per gamma_c/gamma_m: the rise/peak/tail instantaneous spectra with the fitted
-  Granot & Sari (2002) shape overlaid (dashed), and a residual panel below in log10 flux.
-  Tests whether GS02's smoothly-joined form describes the spectra the full cooling
-  calculation produces -- unlike paired_syn_bpl, the fit CHOOSES the regime (the label in
-  the legend) and its breaks are fitted, not read off a knee scan.
-  '''
-  styles = {'rise': 'C0', 'peak': 'C1', 'tail': 'C3'}
-  for r, det in zip(results, detections):
-    info = det[3]; x = nu_over_num(r); p = r['env'].psyn; nuM = nu_M_over_num(r)
-    fig, axs = plt.subplots(2, 1, figsize=(7.5, 7), sharex=True,
-                            gridspec_kw=dict(height_ratios=[3, 1]))
-    pkmax = None; drawn = False
-    for which in ('rise', 'peak', 'tail'):
-      iT = info.get(f'i_{which}')
-      if iT is None:
-        continue
-      sp = r['nuFnu'][iT, :]
-      f = fit_gs02_spectrum(x, sp, p, nuM)
-      if f is None:
-        continue
-      if pkmax is None:
-        pkmax = np.nanmax(r['nuFnu'][info.get('i_peak', iT), :])
-      mod = gs02_model(x, f, p)
-      c = styles[which]
-      axs[0].loglog(x, sp/pkmax, color=c, lw=1.5)
-      axs[0].loglog(x, mod/pkmax, color=c, lw=0.9, ls='--')
-      axs[0].axvline(f['num'], color=c, ls=':', lw=.7)      # fitted nu_m
-      axs[0].axvline(f['nuc'], color=c, ls='--', lw=.7)     # fitted nu_c
-      ok = np.isfinite(sp) & (sp > 0.) & (sp/pkmax > 10.**(-SPEC_YSPAN))
-      axs[1].semilogx(x[ok], np.log10(sp[ok]) - np.log10(mod[ok]), color=c, lw=1.,
-                      label=f"{which}: {f['regime']}, rms={f['rms']:.3f} "
-                            f"(body {f['rms_body']:.3f})"
-                            + ('  break at bound' if f['at_bound'] else ''))
-      drawn = True
-    if not drawn:
-      plt.close(fig); continue
-    axs[0].set_ylim(10.**(-SPEC_YSPAN), 3.)
-    # no nu = nu_m guide here either (see _plot_spectra_all); the per-regime FITTED
-    # breaks above are the marks this figure is read for, and the grey line at 1 sat
-    # among them saying only what the axis label already says
-    axs[0].set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}$')
-    axs[0].set_title('Granot & Sari (2002) shape vs computed spectra, '
-                     f"$\\log_{{10}}(\\gamma_c/\\gamma_m)={r['log10ratio']:+.0f}$\n"
-                     f'dashed = fit ($s_1={GS02_S1:g}$, $s_2={GS02_S2:g}$ fixed, '
-                     'cutoff $\\propto R(x)$); '
-                     'dotted/dashed verticals = fitted $\\nu_m$/$\\nu_c$')
-    axs[1].axhline(0., color='grey', ls=':', lw=.9)
-    axs[1].set_ylim(-0.6, 0.6)
-    axs[1].set_ylabel('$\\log_{10}$(data/fit)')
-    axs[1].set_xlabel(NU_M_LABEL)
-    axs[1].legend(fontsize=8, loc='lower left')
-    fig.tight_layout()
-    fig.savefig(os.path.join(outdir, f"gs02_fit_logr={r['log10ratio']:+.1f}.png"), dpi=300)
-    plt.close(fig)
-
-
 def plot_gs02_rms(results, barT_f, barT_off=None, outdir=OUTDIR, n_times=GS02_NT_RMS):
   '''
   Goodness of the GS02 shape versus time: rms of log10(data/fit) per instantaneous
@@ -2699,7 +2642,7 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
   # tick says the same thing, so the line was a second copy of the axis; and on the nu_pk
   # normalisation x = 1 is nu_c in slow cooling, which made the same grey line mean two
   # different frequencies across one figure suite. Removed everywhere a SPECTRUM is drawn
-  # (here, plot_gs02_fits, sweep_compare.plot_spectra_compare). The per-shell nu_m marks
+  # (here, plot_spectra_per_regime, sweep_compare.plot_spectra_compare). The per-shell nu_m marks
   # in sweep_shells.plot_peak_spectra_per_regime are a different thing -- labelled, one
   # per shell, and the point of that figure -- and stay.
   if ylo is not None:
@@ -2826,11 +2769,13 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
           f'[{barT_off[0]/barT_f:.3f}, {barT_off[1]/barT_f:.3f}]')
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir)
   plot_spectra_per_regime(results, barT_f, outdir=outdir)
-  # the same two figures unannotated, as '_plain' series (see each function's docstring).
-  # Named so that no existing glob picks them up -- ARTICLE_SERIES matches on
-  # 'lightcurve_shape_nu=*', which '_plain' breaks by construction
+  # the lightcurves again unannotated, as a '_plain' series (see the docstring). Named so
+  # that no existing glob picks them up -- ARTICLE_SERIES matches on
+  # 'lightcurve_shape_nu=*', which '_plain' breaks by construction. The spectra have no
+  # such twin any more, and neither has the GS02 fit its own per-regime figure: the fit is
+  # reported by plot_gs02_rms (its residual against time, every regime on one axis) and
+  # build_gs02_table, which is where its numbers were read from anyway
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir, annotate=False)
-  plot_spectra_per_regime(results, barT_f, outdir=outdir, segments=False)
   # breaks from the Granot & Sari shape fit rather than the knee scan (track_breaks):
   # unbiased break positions, a fitted nu_M, and a regime label the fit chooses
   # barT_off[1] bounds where the SC -> FC swap may be DETECTED, deliberately the same
@@ -2848,7 +2793,6 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   plot_break_evolution(results, tracks, fits, barT_f, barT_off=barT_off, outdir=outdir)
   plot_break_ratio(results, tracks, barT_f, barT_off=barT_off, outdir=outdir)
   build_break_evolution_table(results, fits, outdir=outdir, tracks=tracks, c25=c25)
-  plot_gs02_fits(results, detections, outdir=outdir)
   plot_gs02_rms(results, barT_f, barT_off=barT_off, outdir=outdir)
   build_gs02_table(results, detections, outdir=outdir)
   for mode in SPEC_MODES:
