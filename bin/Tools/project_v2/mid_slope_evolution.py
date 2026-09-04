@@ -65,6 +65,7 @@ METHOD = 'data_rarcut'        # the sweep this figure is read from: the cut is t
                               # prescription the article quotes (see sweep_rarcut)
 CSV_NAME = 'mid_slopes.csv'
 FIG_NAME = 'mid_slope_evolution.png'
+FIG_NAME_RAW = 'mid_slope_evolution_raw.png'   # the same tracks, bias NOT subtracted
 STEP_FINE, STEP_COARSE = 2, 10     # sample every Nth observer step, fine early where the
 X_FINE = 0.05                      # excursion lives (x < X_FINE) and coarser afterwards:
                                    # the late slope drifts by <0.002 per decade, so a
@@ -278,7 +279,18 @@ def _bias_interp(branch):
   return LinearNDInterpolator(np.array(pts), np.array(val))
 
 
-def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
+def _ylim(vals, pad=0.06, top=0.0):
+  '''Limits from the data being drawn, with `top` extra headroom in units of its range --
+  the panel carrying the legend needs a band above the tracks, the other does not.'''
+  v = np.asarray([q for q in vals if np.isfinite(q)], float)
+  if not v.size:
+    return None
+  lo, hi = float(v.min()), float(v.max())
+  r = max(hi - lo, 1e-3)
+  return lo - pad*r, hi + (pad + top)*r
+
+
+def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
   '''
   Two panels, one per branch, on a shared log time axis. Each holds its asymptote as a
   dashed guide and the sweep points as one curve per log10(gma_c/gma_m). ONE horizontal
@@ -301,9 +313,11 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
             # a_th = 0.25, so what is left above it is exactly the legend's band
   for ax, (br, a_th, title, a_lab, ylim) in zip(axes, panels):
     sub = [r for r in rows if r['branch'] == br]
-    # subtract the estimator's own tilt, bin by bin, at that bin's separation and s1
-    itp = _bias_interp(br)
-    itp1 = _vfc_bias_interp()
+    # subtract the estimator's own tilt, bin by bin, at that bin's own parameters -- the
+    # (separation, s1) grid for a two-break spectrum, the (band depth, s2) one for a single
+    # break. corrected=False leaves every track raw, for the companion figure.
+    itp = _bias_interp(br) if corrected else None
+    itp1 = _vfc_bias_interp() if corrected else None
     n_un = 0
     for r in sub:
       b = np.nan
@@ -316,15 +330,20 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
       r['bias'] = b
       r['a_corr'] = r['a_mid'] - b if np.isfinite(b) else np.nan
       n_un += int(not np.isfinite(b))
-    if n_un:
+    if corrected and n_un:
       print(f'  {br}: {n_un}/{len(sub)} bins outside the bias grid, left uncorrected')
     if xoff is not None:
       ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
     ax.axvline(1., color='grey', ls=':', lw=0.9, zorder=1)
     ax.axhline(a_th, color=MUTED, lw=1.2, ls='--', zorder=1)
+    # the label goes on the side of the guide the data is NOT on, so it never sits over a
+    # track: fast cooling runs above its asymptote, slow cooling below.
+    drawn = [(r['a_corr'] if np.isfinite(r.get('a_corr', np.nan)) else r['a_mid'])
+             for r in sub]
+    above = np.nanmedian(drawn) > a_th if len(drawn) else False
     ax.annotate(a_lab, xy=(1., a_th), xycoords=('axes fraction', 'data'),
-                xytext=(-4, 5), textcoords='offset points', ha='right', va='bottom',
-                fontsize=9, color=MUTED)
+                xytext=(-4, -5 if above else 5), textcoords='offset points', ha='right',
+                va='top' if above else 'bottom', fontsize=9, color=MUTED)
     for lr in sorted({r['logr'] for r in sub}):
       d = sorted([r for r in sub if r['logr'] == lr], key=lambda r: r['x'])
       c = COL[int(lr)]
@@ -346,7 +365,11 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
       if unc:   # no correction available: plotted raw, and said so
         ax.plot([r['x'] for r in unc], [r['a_mid'] for r in unc], '.', color=c,
                 ms=2.4, alpha=0.45, ls='none', zorder=2)
-    ax.set_xscale('log'); ax.set_ylim(*ylim)
+    ax.set_xscale('log')
+    # limits from what is actually drawn, so a correction that shifts the distribution
+    # cannot push points off the panel; the sc axes carry the legend and keep headroom
+    lim = _ylim(drawn, top=(0.55 if br == 'sc' else 0.0))
+    ax.set_ylim(*(lim if lim else ylim))
     ax.grid(True, which='major', color=GRID, lw=0.6, alpha=0.9)
     ax.set_axisbelow(True)
     for sp in ('top', 'right'):
@@ -356,9 +379,6 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME):
     ax.tick_params(colors=MUTED, labelsize=9)
     ax.set_ylabel('$a_{\\rm mid}$', color=INK, fontsize=11)
     ax.set_title(title, color=INK, fontsize=11, loc='left', pad=6)
-  axes[-1].annotate('crossing', xy=(1., 0.), xycoords=('data', 'axes fraction'),
-                    xytext=(-4, 6), textcoords='offset points', ha='right', va='bottom',
-                    fontsize=8.5, color=MUTED)
   axes[-1].set_xlabel('$\\bar{T}/\\bar{T}_f$', color=INK, fontsize=10)
   # ONE legend for both panels, in a single row along the top of the slow-cooling panel:
   # that band is empty (every sc track sits at or below a_th = 0.25) and the gap between
@@ -398,10 +418,14 @@ def main(key=DEFAULT_KEY, method=METHOD, z=Z_SHELL, outdir=None, use_cache=True)
     rows = measure(key, method, z)
     print(f'{len(rows)} rows -> {write_rows(rows, outdir)}')
   barT_f = exit_onset_barT(key, z=z)
-  path = plot(rows, outdir, barT_f, rarefaction_off_barT(key, z=z))
-  trim_pngs([path])
+  off = rarefaction_off_barT(key, z=z)
+  path = plot(rows, outdir, barT_f, off)
+  # the same tracks with the estimator's tilt left in, for comparison. Its y range is set
+  # from its own data, so the two figures are NOT on a shared scale -- read the guides.
+  raw = plot(rows, outdir, barT_f, off, fname=FIG_NAME_RAW, corrected=False)
+  trim_pngs([path, raw])
   copy_article_figures(outdir)
-  print(f'-> {path}')
+  print(f'-> {path}\n-> {raw}')
   return rows
 
 
