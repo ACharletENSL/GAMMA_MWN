@@ -307,11 +307,11 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
   # NOT drawn: bounded to what a fused fc or sc knee can produce, its fitted mid slope pins
   # at the ceiling in 83% of bins, so there is no track to plot -- that pinning is a result
   # about which shape those spectra want, and belongs in the text.
-  panels = (('sc', 'Slow-cooling branch', (0.205, 0.266)),
-            ('fc', 'Fast-cooling branch', (0.478, 0.615)))
+  panels = (('sc', 0.25, 'Slow-cooling branch', (0.205, 0.266)),
+            ('fc', 0.5, 'Fast-cooling branch', (0.478, 0.615)))
             # the sc top is set by the legend, not by the data: no track goes above
             # a_th = 0.25, so what is left above it is exactly the legend's band
-  for ax, (br, title, ylim) in zip(axes, panels):
+  for ax, (br, a_th, title, ylim) in zip(axes, panels):
     sub = [r for r in rows if r['branch'] == br]
     # subtract the estimator's own tilt, bin by bin, at that bin's own parameters -- the
     # (separation, s1) grid for a two-break spectrum, the (band depth, s2) one for a single
@@ -335,9 +335,10 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     if xoff is not None:
       ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
     ax.axvline(1., color='grey', ls=':', lw=0.9, zorder=1)
-    # no asymptote guide: the panels are read against the axis, and a dashed line at 1/2 or
-    # (3-p)/2 invites the departure to be eyeballed off a figure whose y range is set by the
-    # data and differs between the corrected and raw versions.
+    # the one-zone asymptote, unlabelled: with each figure scaled to its own data the line
+    # is the only fixed reference, but a label on it invites the departure to be eyeballed
+    # off whichever version is to hand.
+    ax.axhline(a_th, color=MUTED, lw=1.2, ls='--', zorder=1)
     val = (lambda r: r['a_corr']) if corrected else (lambda r: r['a_mid'])
     drawn = [val(r) for r in sub]
     for lr in sorted({r['logr'] for r in sub}):
@@ -367,7 +368,11 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     ax.set_xscale('log')
     # limits from what is actually drawn, so a correction that shifts the distribution
     # cannot push points off the panel; the sc axes carry the legend and keep headroom
-    lim = _ylim(drawn, top=(0.55 if br == 'sc' else 0.0))
+    # the sc axes carry the legend, so they keep a band above the tracks -- as a fraction of
+    # the drawn range, which is what makes it a constant slice of the panel whatever range
+    # the data happens to span. 0.30 leaves the legend room without the empty strip a larger
+    # value opened up on the raw figure, whose sc tracks span twice the corrected ones.
+    lim = _ylim(drawn, top=(0.30 if br == 'sc' else 0.0))
     ax.set_ylim(*(lim if lim else ylim))
     ax.grid(True, which='major', color=GRID, lw=0.6, alpha=0.9)
     ax.set_axisbelow(True)
