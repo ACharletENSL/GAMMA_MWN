@@ -112,26 +112,33 @@ class puts both breaks in band and measures the mid slope on an identified segme
 
 sqrt(nu_c/nu_m) is then a MEASURED gamma_c/gamma_m, to be read against the label:
 
-    shell  logr  class  sqrt(nu_c/nu_m)  gma_c/gma_m   ratio     C   ratio/C  pct of C_i
-     RS     -2    FC        0.02726          0.01       2.73   2.43    1.12       14%
-     RS     +1    SC        86.67           10          8.67   2.43    3.56       68%
-     RS     +2    SC       710.6           100          7.11   2.43    2.92       60%
-     FS     +0    SC        41.71            3.184     13.10   2.97    4.41       71%
-     FS     +1    SC       287.7            31.84       9.03   2.97    3.04       58%
-     FS     +2    SC      2601             318.4        8.17   2.97    2.75       54%
+    shell logr class sqrt(nu_c/nu_m) gma_c/gma_m  ratio    C  ratio/C C_avg ratio/C_avg pct
+     RS    -2   FC       0.02726        0.01       2.73  2.43   1.12   2.89    0.94     14%
+     RS    +1   SC      86.67          10          8.67  2.43   3.56   2.89    2.99     68%
+     RS    +2   SC     710.6          100          7.11  2.43   2.92   2.89    2.46     60%
+     FS    +0   SC      41.71           3.184     13.10  2.97   4.41   2.75    4.76     71%
+     FS    +1   SC     287.7           31.84       9.03  2.97   3.04   2.75    3.28     58%
+     FS    +2   SC    2601            318.4        8.17  2.97   2.75   2.75    2.97     54%
 
-  FAST COOLING: C ACCOUNTS FOR IT OUTRIGHT. ratio/C = 1.12 at the one FC point, i.e. the
-  field average explains the whole offset to 12%, with no free parameter. Equivalently the
-  factor the spectrum asks for sits at the 14th percentile of the shell's own C_i -- among
-  the earliest-shocked cells, in the strongest field, which are the least-corrected ones.
-  That is where it belongs: in fast cooling nu_c is set by the material that has cooled the
-  MOST, and C is C_i for exactly that material.
-  SLOW COOLING: C IS 2.8-4.4x SHORT, and consistently so on both shells (RS 2.9-3.6, FS
-  2.8-4.4, falling monotonically as the regime gets more slowly-cooling). The leftover is
-  not noise and not a normalisation: it is that the break is set further along the shell,
-  at 54-71% of the C_i distribution rather than at its low end. Same physics, different
-  sample -- with gamma_c far above gamma_m no cell has cooled much, no population
-  dominates, and the break lands in the body of the distribution.
+  FAST COOLING: THE CORRECTION ACCOUNTS FOR IT OUTRIGHT. The one FC point comes out at
+  ratio/C = 1.12 against full C and ratio/C_avg = 0.94 against the field average alone --
+  the offset is explained to within 12% either way, with no free parameter, and the two
+  bracket 1 from opposite sides. Equivalently the factor the spectrum asks for sits at the
+  14th percentile of the shell's own C_i, among the earliest-shocked cells in the strongest
+  field, which are the least-corrected ones. That is where it belongs: in fast cooling
+  nu_c is set by the material that has cooled the MOST, and C is C_i for that material.
+  Which of the two to quote is not decidable from one point: the 18% between them is the
+  clock and the analytic-vs-simulated field, both ~10% effects (see WHICH CLOCK), and one
+  measurement cannot separate them. C_avg is the more robust of the two in that it is
+  clock-free.
+  SLOW COOLING: SHORT BY 2.5-4.8x, whichever version is used, and consistently so on both
+  shells (against C: RS 2.9-3.6, FS 2.8-4.4; against C_avg: RS 2.5-3.0, FS 3.0-4.8),
+  falling monotonically as the regime gets more slowly-cooling. The leftover is not noise
+  and not a normalisation -- it survives stripping C down to the field average, which is
+  what stripping it to its clock-free core does. It is that the break is set further along
+  the shell, at 54-71% of the C_i distribution rather than at its low end: with gamma_c far
+  above gamma_m no cell has cooled much, no population dominates, and the break lands in
+  the body of the distribution.
   So a single scalar CANNOT correct the whole sweep to better than the width of C_i --
   about half a decade in the ratio between the fast- and slow-cooling ends, and the
   regime-dependent part of the answer is not in C at all. What the correction DOES buy is
@@ -472,7 +479,7 @@ def _percentile_of(v, value):
   return 100.*np.searchsorted(v, value)/len(v)
 
 
-def compare(cells, breaks, z=Z_RS, C=None, verbose=True):
+def compare(cells, breaks, z=Z_RS, C=None, C_avg=None, verbose=True):
   '''
   THE COMPARISON THE MODULE EXISTS FOR, one row per usable spectral point.
 
@@ -482,7 +489,12 @@ def compare(cells, breaks, z=Z_RS, C=None, verbose=True):
     gc_gm_nom  = the shell's own label (10^logr on the RS; 0.503 dex above it on the FS)
     ratio      = the first over the second: the factor the spectrum asks for
     C          = the factor the hydro supplies (shock_worldline), one number per shell
-    ratio/C    = what is left over. 1 would mean the field average accounts for the offset
+    C_avg      = 1/<B'^2>_norm, the FIELD AVERAGE ALONE -- C with its other two factors
+                 (analytic-vs-simulated B'_0, and the clock) stripped out. Worth carrying
+                 beside C because it is the only one of the three that is clock-free:
+                 a Gamma as flat as this one divides out of a time average, so C_avg is
+                 identical under clock='shock' and 'fluid' while C is not.
+    ratio/C    = what is left over. 1 would mean the correction accounts for the offset
                  outright.
     pct        = where `ratio` sits in the shell's own distribution of per-cell C_i --
                  0% the first-shocked cell, 100% the last. This is the leftover restated:
@@ -501,15 +513,19 @@ def compare(cells, breaks, z=Z_RS, C=None, verbose=True):
     nom = np.sqrt(r['nominal'])
     out.append(dict(z=z, logr=r['logr'], regime=r['regime'], offset=r['offset'],
                     gc_gm_meas=np.sqrt(r['ratio']), gc_gm_nom=nom, sqrt=s, C=C,
-                    over_C=(s/C if C else np.nan), pct=_percentile_of(v_end, s)))
+                    C_avg=C_avg, over_C=(s/C if C else np.nan),
+                    over_C_avg=(s/C_avg if C_avg else np.nan),
+                    pct=_percentile_of(v_end, s)))
   if verbose:
     print(f'\n--- measured vs labelled gamma_c/gamma_m, z={z} ---')
     print(f'{"logr":>5} {"class":>6} {"sqrt(nu_c/nu_m)":>16} {"gma_c/gma_m":>12} '
-          f'{"ratio":>7} {"C":>6} {"ratio/C":>8} {"pct of C_i":>11}')
+          f'{"ratio":>7} {"C":>6} {"ratio/C":>8} {"C_avg":>6} {"ratio/C_avg":>12} '
+          f'{"pct of C_i":>11}')
     for r in out:
       print(f'{r["logr"]:+5.1f} {r["regime"]:>6} {r["gc_gm_meas"]:16.4g} '
             f'{r["gc_gm_nom"]:12.4g} {r["sqrt"]:7.2f} {r["C"]:6.2f} '
-            f'{r["over_C"]:8.2f} {r["pct"]:10.0f}%')
+            f'{r["over_C"]:8.2f} {r["C_avg"]:6.2f} {r["over_C_avg"]:12.2f} '
+            f'{r["pct"]:10.0f}%')
     print('  shell C_i(end): ' + '  '.join(f'q{int(100*q):02d} {v:.2f}'
                                            for q, v in q_end.items()))
   return out, q_end
@@ -629,7 +645,8 @@ def main(key=KEY, method=METHOD, outdir=None, clock=CLOCK, use_cache=True, verbo
   _write(breaks, os.path.join(outdir, BREAKS_CSV), BREAK_FIELDS)
   cmp_rows = []
   for z in (Z_RS, Z_FS):
-    cmp_rows += compare(cells, breaks, z=z, C=fa[z]['C'], verbose=verbose)[0]
+    cmp_rows += compare(cells, breaks, z=z, C=fa[z]['C'],
+                        C_avg=1./fa[z]['front']['mean_B2'], verbose=verbose)[0]
   png = plot_correction(cells, breaks, outdir, key=key, clock=clock)
   trim_pngs([png])
   print(f'-> {png}')
