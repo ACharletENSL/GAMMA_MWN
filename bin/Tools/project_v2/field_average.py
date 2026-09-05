@@ -16,10 +16,28 @@ crossing time in the field it was injected into" -- a constant-rate cooling. The
 not constant: the cell expands from the moment it is shocked, so its B' decays through
 the very interval the formula integrates over. The honest statement of gamma_c is
 
-    1/gamma_c = (sigma_T/6 pi m_e c) int_0^{t'_RS} B'^2(t') dt',
+    1/gamma_c = (sigma_T/6 pi m_e c) int B'^2(t') dt'   over the shock crossing,
 
 so the label is wrong by the ratio of B'^2(R0) to the field's TIME AVERAGE over the
 propagation. That ratio is what this module measures.
+
+THE OTHER CONSTANT THE LABEL HOLDS is Gamma. It converts the lab crossing time into the
+comoving one as t_cr/Gamma_0 with the analytic Gamma_0, and Gamma is not constant either.
+The comoving time a cell has actually had when the shock finishes crossing is
+int_0^{t_cr} dt/Gamma(t) along its own worldline (comoving_crossing), and every integral
+here stops THERE, not at t_cr/Gamma_0. Measured, this one is small: Gamma runs 130.0 ->
+127.8 across the RS crossing, a harmonic mean of 127.36 against Gamma_0 = 126.45, so the
+cell has had 0.72% less comoving time than the label credits it with (0.76% on the FS).
+It enters the correction as a factor t'_nom/t'_true = 1.0072 (1.0077), i.e. +0.3% on C_B
+once the shorter window is also integrated over -- worth taking properly, not worth
+quoting. C_B then factorises exactly into the three things the label got wrong:
+
+    C_B = (B'^2_ana/B'^2_0) x (t'_nom/t'_true) x (1/<B'^2>_norm)
+    RS:   1/1.0569        x   1.0072          x   2.584          = 2.462
+    FS:   1/0.9962        x   1.0077          x   2.800          = 2.832
+
+  -- the analytic-vs-simulated injection field, the Gamma evolution, and the field
+  average, in ascending order of how much they matter.
 
 IT IS A RIGID SHIFT OF THE WHOLE SWEEP AXIS. Under the Granot alpha rescaling that
 generates the sweep (sweep_gammacm.compute_alpha_sweep) lengths and times go as alpha and
@@ -29,32 +47,48 @@ the SAME curve at every sweep point. One number corrects all eight.
 
 THREE VERSIONS OF THE CORRECTION, and which to quote for what.
 
-  C_B    = B'^2_ana t'_cr / int B'^2 dt'       the literal field average. It carries the
-           small mismatch between the ANALYTIC B'(R0) the label uses and the one the
-           simulation's first-shocked cell actually has (1.057x in B'^2 on the RS, 0.996x
-           on the FS), so C_B is the correction to the LABEL. The pure averaging factor,
-           free of that, is 1/<B'^2>_norm and is reported beside it.
-  Q      = B'^2_ana t'_cr / int B'^2 (rho/rho_0)^(1/3) dt'
-           the same integral with the adiabatic weight the electron evolution carries
-           (cooling_frequency: the gamma_0 -> inf split telescopes to
-           gamma_c = rho^(1/3)/int K B'^2 rho^(1/3) dt'). Quote this against a BREAK
-           RATIO: gamma_m falls adiabatically as (rho/rho_0)^(1/3) too, so the rho^(1/3)
-           prefactor cancels in gamma_c/gamma_m and only the weight inside the integral
-           survives. Q > C_B, because that weight de-rates exactly the late, expanded
-           steps.
-  Q_i    the same for every cell of the shell, each with its OWN injection field and its
-           own gamma_m,0 -- the shock weakens as it propagates, so the last cell is
-           injected into a field ~9x weaker (RS) and its label is wrong by much more.
-           The shell does not have A correction factor, it has a distribution.
+  C_B  = B'^2_ana t'_nom / int B'^2 dt'
+         THE CORRECTION TO gamma_c. Synchrotron losses alone, which is what gamma_c is
+         defined by, so this is the number to quote for "the label mis-states gamma_c by".
+
+  Q    = B'^2_ana t'_nom / int B'^2 (rho/rho_0)^(1/3) dt'
+         THE CORRECTION TO THE RATIO gamma_c/gamma_m -- the quantity the sweep is labelled
+         by and the only one a spectrum can show, since a break ratio is
+         nu_c/nu_m = (gamma_c/gamma_m)^2 and nothing else. It is NOT a different physical
+         quantity from C_B; it is the same integral with the adiabatic weight restored,
+         and it is what you get by writing gamma_c/gamma_m out honestly:
+
+           electrons also lose energy by expanding, so along a worldline
+             gamma_c(t) = (rho/rho_0)^(1/3) / (K int B'^2 (rho/rho_0)^(1/3) dt')
+                                              ... cooling_frequency's closed form, exact
+             gamma_m(t) = gamma_m,0 (rho/rho_0)^(1/3)
+                                              ... the same adiabatic factor, no losses
+           so the (rho/rho_0)^(1/3) PREFACTOR CANCELS in the ratio and only the weight
+           inside the integral survives:
+             gamma_c/gamma_m = 1 / (gamma_m,0 K int B'^2 (rho/rho_0)^(1/3) dt').
+
+         So Q is the honest correction and C_B is Q with the adiabatic weight dropped.
+         Q > C_B always, because (rho/rho_0)^(1/3) < 1 de-rates exactly the late, expanded
+         steps -- an electron that has already expanded is cooling in a weaker field AND
+         is worth less to the integral, and the label counts both at their R0 value.
+         RS: Q = 2.97 against C_B = 2.46, so the adiabatic weight is a fifth of the
+         correction and the field average the other four fifths.
+
+  Q_i  the same Q for every cell of the shell, each with its OWN injection field and its
+         own gamma_m,0 -- the shock weakens as it propagates, so the last cell is injected
+         into a field ~9x weaker (RS) and its label is wrong by much more. The shell does
+         not have A correction factor, it has a distribution, and which part of that
+         distribution a spectrum shows is the regime-dependent part of the answer below.
 
 MEASURED, cooling_g100, parent cells, injection states from the shock fit (EARLY_ANA).
 
                                           RS (z=4)      FS (z=1)
-    <B'^2>/B'^2_0 over the crossing         0.3853        0.3554  -> B'_rms = 0.62 B'_0
-    1/<B'^2>_norm  (pure averaging)         2.595         2.814
-    C_B at t'_cr                            2.455         2.825
+    <B'^2>/B'^2_0 over the crossing         0.3870        0.3571  -> B'_rms = 0.62 B'_0
+    1/<B'^2>_norm  (pure averaging)         2.584         2.800
+    comoving crossing / t_cr/Gamma_0        0.9928        0.9924  (Gamma harm. 127.4)
+    C_B at the crossing                     2.462         2.832
     C_B integrated to the end               1.969         2.467   (the cooling SATURATES)
-    Q   at t'_cr                            2.967         3.773
+    Q   at the crossing                     2.974         3.781
     Q   integrated to the end               2.521         3.427
     shell Q(end):  q05 / median / q95    2.7/8.8/48    3.4/9.1/69
     shock-front <B'^2>/B'^2(R0)             0.3655        0.3625
@@ -67,8 +101,8 @@ MEASURED, cooling_g100, parent cells, injection states from the shock fit (EARLY
   THE COOLING SATURATES: past t' ~ 2-3 t'_cr the integral stops growing (B'^2 has fallen
   ~50x, the rarefaction has crossed), so "integrated to the end" is a converged number and
   not a window choice. It is the total cooling those electrons will ever suffer, which is
-  the right endpoint for a TIME-INTEGRATED spectrum; t'_cr is the one that matches the
-  label's own definition. The two differ by only ~18%, which is the useful part: the
+  the right endpoint for a TIME-INTEGRATED spectrum; the crossing is the one that matches
+  the label's own definition. The two differ by only ~18%, which is the useful part: the
   answer does not hang on where the average is stopped.
 
 AGAINST THE SPECTRA. sweep_gammacm.compute_fluence_spectrum on each cached point, then
@@ -220,6 +254,25 @@ def shell_nominal(env, z):
   return env.BpFS**2, env.gma_mFS, env.gma_cFS, env.tFS
 
 
+def comoving_crossing(q, tcr):
+  '''
+  How much COMOVING time a cell has actually had when the shock finishes crossing, i.e.
+  int_0^{t_cr} dt/Gamma(t) along its own worldline -- the endpoint every integral here
+  stops at.
+
+  The label uses t_cr/Gamma_0 with the analytic Gamma_0 held constant, and Gamma is not
+  constant: on the first-shocked RS cell it runs 130.0 -> 127.8 across the crossing, a
+  harmonic mean of 127.36 against Gamma_0 = 126.45, so the cell has had 0.72% LESS
+  comoving time than the label credits it with (FS: 0.76% less). Sub-percent, and in the
+  direction of slightly less cooling, hence a slightly larger correction -- but it is the
+  difference between stopping the average at the shock crossing and stopping it at a
+  proxy for it, so it is taken properly rather than assumed small.
+
+  Returns NaN for a cell shocked after t_cr (np.interp would silently clamp to tp[0]).
+  '''
+  return np.interp(tcr, q['t'], q['tp']) if q['t'][0] < tcr else np.nan
+
+
 def shell_rows(key=KEY, z=Z_RS, env=None, verbose=True):
   '''
   Per-cell correction factors over a whole shell.
@@ -251,8 +304,8 @@ def shell_rows(key=KEY, z=Z_RS, env=None, verbose=True):
       continue
     q = cooling_integrals(hist, env)
     t, tp = q['t'], q['tp']
-    crossed = t[0] < tcr
-    tend = np.interp(tcr, t, tp) if crossed else np.nan
+    tend = comoving_crossing(q, tcr)
+    crossed = np.isfinite(tend)
     ib_c = np.interp(tend, tp, q['I_B']) if crossed else np.nan
     ia_c = np.interp(tend, tp, q['I_ad']) if crossed else np.nan
     rows.append(dict(z=z, k=int(k), ts_frac=t[0]/tcr, b2_0=q['B2'][0]/B2ana,
@@ -274,6 +327,12 @@ def field_average(key=KEY, z=Z_RS, env=None, fracs=T_FRACS, verbose=True):
   The first-shocked cell is what the label describes -- injected at R0, cooling for the
   whole crossing -- so this is the correction to the DEFINITION, with no shell statistics
   in it. shell_rows carries the rest of the shell.
+
+  `fracs` samples the running average in units of the cell's TRUE comoving crossing time
+  (comoving_crossing), so frac = 1 is the shock crossing itself and not the label's
+  t_cr/Gamma_0 proxy for it. C_B and Q keep the label's t_cr/Gamma_0 in their NUMERATOR,
+  because what they correct is the label; the Gamma evolution therefore shows up inside
+  them, as the t'_nom/t'_true factor the module header decomposes them into.
   '''
   env = MyEnv(key) if env is None else env
   B2ana, gm_nom, gc_nom, tcr = shell_nominal(env, z)
@@ -284,11 +343,15 @@ def field_average(key=KEY, z=Z_RS, env=None, fracs=T_FRACS, verbose=True):
   hist, _, _ = _load_cell_history(key, k0, N_SETTLE, env, sh_data=sh, early_frac=0.)
   q = cooling_integrals(hist, env)
   gm0 = float(get_variable(hist.iloc[0], 'gma_m', env))
+  # the endpoint is the shock crossing, in LAB time; the comoving time the cell has had by
+  # then is int dt/Gamma along its worldline, NOT t_cr/Gamma_0 (comoving_crossing)
+  tp_cr = comoving_crossing(q, tcr)
   out = dict(z=z, k0=k0, b2_0_over_ana=q['B2'][0]/B2ana, gm_0_over_nom=gm0/gm_nom,
-             tpcr=tpcr, C_B_end=norm/q['I_B'][-1],
+             tpcr_nom=tpcr, tp_cr=tp_cr, tp_cr_over_nom=tp_cr/tpcr,
+             lfac_harm=tcr/tp_cr, C_B_end=norm/q['I_B'][-1],
              Q_end=(gm_nom/gm0)*norm/q['I_ad'][-1], running=[])
   for f in fracs:
-    tt = f*tpcr
+    tt = f*tp_cr
     if tt > q['tp'][-1]:
       continue
     ib = np.interp(tt, q['tp'], q['I_B'])
@@ -303,17 +366,22 @@ def field_average(key=KEY, z=Z_RS, env=None, fracs=T_FRACS, verbose=True):
   if verbose:
     print(f'--- z={z}, first-shocked cell k={k0} '
           f'(B\'^2 = {out["b2_0_over_ana"]:.4f} x analytic) ---')
+    print(f"  comoving crossing time: int dt/Gamma = {tp_cr:.5g} s against the label's "
+          f"t_cr/Gamma_0 = {tpcr:.5g} s ({out['tp_cr_over_nom']:.4f}x; Gamma runs "
+          f"{out['lfac_harm']:.2f} harmonic vs Gamma_0 = {env.lfac0:.2f})")
     print(f'{"t/t_cr":>7} {"R/R0":>8} {"<B^2>/B0^2":>11} {"C_B":>8} {"Q":>8}')
     for r in out['running']:
       print(f'{r["frac"]:7.2f} {r["R_over_R0"]:8.3f} {r["mean_B2"]:11.4f} '
             f'{r["C_B"]:8.3f} {r["Q"]:8.3f}')
     print(f'  integrated to the end of the history: C_B = {out["C_B_end"]:.3f}, '
           f'Q = {out["Q_end"]:.3f}   (the cooling saturates)')
-    print(f'  pure averaging factor 1/<B\'^2>_norm at t_cr = {1./out["mean_B2_cr"]:.3f}; '
-          f'x{out["b2_0_over_ana"]:.4f} for the analytic B\'(R0) -> C_B = '
-          f'{out["C_B_cr"]:.3f}')
+    print(f'  C_B at the crossing decomposes as '
+          f'1/{out["b2_0_over_ana"]:.4f} (analytic vs simulated B\'_0) x '
+          f'{1./out["tp_cr_over_nom"]:.4f} (Gamma evolution) x '
+          f'{1./out["mean_B2_cr"]:.3f} (field average) = {out["C_B_cr"]:.3f}')
     print(f'  nominal gamma_c = {gc_nom:.4g} -> corrected {gc_nom*out["C_B_cr"]:.4g} '
-          f'(field average alone, at t_cr)')
+          f'(synchrotron only, stopped at the crossing); gamma_c/gamma_m x '
+          f'{out["Q_cr"]:.3f} -> break ratio x {out["Q_cr"]**2:.2f}')
   return out
 
 
@@ -468,8 +536,7 @@ def plot_correction(cells, breaks, outdir, key=KEY, fname=FIG):
     k0 = int(shell_klist(key, z, env)[0])
     hist, _, _ = _load_cell_history(key, k0, N_SETTLE, env, sh_data=sh, early_frac=0.)
     q = cooling_integrals(hist, env)
-    tpcr = shell_nominal(env, z)[3]/env.lfac0
-    u = q['tp'][1:]/tpcr
+    u = q['tp'][1:]/comoving_crossing(q, shell_nominal(env, z)[3])
     ax.plot(u, q['B2'][1:]/q['B2'][0], color=col, lw=1.6, label=f"{lab}: $B'^2/B'^2_0$")
     ax.plot(u, q['I_B'][1:]/(q['B2'][0]*q['tp'][1:]), color=col, lw=1.6, ls='--',
             label=f"{lab}: $\\langle B'^2\\rangle/B'^2_0$")
