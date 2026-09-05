@@ -30,7 +30,7 @@ import matplotlib.transforms as mtransforms
 
 from scipy.optimize import least_squares
 
-from environment import MyEnv, rescale_hydro, GAMMA_dir
+from environment import MyEnv, rescale_hydro, GAMMA_dir, field_correction_tag
 from phys_functions import granot_sari_syn, syn_cutoff_R
 from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, edge_slope,
     edge_slope_drift, flat_core,
@@ -435,6 +435,12 @@ def method_outdir(method=DEFAULT_METHOD, key=None, z=Z_SHELL):
       d += f'_cap={cap:g}'
   if key not in (None, DEFAULT_KEY):
     d = f'{d}_{key}'
+  # A run whose FIELD CORRECTION has been measured (field_average.measure_field_correction)
+  # reports a corrected gamma_c, so its sweep targets a different physical ratio than the
+  # same label did before. The point cache is keyed on log10ratio alone, so the two
+  # definitions MUST NOT share a directory -- a '+2' written under each would silently
+  # overwrite the other and neither could be told from the other on reload.
+  d += field_correction_tag(key if key is not None else DEFAULT_KEY)
   return d if z == Z_SHELL else f'{d}_z={z}'
 
 

@@ -2,23 +2,32 @@
 # @Author: acharlet
 
 '''
-The sweep parameter gamma_c/gamma_m is built on a magnetic field the shell only has at
-R0, held for a comoving crossing time built on a Lorentz factor it only has at R0 either.
-This module measures what that costs, and compares the correction with the break ratio
-the time-integrated spectra actually show.
+The sweep parameter gamma_c/gamma_m is built on a magnetic field the shell only has at R0.
+This module measures what that costs, compares the correction with the break ratio the
+time-integrated spectra actually show, and -- via measure_field_correction -- lets a run
+adopt the corrected quantity as its sweep parameter.
 
 WHAT THE LABEL ASSUMES. phys_functions_shells.shells_add_radNorm writes
 
-    gamma_c = 6 pi m_e c Gamma_0 / (sigma_T B'^2 t_RS),      B' = sqrt(8 pi eps_B e'_3),
+    gamma_c = 6 pi m_e c Gamma_RS / (sigma_T B'^2 t_RS),     B' = sqrt(8 pi eps_B e'_3),
 
-with e'_3 the immediate post-shock internal energy of shell 4 AT R0, t_RS the lab crossing
-time and Gamma_0 the analytic Lorentz factor at R0. Read as physics that is "an electron
-injected at R0 cools for the crossing time, at the rate it had when it was injected" -- a
-constant-rate cooling. Two things in it are not constant, and the honest statement is
+with e'_3 the immediate post-shock internal energy of shell 4 AT R0 and t_RS/Gamma_RS the
+shock's proper crossing time. Read as physics that is "an electron injected at R0 cools for
+the crossing time, at the rate it had when it was injected" -- a constant-rate cooling in a
+frozen field. The field is not frozen, and the honest statement is
 
     1/gamma_c = (sigma_T/6 pi m_e c) int B'^2 dt'      over the shock propagation,
 
     dt' = dt/Gamma(t),      both B' and Gamma taken ALONG THE SHOCK'S WORLDLINE.
+
+THE Gamma_RS IN THAT FORMULA IS RECENT (it was Gamma_0). The crossing is a pair of events,
+"shock at R0" and "shock at R_f", and they lie on the SHOCK's worldline: Gamma_0 is the
+shocked fluid's Lorentz factor and converts durations for a comoving observer who is not
+present at both events. Switching to lfacRS/lfacFS moved the label by -0.063 dex (RS) and
++0.033 dex (FS) and moved exactly that much OUT of C -- the corrected gamma_c is unchanged
+(5.31 on the RS either way), and so is every ratio measured against it below. Cached sweeps
+predate it; fluence_break_rows re-derives each point's label from the live env and the
+point's own alpha so old caches are still compared against the definition in force now.
 
 GAMMA_M IS NOT CORRECTED, deliberately. gamma_c is a cooling estimator and what it is
 measured against is the INJECTION characteristic Lorentz factor, so gamma_m stays at
@@ -38,7 +47,7 @@ Both were measured before being dropped; the numbers above are what they would a
 IT IS A RIGID SHIFT OF THE WHOLE SWEEP AXIS. Under the Granot alpha rescaling that
 generates the sweep (sweep_gammacm.compute_alpha_sweep) lengths and times go as alpha and
 rho, p as alpha^-3, so B'^2 dt' -- and therefore everything below -- is alpha^-2, exactly
-as gamma_c itself is (checked numerically on B'^2 t_RS/Gamma_0). The dimensionless decay
+as gamma_c itself is (checked numerically on B'^2 t_RS/Gamma_RS). The dimensionless decay
 B'^2/B'^2(R0) against t/t_cr is the SAME curve at every sweep point. One number corrects
 all eight.
 
@@ -48,82 +57,84 @@ worldline of any one cell. Three clocks are measured and all three are reported,
 the answer is not what one would guess:
 
                                     RS (z=4)              FS (z=1)
-    Gamma_0 (the label)              126.45                126.45
+    Gamma_RS (the label, analytic)   109.50                136.56
+    Gamma_0 (what it used to use)    126.45                126.45
     shock front's own trajectory     112.57 -> 111.95      136.16 -> 135.39
     fluid just behind the front      130.00 -> 129.28      126.08 -> 125.36
     first cell, along its worldline  130.00 -> 127.76      126.08 -> 127.82
-    t'_cr / (t_cr/Gamma_0), shock     1.1249                0.9303
-    ... same, fluid clock             0.9741                1.0047
+    t'_cr / (t_cr/Gamma_RS), shock    0.9741                1.0047
+    ... same, fluid clock             0.8435                1.0851
 
   GAMMA BARELY EVOLVES ANYWHERE. Over the crossing every clock moves by 0.55%, and along a
   cell's whole worldline -- rarefaction included -- the fluid Gamma only wanders 126-133.5
   (max 133.5, reached at t ~ 500-700 t_cr). There is no substantial increase to capture,
-  on the shock's worldline or any other. What IS substantial is the shock trajectory's
-  OFFSET from Gamma_0: -11% on the RS, +7.8% on the FS, because Gamma_0 is the shocked
-  FLUID's Lorentz factor and the shock surface does not move with the fluid. That offset
-  is worth 12% on the RS correction and 7% on the FS one, in opposite directions -- an
-  order of magnitude more than the evolution, and the reason to take the clock from the
-  shock rather than from Gamma_0.
+  on the shock's worldline or any other. What was substantial was the shock trajectory's
+  OFFSET from Gamma_0 (-11% RS, +7.8% FS), and that now lives in the LABEL -- it is the
+  Gamma_RS fix above. What is left here is only the 2.5% between the analytic lfacRS and
+  the trajectory the simulation actually follows (109.50 against 112.2).
   The clock changes only the TOTAL t'_cr, never the shape of the average: <B'^2>/B'^2(R0)
   comes out at 0.3455 (RS) and 0.3635 (FS) under both, to four decimals, because a Gamma
   that flat divides out of a time average.
   Caveat worth stating once: the cooling equation runs on the FLUID's proper time, since
-  B' is the comoving field, so the fluid clock is the physically consistent one and the
-  shock clock is a property of the surface, not of anything that cools. Both are carried
+  B' is the comoving field, so the fluid clock is what an electron's losses integrate
+  against, while the shock clock times the crossing as a process. Both are carried
   (`clock='shock'|'fluid'`); the correction is
 
-    RS   2.434 (shock)   2.811 (fluid)        FS   2.968 (shock)   2.748 (fluid)
+    RS   2.811 (shock)   3.247 (fluid)        FS   2.748 (shock)   2.545 (fluid)
 
-  i.e. the choice is worth -13% on the RS and +8% on the FS, and it is the largest single
-  uncertainty in the number. `clock='shock'` is the default because it is what was asked
-  for; nothing downstream assumes it.
+  i.e. the choice is worth +15% on the RS and -7% on the FS, and it is the largest single
+  uncertainty in the number. `clock='shock'` is the default, matching the label's own
+  Gamma_RS; nothing downstream assumes it, and C_avg (below) is free of it entirely.
 
 MEASURED, cooling_g100, injection states from the shock fit (EARLY_ANA), clock='shock'.
 
                                           RS (z=4)      FS (z=1)
     <B'^2>/B'^2(R0) over the propagation    0.3455        0.3635  -> B'_rms = 0.6 B'(R0)
-    1/<B'^2>_norm  (pure averaging)         2.894         2.751
-    t'_nom/t'_cr   (the clock)              0.8890        1.0750
+    C_avg = 1/<B'^2>_norm (the definition)  2.894         2.751     +0.462 / +0.440 dex
+    t'_nom/t'_cr   (the clock)              0.9741        1.0047
     B'^2_ana/B'^2(R0) (analytic vs sim)     0.9461        1.0038
-    C = their product                       2.434         2.968
+    C = their product                       2.811         2.748
     injection field, first -> last cell   1.057->0.114  0.996->0.129
-    C_i along a cell's worldline: first / q05 / median / q95
-                                      1.97/2.24/5.70/23.0   2.47/2.78/7.36/49.9
+    C_i along a cell's worldline: crossing / end / shell q05 / median / q95
+                                2.84/2.27/2.58/6.58/26.6  2.62/2.28/2.58/6.82/46.2
 
-  So gamma_c/gamma_m is understated by 2.4 on the RS -- +0.39 dex -- and 3.0 on the FS,
-  for the material the label describes. In the quantity a spectrum shows, the break RATIO,
-  that is x5.9 and x8.8. The field average is doing nearly all of the work (x2.75-2.89);
-  the clock and the analytic-vs-simulated field are both ~10% corrections on top of it,
-  and on the RS they happen to cancel.
+  So gamma_c/gamma_m is understated by ~2.8 on both shells -- +0.45 dex -- for the material
+  the label describes. In the quantity a spectrum shows, the break RATIO, that is x7.9 and
+  x7.6. C_avg is doing nearly all of the work; the clock and the analytic-vs-simulated
+  field are now only 0.4-5% each, both having had their large parts absorbed into the
+  label's own Gamma_RS.
   THE COOLING SATURATES past t ~ 2-3 t_cr (B'^2 has fallen ~50x, the rarefaction has
   crossed), so the per-cell C_i integrated to the END of each worldline is a converged
   number and not a window choice -- it is the total cooling those electrons will ever
   suffer, which is the endpoint a TIME-INTEGRATED spectrum sees. The first cell's
-  C_i(end) = 1.97 against C_i(crossing) = 2.46: stopping at the crossing or following the
+  C_i(end) = 2.27 against C_i(crossing) = 2.84: stopping at the crossing or following the
   cooling to exhaustion differ by 25%, which bounds how much the endpoint can matter.
 
 AGAINST THE SPECTRA. sweep_gammacm.compute_fluence_spectrum on each cached point, then
 spectral_breaks.smoothing_from_identified (the segment route, segment_route.py) for the two
 breaks; their ratio is (gamma_c/gamma_m)^2 for whatever material the spectrum is
 effectively showing, so measured/nominal is the offset the correction has to explain.
-`nominal` is the shell's own (gamma_c/gamma_m)^2 -- on the FS that is 10^(2 logr) x 10.14,
-since the sweep axis labels the RS. data_rarcut (the article's sweep), the points whose
+`nominal` is the shell's own (gamma_c/gamma_m)^2 -- on the FS that is 10^(2 logr) x 15.78,
+since the sweep axis labels the RS and the FS sits 0.599 dex above it. data_rarcut (the article's sweep), the points whose
 class puts both breaks in band and measures the mid slope on an identified segment:
 
 sqrt(nu_c/nu_m) is then a MEASURED gamma_c/gamma_m, to be read against the label:
 
     shell logr class sqrt(nu_c/nu_m) gma_c/gma_m  ratio    C  ratio/C C_avg ratio/C_avg pct
-     RS    -2   FC       0.02726        0.01       2.73  2.43   1.12   2.89    0.94     14%
-     RS    +1   SC      86.67          10          8.67  2.43   3.56   2.89    2.99     68%
-     RS    +2   SC     710.6          100          7.11  2.43   2.92   2.89    2.46     60%
-     FS    +0   SC      41.71           3.184     13.10  2.97   4.41   2.75    4.76     71%
-     FS    +1   SC     287.7           31.84       9.03  2.97   3.04   2.75    3.28     58%
-     FS    +2   SC    2601            318.4        8.17  2.97   2.75   2.75    2.97     54%
+     RS    -2   FC       0.02726        0.008659   3.15  2.81   1.12   2.89    1.09     14%
+     RS    +1   SC      86.67           8.659     10.01  2.81   3.56   2.89    3.46     68%
+     RS    +2   SC     710.6           86.59       8.21  2.81   2.92   2.89    2.84     60%
+     FS    +0   SC      41.71           3.439     12.13  2.75   4.41   2.75    4.41     71%
+     FS    +1   SC     287.7           34.39       8.37  2.75   3.04   2.75    3.04     58%
+     FS    +2   SC    2601            343.9        7.56  2.75   2.75   2.75    2.75     54%
+
+  (`gma_c/gma_m` here is the CURRENT definition's label, re-derived per point; ratio/C and
+  the percentiles are invariant under the Gamma_RS change, since it moved label and
+  correction by the same factor.)
 
   FAST COOLING: THE CORRECTION ACCOUNTS FOR IT OUTRIGHT. The one FC point comes out at
-  ratio/C = 1.12 against full C and ratio/C_avg = 0.94 against the field average alone --
-  the offset is explained to within 12% either way, with no free parameter, and the two
-  bracket 1 from opposite sides. Equivalently the factor the spectrum asks for sits at the
+  ratio/C = 1.12 against full C and ratio/C_avg = 1.09 against the field average alone --
+  the offset is explained to within 12% either way, with no free parameter. Equivalently the factor the spectrum asks for sits at the
   14th percentile of the shell's own C_i, among the earliest-shocked cells in the strongest
   field, which are the least-corrected ones. That is where it belongs: in fast cooling
   nu_c is set by the material that has cooled the MOST, and C is C_i for that material.
@@ -131,8 +142,8 @@ sqrt(nu_c/nu_m) is then a MEASURED gamma_c/gamma_m, to be read against the label
   clock and the analytic-vs-simulated field, both ~10% effects (see WHICH CLOCK), and one
   measurement cannot separate them. C_avg is the more robust of the two in that it is
   clock-free.
-  SLOW COOLING: SHORT BY 2.5-4.8x, whichever version is used, and consistently so on both
-  shells (against C: RS 2.9-3.6, FS 2.8-4.4; against C_avg: RS 2.5-3.0, FS 3.0-4.8),
+  SLOW COOLING: SHORT BY 2.7-4.4x, whichever version is used, and consistently so on both
+  shells (against C: RS 2.9-3.6, FS 2.8-4.4; against C_avg: RS 2.8-3.5, FS 2.8-4.4),
   falling monotonically as the regime gets more slowly-cooling. The leftover is not noise
   and not a normalisation -- it survives stripping C down to the field average, which is
   what stripping it to its clock-free core does. It is that the break is set further along
@@ -166,6 +177,22 @@ CAVEATS.
   not an independent emitter, and counting them would weight the early cells by their
   sub-cell count in every quantile here.
 
+ADOPTING IT AS THE SWEEP PARAMETER (what to do for a new run).
+
+    python -c "import field_average as F; F.measure_field_correction('<key>')"
+
+writes results/<key>/field_correction.json, after which MyEnv('<key>').gma_c carries C_avg,
+sweep_gammacm's alpha lever targets the CORRECTED log10(gamma_c/gamma_m), and every sweep
+cache for that run lands in a '_fc' directory so the two definitions can never be confused
+on reload. Run it once, after analysis_hydro.extract_data_thinshell (it needs only the
+shock-front table, not the cell histories) and BEFORE the sweep -- compute_alpha_sweep picks
+its alphas from the definition in force at that moment.
+
+Nothing is retroactive and nothing is global: a run with no sidecar is bit-identical to
+before. cooling_g100 deliberately has none, so the local sweeps stay as they are; the
+correction is for the hi-res run, whose own C_avg must be measured on its own hydro (the
+number is alpha-invariant but not run-invariant).
+
 Example use:
   python -c "import field_average as F; F.main()"
   python -c "import field_average as F; F.main(use_cache=False)"
@@ -174,10 +201,12 @@ Example use:
 
 import os
 import csv
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 
-from environment import MyEnv
+from environment import (MyEnv, field_correction, field_correction_path,
+    FIELD_CORR_VERSION, FIELD_CORR_TAG)
 from IO import get_variable
 from phys_constants import pi_, c_
 from phys_functions import derive_Eint_comoving, derive_Lorentz
@@ -243,10 +272,18 @@ def shell_klist(key, z, env):
 
 
 def shell_nominal(env, z):
-  '''(B'^2, gamma_m, gamma_c, t_cross) of shell z as the sweep label defines them.'''
+  '''
+  (B'^2, gamma_m, gamma_c, t_cross, Gamma_cross) of shell z as the label defines them.
+
+  Gamma_cross is the SHOCK's analytic Lorentz factor (lfacRS / lfacFS), which is the clock
+  shells_add_radNorm now divides the crossing time by -- the crossing's two events sit on
+  the shock's worldline, not on a fluid element's. Everything here normalises on
+  t_cross/Gamma_cross for that reason, so the correction reported is what is left AFTER
+  the label already uses the right clock analytically.
+  '''
   if z == 4:
-    return env.Bp**2, env.gma_m, env.gma_c, env.tRS
-  return env.BpFS**2, env.gma_mFS, env.gma_cFS, env.tFS
+    return env.Bp**2, env.gma_m, env.gma_c, env.tRS, env.lfacRS
+  return env.BpFS**2, env.gma_mFS, env.gma_cFS, env.tFS, env.lfacFS
 
 
 def cooling_integrals(hist, env):
@@ -295,7 +332,7 @@ def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK):
   time-averaged field, and the three factors the correction decomposes into.
   '''
   env = MyEnv(key) if env is None else env
-  B2ana, _, gc_nom, tcr = shell_nominal(env, z)
+  B2ana, _, gc_nom, tcr, lfcr = shell_nominal(env, z)
   sh = load_shockfront_states(key, z, env, source=EARLY_ANA).sort_values('t')
   sel = sh.loc[sh.t <= tcr]
   t = sel.t.to_numpy(dtype=float)
@@ -314,7 +351,7 @@ def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK):
     raise ValueError(f"clock must be 'shock' or 'fluid', got {clock!r}")
   tpcr = float(dtp.sum())
   I_B = float((0.5*(B2[1:] + B2[:-1])*dtp).sum())      # int B'^2 dt' along the front
-  tp_nom = tcr/env.lfac0                               # the label's own comoving crossing
+  tp_nom = tcr/lfcr                                    # the label's own proper crossing
   return dict(z=z, clock=clock, t=t, x=x, B2=B2, lfac_fluid=lf_fluid, lfac_shock=lf_shock,
               tpcr=tpcr, tp_nom=tp_nom, I_B=I_B,
               mean_B2=I_B/(tpcr*B2[0]),                # <B'^2>/B'^2(R0) over the crossing
@@ -322,6 +359,65 @@ def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK):
               clock_fac=tp_nom/tpcr,
               C=B2ana*tp_nom/I_B,                      # the correction to the label
               gc_nom=gc_nom, b2_first=B2[0]/B2ana, b2_last=B2[-1]/B2ana)
+
+
+def measure_field_correction(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=True,
+    verbose=True):
+  '''
+  MEASURE THE RUN'S FIELD CORRECTION AND MAKE IT THE SWEEP'S DEFINITION.
+
+  C_avg = 1/<B'^2>_norm over the shock propagation, per shell, written to the run's
+  field_correction.json sidecar. From then on MyEnv(key) reports a gamma_c corrected by it
+  (environment.field_correction -> shells_add_radNorm), so sweep_gammacm's alpha lever
+  targets the CORRECTED log10(gamma_c/gamma_m) and every figure axis means the corrected
+  quantity. sweep caches written afterwards land in a '_fc'-suffixed directory, so a
+  corrected sweep can never be reloaded as an uncorrected one or vice versa.
+
+  WHY C_avg AND NOT THE FULL C. C_avg is the only one of C's three factors that is
+  clock-free -- a Gamma this flat divides out of a time average, so it is identical under
+  clock='shock' and 'fluid' while C differs by 13% -- and it is the one that is a property
+  of the FIELD rather than of a comparison with the analytic setup. A definition should not
+  inherit a 10% choice that one measurement cannot settle. The other two factors (the
+  analytic-vs-simulated B'_0, and the clock) stay in field_average's reporting, where they
+  can be quoted as a systematic.
+
+  CHEAP AND EARLY: this reads the shock-front table (run_data_{z}.csv via
+  load_shockfront_states), not the cell histories, so it can be run as soon as
+  analysis_hydro.extract_data_thinshell has been -- before any cell extraction, and long
+  before a sweep. That is the point: the correction has to exist before compute_alpha_sweep
+  picks its alphas, or the sweep targets the old definition.
+
+  RUN IT ONCE PER SIMULATION. The number is alpha-invariant, so it is a property of the
+  hydro alone; re-running it on the same run rewrites the same value. Running it on a
+  DIFFERENT run gives a different value, which is why it lives beside the run and not in a
+  module constant.
+
+  write=False measures without touching the sidecar (what to use to look before leaping).
+  '''
+  env = MyEnv(key) if env is None else env
+  out, rows = {}, []
+  for z in zlist:
+    fr = shock_worldline(key, z, env)
+    out[z] = 1./fr['mean_B2']
+    rows.append((z, fr['mean_B2'], out[z], fr['C']))
+  if verbose:
+    print(f'--- field correction for {key} ---')
+    print(f'{"shell":>6} {"<B^2>/B0^2":>11} {"C_avg":>8} {"dex":>7}   (full C, for reference)')
+    for z, m, c, C in rows:
+      print(f'{("RS" if z == 4 else "FS"):>6} {m:11.4f} {c:8.4f} {np.log10(c):+7.4f}   '
+            f'{C:.4f}')
+  if write:
+    path = field_correction_path(key)
+    if path is None:
+      raise ValueError(f'{key!r} is not a run directory: nowhere to write the sidecar')
+    with open(path, 'w') as fh:
+      json.dump(dict(version=FIELD_CORR_VERSION, key=key, clock=CLOCK,
+                     quantity='C_avg = 1/<B\'^2> over the shock propagation',
+                     source='field_average.measure_field_correction',
+                     C_avg={str(z): float(c) for z, c in out.items()}), fh, indent=2)
+    print(f'-> {path}   (MyEnv({key!r}).gma_c is now corrected; sweep caches get '
+          f'{FIELD_CORR_TAG!r})')
+  return out
 
 
 def field_average(key=KEY, z=Z_RS, env=None, clock=CLOCK, fracs=T_FRACS, verbose=True):
@@ -335,7 +431,7 @@ def field_average(key=KEY, z=Z_RS, env=None, clock=CLOCK, fracs=T_FRACS, verbose
   worldline, and it is what the shell distribution (shell_rows) generalises.
   '''
   env = MyEnv(key) if env is None else env
-  B2ana, _, gc_nom, tcr = shell_nominal(env, z)
+  B2ana, _, gc_nom, tcr, lfcr = shell_nominal(env, z)
   fr = shock_worldline(key, z, env, clock=clock)
   sh = load_shockfront_states(key, z, env, source=EARLY_ANA)
   k0 = int(shell_klist(key, z, env)[0])
@@ -355,9 +451,10 @@ def field_average(key=KEY, z=Z_RS, env=None, clock=CLOCK, fracs=T_FRACS, verbose
   if verbose:
     lfs, lff = fr['lfac_shock'], fr['lfac_fluid']
     print(f'--- z={z}, over the shock propagation (clock={clock!r}) ---')
-    print(f'  Gamma_0 = {env.lfac0:.2f} | shock trajectory {lfs[0]:.2f} -> {lfs[-1]:.2f}'
+    print(f'  Gamma_shock (label) = {lfcr:.2f}, Gamma_0 = {env.lfac0:.2f} | '
+          f'measured trajectory {lfs[0]:.2f} -> {lfs[-1]:.2f}'
           f' | fluid at the front {lff[0]:.2f} -> {lff[-1]:.2f}')
-    print(f"  t'_cr = {fr['tpcr']:.5g} s against the label's t_cr/Gamma_0 = "
+    print(f"  t'_cr = {fr['tpcr']:.5g} s against the label's t_cr/Gamma_shock = "
           f"{fr['tp_nom']:.5g} s  ({1./fr['clock_fac']:.4f}x)")
     print(f"  <B'^2>/B'^2(R0) = {fr['mean_B2']:.4f}   (injection field falls "
           f"{fr['b2_first']:.3f} -> {fr['b2_last']:.3f} x nominal)")
@@ -386,8 +483,8 @@ def shell_rows(key=KEY, z=Z_RS, env=None, verbose=True):
   saturated). The cell's own gamma_m,0 is recorded but NOT folded in -- see the header.
   '''
   env = MyEnv(key) if env is None else env
-  B2ana, gm_nom, _, tcr = shell_nominal(env, z)
-  norm = B2ana*tcr/env.lfac0         # 1/(alpha_ * norm) is the nominal gamma_c
+  B2ana, gm_nom, _, tcr, lfcr = shell_nominal(env, z)
+  norm = B2ana*tcr/lfcr              # 1/(alpha_ * norm) is the nominal gamma_c
   sh = load_shockfront_states(key, z, env, source=EARLY_ANA)
   klist = shell_klist(key, z, env)
   rows, skipped = [], 0
@@ -425,22 +522,28 @@ def fluence_break_rows(key=KEY, method=METHOD, z=Z_RS, verbose=True):
   label: fast cooling puts nu_c below nu_m, slow cooling above.
 
   `nominal` is the shell's OWN (gamma_c/gamma_m)^2 -- on the FS that is not 10^(2 logr),
-  since the sweep axis labels the RS and the FS sits 0.503 dex above it.
+  since the sweep axis labels the RS and the FS sits ~0.5 dex above it.
+
+  IT IS RE-DERIVED FROM THE RUN'S LIVE env AND THE POINT'S ALPHA, not read off the point's
+  cached env scalars. gamma_c ~ alpha^2 and gamma_m is alpha-invariant, so the live env
+  reproduces any point exactly -- and doing it this way means a cache written under an
+  OLDER gamma_c definition (before the t_cr/Gamma_shock fix, or before a field correction
+  was installed) is still compared against the definition in force NOW. Otherwise `ratio`
+  and C would have different denominators and their quotient would mean nothing.
   '''
   res = sorted(swp.load_sweep(method_outdir(method, key, z)),
                key=lambda r: r['log10ratio'])
   if not res:
     raise FileNotFoundError(f'no cached sweep for {method} z={z}: run sweep_gammacm.main')
+  env0 = MyEnv(key)
+  gc0, gm0 = ((env0.gma_c, env0.gma_m) if z == 4 else (env0.gma_cFS, env0.gma_mFS))
   rows = []
   for r in res:
     x = swp.nu_over_num(r)
     sp = swp.compute_fluence_spectrum(r['Tb'], r['nuFnu'])
     f = sb.smoothing_from_identified(x, sp, r['env'].psyn)
     logr = float(r['log10ratio'])
-    env_r = r['env']
-    gc, gm = ((env_r.gma_c, env_r.gma_m) if z == 4 else
-              (getattr(env_r, 'gma_cFS', np.nan), getattr(env_r, 'gma_mFS', np.nan)))
-    nominal = (gc/gm)**2
+    nominal = (gc0*float(r['alpha'])**2/gm0)**2
     blo, bhi = f.get('b_lo'), f.get('b_hi')
     blo = np.nan if blo is None else float(blo)
     bhi = np.nan if bhi is None else float(bhi)

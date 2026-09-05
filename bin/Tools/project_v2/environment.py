@@ -11,6 +11,7 @@ to generate setup et scale plots
 from pathlib import Path
 import os
 import copy
+import json
 import numpy as np
 from scipy.optimize import fsolve
 from phys_constants import *
@@ -21,6 +22,65 @@ Initial_path = str(Path().absolute().parents[1] / 'src/Initial/')
 cwd = os.getcwd().split('/')
 iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
 GAMMA_dir = '/'.join(cwd[:iG+1])
+
+
+##### The measured field correction on gamma_c
+# --------------------------------------------------------------------------------------------------
+# The analytic gamma_c holds B' at its R0 value for the whole crossing, which overstates the
+# cooling by 1/<B'^2> ~ 2.8 (see field_average.py). A run whose correction has been MEASURED
+# carries it in a sidecar beside its snapshots, written by field_average.measure_field_correction;
+# MyEnv picks it up from there and shells_add_radNorm folds it into gamma_c (and gamma_cFS), so
+# every downstream reader -- the sweep's alpha lever above all -- sees the corrected definition
+# with no further plumbing.
+#
+# WHY A FILE AND NOT A FLAG. The sweep runs its points in a process pool started with forkserver
+# (cell_pool.pool_context), so a module-level switch set at runtime in the parent does NOT reach
+# the workers. A sidecar on disk does, and it also records WHICH run the number belongs to -- the
+# correction is a property of the hydro, so it must be measured on the run it is applied to.
+#
+# OPT-IN BY CONSTRUCTION: no sidecar, no correction, and every existing run is bit-identical to
+# before. Sweep caches written under the corrected definition are kept apart by
+# sweep_gammacm.method_outdir, which appends field_correction_tag(key).
+FIELD_CORR_FILE = 'field_correction.json'
+FIELD_CORR_VERSION = 1
+FIELD_CORR_TAG = '_fc'          # cache-name marker; a label of +2 means different things with
+                                # and without the correction, so the two must never share a dir
+
+
+def field_correction_path(key):
+  '''Sidecar path for run `key`, or None if `key` is not a run directory (a literal
+  phys_input path, as get_physfile also accepts, has no run to carry a measurement).'''
+  if key is None or os.path.isfile(str(key)):
+    return None
+  return GAMMA_dir + '/results/%s/%s' % (key, FIELD_CORR_FILE)
+
+
+def field_correction(key):
+  '''
+  The run's measured correction as {z: C_avg}, or None if it has none.
+
+  Keys are ints (4 = RS, 1 = FS). Missing/unreadable/mis-versioned files return None
+  rather than raising: an uncorrected run is the normal case, not an error.
+  '''
+  path = field_correction_path(key)
+  if path is None or not os.path.isfile(path):
+    return None
+  try:
+    with open(path) as fh:
+      d = json.load(fh)
+    if int(d.get('version', -1)) != FIELD_CORR_VERSION:
+      print(f'{path}: version {d.get("version")} != {FIELD_CORR_VERSION}, ignored '
+            '(re-run field_average.measure_field_correction)')
+      return None
+    return {int(z): float(c) for z, c in d['C_avg'].items()}
+  except (ValueError, KeyError, OSError) as e:
+    print(f'{path}: unreadable ({e}), ignored')
+    return None
+
+
+def field_correction_tag(key):
+  '''FIELD_CORR_TAG if this run carries a correction, '' otherwise.'''
+  return FIELD_CORR_TAG if field_correction(key) else ''
 
 
 ##### Updating the environment and fetching variables
@@ -108,6 +168,13 @@ class MyEnv:
   def __init__(self, key, scalefac=0.):
     path = get_physfile(key)
     self.read_input(path)
+    # BEFORE create_setup: shells_add_radNorm folds C_field into gamma_c as it builds it, so
+    # nu_c and everything derived from it follow with no second pass. Set as an instance
+    # attribute so it survives rescale_hydro's deepcopy + update_env re-derivation -- which
+    # is what makes the correction alpha-invariant in practice as well as in principle.
+    corr = field_correction(key) or {}
+    self.C_field = corr.get(4, 1.)          # reverse shock -> gamma_c
+    self.C_fieldFS = corr.get(1, 1.)        # forward shock -> gamma_cFS
     self.create_setup(scalefac)
   
   def read_input(self, path):

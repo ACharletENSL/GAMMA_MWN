@@ -191,9 +191,29 @@ def shells_add_radNorm(env, z=1., dL=2e28):
   env.Bp = np.sqrt(8.*pi_*env.eps_B*env.eint3p)
   env.BpFS = np.sqrt(8.*pi_*env.eps_B*env.eint2p)
   env.gma_m = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac34-1)
-  env.gma_c = 6*pi_*me_*c_*env.lfac0/(sigT_*env.Bp**2*env.tRS)
+  # THE DYNAMICAL TIME IS THE SHOCK'S PROPER CROSSING TIME, t_cr/Gamma_shock -- NOT
+  # t_cr/Gamma_0. The crossing is a pair of events, "shock at R0" and "shock at R_f", and
+  # they lie on the SHOCK's worldline, not on any fluid element's: Gamma_0 is the shocked
+  # fluid's Lorentz factor and converts durations for a comoving observer who is not
+  # present at both events. The invariant duration of the crossing is the proper time along
+  # the worldline that connects them, hence lfacRS (lfacFS for the forward shock).
+  # Worth 109.50/126.45 = 0.866 on the RS and 136.56/126.45 = 1.080 on the FS, i.e. -0.063
+  # and +0.033 dex on the sweep label. See field_average.py, which measures the same clock
+  # on the simulated trajectory (112.2 against this 109.5, a further 2.5%) and carries the
+  # difference inside its correction rather than here.
+  env.gma_c = 6*pi_*me_*c_*env.lfacRS/(sigT_*env.Bp**2*env.tRS)
   env.gma_mFS = (mp_/me_)*Gp*(env.eps_e/env.xi_e)*(env.lfac21-1)
-  env.gma_cFS = 6*pi_*me_*c_*env.lfac0/(sigT_*env.BpFS**2*env.tFS)
+  env.gma_cFS = 6*pi_*me_*c_*env.lfacFS/(sigT_*env.BpFS**2*env.tFS)
+  # MEASURED FIELD CORRECTION (field_average.py). The two expressions above hold B' at the
+  # value the shell only has at R0, which overstates the cooling by 1/<B'^2> over the shock
+  # propagation -- 2.89 (RS) and 2.75 (FS) on cooling_g100. A run whose correction has been
+  # measured carries it in a sidecar and MyEnv puts it here; without one both factors are 1
+  # and this line is a no-op, which is what every pre-existing run gets. It is applied at the
+  # POINT of definition so nu'_c, nu_c and the sweep's alpha lever all inherit it, and it is
+  # alpha-invariant (B'^2 dt' and gamma_c both scale as alpha^-2), so it survives rescaling
+  # as the constant it is.
+  env.gma_c *= getattr(env, 'C_field', 1.)
+  env.gma_cFS *= getattr(env, 'C_fieldFS', 1.)
   env.gma_max = np.sqrt(6*pi_*e_/(sigT_*env.Bp))
   env.gma_maxFS = np.sqrt(6*pi_*e_/(sigT_*env.BpFS))
   env.nuBp = e_*env.Bp/(2.*pi_*me_*c_)
