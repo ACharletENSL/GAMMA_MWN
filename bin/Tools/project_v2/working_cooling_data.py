@@ -1275,11 +1275,13 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     variants = [(data_method_name(None, r_cap), None, dict(r_cap=r_cap))]
   elif rar_cut == 'model':
     variants = [('data_rarcut',
-                 load_shell_rarefaction(key, z, env, n_shell=len(klist)), {})]
+                 load_shell_rarefaction(key, z, env, n_shell=len(klist),
+                                        nproc=(ncell_proc or 1)), {})]
   elif rar_cut == 'both':
     variants = [('data', None, {}),
                 ('data_rarcut',
-                 load_shell_rarefaction(key, z, env, n_shell=len(klist)), {})]
+                 load_shell_rarefaction(key, z, env, n_shell=len(klist),
+                                        nproc=(ncell_proc or 1)), {})]
   else:
     raise ValueError(f"rar_cut must be None, 'model' or 'both', got {rar_cut!r}")
   paired = len(variants) == 2

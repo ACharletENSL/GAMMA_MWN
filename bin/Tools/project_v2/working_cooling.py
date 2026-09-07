@@ -495,7 +495,55 @@ _RAR_CACHE_VERSION = 4   # v2: caches carry n_shell (coverage); v3: + per-cell b
 _RAR_HEAD_MEM = {}    # (key, z) -> ({cell_i: R_rar/R_inj}, {cell_i: barT_off}), in-process reuse
 
 
-def compute_shell_rarefaction_head(key, z, env, R_fac=50., n_R=2000, fitfunc=smooth_bpl_apy):
+_HEAD_CTX = {}
+
+
+def _head_init(key, env, varlist, sh):
+  """Per-worker context for the rarefaction head's per-cell fits."""
+  _HEAD_CTX.update(key=key, env=env, varlist=varlist, sh=sh)
+
+
+def _head_chunk(span):
+  """
+  The per-cell fit block of compute_shell_rarefaction_head, for rows [j0, j1) of the
+  shock-front table. Module-level so it is picklable; returns [(j, payload or None)],
+  keyed by position so the parent rebuilds the ORIGINAL row order whatever order the
+  chunks come back in.
+
+  This is what made the sweep's prologue the longest serial block in the pipeline: at
+  hi-res it opens 1e4 cell files (18.4 MB each) and fits three broken power laws to each,
+  in the parent, before any pool exists -- measured at 1.5-2.8 h against ~25 min for the
+  sweep point it is preparing. The fits are cached per cell ({k:04d}_fit.npz), and each
+  cell is touched by exactly one worker, so the writes stay disjoint.
+  """
+  j0, j1 = span
+  c = _HEAD_CTX
+  key, env, varlist, sh = c['key'], c['env'], c['varlist'], c['sh']
+  out = []
+  for j in range(j0, j1):
+    row = sh.iloc[j]
+    kk = int(row.i)
+    cd = open_celldata(key, kk)
+    if cd is False:
+      out.append((j, None))
+      continue
+    norms = [get_variable(row, nm, env) for nm in varlist]
+    try:
+      popts = load_or_fit_celldata(cd, varlist, norms, env, row.x, key=key, k=kk)
+    except RuntimeError:
+      out.append((j, None))
+      continue
+    out.append((j, dict(i=kk, R0=float(row.x*c_),
+                        s0=float(row.t) + env.t0 - float(row.x),
+                        lfac0=float(get_variable(row, 'lfac', env)),
+                        rho0=float(get_variable(row, 'rho', env)),
+                        p0=float(get_variable(row, 'p', env)),
+                        popts=popts)))
+  return out
+
+
+def compute_shell_rarefaction_head(key, z, env, R_fac=50., n_R=2000,
+    fitfunc=smooth_bpl_apy, nproc=1):
   '''
   Rarefaction catch-up radius R_rar for EVERY cell of shell z, from a SINGLE head
   trajectory integrated once through the assembled shell hydro -- instead of the
@@ -555,22 +603,26 @@ def compute_shell_rarefaction_head(key, z, env, R_fac=50., n_R=2000, fitfunc=smo
   z_fwd = bool(exit_row.trac < 1.5)   # region 3 (forward RF) vs region 2; one shell,
                                       # one side of the CD, so one sign for all cells
   varlist = ['rho', 'lfac', 'p']
-  cells = []
-  for _, row in sh.iterrows():
-    kk = int(row.i)
-    cd = open_celldata(key, kk)
-    if cd is False:
-      continue
-    norms = [get_variable(row, nm, env) for nm in varlist]
-    try:
-      popt_rho, popt_lfac, popt_p = load_or_fit_celldata(cd, varlist, norms, env, row.x, key=key, k=kk)
-    except RuntimeError:
-      continue
-    cells.append(dict(i=kk, R0=float(row.x*c_), s0=float(row.t) + env.t0 - float(row.x),
-                      lfac0=float(get_variable(row, 'lfac', env)),
-                      rho0=float(get_variable(row, 'rho', env)),
-                      p0=float(get_variable(row, 'p', env)),
-                      popts=(popt_rho, popt_lfac, popt_p)))
+  n_rows = len(sh)
+  spans = [(j, min(j + _HEAD_CELLS_PER_CHUNK, n_rows))
+           for j in range(0, n_rows, _HEAD_CELLS_PER_CHUNK)]
+  found = [None]*n_rows
+  if nproc > 1 and len(spans) > 1:
+    import cell_pool
+    npr = cell_pool.resolve_nproc(nproc, cap=len(spans))
+    print(f'rarefaction head: fitting {n_rows} cells on {npr} workers')
+    with cell_pool.cell_executor(npr, initializer=_head_init,
+                                 initargs=(key, env, varlist, sh)) as ex:
+      for out in ex.map(_head_chunk, spans):
+        for j, payload in out:
+          found[j] = payload
+  else:
+    _head_init(key, env, varlist, sh)
+    for span in spans:
+      for j, payload in _head_chunk(span):
+        found[j] = payload
+  # drop the cells with no history / no usable fit, keeping the front table's own order
+  cells = [pl for pl in found if pl is not None]
   if not cells:
     return {}, {}
 
@@ -698,7 +750,12 @@ def _check_rarefaction_maps(rrar, boff, barT_f, key, z, tol=1e-6, frac_tol=0.05)
             f'steps) -- the head crossings are under-resolved (raise n_R)')
 
 
-def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None):
+_HEAD_CELLS_PER_CHUNK = 32   # cells per task in the head's fit pass: the payload is a
+                             # handful of fit parameters, so the only thing to balance is
+                             # dispatch overhead against the ~0.1-0.3 s per cell
+
+
+def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None, nproc=1):
   '''(key, z)-cached rarefaction maps ({cell_index: R_rar/R_inj}, {cell_index: barT_off})
   from the single shared head (compute_shell_rarefaction_head -- see it for what R_inj is
   and why the radii are per-cell ratios). Both dimensionless and alpha/zeta-invariant ->
@@ -728,7 +785,7 @@ def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None):
               f'{len(d["cell_i"])}/{int(n_shell)} shell cells -- rebuilding')
     except Exception:
       pass
-  rrar, boff = compute_shell_rarefaction_head(key, z, env, R_fac=R_fac)
+  rrar, boff = compute_shell_rarefaction_head(key, z, env, R_fac=R_fac, nproc=nproc)
   if n_shell is not None and len(rrar) < int(n_shell):
     print(f'load_shell_rarefaction: WARNING head for ({key}, {z}) built from '
           f'{len(rrar)}/{int(n_shell)} shell cells (missing cell data); the rest will '
@@ -746,13 +803,14 @@ def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None):
   return rrar, boff
 
 
-def load_shell_rarefaction(key, z, env, R_fac=50., n_shell=None):
+def load_shell_rarefaction(key, z, env, R_fac=50., n_shell=None, nproc=1):
   '''{cell_index: R_rar/R_inj} for shell z -- the radius at which the rarefaction wave
   catches each cell and its emission stops, as a ratio to THAT cell's own radius when it
   was shocked (not to env.R0); scale by the cell's radius to use it, as
   generate_cell_withDistrib does. Runs 1 (outer edge) to ~3 (contact discontinuity).
   See compute_shell_rarefaction_head / _load_shell_rarefaction_maps.'''
-  return _load_shell_rarefaction_maps(key, z, env, R_fac=R_fac, n_shell=n_shell)[0]
+  return _load_shell_rarefaction_maps(key, z, env, R_fac=R_fac, n_shell=n_shell,
+                                      nproc=nproc)[0]
 
 
 def load_shell_rarefaction_offT(key, z, env, R_fac=50., n_shell=None):
