@@ -546,6 +546,156 @@ def compare_spectrum(x, sp, psyn, configs=DEFAULT_CONFIGS, s_fit_hold=None):
 
 
 # ---------------------------------------------------------------------------
+# how well is THEIR alpha2 measured, at THEIR break ratios?
+# ---------------------------------------------------------------------------
+# GRB 160625B as Ravasio et al. report it: the GBM band the time-resolved fits use, a break
+# near 100 keV, and E_peak/E_break running ~35 early to ~5 late (their Fig. 7, bottom).
+GRB_BAND = (8., 4.0e4)        # keV; NaI 8 keV to BGO 40 MeV
+GRB_NCHAN = 128               # CSPEC's logarithmically spaced channels
+GRB_EBREAK = 100.             # keV
+GRB_RATIOS = (5., 10., 20., 35.)
+GRB_A1, GRB_A2, GRB_BETA = -0.63, -1.48, -2.5     # their mean photon indices
+
+
+def mid_segment_width(ratios=GRB_RATIOS, a1=GRB_A1, a2=GRB_A2, beta=GRB_BETA,
+    n1=RAVASIO_N1, n2=RAVASIO_N2, tols=(0.05, 0.10), verbose=True):
+  '''
+  How much STRAIGHT mid segment a 2SBPL actually has at Ravasio's own parameters -- the decades
+  over which its local slope sits within `tol` of alpha2.
+
+  This is the precondition for reading a mid index off a spectrum, and at their smaller break
+  ratios it is barely met: with n1 = 5.38 and n2 = 2.69 the two transitions are ~0.22 and
+  ~0.37 dex wide on their own, so at E_peak/E_break = 5 they overlap almost completely.
+  Measured here (|slope - alpha2| < 0.05):
+
+      E_pk/E_br     5     10     20     35    100
+      width [dex]  0.11   0.29   0.57   0.81   1.26
+
+  The minimum |slope - alpha2| is 0.000 at every ratio: the slope always passes THROUGH alpha2,
+  it just does not linger there. So alpha2 at small ratio is a TANGENT, inferred from the
+  curvature of the whole shape under an assumed smoothing, not a plateau read off the data --
+  which is exactly the situation ravasio_recovery then prices.
+  '''
+  E = np.logspace(-2., 8., 200001)
+  rows = []
+  for ratio in ratios:
+    N = two_sbpl(E, 1., ratio, a1, a2, beta, n1=n1, n2=n2)
+    s = np.gradient(np.log10(N), np.log10(E))
+    Ej = two_sbpl_Ej(ratio, a2, beta, n2)
+    m = (E > 1./3.) & (E < Ej*3.)          # between the breaks, with a little room
+    d = np.abs(s - a2)
+    r = dict(ratio=ratio, sep_dex=float(np.log10(Ej)), dmin=float(d[m].min()))
+    for tol in tols:
+      k = m & (d < tol)
+      r[f'width_{tol:g}'] = (float(np.log10(E[k].max()/E[k].min())) if k.any() else 0.)
+    rows.append(r)
+  out = pd.DataFrame(rows)
+  if verbose:
+    print(f'\nstraight mid segment at n1={n1}, n2={n2} (alpha2={a2})')
+    print(out.to_string(index=False, float_format=lambda v: f'{v:.2f}'))
+  return out
+
+
+def _fit_2sbpl_photon(E, N, n1, n2, band=GRB_BAND, seed=(GRB_A1, GRB_A2, GRB_BETA)):
+  '''
+  Ravasio's own fit, on a photon spectrum: A, alpha1, E_break, alpha2, E_peak and beta free,
+  n1 and n2 HELD (their Sect. 2.4 -- they fixed both because a free n1 "is not always
+  constrained"). Residual in log10 flux, uniformly weighted over logarithmic channels, which
+  is the shape-fitting proxy for their channel-space chi2.
+  '''
+  ly = np.log10(N)
+
+  def unpack(q):
+    return 10**q[0], 10**q[0]*10**q[1], 10**q[2], q[3], q[4], q[5]
+
+  def resid(q):
+    Eb, Ep, A, b1, b2, bb = unpack(q)
+    m = two_sbpl(E, Eb, Ep, b1, b2, bb, n1=n1, n2=n2, A=A)
+    return np.log10(np.maximum(m, 1e-300)) - ly
+
+  # beta < -2 < alpha2 is required for eq. (4) to have a solution at all, hence the bounds
+  q0 = [np.log10(GRB_EBREAK), 1., 0., seed[0], seed[1], seed[2]]
+  blo = [np.log10(band[0]), 0., -20., -1.6, -2.15, -5.0]
+  bhi = [np.log10(band[1]), 3.5, 20., -0.1, -0.85, -2.05]
+  r = least_squares(resid, q0, bounds=(blo, bhi))
+  Eb, Ep, A, b1, b2, bb = unpack(r.x)
+  return dict(E_break=Eb, E_peak=Ep, a1=b1, a2=b2, beta=bb, ratio=Ep/Eb,
+              rms=float(np.sqrt(np.mean(r.fun**2))))
+
+
+def ravasio_recovery(ratios=GRB_RATIOS, n1_true=(1.12, 2.0, 2.69, 5.38, 10.0),
+    a2_true=(GRB_A2,), band=GRB_BAND, nchan=GRB_NCHAN, n1_fit=RAVASIO_N1,
+    n2_fit=RAVASIO_N2, outdir=OUTDIR, verbose=True):
+  '''
+  HOW WELL IS alpha2 MEASURED when the breaks are less than a decade apart? Synthetic 2SBPL
+  spectra with a KNOWN mid index, on GRB 160625B's band and channel count, refitted the way
+  the paper fits -- everything free except n1, n2, which are held at (5.38, 2.69).
+
+  Two results, and they say opposite things:
+
+  SELF-RECOVERY IS EXACT. Generated and fitted at the same (n1, n2), alpha2 comes back with
+  bias 0.000 and rms ~1e-14 at every ratio down to 5. The estimator is unbiased and the break
+  ratio is recovered exactly, so the paper's small quoted errors (+-0.02 to +-0.13) are real
+  STATISTICAL errors. Nothing is wrong with the fit as a fit.
+
+  THE SMOOTHING IS THE SYSTEMATIC, and it is largest exactly where the ratio is smallest.
+  Generating with a smoother true break and still holding n1 = 5.38, alpha2 comes back HARDER
+  than the truth (bias in alpha2, i.e. fitted minus true):
+
+      n1_true      ratio 5   ratio 10   ratio 20   ratio 35
+      1.12          +0.258     +0.208     +0.167     +0.140
+      2.00          +0.172     +0.120     +0.085     +0.066
+      2.69          +0.114     +0.074     +0.050     +0.037
+      10.0          -0.047     -0.026     -0.016     -0.011
+
+  and the misfit it leaves is only 0.003-0.008 dex, i.e. the wrong-smoothing fit is very nearly
+  as good. A smoother break with a softer mid slope and a sharper break with a harder one are
+  the same spectrum to within a few thousandths of a dex.
+
+  READ THE SIGN CAREFULLY: a bias of +0.26 means that to OBSERVE alpha2 = -1.48 under a true
+  n1 = 1.12 the truth must be alpha2 ~ -1.74 -- the SLOW-cooling value -(p-1)/2 - 1 at
+  p = 2.5. Passing a2_true=(-1.75,) runs that case directly: at ratio 5 it fits back as -1.455
+  at rms 0.0069, indistinguishable from their reported -1.48.
+
+  WHAT PROTECTS THEM is alpha1, not alpha2. The same mis-specified fits want alpha1 ~ -0.78 to
+  -0.83, against their measured -0.63 +- 0.08; only the milder n1 ~ 2 case (alpha1 -0.70,
+  alpha2 -1.58) sits inside their error bar. So the low-energy index limits how far the
+  smoothing can be wrong, and with it how far alpha2 can move -- but not to better than ~0.1
+  at their smallest ratios.
+
+  NB n1 = 5.38 is not an arbitrary choice on their part: it is the mean of their own free-n1
+  fits. The caveat is their own -- those fits were "not always constrained" -- and the scatter
+  behind that mean is not published, so its width cannot be propagated here.
+
+  Returns a DataFrame; writes ravasio_recovery.csv.
+  '''
+  E = np.logspace(np.log10(band[0]), np.log10(band[1]), nchan)
+  rows = []
+  for a2t in a2_true:
+    for ratio in ratios:
+      for n1t in n1_true:
+        N = two_sbpl(E, GRB_EBREAK, ratio*GRB_EBREAK, GRB_A1, a2t, GRB_BETA, n1=n1t,
+                     n2=n2_fit)
+        f = _fit_2sbpl_photon(E, N, n1_fit, n2_fit, band=band)
+        rows.append(dict(a2_true=a2t, ratio_true=ratio, n1_true=n1t, a2_fit=f['a2'],
+                         a2_bias=f['a2'] - a2t, a1_fit=f['a1'], beta_fit=f['beta'],
+                         ratio_fit=f['ratio'], ratio_bias=f['ratio']/ratio, rms=f['rms']))
+  out = pd.DataFrame(rows)
+  os.makedirs(outdir, exist_ok=True)
+  out.to_csv(os.path.join(outdir, 'ravasio_recovery.csv'), index=False)
+  if verbose:
+    print(f'\n=== alpha2 recovery with n1 HELD at {n1_fit} (as the paper does), '
+          f'n2 = {n2_fit} ===')
+    print(f"{'a2 true':>8} {'ratio':>6} {'n1 true':>8} {'a2 fit':>8} {'bias':>8} "
+          f"{'a1 fit':>8} {'ratio fit':>10} {'rms [dex]':>10}")
+    for _, r in out.iterrows():
+      print(f"{r['a2_true']:>8.2f} {r['ratio_true']:>6.0f} {r['n1_true']:>8.2f} "
+            f"{r['a2_fit']:>8.3f} {r['a2_bias']:>+8.3f} {r['a1_fit']:>8.3f} "
+            f"{r['ratio_fit']:>10.2f} {r['rms']:>10.4f}")
+  return out
+
+
+# ---------------------------------------------------------------------------
 # the sweep
 # ---------------------------------------------------------------------------
 def _run_point(args):
