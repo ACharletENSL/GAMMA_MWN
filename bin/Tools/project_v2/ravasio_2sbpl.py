@@ -90,7 +90,9 @@ S_GS02 = (swp.GS02_S1, swp.GS02_S2)
 S_2SBPL = (RAVASIO_N1, RAVASIO_N2)
 
 S_BOUNDS = sb.S_FIT_BOUNDS      # (0.15, 10.); both shapes' smoothings live in the same one
-BMID_MARGIN = sb.BMID_MARGIN    # the mid slope stays strictly between the outer asymptotes
+BMID_MARGIN = sb.BMID_MARGIN    # a free mid slope stays strictly between the outer asymptotes
+BMID_DEP = sb.BMID_DEP          # ... or, bmid_physical, inside the one-zone interval widened
+                                # by the departure shell integration actually produces
 CUT_FAC = sb.CUT_FAC            # fit below nu_M/CUT_FAC even after flattening
 FIT_DEC = sb.FIT_DEC            # ... and over the top this many decades
 
@@ -340,7 +342,7 @@ def flat_window(x, sp, nuM, sigma, cutfac=CUT_FAC, fit_dec=FIT_DEC):
 
 def fit_2sbpl_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True, cutfac=CUT_FAC,
     fit_dec=FIT_DEC, bounds=S_BOUNDS, s_hold=None, sigma=None, free_bmid=False,
-    bmid_margin=BMID_MARGIN):
+    bmid_margin=BMID_MARGIN, bmid_physical=False, bmid_dep=BMID_DEP):
   """
   The 2SBPL analogue of spectral_breaks.fit_smoothing_held, written to mirror it line for
   line: the SAME cut-off flattening (same nuM, same smeared sigma), the SAME window and
@@ -394,7 +396,13 @@ def fit_2sbpl_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True, cutfac
       return out
     init['b_hi'] = (np.log10(b_hi), np.log10(b_lo), np.log10(nuM))
   if free_bmid:
-    bm_lo, bm_hi = (1. - psyn/2.) + bmid_margin - 1., 4./3. - bmid_margin - 1.
+    # the same two choices fit_smoothing_held offers: the SHAPE limits (what a three-segment
+    # spectrum can carry at all) or the PHYSICAL ones (what a fused fast- or slow-cooling
+    # knee can produce), widened by the departure shell integration actually produces
+    if bmid_physical:
+      bm_lo, bm_hi = (3. - psyn)/2. - bmid_dep - 1., 0.5 + bmid_dep - 1.
+    else:
+      bm_lo, bm_hi = (1. - psyn/2.) + bmid_margin - 1., 4./3. - bmid_margin - 1.
     bm0 = float(np.clip(beta_mid if np.isfinite(beta_mid) else -0.5, bm_lo, bm_hi))
     init['bmid'] = (bm0, bm_lo, bm_hi)
   try:
@@ -423,13 +431,46 @@ def fit_2sbpl_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True, cutfac
 TWO_BRK = ('2brk', '2brk_tangent', '2brk_free')
 
 
-def compare_spectrum(x, sp, psyn):
-  '''
-  Both shapes on one spectrum, in three matched configurations. Returns a list of row dicts
-  (2 shapes x however many configurations the spectrum supports) plus the shape class the
-  segment route read off it.
+# The anchored configurations, as kwargs to whichever of the two held fitters is running.
+# `s_hold` is a NAME, not a value: 'published' resolves per shape to (1.3, 2.0) / (5.38, 2.69),
+# 'fitted' to whatever pair the caller passes in (the prescription measured HERE), None frees
+# the smoothing. Everything else about the fit -- the anchors, the window, the flattening --
+# is identical across rows, so any column can be read as a function of the freedoms alone.
+ANCHORED_CONFIGS = {
+    # s free, mid slope held except on a marginal spectrum: exactly what
+    # smoothing_from_identified does. THE reference row.
+    'anchored':     dict(free_bmid='mc', bmid_physical=False, s_hold=None),
+    # ... and the same with the mid slope freed on EVERY class, inside the shape limits
+    'freemid':      dict(free_bmid=True, bmid_physical=False, s_hold=None),
+    # ... freed inside the PHYSICAL limits instead (BMID_DEP): the one-zone interval widened
+    # by the departure shell integration produces. A fit that pins here wants a mid slope no
+    # fused cooling knee can make, which is a result rather than a nuisance.
+    'freemid_phys': dict(free_bmid=True, bmid_physical=True, s_hold=None),
+    # each shape's published pair frozen
+    'presc':        dict(free_bmid='mc', bmid_physical=False, s_hold='published'),
+    # the pair measured on THIS sweep frozen -- filled in by prescription_check
+    'presc_fit':    dict(free_bmid='mc', bmid_physical=False, s_hold='fitted'),
+}
 
-    'anchored'  break positions and the mid slope HELD at what the segment route measured
+DEFAULT_CONFIGS = ('anchored', 'freemid', 'freemid_phys', 'presc', 'free')
+
+# The identified shape classes that carry BOTH breaks, i.e. the ones on which a three-segment
+# form has three segments to describe. The others (a single break, no nu^(4/3) segment in
+# band, or a merged knee with no mid segment) are counted and reported, not fitted: neither
+# shape has anything to say there that the other does not, and the 2SBPL's own reason to
+# exist -- the third segment -- is not in the data.
+TWO_BRK = ('2brk', '2brk_tangent', '2brk_free')
+
+PUBLISHED_S = {'gs02': S_GS02, '2sbpl': S_2SBPL}
+
+
+def compare_spectrum(x, sp, psyn, configs=DEFAULT_CONFIGS, s_fit_hold=None):
+  '''
+  Both shapes on one spectrum, in matched configurations. Returns a list of row dicts (2
+  shapes x however many configurations the spectrum supports), each carrying the shape class
+  the segment route read off it.
+
+    'anchored'      break positions and the mid slope HELD at what the segment route measured
                 (spectral_breaks.breaks_from_identified), the cut-off divided out with that
                 same measurement's smeared nu_M -- so the only freedom left is the smoothing
                 (plus b_hi and, on a marginal spectrum, the mid slope, exactly as
@@ -437,9 +478,21 @@ def compare_spectrum(x, sp, psyn):
                 (n1, n2) are then real measurements in one convention, not a degenerate ridge.
                 The GS02 side is literally spectral_breaks.fit_smoothing_held, so it IS the
                 shipped route rather than a re-implementation of it.
-    'presc'     the same, with each shape's PUBLISHED smoothing pair frozen -- (1.3, 2.0) for
-                GS02, Ravasio's (5.38, 2.69) for the 2SBPL. What a tabulated pair costs.
-    'free'      no anchors at all: six free parameters each (two breaks, mid slope, two
+    'freemid'       the same with the mid slope freed on EVERY class rather than only the
+                marginal ones. Freeing it costs the smoothing some of its constraint -- the
+                two trade, which fit_smoothing_held's docstring measures on MC bins -- so
+                read the pair (a_mid, s) from this row together, never one from here and the
+                other from 'anchored'.
+    'freemid_phys'  ... with the mid slope bounded by what a fused cooling knee can physically
+                produce (BMID_DEP) instead of by what a three-segment shape can carry
+                (BMID_MARGIN). The difference between the two rows is the whole question of
+                whether a measured "departure" is physics or the two-break form imitating one
+                broad knee.
+    'presc'         each shape's PUBLISHED smoothing pair frozen -- (1.3, 2.0) for GS02,
+                Ravasio's (5.38, 2.69) for the 2SBPL. What a tabulated pair costs.
+    'presc_fit'     the pair measured on THIS sweep frozen (s_fit_hold, per shape). Only
+                available when the caller supplies it: see prescription_check.
+    'free'          no anchors at all: six free parameters each (two breaks, mid slope, two
                 smoothings, scale) on the flattened spectrum. This is the best either family
                 can do with equal freedom, and the ONLY configuration that survives on
                 one-break spectra. Its rms is a fair comparison; its s and a_mid are NOT
@@ -450,32 +503,43 @@ def compare_spectrum(x, sp, psyn):
   br = sb.breaks_from_identified(x, sp, psyn)
   meta = dict(regime=br.get('regime'), cls_shape=br.get('shape'),
               n_breaks=int(br.get('n_breaks', 0) or 0), nuM=br.get('nuM', np.nan),
-              sigma=br.get('sigma', np.nan), two_brk=False)
+              sigma=br.get('sigma', np.nan), two_brk=False,
+              a_mid_seed=br.get('a_mid', np.nan))
   rows = []
-  if br['ok'] and br['shape'] in TWO_BRK:
+  anchored = [c for c in configs if c in ANCHORED_CONFIGS]
+  if anchored and br['ok'] and br['shape'] in TWO_BRK:
     meta['two_brk'] = True
-    fb = (br['regime'] == 'MC')     # smoothing_from_identified's free_bmid='mc' default
-    anc = dict(b_lo=br['b_lo'], b_hi=br['b_hi'], nuM=br['nuM'], beta_mid=br['a_mid'] - 1.,
-               sigma=br['sigma'], free_bmid=fb)
-    for cfg, hold in (('anchored', False), ('presc', True)):
-      for shape, fn, s in (('gs02', sb.fit_smoothing_held, S_GS02),
-                           ('2sbpl', fit_2sbpl_held, S_2SBPL)):
-        f = fn(x, sp, psyn, anc['b_lo'], anc['b_hi'], anc['nuM'], anc['beta_mid'],
-               sigma=anc['sigma'], free_bmid=anc['free_bmid'],
-               s_hold=(s if hold else None))
-        b_hi = f['b_hi_fit'] if np.isfinite(f['b_hi_fit']) else anc['b_hi']
+    for cfg in anchored:
+      spec = ANCHORED_CONFIGS[cfg]
+      # 'mc' means: free the mid slope only where no mid segment was identified
+      fb = (br['regime'] == 'MC') if spec['free_bmid'] == 'mc' else bool(spec['free_bmid'])
+      for shape, fn in (('gs02', sb.fit_smoothing_held), ('2sbpl', fit_2sbpl_held)):
+        if spec['s_hold'] == 'published':
+          hold = PUBLISHED_S[shape]
+        elif spec['s_hold'] == 'fitted':
+          hold = (s_fit_hold or {}).get(shape)
+          if hold is None:
+            continue          # no measured pair supplied: the row simply does not exist
+        else:
+          hold = None
+        f = fn(x, sp, psyn, br['b_lo'], br['b_hi'], br['nuM'], br['a_mid'] - 1.,
+               sigma=br['sigma'], free_bmid=fb, s_hold=hold,
+               bmid_physical=spec['bmid_physical'])
+        b_hi = f['b_hi_fit'] if np.isfinite(f['b_hi_fit']) else br['b_hi']
         rows.append(dict(shape=shape, config=cfg, rms=f['rms'], s1=f['s1'], s2=f['s2'],
-            b_lo=anc['b_lo'], b_hi=b_hi, sep=np.log10(b_hi/anc['b_lo']),
-            a_mid=f['beta_mid'] + 1., npts=f['npts'],
+            b_lo=br['b_lo'], b_hi=b_hi, sep=np.log10(b_hi/br['b_lo']),
+            a_mid=f['beta_mid'] + 1., npts=f['npts'], mid_fitted=bool(fb),
             at_bound=bool(f['at_bound'] or f['bmid_at_bound']),
+            bmid_at_bound=bool(f['bmid_at_bound']),
             ok=bool(f['ok'] and not f['bmid_at_bound']), x_pk=np.nan,
             E_peak=two_sbpl_Epeak(b_hi, f['beta_mid'] - 1., -psyn/2. - 1., f['s2'])))
 
-  prep = prepare_spectrum(x, sp, psyn)
-  for shape, fn in (('gs02', fit_gs02_flat), ('2sbpl', fit_2sbpl_flat)):
-    d = fn(prep, psyn)
-    d['config'] = 'free'
-    rows.append(d)
+  if 'free' in configs:
+    prep = prepare_spectrum(x, sp, psyn)
+    for shape, fn in (('gs02', fit_gs02_flat), ('2sbpl', fit_2sbpl_flat)):
+      d = fn(prep, psyn)
+      d.update(config='free', mid_fitted=True, bmid_at_bound=False)
+      rows.append(d)
   for d in rows:
     d.update(meta)
   return rows
@@ -486,7 +550,7 @@ def compare_spectrum(x, sp, psyn):
 # ---------------------------------------------------------------------------
 def _run_point(args):
   '''One sweep point in a worker: load its cache, fit both shapes at every LOGT epoch.'''
-  key, method, z, logr, logt = args
+  key, method, z, logr, logt, configs, s_fit_hold = args
   res = swp.load_sweep(swp.method_outdir(method, key, z))
   r = [q for q in res if abs(q['log10ratio'] - logr) < 1e-9][0]
   del res                       # the other seven points' arrays go straight back
@@ -496,7 +560,8 @@ def _run_point(args):
   barT = np.asarray(r['Tb'], float) - 1.
   rows = []
   for k, lt, i in swp._spectra_series(r, barT_f, logt=logt):
-    for d in compare_spectrum(x, r['nuFnu'][i, :], psyn):
+    for d in compare_spectrum(x, r['nuFnu'][i, :], psyn, configs=configs,
+                              s_fit_hold=s_fit_hold):
       d.update(z=z, logr=logr, logt=lt, barT=float(barT[i]), i_bin=int(i), psyn=psyn,
                nu_M_nom=swp.nu_M_over_num(r))
       rows.append(d)
@@ -505,14 +570,20 @@ def _run_point(args):
 
 
 def compare_sweep(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), logt=LOGT, nproc=NPROC,
-    outdir=OUTDIR, cache=True):
+    outdir=OUTDIR, cache=True, configs=DEFAULT_CONFIGS, s_fit_hold=None,
+    csv_name='fits.csv'):
   '''
   Both shapes on every cached point of the rarcut sweep, both shells. CACHE-ONLY: this never
   triggers a sweep, it only reads the point caches, so it is safe to run alongside anything
-  else. Writes fits.csv into outdir and returns the DataFrame.
+  else. Writes csv_name into outdir and returns the DataFrame.
+
+  configs / s_fit_hold go straight to compare_spectrum. A restricted `configs` is how the
+  second, prescription pass avoids recomputing the whole table -- it still pays for
+  breaks_from_identified, which is most of the cost, but not for the fits it already has.
+  csv_name must then differ, or that pass would overwrite the first one's cache.
   '''
   os.makedirs(outdir, exist_ok=True)
-  csv = os.path.join(outdir, 'fits.csv')
+  csv = os.path.join(outdir, csv_name)
   if cache and os.path.isfile(csv):
     df = pd.read_csv(csv)
     print(f'loaded {len(df)} cached fit rows from {csv}')
@@ -523,10 +594,12 @@ def compare_sweep(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), logt=LOGT, nproc=N
     if not res:
       raise FileNotFoundError(f'no cached {method} sweep for z={z} -- run '
                               f'sweep_rarcut.main(z={z}) first')
-    jobs += [(key, method, z, float(r['log10ratio']), logt) for r in res]
+    jobs += [(key, method, z, float(r['log10ratio']), logt, tuple(configs),
+              s_fit_hold) for r in res]
     del res
   npr = cell_pool.resolve_nproc(nproc, cap=len(jobs))
-  print(f'{len(jobs)} sweep points x {len(logt)} epochs x 2 shapes on {npr} workers')
+  print(f'{len(jobs)} sweep points x {len(logt)} epochs x 2 shapes x '
+        f'{len(configs)} configs on {npr} workers')
   if npr > 1:
     ctx = cell_pool.pool_context()
     with ctx.Pool(npr) as pool:
@@ -605,7 +678,8 @@ def separation_table(df, config='anchored', edges=(0., 0.75, 1.25, 2., 3., 9.),
   return out
 
 
-def summary_table(df, outdir=OUTDIR, verbose=True):
+def summary_table(df, outdir=OUTDIR, verbose=True,
+    show=('anchored', 'freemid', 'presc', 'free')):
   '''
   Per shell and configuration: the fitted sharpness, the mid slope and the rms of each shape,
   over the bins where BOTH fits are usable (neither at a bound), so every comparison is
@@ -635,6 +709,8 @@ def summary_table(df, outdir=OUTDIR, verbose=True):
   out.to_csv(os.path.join(outdir, 'summary.csv'), index=False)
   if verbose:
     for _, r in out.iterrows():
+      if show is not None and r['config'] not in show:
+        continue                       # in the csv, just not on the terminal
       print(f"\n=== {r['shell']}  config={r['config']}   "
             f"{r['n']} of {r['n_all']} epochs with both fits unpinned ===")
       print(f"{'':>10} {'s1 (low break)':>26} {'s2 (upper)':>26} "
@@ -685,6 +761,209 @@ def epoch_table(df, outdir=OUTDIR, verbose=True):
       print(f"{r['logt']:>6.1f} {r['a_mid_gs02']:>22} {r['a_mid_2sbpl']:>22} "
             f"{r['s1_gs02']:>22} {r['s1_2sbpl']:>22}")
   return out
+
+
+def _pair(v1, v2):
+  '''median [q16-q84] of a pair of samples, formatted as one "(a, b)" cell.'''
+  def m(v):
+    v = np.asarray(v, float); v = v[np.isfinite(v)]
+    return np.percentile(v, [16., 50., 84.]) if v.size else (np.nan,)*3
+  a1, b1, c1 = m(v1); a2, b2, c2 = m(v2)
+  return f'({b1:.2f} [{a1:.2f}-{c1:.2f}], {b2:.2f} [{a2:.2f}-{c2:.2f}])'
+
+
+def smoothing_prescription(df, config='anchored', outdir=OUTDIR, verbose=True):
+  '''
+  THE BEST SMOOTHING PAIR EACH SHAPE WANTS on these spectra, from the anchored fits where it
+  is the only shape freedom left. Reported pooled and split by shape class, because a single
+  pair is only defensible if the classes agree on it -- and they do not, which is the point of
+  the split (fit_smoothing_held's docstring documents the same thing for MC: a freed mid slope
+  drags s2 down by ~2x).
+
+  The pooled MEDIAN is what gets frozen in the 'presc_fit' row; prescription_check measures
+  what freezing it costs. Quoted with q16-q84, never as a bare number: the spread IS the
+  statement about how tabulatable the pair is.
+  '''
+  g = df[(df.config == config) & df.ok.astype(bool)]
+  rows = []
+  for shape in SHAPES:
+    q = g[g['shape'] == shape]
+    for cls in ('all',) + tuple(sorted(set(q.regime.dropna()))):
+      qq = q if cls == 'all' else q[q.regime == cls]
+      if len(qq) < 3:
+        continue
+      rows.append(dict(shape=shape, cls=cls, n=len(qq),
+                       s1=_q(qq.s1), s2=_q(qq.s2),
+                       s1_med=float(np.nanmedian(qq.s1)), s2_med=float(np.nanmedian(qq.s2)),
+                       published=str(PUBLISHED_S[shape])))
+  out = pd.DataFrame(rows)
+  os.makedirs(outdir, exist_ok=True)
+  out.to_csv(os.path.join(outdir, 'smoothing_prescription.csv'), index=False)
+  best = {sh: (float(out[(out['shape'] == sh) & (out.cls == 'all')].s1_med.iloc[0]),
+               float(out[(out['shape'] == sh) & (out.cls == 'all')].s2_med.iloc[0]))
+          for sh in SHAPES if ((out['shape'] == sh) & (out.cls == 'all')).any()}
+  if verbose:
+    print(f'\n=== best smoothing pair, {config} fits (s is the only shape freedom there) ===')
+    print(f"{'shape':>7} {'class':>6} {'n':>4} {'s1 / n1 (lower break)':>24} "
+          f"{'s2 / n2 (upper)':>24}  published")
+    for _, r in out.iterrows():
+      print(f"{r['shape']:>7} {r['cls']:>6} {r['n']:>4} {r['s1']:>24} {r['s2']:>24}"
+            f"  {r['published'] if r['cls'] == 'all' else ''}")
+    for sh, (a, b) in best.items():
+      print(f'  -> {sh}: measured pair ({a:.2f}, {b:.2f}) vs published '
+            f'({PUBLISHED_S[sh][0]:.2f}, {PUBLISHED_S[sh][1]:.2f})')
+  return out, best
+
+
+def mid_slope_table(df, outdir=OUTDIR, verbose=True):
+  '''
+  What a FREE mid slope does, per shape class, and whether it is a departure from theory or
+  the two-break form imitating a single knee.
+
+  Four things per class, both shapes:
+    a_mid held   the segment route's measured mid line, i.e. what 'anchored' holds
+    a_mid free   refitted inside the SHAPE limits ('freemid')
+    a_mid phys   ... inside the PHYSICAL ones ('freemid_phys'), plus the fraction that PINS
+                 there -- a fit at that bound wants a mid slope no fused cooling knee makes
+    d(rms)       what freeing it buys. A large gain bought by a slope outside the physical
+                 window is the signature of the form absorbing curvature, not of physics.
+
+  The departure column is against the ONE-ZONE asymptote of the class -- 1/2 in fast cooling,
+  (3-p)/2 in slow, in nuFnu index. MC has no asymptote to depart from (its two knees have
+  fused, so there is no mid segment in the data at all) and is reported without one.
+
+  READ THIS ALONGSIDE the calibrated line-estimator result, which is the project's actual
+  measurement of the mid-slope departure: on-axis it is consistent with ZERO in both branches
+  once the estimator's own tilt is removed, and only the slow-cooling post-crossing softening
+  survives. This table is a DIFFERENT estimator (a template parameter, not a fitted line) and
+  its bias has not been calibrated, so it cannot on its own promote a departure to a
+  measurement. What it can do -- and is here for -- is say whether the two functional forms
+  agree, which they must if a departure is in the data rather than in the algebra.
+  '''
+  def asymptote(cls, p):
+    return {'FC': 0.5, 'SC': (3. - p)/2.}.get(cls, np.nan)
+
+  p = float(df.psyn.iloc[0])
+  key = ['z', 'logr', 'logt', 'shape']
+  cfgs = ('anchored', 'freemid', 'freemid_phys')
+  g = df[df.config.isin(cfgs)]
+  piv = g.pivot_table(index=key, columns='config',
+                      values=['a_mid', 'rms', 'bmid_at_bound', 'ok'])
+  # the class is a per-SPECTRUM label, not a fitted value, so it comes back by reindexing on
+  # the pivot's own index -- joining it in would collide with the MultiIndex columns
+  reg = df.drop_duplicates(key).set_index(key)['regime'].reindex(piv.index)
+  keep = piv[('ok', 'anchored')].astype(bool)
+  piv, reg = piv[keep], reg[keep]
+  # ON-AXIS vs POST-CROSSING, the split the calibrated line-estimator result is quoted on:
+  # logt is log10(bar{T}/bar{T}_f), so logt < 0 is emission while the shock is still crossing
+  # and logt > 0 is the high-latitude tail. The two are different spectra and the tail is
+  # where the surviving slow-cooling softening lives, so a pooled median mixes them.
+  ep = np.where(piv.index.get_level_values('logt') < 0., 'on-axis', 'post-crossing')
+  rows = []
+  groups = list(piv.groupby([piv.index.get_level_values('shape'), reg.values]).groups.items())
+  groups += [((sh, f'{c}/{e}'), ix) for (sh, c, e), ix in
+             piv.groupby([piv.index.get_level_values('shape'), reg.values, ep]).groups.items()]
+  for (shape, cls), idx in groups:
+    q = piv.loc[idx]
+    if len(q) < 3:
+      continue
+    a0 = asymptote(cls.split('/')[0], p)
+    rows.append(dict(shape=shape, cls=cls, n=len(q), asymptote=a0,
+        a_mid_held=_q(q[('a_mid', 'anchored')]),
+        a_mid_free=_q(q[('a_mid', 'freemid')]),
+        a_mid_phys=_q(q[('a_mid', 'freemid_phys')]),
+        dep_free=_q(q[('a_mid', 'freemid')] - a0),
+        dep_phys=_q(q[('a_mid', 'freemid_phys')] - a0),
+        frac_free_pinned=float(np.mean(q[('bmid_at_bound', 'freemid')] > 0.5)),
+        frac_phys_pinned=float(np.mean(q[('bmid_at_bound', 'freemid_phys')] > 0.5)),
+        drms_free=_qe(q[('rms', 'freemid')] - q[('rms', 'anchored')]),
+        drms_phys=_qe(q[('rms', 'freemid_phys')] - q[('rms', 'anchored')])))
+  out = pd.DataFrame(rows)
+  os.makedirs(outdir, exist_ok=True)
+  out.to_csv(os.path.join(outdir, 'mid_slope.csv'), index=False)
+
+  # DO THE TWO SHAPES AGREE on the freed mid slope? If a departure is in the data it cannot
+  # depend on which three-segment algebra read it off; if the two disagree, it is algebra.
+  w = piv[('a_mid', 'freemid')].unstack('shape')
+  agree = (w['2sbpl'] - w['gs02']).dropna() if {'gs02', '2sbpl'} <= set(w.columns) \
+          else pd.Series(dtype=float)
+
+  if verbose:
+    print(f'\n=== free mid slope by shape class (nuFnu index; asymptotes 1/2 fast, '
+          f'{(3.-p)/2:.2f} slow) ===')
+    print(f"{'shape':>7} {'cls':>18} {'n':>4} {'asym':>6} {'a_mid held':>21} "
+          f"{'a_mid free':>21} {'departure (free)':>21} {'pinned':>7} "
+          f"{'d(rms) from freeing':>32}".replace("{'cls':>4}", "{'cls':>18}"))
+    for _, r in out[~out.cls.str.contains('/')].iterrows():
+      a = f"{r['asymptote']:.2f}" if np.isfinite(r['asymptote']) else '  --'
+      print(f"{r['shape']:>7} {r['cls']:>18} {r['n']:>4} {a:>6} {r['a_mid_held']:>21} "
+            f"{r['a_mid_free']:>21} {r['dep_free']:>21} "
+            f"{100*r['frac_free_pinned']:>6.0f}% {r['drms_free']:>32}")
+    print('\n  the same split on-axis (still crossing) vs post-crossing (high-latitude '
+          'tail), which is\n  how the calibrated line-estimator departures are quoted:')
+    for _, r in out[out.cls.str.contains('/')].iterrows():
+      a = f"{r['asymptote']:.2f}" if np.isfinite(r['asymptote']) else '  --'
+      print(f"{r['shape']:>7} {r['cls']:>18} {r['n']:>4} {a:>6} {r['a_mid_held']:>21} "
+            f"{r['a_mid_free']:>21} {r['dep_free']:>21} "
+            f"{100*r['frac_free_pinned']:>6.0f}% {r['drms_free']:>32}")
+    print(f"\n  refitted inside the PHYSICAL window [{(3.-p)/2-BMID_DEP:.2f}, "
+          f"{0.5+BMID_DEP:.2f}] (BMID_DEP) instead of the shape one "
+          f"[{1.-p/2.+BMID_MARGIN:.2f}, {4./3.-BMID_MARGIN:.2f}]:")
+    print(f"{'shape':>7} {'cls':>18} {'a_mid phys':>21} {'departure':>21} {'pinned':>7} "
+          f"{'d(rms) from freeing':>32}")
+    for _, r in out[~out.cls.str.contains('/')].iterrows():
+      print(f"{r['shape']:>7} {r['cls']:>18} {r['a_mid_phys']:>21} {r['dep_phys']:>21} "
+            f"{100*r['frac_phys_pinned']:>6.0f}% {r['drms_phys']:>32}")
+    if len(agree):
+      print(f'\n  the two shapes agree on the freed mid slope to '
+            f'{_qe(agree.values, "{:+.4f}")} (n = {len(agree)}) -- a departure that '
+            'survives this is in the data, not in the algebra')
+  return out
+
+
+def prescription_check(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), logt=LOGT, nproc=NPROC,
+    outdir=OUTDIR, df=None, verbose=True):
+  '''
+  Freeze each shape at the pair smoothing_prescription measured on this sweep, refit, and
+  report what the freeze costs against the per-spectrum free fit -- the same question
+  slope_validation asks of the GS02 pair, now asked of both shapes on the same spectra.
+
+  This is a SECOND pass over the sweep (the pair is not known until the first one is done),
+  computing only the 'presc_fit' rows. It re-runs breaks_from_identified, which is most of the
+  cost; the two frozen fits themselves are nearly free.
+  '''
+  df = compare_sweep(key, method, zlist, logt, nproc, outdir) if df is None else df
+  _, best = smoothing_prescription(df, outdir=outdir, verbose=False)
+  df2 = compare_sweep(key, method, zlist, logt, nproc, outdir, cache=True,
+                      configs=('presc_fit',), s_fit_hold=best, csv_name='fits_presc_fit.csv')
+  both = pd.concat([df, df2], ignore_index=True)
+  piv = both.pivot_table(index=['z', 'logr', 'logt', 'shape'], columns='config', values='rms')
+  ok = both[(both.config == 'anchored')].set_index(['z', 'logr', 'logt', 'shape']).ok
+  piv = piv[ok.reindex(piv.index).fillna(False).astype(bool)]
+  rows = []
+  for shape in SHAPES:
+    q = piv[piv.index.get_level_values('shape') == shape]
+    if not len(q):
+      continue
+    rows.append(dict(shape=shape, n=len(q),
+                     pair_fitted=f'({best[shape][0]:.2f}, {best[shape][1]:.2f})',
+                     pair_published=str(PUBLISHED_S[shape]),
+                     rms_free=_q(q['anchored']), rms_presc_fit=_q(q['presc_fit']),
+                     rms_presc_pub=_q(q['presc']),
+                     cost_fitted=_qe(q['presc_fit'] - q['anchored'], '{:+.4f}'),
+                     cost_published=_qe(q['presc'] - q['anchored'], '{:+.4f}')))
+  out = pd.DataFrame(rows)
+  out.to_csv(os.path.join(outdir, 'prescription_check.csv'), index=False)
+  if verbose:
+    print('\n=== what freezing the smoothing costs (anchored fits, both shells) ===')
+    for _, r in out.iterrows():
+      print(f"\n  {r['shape']}  (n = {r['n']})")
+      print(f"    s free                      rms {r['rms_free']}")
+      print(f"    frozen at {r['pair_fitted']:>14} (measured here)  rms {r['rms_presc_fit']}"
+            f"   cost {r['cost_fitted']}")
+      print(f"    frozen at {r['pair_published']:>14} (published)      rms "
+            f"{r['rms_presc_pub']}   cost {r['cost_published']}")
+  return out, best
 
 
 # ---------------------------------------------------------------------------
@@ -818,6 +1097,42 @@ def plot_by_separation(df, config='anchored', outdir=OUTDIR):
   print(f'saved {f}')
 
 
+def plot_mid_slope(df, outdir=OUTDIR):
+  '''
+  The freed mid slope against the cooling regime, both shapes, with the two one-zone
+  asymptotes and the physical window (BMID_DEP) drawn on. The held values are the segment
+  route's measured mid line, so the vertical distance between the two curves is exactly what
+  the extra freedom bought.
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  p = float(df.psyn.iloc[0])
+  fig, axs = plt.subplots(1, 2, figsize=(11., 4.4), sharey=True)
+  col = {'gs02': 'C0', '2sbpl': 'C1'}
+  mk = {4: 'o', 1: 's'}
+  for ax, cfg, ttl in ((axs[0], 'anchored', 'mid slope HELD at the segment route'),
+                       (axs[1], 'freemid', 'mid slope FREE (shape limits)')):
+    g = df[(df.config == cfg) & df.ok.astype(bool)]
+    for (z, sh), q in g.groupby(['z', 'shape']):
+      m = q.groupby('logr').a_mid.median()
+      ax.plot(m.index, m.values, '-', marker=mk[z], ms=4, color=col[sh], lw=1.3,
+              label=f'{sh} {SHELL[z]}')
+    ax.axhspan((3. - p)/2. - BMID_DEP, 0.5 + BMID_DEP, color='0.9', zorder=0,
+               label='physical window' if cfg == 'anchored' else None)
+    for y, lab in ((0.5, 'fast  1/2'), ((3. - p)/2., 'slow  (3-p)/2')):
+      ax.axhline(y, color='0.5', lw=.9, ls=':')
+      ax.text(0.02, y, lab, transform=ax.get_yaxis_transform(), fontsize=8, va='bottom',
+              color='0.35')
+    ax.set(xlabel=r'$\log_{10}(\gamma_c/\gamma_m)$', title=ttl)
+    ax.grid(alpha=.25)
+  axs[0].set(ylabel=r'mid slope, $\nu F_\nu$ index')
+  axs[0].legend(fontsize=7, ncol=2)
+  fig.suptitle('what freeing the mid slope does, per shape (medians over epochs per point)')
+  fig.tight_layout()
+  f = os.path.join(outdir, 'mid_slope.png')
+  fig.savefig(f, dpi=140); plt.close(fig)
+  print(f'saved {f}')
+
+
 def plot_example(key=KEY, method=METHOD, z=Z_RS, logr=0., logt=0., config='anchored',
     outdir=OUTDIR):
   '''
@@ -916,15 +1231,20 @@ def main(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), logt=LOGT, nproc=NPROC,
   sep = separation_table(df, outdir=outdir)
   st = summary_table(df, outdir)
   et = epoch_table(df, outdir)
+  ps, best = smoothing_prescription(df, outdir=outdir)
+  ms = mid_slope_table(df, outdir=outdir)
+  pc, _ = prescription_check(key, method, zlist, logt, nproc, outdir, df=df)
   plot_compare(df, outdir)
   plot_by_separation(df, outdir=outdir)
+  plot_mid_slope(df, outdir)
   # the marginal point at the crossing is where the two forms are furthest apart
   # (separation_table); +2 is the well-separated control, and the free fit of the marginal
   # one shows what the degeneracy does to the SAME spectrum at the same rms
   for logr, cfg in ((0., 'anchored'), (2., 'anchored'), (0., 'free')):
     plot_example(key=key, method=method, z=Z_RS, logr=logr, config=cfg, outdir=outdir)
   print(f'\nfigures and tables in {outdir}')
-  return df, st, et, cv, sep
+  return dict(fits=df, summary=st, epoch=et, coverage=cv, separation=sep,
+              prescription=ps, mid_slope=ms, presc_check=pc, best_s=best)
 
 
 if __name__ == '__main__':
