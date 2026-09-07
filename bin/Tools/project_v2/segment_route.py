@@ -70,7 +70,9 @@ import sweep_gammacm as swp
 
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'segment_route')
 KEY = 'cooling_g100'
-METHOD = 'data'
+METHOD = swp.DEFAULT_METHOD    # the reference computation; imported, not hardcoded, so the
+                               # paper route cannot drift from sweep_gammacm's default
+                               # ('data_rarcut' since 2026-09-07)
 Z_RS, Z_FS = 4, 1
 # shape classes, in the order identify_segments' docstring lists them. MC carries the merged
 # break rather than a pair, and VSC has no upper break in band at all -- both are reported,
