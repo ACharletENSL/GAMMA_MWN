@@ -80,24 +80,68 @@ def plot_data(name, data, env, cell_d0=None, xvar='x',
   if ax_in is None:
     ax.set_title(name)
 
-def truncate_at_rarefaction(shocked_data, slope_thresh=-8., window=15, minpts=20):
+CELL_CROSSING_ITS = 11.6     # iterations the shock takes to cross ONE cell, and it is
+                             # 11.6 REGARDLESS of Nsh1: the CFL condition ties dt to dx, so
+                             # refining the mesh shrinks both together. That is what makes
+                             # it the right unit for the settling window below -- rows are
+                             # not, because the dump cadence and the cell width both change
+                             # with resolution and they do not change together.
+
+
+def truncate_at_rarefaction(shocked_data, slope_thresh=-8., minpts=20,
+    window_cross=10., settle_cross=10.):
   '''
   Truncate post-shock cell data at the rarefaction arrival.
   The smooth downstream decay has d(ln p)/d(ln x) ~ -2 to -4; the back-edge
   rarefaction makes p crash with log-slopes <~ -15. Truncate at the first
   point where the look-ahead log-slope of p drops below slope_thresh.
   Keeps at least minpts points (else returns the data untruncated).
+
+  THE WINDOW AND THE SETTLING SKIP ARE IN ITERATIONS, NOT ROWS (fixed 2026-09-07).
+  Both are expressed as multiples of CELL_CROSSING_ITS via the frame's own `it` index.
+  A fixed ROW count silently changes meaning with resolution -- the dump cadence is 2 at
+  hi-res against 5 in the fiducial while the cell width is 20x smaller, so one hi-res row
+  spans ~50x less radius -- and the failure is not subtle:
+
+    cooling_g100_hires cell 2954, old code -> 20 rows spanning x/x0 = 1.0450..1.0466,
+    a 0.16% radius range. The BPL fitted to that and extrapolated to x/x0 = 10 gives
+    Gamma = 8e-26 against a measured 126, so _lag_profile kills the cell at Gamma <= 1
+    and the rarefaction head never crosses it: R_rar = inf. 407 of 10000 RS cells did
+    this, and their neighbours (cell 2955: 42 rows, Gamma = 5.15 at x/x0 = 10) survived
+    with fits just as wrong, which is where R_rar = 25-61 and the barT_off reversals
+    came from.
+
+  What the old window was really doing there was firing on the POST-SHOCK SETTLING
+  TRANSIENT, whose steep local p slope trips slope_thresh, rather than on the
+  rarefaction. The transient lasts of order the cell's own shock-crossing time, so
+  settle_cross = 10 crossings gives it an order of magnitude of margin and is
+  resolution-independent by construction.
   '''
   x = shocked_data.x.to_numpy()
   p = shocked_data.p.to_numpy()
-  if len(x) < minpts + window:
+  its = np.asarray(shocked_data.index.to_numpy(), dtype=float)
+  if len(x) < minpts + 2:
     return shocked_data
   lnx, lnp = np.log(x), np.log(p)
-  slope = (lnp[window:] - lnp[:-window])/(lnx[window:] - lnx[:-window])
-  steep = np.flatnonzero(slope < slope_thresh)
+  # look-ahead partner of each row: the first row at least window_cross crossings later.
+  # Variable in rows, fixed in iterations, which is what makes it resolution-independent.
+  j = np.searchsorted(its, its + window_cross*CELL_CROSSING_ITS, side='left')
+  ok = j < len(its)
+  if not ok.any():
+    return shocked_data
+  i = np.flatnonzero(ok)
+  j = j[ok]
+  dlnx = lnx[j] - lnx[i]
+  with np.errstate(invalid='ignore', divide='ignore'):
+    slope = np.where(dlnx > 0., (lnp[j] - lnp[i])/dlnx, np.nan)
+  # ignore the settling transient: it is of order one cell crossing, so anything inside
+  # settle_cross of them is the shock establishing itself, not the rarefaction arriving
+  settled = (its[i] - its[0]) >= settle_cross*CELL_CROSSING_ITS
+  steep = i[np.flatnonzero(settled & (slope < slope_thresh))]
   if len(steep) and steep[0] >= minpts:
     return shocked_data.iloc[:steep[0]]
   return shocked_data
+
 
 def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=None,
     r_max=None):
