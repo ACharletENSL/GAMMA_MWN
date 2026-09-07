@@ -22,7 +22,12 @@ N0 = K0 gma0^-p on [gma_m0, gma_M0] into
 
 with both edges cooling by the same law. The two panels split the story in time:
 
-(a) The support burns down from the top. gma_M(tt) -> 1/tt for tt >> 1/gma_M0, so the
+(a) The edges and the break versus tt, i.e. the time axis panel (b) samples. The two
+    knees are at tilde{t}_M = 1/gma_M0 (the top edge starts burning) and
+    tilde{t}_m = 1/gma_m0 (the bottom edge follows, the power law is gone) -- each the
+    cooling time of the edge it takes down.
+
+(b) The support burns down from the top. gma_M(tt) -> 1/tt for tt >> 1/gma_M0, so the
     cooling break 1/tt is an ASYMPTOTE the top edge slides down along, never a place
     where the distribution bends: the injected edge stays a sharp edge, only curled
     just below it by the factor (1 - gma*tt)^(p-2). Below the edge the gma^-p segment
@@ -35,10 +40,6 @@ with both edges cooling by the same law. The two panels split the story in time:
     as. That is the last curves of the figure: on the fiducial bounds (gma_m0 = 1e3,
     gma_M0 = 1e8) five injected decades are down to a 10%-wide spike at gma = 100 by
     tt = 1e-2, and 0.1% wide by tt = 1.
-
-(b) The edges and the break versus tt, i.e. the time axis panel (a) samples. The two
-    knees are at tt = 1/gma_M0 (the top edge starts burning) and tt = 1/gma_m0 (the
-    bottom edge follows, the power law is gone).
 
 Number is conserved exactly at every tt (checked by check_number_conservation) -- the
 distribution loses energy, not electrons.
@@ -116,79 +117,82 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   colors = plt.cm.viridis(np.linspace(0., .85, len(tt_arr)))
   K0 = norm_plaw_distrib(gm0, gM0, p)
 
-  fig, (axA, axB) = plt.subplots(2, 1, figsize=FIGSIZE,
-      gridspec_kw=dict(height_ratios=[1.5, 1.], hspace=.32))
+  # the tracks go on top, the distributions they sample below; the height ratio follows
+  # the content, so the five decades of panel (b) keep the taller box
+  fig, (axT, axD) = plt.subplots(2, 1, figsize=FIGSIZE,
+      gridspec_kw=dict(height_ratios=[1., 1.5], hspace=.32))
 
-  # (a) the distributions ---------------------------------------------------------------
-  # the injected law goes UNDER the cooled ones: the earliest of them tracks it almost
-  # exactly, and on top the black would hide that curve entirely
-  gma0, N0 = cooled_distrib(0., p, gm0, gM0)
-  axA.loglog(gma0, N0, color='k', lw=1.4, zorder=2)
-  edges = []
-  for lt, tt, c in zip(logtt, tt_arr, colors):
-    gma, N = cooled_distrib(tt, p, gm0, gM0)
-    axA.loglog(gma, N, color=c, lw=1.2, solid_capstyle='round', label=f'{lt:.1f}',
-               zorder=3)
-    edges.append((gma[-1], N[-1]))
-  # the burn-off front: locus of the top edge gma_M(tt), which slides down along 1/tt
-  edges = np.array(edges)
-  axA.plot(edges[:, 0], edges[:, 1], color=MUTED, lw=.7, ls='-', zorder=4)
-  axA.scatter(edges[:, 0], edges[:, 1], s=9, facecolors=colors, edgecolors='w',
-              linewidths=.5, zorder=6)
-
-  # gma^-p guide, offset above the injected curve so it does not hide it
-  gg = np.geomspace(gm0, gM0, 3)
-  axA.loglog(gg, 12.*K0*gg**-p, color=MUTED, ls=':', lw=.9)
-  axA.annotate('$\\propto\\gamma^{-p}$', (gg[1], 12.*K0*gg[1]**-p),
-               textcoords='offset points', xytext=(3, 3), color=MUTED, fontsize=FS_ANN)
-  # the front is labelled where it runs, no leader line
-  axA.annotate('$\\propto1/\\tilde{t}$', xy=(edges[3, 0], edges[3, 1]), xycoords='data',
-               textcoords='offset points', xytext=(-4, -5), color=INK, fontsize=FS_ANN,
-               ha='right', va='top')
-  # the injected bounds, marked as their inverses are in panel (b); along the TOP here,
-  # the bottom of this panel belongs to the legend
-  for v, lab in ((gm0, '$\\gamma_{m,0}$'), (gM0, '$\\gamma_{M,0}$')):
-    axA.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-    axA.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
-                 fontsize=FS_ANN, ha='center', va='top',
-                 bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  # gma = 1 marked here as in panel (b): the last sampled time lands right on it
-  axA.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
-  axA.set_xlim(.5*gamma_synCooled(tt_arr[-1], gm0), 2.*gM0)
-  axA.set_ylim(1e-16, 1e4)
-  axA.set_xlabel('$\\gamma$', fontsize=FS_LAB)
-  axA.set_ylabel('$N(\\gamma,\\tilde{t})/N_{\\rm e}$', fontsize=FS_LAB)
-  leg = axA.legend(fontsize=FS_LEG, ncol=2, loc='lower left', framealpha=.9,
-                   title='$\\log_{10}\\tilde{t}$', handlelength=1.1, labelspacing=.25,
-                   columnspacing=.9, handletextpad=.5, borderpad=.4)
-  leg.get_title().set_fontsize(FS_LEG)
-  axA.grid(alpha=.25, lw=.4)
-
-  # (b) edges and break vs tt ------------------------------------------------------------
+  # (a) edges and break vs tt ------------------------------------------------------------
   tt = np.geomspace(1e-3/gM0, 1.5*tt_arr[-1], 800)
   # every track stops AT gma = 1: past it gamma_synCooled is no longer the physical
   # trajectory, so drawing it there would assert an evolution the model does not have
   cut = lambda y: np.where(y >= 1., y, np.nan)
-  axB.loglog(tt, 1./tt, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}$')
-  axB.loglog(tt, cut(gamma_synCooled(tt, gM0)), color='k', lw=1.4, label='$\\gamma_M$')
-  axB.loglog(tt, cut(gamma_synCooled(tt, gm0)), color='k', lw=1.1, ls='--',
+  axT.loglog(tt, 1./tt, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}$')
+  axT.loglog(tt, cut(gamma_synCooled(tt, gM0)), color='k', lw=1.4, label='$\\gamma_M$')
+  axT.loglog(tt, cut(gamma_synCooled(tt, gm0)), color='k', lw=1.1, ls='--',
              label='$\\gamma_m$')
-  axB.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
-  # the two knees, labelled along the bottom where nothing else runs
-  for v, lab in ((1./gM0, '$1/\\gamma_{M,0}$'), (1./gm0, '$1/\\gamma_{m,0}$')):
-    axB.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-    axB.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=INK,
+  axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
+  # the two knees, labelled along the bottom where nothing else runs; each is the
+  # cooling time of the edge it burns, tilde{t}_M = 1/gma_M0 and tilde{t}_m = 1/gma_m0
+  for v, lab in ((1./gM0, '$\\tilde{t}_M$'), (1./gm0, '$\\tilde{t}_m$')):
+    axT.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+    axT.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='bottom',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axB.set_xlim(tt[0], tt[-1])
-  axB.set_ylim(.15, 3.*gM0)      # headroom under gma=1 for the knee labels
-  axB.set_xlabel('$\\tilde{t}$', fontsize=FS_LAB)
-  axB.set_ylabel('$\\gamma$', fontsize=FS_LAB)
-  axB.legend(fontsize=FS_LEG, loc='upper right', framealpha=.9, handlelength=1.4,
+  axT.set_xlim(tt[0], tt[-1])
+  axT.set_ylim(.15, 3.*gM0)      # headroom under gma=1 for the knee labels
+  axT.set_xlabel('$\\tilde{t}$', fontsize=FS_LAB)
+  axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
+  axT.legend(fontsize=FS_LEG, loc='upper right', framealpha=.9, handlelength=1.4,
              labelspacing=.25, handletextpad=.5, borderpad=.4)
-  axB.grid(alpha=.25, lw=.4)
+  axT.grid(alpha=.25, lw=.4)
 
-  for ax in (axA, axB):
+  # (b) the distributions ----------------------------------------------------------------
+  # the injected law goes UNDER the cooled ones: the earliest of them tracks it almost
+  # exactly, and on top the black would hide that curve entirely
+  gma0, N0 = cooled_distrib(0., p, gm0, gM0)
+  axD.loglog(gma0, N0, color='k', lw=1.4, zorder=2)
+  edges = []
+  for lt, tt_s, c in zip(logtt, tt_arr, colors):
+    gma, N = cooled_distrib(tt_s, p, gm0, gM0)
+    axD.loglog(gma, N, color=c, lw=1.2, solid_capstyle='round', label=f'{lt:.1f}',
+               zorder=3)
+    edges.append((gma[-1], N[-1]))
+  # the burn-off front: locus of the top edge gma_M(tt), which slides down along 1/tt
+  edges = np.array(edges)
+  axD.plot(edges[:, 0], edges[:, 1], color=MUTED, lw=.7, ls='-', zorder=4)
+  axD.scatter(edges[:, 0], edges[:, 1], s=9, facecolors=colors, edgecolors='w',
+              linewidths=.5, zorder=6)
+
+  # gma^-p guide, offset above the injected curve so it does not hide it
+  gg = np.geomspace(gm0, gM0, 3)
+  axD.loglog(gg, 12.*K0*gg**-p, color=MUTED, ls=':', lw=.9)
+  axD.annotate('$\\propto\\gamma^{-p}$', (gg[1], 12.*K0*gg[1]**-p),
+               textcoords='offset points', xytext=(3, 3), color=MUTED, fontsize=FS_ANN)
+  # the front is labelled where it runs, no leader line
+  axD.annotate('$\\propto1/\\tilde{t}$', xy=(edges[3, 0], edges[3, 1]), xycoords='data',
+               textcoords='offset points', xytext=(-4, -5), color=INK, fontsize=FS_ANN,
+               ha='right', va='top')
+  # the injected bounds, marked as their inverses are in panel (a); along the TOP here,
+  # the bottom of this panel belongs to the legend
+  for v, lab in ((gm0, '$\\gamma_{m,0}$'), (gM0, '$\\gamma_{M,0}$')):
+    axD.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+    axD.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
+                 fontsize=FS_ANN, ha='center', va='top',
+                 bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+  # gma = 1 marked here as in panel (a): the last sampled time lands right on it
+  axD.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
+  axD.set_xlim(.5*gamma_synCooled(tt_arr[-1], gm0), 2.*gM0)
+  axD.set_ylim(1e-16, 1e4)
+  axD.set_xlabel('$\\gamma$', fontsize=FS_LAB)
+  axD.set_ylabel('$N(\\gamma,\\tilde{t})/N_{\\rm e}$', fontsize=FS_LAB)
+  leg = axD.legend(fontsize=FS_LEG, ncol=2, loc='lower left', framealpha=.9,
+                   title='$\\log_{10}\\tilde{t}$', handlelength=1.1, labelspacing=.25,
+                   columnspacing=.9, handletextpad=.5, borderpad=.4)
+  leg.get_title().set_fontsize(FS_LEG)
+  axD.grid(alpha=.25, lw=.4)
+
+  for ax in (axT, axD):
     ax.tick_params(which='both', labelsize=FS_TICK)
 
   os.makedirs(outdir, exist_ok=True)
@@ -197,7 +201,7 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   print(f'saved {path}')
   if show:
     plt.show()
-  return fig, (axA, axB)
+  return fig, (axT, axD)
 
 
 def main(show=False):
