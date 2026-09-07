@@ -331,7 +331,75 @@ static double t_cross     = -1.;
 static bool   converged   = false;   // both rarefactions have swept the shocked layer
 static double t_conv      = -1.;
 
+// --- phase persistence, so a resume does not silently fall back to ITDUMP_EARLY_ ------
+// The five values above are the whole run phase. They are rewritten on every transition
+// and reloaded once, on the first updateRunPhase call of a resumed run. Without this,
+// 'established' can never re-fire after the rarefactions have eaten the plateau it keys
+// on, and the cadence stays at ITDUMP_EARLY_ for the rest of the run: on the hi-res setup
+// that is a dump every 2 iterations instead of every 500, ~5e6 extra dumps and ~30 TB.
+//
+// A PLAIN TEXT SIDECAR, deliberately: it must not look like a snapshot (isSnapshotName
+// matches phys<digits>.out only, so 'runphase.dat' is safe), it must not become a column
+// of phys*.out (the whole Python chain parses that format, and ~1e5 dumps per run have to
+// keep parsing), and it must be readable by eye when a resume misbehaves.
+static const char* PHASE_FILE = "../results/Last/runphase.dat";
+static const int   PHASE_VERSION = 1;
+
+static void savePhase(){
+  if (worldrank != 0) return;
+  FILE *f = fopen(PHASE_FILE, "w");
+  if (!f){
+    fprintf(stderr, "runphase: cannot write %s -- a resume will restart the dump "
+                    "cadence at itdump_early\n", PHASE_FILE);
+    return;
+  }
+  fprintf(f, "%d %d %d %d %.17le %.17le\n", PHASE_VERSION, (int) established,
+          (int) crossed, (int) converged, t_cross, t_conv);
+  fclose(f);
+}
+
+static void loadPhaseOnce(long it){
+  static bool tried = false;
+  if (tried) return;
+  tried = true;
+  // A fresh run starts in the pre-established phase and has nothing to load; its first
+  // dataDump lands at it = 1, so anything past that is a resume (or a run old enough to
+  // predate the checkpoint, which is exactly the case worth warning about).
+  if (it <= 1) return;
+  FILE *f = fopen(PHASE_FILE, "r");
+  if (!f){
+    if (worldrank == 0){
+      printf("runphase: no %s -- phase restarts at 'not established', so the dump "
+             "cadence falls back to itdump_early. Pin the itdump* values by hand "
+             "(phys_input_hires_resume.ini) if this run predates the checkpoint.\n",
+             PHASE_FILE);
+    }
+    return;
+  }
+  int ver = 0, e = 0, c = 0, cv = 0;
+  double tc = -1., tv = -1.;
+  int n = fscanf(f, "%d %d %d %d %le %le", &ver, &e, &c, &cv, &tc, &tv);
+  fclose(f);
+  if (n != 6 || ver != PHASE_VERSION){
+    fprintf(stderr, "runphase: %s unreadable (%d fields, version %d) -- ignored\n",
+            PHASE_FILE, n, ver);
+    return;
+  }
+  established = (bool) e;
+  crossed     = (bool) c;
+  converged   = (bool) cv;
+  t_cross     = tc;
+  t_conv      = tv;
+  if (worldrank == 0){
+    printf("runphase: resumed at it=%ld with established=%d crossed=%d converged=%d "
+           "(t_cross=%le, t_conv=%le). Dump cadence -> %ld\n", it, e, c, cv, tc, tv,
+           (!established) ? ITDUMP_EARLY_ : (converged ? ITDUMP_LATE_ : ITDUMP_MID_));
+  }
+}
+
 static void updateRunPhase(Grid &grid, long it, double t){
+
+  loadPhaseOnce(it);
 
   #if SHOCK_DETECTION_ == ENABLED_
     static int noShockCount = 0;
@@ -363,6 +431,7 @@ static void updateRunPhase(Grid &grid, long it, double t){
     if (noShockCount >= NO_SHOCK_REQUIRED && !crossed){
       crossed = true;
       t_cross = t;
+      savePhase();
       if (worldrank == 0){
         printf("Shocks crossed at it=%ld, t=%le.\n", it, t);
       }
@@ -383,6 +452,7 @@ static void updateRunPhase(Grid &grid, long it, double t){
       if (nshell > 0){
         if (!established && nplat >= PLATEAU_EFRAC * nshell){
           established = true;
+          savePhase();
           if (worldrank == 0){
             printf("Shock established at it=%ld, t=%le (plateau %d/%d). Dump cadence -> %ld\n",
                    it, t, nplat, nshell, ITDUMP_MID_);
@@ -391,6 +461,7 @@ static void updateRunPhase(Grid &grid, long it, double t){
         if (crossed && nplat < PLATEAU_NFRAC * nshell){
           converged = true;
           t_conv = t;
+          savePhase();
           if (worldrank == 0){
             printf("Rarefactions converged at it=%ld, t=%le (plateau %d/%d). Dump cadence -> %ld\n",
                    it, t, nplat, nshell, ITDUMP_LATE_);
