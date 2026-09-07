@@ -363,12 +363,31 @@ def extract_data_cells(key, klist, itmin=0, itmax=None, itstep=None,
     npb = cell_pool.resolve_nproc(nproc, cap=len(tasks)) if nproc != 1 else 1
     tag = f'cells {kblock[0]}-{kblock[-1]}'
     if npb > 1:
+      # BOUNDED submission window, not ex.map. map() submits every task at once and holds
+      # each completed result until the ones before it have been yielded, so the peak is
+      # the WHOLE run's chunks: 2395 x 5000 x 64 x 14 x 8 = 86 GB on top of the 86 GB
+      # block array. The first hi-res extraction (slurm 931793) peaked at 188.7 GB against
+      # a 180 GiB request -- it finished, but with nothing to spare. Results are placed by
+      # their own j0, so completion order never mattered; only map's ordering guarantee
+      # forced the buffering. 2*nproc in flight keeps it to a few GB.
+      import concurrent.futures as cf
+      import itertools
       with cell_pool.cell_executor(npb, initializer=_cells_init,
             initargs=(key, kblock, cols, rho_smooth_window, rho_smooth_rough)) as ex:
-        for n, (j0, chunk) in enumerate(ex.map(_cells_chunk, tasks)):
-          arr[:, j0:j0+chunk.shape[1], :] = chunk
-          if not (n % 200):
-            print(f'{tag}: {min((n+1)*dump_chunk, len(its))}/{len(its)} dumps', flush=True)
+        pending, queue, n = set(), iter(tasks), 0
+        for t in itertools.islice(queue, 2*npb):
+          pending.add(ex.submit(_cells_chunk, t))
+        while pending:
+          done, pending = cf.wait(pending, return_when=cf.FIRST_COMPLETED)
+          for fut in done:
+            j0, chunk = fut.result()
+            arr[:, j0:j0+chunk.shape[1], :] = chunk
+            n += 1
+            if not (n % 200):
+              print(f'{tag}: {min(n*dump_chunk, len(its))}/{len(its)} dumps', flush=True)
+            nxt = next(queue, None)
+            if nxt is not None:
+              pending.add(ex.submit(_cells_chunk, nxt))
     else:
       _cells_init(key, kblock, cols, rho_smooth_window, rho_smooth_rough)
       for n, task in enumerate(tasks):
