@@ -58,11 +58,23 @@ _ENV_KEYS_OPT = ('nu0FS', 'T0FS', 'fac_nu', 'fac_F', 'gma_mFS', 'gma_cFS', 'gma_
 
 DEFAULT_KEY = 'cooling_g100'    # fiducial simulation the sweep runs on unless told otherwise;
                                 # it gets the unsuffixed cache dirs (method_outdir)
-DEFAULT_METHOD = 'data'   # reference flux computation: the data-driven driver with NO
-                          # rarefaction machinery (rar_cut=None), i.e. the rarefaction wave
-                          # as the simulation itself resolves it, every cell followed to its
-                          # last snapshot. 'data_rarcut' (the modelled sharp R_rar cut-off)
-                          # is the prescription measured AGAINST this, see sweep_rarcut.py
+DEFAULT_METHOD = 'data_rarcut'
+                          # DEFAULT SINCE 2026-09-07: the modelled sharp R_rar cut-off
+                          # (rar_cut='model'), which is what the article's sweep is run with.
+                          # 'data' -- the same data-driven driver with NO rarefaction
+                          # machinery (rar_cut=None), i.e. the wave as the simulation itself
+                          # resolves it, every cell followed to its last snapshot -- is STILL
+                          # COMPUTED, as the comparison this is measured against
+                          # (sweep_rarcut.py; method='data+rarcut' fills both caches in one
+                          # invocation, which is how a regeneration should be driven).
+                          # THE WHOLE SUITE FOLLOWS IT: nuc_validation, slope_validation
+                          # and sweep_shells.METHOD import this constant rather than
+                          # hardcoding a method. Cutting a cell off does NOT remove the late
+                          # lightcurve -- every cell is dark by bar{T} ~ 2.03 (RS) / 1.70
+                          # (FS), but the photons it already emitted keep arriving from
+                          # progressively higher latitudes, and that tT^-2 arrival IS the
+                          # high-latitude tail. So the cut leaves the tail to measure; it
+                          # only removes emission that never happened.
 R_CAP = 30.               # analysis window in R/R_injection for the '_cap' methods, applied
                           # to BOTH sides of the no-rarefaction comparison so their endpoints
                           # still match while the counterfactual's extension only has to
@@ -77,7 +89,20 @@ EARLY_ANA = 'shockfit'    # data method: reconstruct the cadence-missed early da
                           # injection states and the comparison isolates the post-injection
                           # hydro treatment (see working_cooling_data.load_shockfront_states)
 
-LOG10RATIO_ARR = np.arange(-5, 3)          # -5..+2
+LOG10RATIO_ARR = np.arange(-5, 4)          # -5..+3, nine points (the +3 end added
+                                           # 2026-09-07 to push a decade deeper into slow
+                                           # cooling). Costs one extra point, i.e. +1/8 of
+                                           # the wall time -- in cell mode the points run
+                                           # serially, so it is strictly additive.
+                                           # HEADROOM CHECK: the window top follows each
+                                           # point's own nu_M, which grows as alpha**(3/2)
+                                           # = +0.75 dex per unit of logr, so +3 spans
+                                           # 18.5 dex and asks for Nnu = 609 (fiducial) /
+                                           # 612 (hi-res) -- still under NNU_MAX = 650, so
+                                           # the clip does not bind. It gets tight if
+                                           # LOGNU_MIN is later dropped to nu_B (~-6.7):
+                                           # that combination asks for ~635. Raise NNU_MAX
+                                           # before adding a +4 point.
 Z_SHELL = 4                                 # reverse-shock shell
 TMAX, NT = 1000, 1800     # sized on the REFERENCE method, which has no cut-off: with
                           # rar_cut=None every cell is followed to its last snapshot, and on
@@ -335,7 +360,8 @@ def _resolve_nproc(nproc, npoints):
   '''Resolve the POINT-level worker count: explicit arg > env GAMMACM_NPROC >
   cpu_count()-1 (leave one core free), clamped to [1, npoints].
 
-  The clamp is what makes this point-level: the sweep has 8 points, so this caps at 8
+  The clamp is what makes this point-level: the sweep has 9 points (-5..+3), so this
+  caps at 9
   however many cores the machine has. cell_pool.resolve_nproc(nproc) with no cap is the
   budget; run_sweep spends it on cells instead when there is more of it than points.'''
   return cell_pool.resolve_nproc(nproc, cap=npoints)
@@ -551,7 +577,7 @@ def run_sweep(key, log10ratio_arr, z=Z_SHELL, Tmax=TMAX, NT=NT,
   '''
   Run the shell nuFnu computation once per target log10(gma_c/gma_m), via the alpha
   lever (zeta=1, u_scale=1). Each point gets its own frequency window (_nu_window:
-  shared low end, top anchored on that point's nu_M). The 8 points are independent;
+  shared low end, top anchored on that point's nu_M). The 9 points are independent;
   nproc>1 runs them across a process pool (nproc: explicit > env GAMMACM_NPROC >
   cpu_count()-1).
 

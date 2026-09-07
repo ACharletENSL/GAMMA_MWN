@@ -94,7 +94,8 @@ TRACKERS = {'gs02': swp.track_breaks_gs02, 'segments': sb.track_breaks_segments}
 
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'nuc_model')
 KEY = 'cooling_g100'
-METHOD = 'data'          # the reference computation, see sweep_gammacm.DEFAULT_METHOD
+METHOD = swp.DEFAULT_METHOD  # the reference computation; imported, not hardcoded, so this
+                         # module cannot drift from sweep_gammacm's default
 Z_RS, Z_FS = 4, 1
 CMAP = plt.cm.viridis          # sequential: log10(gma_c/gma_m) is an ordered magnitude
 ESTIMATORS = ('min_bright', 'q05', 'q10', 'q15', 'q20', 'q25', 'q50', 'wlogmean')

@@ -347,7 +347,8 @@ import sweep_gammacm as swp
 
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'slope_check')
 KEY = 'cooling_g100'
-METHOD = 'data'                # the reference computation, see sweep_gammacm.DEFAULT_METHOD
+METHOD = swp.DEFAULT_METHOD        # the reference computation; imported, not hardcoded, so
+                               # this module cannot drift from sweep_gammacm's default
 Z_RS, Z_FS = 4, 1
 CMAP = plt.cm.viridis          # sequential: log10(gma_c/gma_m) is an ordered magnitude
 

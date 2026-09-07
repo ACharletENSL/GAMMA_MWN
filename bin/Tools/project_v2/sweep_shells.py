@@ -56,10 +56,11 @@ from sweep_compare import _regrid_onto
 from sweep_gammacm import (run_sweep, load_sweep, method_outdir, compute_alpha_sweep,
     exit_onset_barT, rarefaction_off_barT, nu_over_num, detect_rise_peak_tail,
     compute_fluence_spectrum, _plot_spectra_all, trim_pngs, LOG10RATIO_ARR,
-    NU_TARGETS, NU_REF, NU_M_LABEL, SPEC_YSPAN, XLIM_LIN)
+    NU_TARGETS, NU_REF, NU_M_LABEL, SPEC_YSPAN, XLIM_LIN, DEFAULT_METHOD)
 
 KEY = 'cooling_g100'
-METHOD = 'data'                   # reference: rarefaction wave taken from the simulation
+METHOD = DEFAULT_METHOD           # reference computation, imported from sweep_gammacm
+                                  # ('data_rarcut' since 2026-09-07)
 Z_RS, Z_FS = 4, 1                 # reverse (fast) shell, forward (slow) shell
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'shells_split')
 
