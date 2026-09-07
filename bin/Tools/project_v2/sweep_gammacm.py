@@ -99,10 +99,10 @@ LOG10RATIO_ARR = np.arange(-5, 4)          # -5..+3, nine points (the +3 end add
                                            # = +0.75 dex per unit of logr, so +3 spans
                                            # 18.5 dex and asks for Nnu = 609 (fiducial) /
                                            # 612 (hi-res) -- still under NNU_MAX = 650, so
-                                           # the clip does not bind. It gets tight if
-                                           # LOGNU_MIN is later dropped to nu_B (~-6.7):
-                                           # that combination asks for ~635. Raise NNU_MAX
-                                           # before adding a +4 point.
+                                           # the clip does not bind -- and NNU_MAX has since
+                                           # been raised to 800 so that it will not bind at
+                                           # +4 or +5 either, with or without the nu_B band
+                                           # bottom. See the NNU_MAX comment for the table.
 Z_SHELL = 4                                 # reverse-shock shell
 TMAX, NT = 1000, 1800     # sized on the REFERENCE method, which has no cut-off: with
                           # rar_cut=None every cell is followed to its last snapshot, and on
@@ -160,7 +160,22 @@ NNU_PER_DEC = 33          # frequency sampling; the window span now varies with 
                           # (MIN_DEX, MIN_MID_DEX, SEG_MIN_MID_DEX, EDGE_NDEC, FREE_MIN_DEX)
                           # are resolution-independent, but SLOPE_SMOOTH, MIN_PTS and
                           # FREE_MIN_PTS are in SAMPLES and would silently change meaning.
-NNU_MIN, NNU_MAX = 400, 650
+NNU_MIN, NNU_MAX = 400, 800   # clip on the Nnu the span implies. The CEILING WAS RAISED
+                          # 650 -> 800 (2026-09-07) so it stays slack if the sweep is pushed
+                          # to +4 or +5. It must never bind: Nnu is set from the span at
+                          # NNU_PER_DEC points per decade, so a binding cap silently THINS
+                          # the sampling on exactly the widest-window points -- and it would
+                          # do so without changing NNU_PER_DEC, which is what every
+                          # sample-valued gate (SLOPE_SMOOTH, MIN_PTS, FREE_MIN_PTS) is
+                          # calibrated against. Nnu the span asks for, at 33 pts/dec:
+                          #             logr   +3    +4    +5
+                          #   LOGNU_MIN = -6    612   637   661
+                          #   band down to nu_B 634   659   684     (nu_B/nu_m = 10^-6.678)
+                          # so 650 would have bound at +4 the moment the band reaches nu_B
+                          # ([[spectra-down-to-nub]]), and at +5 either way. 800 clears the
+                          # worst of those by 17% and covers +6 as well. Raising the ceiling
+                          # is free where it does not bind: every point at or below +3 keeps
+                          # the Nnu it already had, so no cached result moves.
 NU_TARGETS = [1e-2, 0.1, 1.0]                # lightcurve panel freqs, as fractions of the
                                              # peak freq nu_pk=max(nu_m,nu_c) (= the nub axis)
 XLIM_LIN = (0., 4.)                          # bar{T}/bar{T}_f range of every LINEAR-time
