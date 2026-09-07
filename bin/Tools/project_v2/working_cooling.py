@@ -80,16 +80,7 @@ def plot_data(name, data, env, cell_d0=None, xvar='x',
   if ax_in is None:
     ax.set_title(name)
 
-CELL_CROSSING_ITS = 11.6     # iterations the shock takes to cross ONE cell, and it is
-                             # 11.6 REGARDLESS of Nsh1: the CFL condition ties dt to dx, so
-                             # refining the mesh shrinks both together. That is what makes
-                             # it the right unit for the settling window below -- rows are
-                             # not, because the dump cadence and the cell width both change
-                             # with resolution and they do not change together.
-
-
-def truncate_at_rarefaction(shocked_data, slope_thresh=-8., minpts=20,
-    window_cross=10., settle_cross=10.):
+def truncate_at_rarefaction(shocked_data, slope_thresh=-8., window=15, minpts=20):
   '''
   Truncate post-shock cell data at the rarefaction arrival.
   The smooth downstream decay has d(ln p)/d(ln x) ~ -2 to -4; the back-edge
@@ -97,47 +88,34 @@ def truncate_at_rarefaction(shocked_data, slope_thresh=-8., minpts=20,
   point where the look-ahead log-slope of p drops below slope_thresh.
   Keeps at least minpts points (else returns the data untruncated).
 
-  THE WINDOW AND THE SETTLING SKIP ARE IN ITERATIONS, NOT ROWS (fixed 2026-09-07).
-  Both are expressed as multiples of CELL_CROSSING_ITS via the frame's own `it` index.
-  A fixed ROW count silently changes meaning with resolution -- the dump cadence is 2 at
-  hi-res against 5 in the fiducial while the cell width is 20x smaller, so one hi-res row
-  spans ~50x less radius -- and the failure is not subtle:
+  KNOWN BROKEN AT HIGH RESOLUTION, and a crossing-time window is NOT the fix (tried and
+  reverted 2026-09-07). The window is a fixed number of ROWS, which changes meaning with
+  resolution: at cooling_g100_hires it fires on the post-shock SETTLING TRANSIENT rather
+  than the rarefaction, cutting cell 2954's fit to 20 rows over x/x0 = 1.0450..1.0466 (a
+  0.16% radius range). The BPL fitted to that reaches Gamma = 8e-26 at x/x0 = 10 against
+  a measured 126, _lag_profile kills the cell at Gamma <= 1, and the rarefaction head
+  never crosses it -- 407 of 10000 RS cells, with survivors carrying fits just as wrong.
 
-    cooling_g100_hires cell 2954, old code -> 20 rows spanning x/x0 = 1.0450..1.0466,
-    a 0.16% radius range. The BPL fitted to that and extrapolated to x/x0 = 10 gives
-    Gamma = 8e-26 against a measured 126, so _lag_profile kills the cell at Gamma <= 1
-    and the rarefaction head never crosses it: R_rar = inf. 407 of 10000 RS cells did
-    this, and their neighbours (cell 2955: 42 rows, Gamma = 5.15 at x/x0 = 10) survived
-    with fits just as wrong, which is where R_rar = 25-61 and the barT_off reversals
-    came from.
+  Re-expressing window and settling skip in cell crossings (CELL_CROSSING_ITS = 11.6, via
+  the frame's `it` index) made it WORSE, not better: non-finite went 407 -> 2696 (z=4) and
+  R_rar max 25 -> 104. The reason is that iterations are no better a unit than rows here.
+  A cell's crash sits at R/R_inj ~ 1-4, which for a late-shocked cell falls in the
+  cadence-50 or -500 phase, so a 10-crossing (116-iteration) look-ahead spans only ~2 rows
+  there while spanning ~58 rows near injection. The detector then never fires at all, the
+  fit window is left to r_max, and every fit swallows its own crash.
 
-  What the old window was really doing there was firing on the POST-SHOCK SETTLING
-  TRANSIENT, whose steep local p slope trips slope_thresh, rather than on the
-  rarefaction. The transient lasts of order the cell's own shock-crossing time, so
-  settle_cross = 10 crossings gives it an order of magnitude of margin and is
-  resolution-independent by construction.
+  THE UNIT THAT SHOULD WORK IS RADIUS. The slope is d(ln p)/d(ln x), the crash is a
+  feature in x, and the fit lives in x/x0 -- so a look-ahead spanning a fixed Delta ln x
+  is cadence- and resolution-independent by construction, which neither rows nor
+  iterations are. Not yet implemented.
   '''
   x = shocked_data.x.to_numpy()
   p = shocked_data.p.to_numpy()
-  its = np.asarray(shocked_data.index.to_numpy(), dtype=float)
-  if len(x) < minpts + 2:
+  if len(x) < minpts + window:
     return shocked_data
   lnx, lnp = np.log(x), np.log(p)
-  # look-ahead partner of each row: the first row at least window_cross crossings later.
-  # Variable in rows, fixed in iterations, which is what makes it resolution-independent.
-  j = np.searchsorted(its, its + window_cross*CELL_CROSSING_ITS, side='left')
-  ok = j < len(its)
-  if not ok.any():
-    return shocked_data
-  i = np.flatnonzero(ok)
-  j = j[ok]
-  dlnx = lnx[j] - lnx[i]
-  with np.errstate(invalid='ignore', divide='ignore'):
-    slope = np.where(dlnx > 0., (lnp[j] - lnp[i])/dlnx, np.nan)
-  # ignore the settling transient: it is of order one cell crossing, so anything inside
-  # settle_cross of them is the shock establishing itself, not the rarefaction arriving
-  settled = (its[i] - its[0]) >= settle_cross*CELL_CROSSING_ITS
-  steep = i[np.flatnonzero(settled & (slope < slope_thresh))]
+  slope = (lnp[window:] - lnp[:-window])/(lnx[window:] - lnx[:-window])
+  steep = np.flatnonzero(slope < slope_thresh)
   if len(steep) and steep[0] >= minpts:
     return shocked_data.iloc[:steep[0]]
   return shocked_data
@@ -207,12 +185,11 @@ def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=Non
   return popts
 
 # bump when the fitting code/conventions change, to invalidate stale caches.
-# 2 (2026-09-07): truncate_at_rarefaction's window and settling skip moved from ROWS to
-# cell crossings, which changes the fit window and therefore every popt. The window
-# parameters are NOT part of the cache key -- they are code, not call arguments -- so this
-# counter is the only thing that invalidates a cache when they change. Bump it whenever
-# truncate_at_rarefaction or fit_celldata's selection changes.
-_FIT_CACHE_VERSION = 2
+# The window parameters are NOT part of the cache key -- they are code, not call
+# arguments -- so this counter is the only thing that invalidates a cache when they
+# change. Bump it whenever truncate_at_rarefaction or fit_celldata's selection changes.
+# 2 (2026-09-07): crossing-time window, reverted the same day; 3: back to the row window.
+_FIT_CACHE_VERSION = 3
 
 def load_or_fit_celldata(cell_data, vars, norms, env, x0, cleanData=False,
     key=None, k=None, r_max=None):
