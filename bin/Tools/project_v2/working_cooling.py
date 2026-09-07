@@ -80,7 +80,7 @@ def plot_data(name, data, env, cell_d0=None, xvar='x',
   if ax_in is None:
     ax.set_title(name)
 
-def truncate_at_rarefaction(shocked_data, slope_thresh=-8., window=15, minpts=20):
+def truncate_at_rarefaction(shocked_data, slope_thresh=-8., dlnx_window=0.02, minpts=20):
   '''
   Truncate post-shock cell data at the rarefaction arrival.
   The smooth downstream decay has d(ln p)/d(ln x) ~ -2 to -4; the back-edge
@@ -88,34 +88,44 @@ def truncate_at_rarefaction(shocked_data, slope_thresh=-8., window=15, minpts=20
   point where the look-ahead log-slope of p drops below slope_thresh.
   Keeps at least minpts points (else returns the data untruncated).
 
-  KNOWN BROKEN AT HIGH RESOLUTION, and a crossing-time window is NOT the fix (tried and
-  reverted 2026-09-07). The window is a fixed number of ROWS, which changes meaning with
-  resolution: at cooling_g100_hires it fires on the post-shock SETTLING TRANSIENT rather
-  than the rarefaction, cutting cell 2954's fit to 20 rows over x/x0 = 1.0450..1.0466 (a
-  0.16% radius range). The BPL fitted to that reaches Gamma = 8e-26 at x/x0 = 10 against
-  a measured 126, _lag_profile kills the cell at Gamma <= 1, and the rarefaction head
-  never crosses it -- 407 of 10000 RS cells, with survivors carrying fits just as wrong.
+  THE LOOK-AHEAD SPANS A FIXED Delta ln x (fixed 2026-09-07). The slope being tested is
+  d(ln p)/d(ln x), the crash is a feature in RADIUS, and the fit lives in x/x0, so radius
+  is the only unit in which this window means the same thing on every run. It used to be
+  a fixed number of ROWS -- equivalently of iterations, which is the same bookkeeping unit
+  under another name -- and neither survives a change of resolution or of dump cadence:
 
-  Re-expressing window and settling skip in cell crossings (CELL_CROSSING_ITS = 11.6, via
-  the frame's `it` index) made it WORSE, not better: non-finite went 407 -> 2696 (z=4) and
-  R_rar max 25 -> 104. The reason is that iterations are no better a unit than rows here.
-  A cell's crash sits at R/R_inj ~ 1-4, which for a late-shocked cell falls in the
-  cadence-50 or -500 phase, so a 10-crossing (116-iteration) look-ahead spans only ~2 rows
-  there while spanning ~58 rows near injection. The detector then never fires at all, the
-  fit window is left to r_max, and every fit swallows its own crash.
+  - Rows, at cooling_g100_hires: 15 rows near injection span Delta ln x ~ 1.5e-3 against
+    the fiducial's ~2.2e-2, short enough that the window fires on the post-shock SETTLING
+    TRANSIENT. Cell 2954's fit window was cut to 20 rows over x/x0 = 1.0450..1.0466, a
+    0.16% radius range; the BPL fitted to that reaches Gamma = 8e-26 at x/x0 = 10 against
+    a measured 126, _lag_profile kills the cell at Gamma <= 1, and the head never crosses
+    it. 407 of 10000 RS cells, with survivors carrying fits just as wrong (cell 2955:
+    Gamma = 5.15), which is where R_rar = 25-61 and the barT_off reversals came from.
+  - Cell crossings (11.6 iterations): WORSE, 407 -> 2696 non-finite. A cell's crash sits
+    at R/R_inj ~ 1-4, which for a late-shocked cell falls in the cadence-50 or -500 phase,
+    so a 10-crossing look-ahead spans ~2 rows there against ~58 near injection. The
+    detector then never fires at all and every fit swallows its own crash.
 
-  THE UNIT THAT SHOULD WORK IS RADIUS. The slope is d(ln p)/d(ln x), the crash is a
-  feature in x, and the fit lives in x/x0 -- so a look-ahead spanning a fixed Delta ln x
-  is cadence- and resolution-independent by construction, which neither rows nor
-  iterations are. Not yet implemented.
+  dlnx_window = 0.02 is what the fiducial's 15-row window actually spanned (median 2.2e-2
+  over its shell, range 3.9e-3 to 3.7e-2), so the run whose map is known good keeps its
+  behaviour and every other resolution gets the same physical window.
   '''
   x = shocked_data.x.to_numpy()
   p = shocked_data.p.to_numpy()
-  if len(x) < minpts + window:
+  if len(x) < minpts + 2:
     return shocked_data
   lnx, lnp = np.log(x), np.log(p)
-  slope = (lnp[window:] - lnp[:-window])/(lnx[window:] - lnx[:-window])
-  steep = np.flatnonzero(slope < slope_thresh)
+  # look-ahead partner of each row: the first row at least dlnx_window further out.
+  # x is monotonic along a worldline, so searchsorted is exact.
+  j = np.searchsorted(lnx, lnx + dlnx_window, side='left')
+  ok = j < len(lnx)
+  if not ok.any():
+    return shocked_data
+  i = np.flatnonzero(ok)
+  j = j[ok]
+  with np.errstate(invalid='ignore', divide='ignore'):
+    slope = (lnp[j] - lnp[i])/(lnx[j] - lnx[i])
+  steep = i[np.flatnonzero(slope < slope_thresh)]
   if len(steep) and steep[0] >= minpts:
     return shocked_data.iloc[:steep[0]]
   return shocked_data
@@ -188,8 +198,9 @@ def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=Non
 # The window parameters are NOT part of the cache key -- they are code, not call
 # arguments -- so this counter is the only thing that invalidates a cache when they
 # change. Bump it whenever truncate_at_rarefaction or fit_celldata's selection changes.
-# 2 (2026-09-07): crossing-time window, reverted the same day; 3: back to the row window.
-_FIT_CACHE_VERSION = 3
+# 2 (2026-09-07): crossing-time window, reverted the same day; 3: back to the row
+# window; 4: look-ahead over a fixed Delta ln x.
+_FIT_CACHE_VERSION = 4
 
 def load_or_fit_celldata(cell_data, vars, norms, env, x0, cleanData=False,
     key=None, k=None, r_max=None):
