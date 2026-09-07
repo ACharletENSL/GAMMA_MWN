@@ -8,8 +8,9 @@ study how the cooling regime reshapes the full-shell (all shocked cells
 summed) lightcurves and spectra of one shell (default: the reverse shock,
 z = Z_SHELL = 4; z=1 is the forward shock, on the same RS-normalised grids).
 Plot set:
-  - lightcurve SHAPE: peak-normalised in bar{T}=(Tobs-Ts)/T0 and flux (every
-    curve through (1,1)), linear + log, one 2-panel fig per frequency
+  - lightcurve SHAPE: peak-normalised in bar{T}=(Tobs-Ts)/T0 and flux, one 3-panel
+    fig per frequency (linear time; log time, there scaled by each point's radiative
+    efficiency as the 'eff' spectra are; local temporal index)
   - spectral EVOLUTION: spectra at logarithmically spaced observed times (SPEC_LOGT,
     log10(bar{T}/bar{T}_f) = -3..2), one fig per gamma_c/gamma_m
   - peak & fluence spectra, all regimes together on a nu/nu_m axis, normalised
@@ -1988,6 +1989,18 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   cell = the shell-crossing time (a common hydro timescale, same for every sweep
   point). So x=1 marks crossing (grey guide) and each curve's flux peak sits at
   x_pk<1 on the y=1 line.
+  The LOG panel additionally multiplies each curve by that point's radiative
+  efficiency eps_rad = E_rad/E_inj -- the same 'eff' normalisation the peak and
+  time-integrated spectra figures carry (SPEC_MODES / _plot_spectra_all), for the same
+  reason: the peak normalisation divides the ENERGETICS out, so a slow-cooling regime
+  that radiates a few % of the injected electron energy is drawn as bright as a fast
+  cooling one that radiates nearly all of it. Scaled, the curves keep their shapes but
+  stack by how much each regime actually radiates, and y=1 there is the fully radiative
+  (eps_rad=1) reference rather than a peak every curve passes through. The LINEAR panel
+  stays purely shape-normalised -- it is the peak's neighbourhood, read at one scale --
+  and the index panel is invariant under any constant rescaling, so both are unchanged.
+  A point whose cache holds no energy budget (compute_efficiency -> nan) is dropped from
+  the log panel rather than drawn unscaled; it still appears in the other two.
   The THIRD panel carries the LOCAL temporal index d ln(nuFnu)/d ln(bar{T})
   (local_index, the same measurement lightcurve_shape tabulates), which is what
   separates the phases the flux panels only suggest: the broken rise (steep ~2
@@ -2013,11 +2026,18 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   tag = '' if annotate else '_plain'
   xoff = tuple(b/barT_f for b in barT_off) if (annotate and barT_off and barT_f > 0.) else None
   a_hle = _hle_index(results)
+  # eps_rad is a property of the sweep point, not of nu_t, so it is read once for the
+  # whole figure set. The log panel's floor then hangs off the FAINTEST curve (as the
+  # 'eff' spectra do): keeping the bare 1e-8 would have cut the low-efficiency curves
+  # short by the ~1.6 decades the eps_rad spread pushes them down.
+  effs = [compute_efficiency(r) for r in results]
+  eff_ok = [e for e in effs if np.isfinite(e) and e > 0.]
+  ylo_log = 1e-8*min(eff_ok) if eff_ok else 1e-8
   for nu_t in nu_targets:
     # three panels side by side: the same curves on a linear and a log time axis, then
     # their local index on the log axis (the last two share XLIM_LOG)
     fig, axs = plt.subplots(1, 3, figsize=(15.5, 4.5))
-    for r, c in _draw_order(zip(results, colors)):
+    for r, c, eff in _draw_order(zip(results, colors, effs)):
       barT = r['Tb'] - 1.
       inu = min(np.searchsorted(r['nub'], nu_t), len(r['nub']) - 1)
       lc = r['nuFnu'][:, inu]
@@ -2026,7 +2046,8 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
         continue
       x, y = barT / barT_f, lc / lc[ipk]
       axs[0].plot(x, y, color=c)
-      axs[1].loglog(x, y, color=c)
+      if np.isfinite(eff) and eff > 0.:
+        axs[1].loglog(x, eff*y, color=c)   # energetics restored, see the docstring
       axs[2].semilogx(x, local_index(x, y), color=c, lw=.9)
     for ax, sc in zip(axs, ('linear', 'log', 'temporal index')):
       ax.axvline(1., color='grey', ls=':', lw=.7)
@@ -2035,14 +2056,18 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
       ax.set_xlabel('$\\bar{T}/\\bar{T}_f$')
       ax.set_title(sc)
     for ax in axs[:2]:
+      # on the linear panel every curve passes through y=1 (its own peak); on the log
+      # panel the eps_rad scaling turns the same line into the fully radiative reference
       ax.axhline(1., color='grey', ls=':', lw=.7)
-    # the flux label goes on the LEFT panel only: the log panel shows the same quantity,
-    # and its label sat right against the linear panel's tick labels
+    # both flux panels are labelled now that they carry DIFFERENT quantities -- the log
+    # one is scaled by eps_rad. (It used to be the left panel only, the label sitting
+    # against the linear panel's tick labels, when the two showed the same thing.)
     axs[0].set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm max}$')
+    axs[1].set_ylabel('$\\varepsilon_{\\rm rad}\\,\\nu F_\\nu/(\\nu F_\\nu)_{\\rm max}$')
     _index_panel(axs[2], a_hle)
     axs[0].set_xlim(*XLIM_LIN)
     axs[1].set_xlim(*XLIM_LOG); axs[2].set_xlim(*XLIM_LOG)
-    axs[1].set_ylim(ymin=1e-8)
+    axs[1].set_ylim(ymin=ylo_log)
     # pad/fraction are fractions of the COMBINED width of the three panels, so the
     # defaults (0.05/0.15) leave a gap and a bar sized for a single-panel figure
     fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035,
