@@ -132,9 +132,32 @@ TMAX, NT = 1000, 1800     # sized on the REFERENCE method, which has no cut-off:
                           # structure sits at the onset spacing.
                           # With rar_cut='model' all cells are instead dark by bar{T} = 2.03
                           # (RS) / 1.70 (FS) and the window is pure tT^-2 tail past that.
-LOGNU_MIN = -6            # fixed low end of the frequency window, in log10(nu/nu_m) and the
+LOGNU_MIN = -6.7          # fixed low end of the frequency window, in log10(nu/nu_m) and the
                           # SAME for every sweep point, so all spectra start at the same x
-                          # (their left ends land on the panel's left spine, not inside it)
+                          # (their left ends land on the panel's left spine, not inside it).
+                          # LOWERED -6 -> -6.7 (2026-09-07) to put the band bottom BELOW the
+                          # synchrotron floor nu_B = nu_m/gamma_m^2 rather than well above it.
+                          # WHY: FC* is returned when the nu^(4/3) segment is not identified
+                          # but the lowest in-band slope is already climbing above 1/2 --
+                          # i.e. the cooling break sits AT the edge of the frequency array
+                          # rather than below it. With the band running past nu_B the lower
+                          # break and its 4/3 segment fall inside the array, so those spectra
+                          # should classify as plain FC and the class should disappear. If
+                          # FC* survives THIS band, it is a real spectral state and needs its
+                          # own shape (see [[spectra-down-to-nub]]); do not build one first.
+                          # WHERE -6.7 COMES FROM. The obs grid is RS-normalised for EVERY z
+                          # (nuobs = nub*env.nu0), so one bottom has to clear both shells.
+                          # On that grid, measured on cooling_g100_hires:
+                          #     RS nu_B / nu_m,RS = 10^-6.6779
+                          #     FS nu_B / nu_m,RS = 10^-6.6857
+                          # -- nearly equal because nu_B is an absolute frequency and the two
+                          # shells' B' agree to 2% (1809 vs 1777 G), NOT because the shells
+                          # have the same nu_B/nu_m in their own units (RS 10^-6.678, FS
+                          # 10^-5.503: nu_m,FS is 15x lower). -6.7 clears the lower of the two
+                          # by 0.014 dex. It is alpha-invariant: gamma_m does not move under
+                          # the Granot rescaling, so this is one bottom for all nine points.
+                          # COST: +0.7 dex of span, Nnu 612 -> 635 at logr=+3, ~4% on a
+                          # kernel that is linear in Nnu. NNU_MAX (800) still does not bind.
 LOGNU_ABOVE_NUM = 1.5     # high end, in decades above each point's OWN nu_M: the window top is
                           # log10(nu_M/nu_m) + this, so every spectrum shows its exponential
                           # cutoff and has fallen >3.5 decades below its peak (the plot floor)
@@ -256,39 +279,36 @@ FRAC_RISE, FRAC_TAIL = 0.1, 0.1              # rise/tail spectra are taken where
                                              # loses the SC-rise -> FC-peak transition.
 TB_MIN = 1e-4                                # early-time floor: obs grid geometric in
                                              # bar{T}=(Tobs-Ts)/T0 over [TB_MIN, Tmax]
-TB_LIN = (0.5, 2., 200)                      # extra samples spaced LINEARLY in bar{T},
-                                             # merged into that grid (obs_arrays). The
-                                             # geometric grid resolves the log axis and
-                                             # leaves only 12 of 250 points in
-                                             # bar{T}/bar{T}_f = 1..2, where the lightcurve
-                                             # peaks -> linear-scale lightcurves come out
-                                             # jagged. Keeps every geometric point, so the
-                                             # early rise TB_MIN buys is untouched.
-                                             # NARROWED from (0.5, 9.): 9 was far wider than
-                                             # the feature it exists to resolve. In
-                                             # bar{T}/bar{T}_f the peak sits at ~1, the
-                                             # crossing at 1 and the rarefaction ends at
-                                             # 1.547, so everything the linear samples are
-                                             # for lives below bar{T} ~ 2.03; the old window
-                                             # spent 3/4 of its 200 points on the decaying
-                                             # tail, which the geometric grid already covers
-                                             # perfectly well. Same n over [0.5, 2] is 4.7x
-                                             # denser through the peak, at 0.0075 in bar{T}.
-                                             # NB 2.0 stops just short of the rarefaction end
-                                             # (bar{T} = 2.025); the geometric grid carries
-                                             # that point, so it is sampled, just not densely.
-                                             # TODO widen to 2.5 at the next regeneration, to
-                                             # cover that end with margin. Deferred because it
-                                             # invalidates every cached point and the cache is
-                                             # keyed on log10ratio ALONE -- it does not
-                                             # self-invalidate, so a plain re-run would
-                                             # silently reuse the old grid. Fold it into the
-                                             # next run that already forces use_cache=False,
-                                             # and do z=1 with it or the two shells end up on
-                                             # different grids (sweep_shells compares them).
-                                             # Widening cannot perturb existing samples:
-                                             # obs_arrays merges the linear set into the
-                                             # geometric one as a strict superset.
+TB_LIN = (0.5, 2.5, 267)                     # extra samples spaced LINEARLY in bar{T},
+                                             # merged into the geometric grid (obs_arrays),
+                                             # to keep the linear-scale lightcurves smooth
+                                             # through the peak, which the geometric grid
+                                             # alone samples at only ~0.011 in bar{T}.
+                                             # WIDENED (0.5, 2.) -> (0.5, 2.5) on 2026-09-07:
+                                             # the rarefaction ends at bar{T} = 2.025
+                                             # (rarefaction_off_barT), so the old hi edge
+                                             # stopped just short of it and left the
+                                             # rarefaction end to the geometric grid alone.
+                                             # n RAISED 200 -> 267 IN THE SAME BREATH, and
+                                             # that part is NOT optional. Widening the window
+                                             # at fixed n coarsens the linear spacing
+                                             # 0.00754 -> 0.01005, and the geometric grid
+                                             # already gives 0.01077 through the peak -- so
+                                             # (0.5, 2.5, 200) would have left TB_LIN adding
+                                             # almost nothing to the very window it exists
+                                             # for (merged points over bar{T} = 0.9-1.6:
+                                             # 156 now, 134 at n=200, 157 at n=267; largest
+                                             # merged gap 0.00754 / 0.01005 / 0.00752).
+                                             # 267 holds today's spacing to 0.3% while
+                                             # covering the rarefaction end, for 67 extra
+                                             # samples out of ~2000.
+                                             # NB this invalidates every cached point and the
+                                             # per-point cache is keyed on log10ratio ALONE,
+                                             # so it does NOT self-invalidate: a plain re-run
+                                             # would silently reuse the old grid. Run with
+                                             # use_cache=False, and do z=1 as well as z=4 or
+                                             # the two shells end up on different time grids
+                                             # (sweep_shells compares across them).
 SUBCELL_DLOGT = 0.008                         # smooth the early-time cell-sum staircase:
                                              # split CD-adjacent cells whose onsets are
                                              # >this in log10(bar{T}) apart (None=off).
