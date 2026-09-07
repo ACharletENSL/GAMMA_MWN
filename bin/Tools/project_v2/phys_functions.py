@@ -347,6 +347,134 @@ def granot_sari_syn(nu, num, nuc, psyn, s1=1.3, s2=2.0, nuM=None, F_ext=1.,
   return F
 
 
+# Ravasio et al. (2018) 2SBPL smoothing values. n1 is the LOW-ENERGY break, n2 the peak;
+# both are fixed in that paper, n2 = 2.69 to match the GBM catalogue's SBPL curvature
+# (Lambda = 0.3) and n1 = 5.38 to the mean of its own free time-resolved fits. The break is
+# therefore SHARPER than the peak there (n1 = 2 n2), the opposite ordering to this project's
+# GS02 defaults (s1 = 1.3 < s2 = 2.0) -- see two_sbpl.
+RAVASIO_N1, RAVASIO_N2 = 5.38, 2.69
+
+
+def two_sbpl_Ej(E_peak, alpha2, beta, n2=RAVASIO_N2):
+  '''
+  Ravasio et al. (2018) eq. (4): the CROSSING energy E_j of the mid and high power laws, from
+  the peak of the E^2 N_E (= nu F_nu) spectrum. The two are not the same energy -- smoothing
+  pushes the peak away from the crossing -- and the 2SBPL is parameterised by the peak
+  because that is what a GRB spectrum is quoted by, while the shape needs the crossing.
+
+  alpha2, beta are PHOTON indices (N_E ~ E^alpha), so the nuFnu peak exists only if
+  alpha2 > -2 > beta; otherwise there is no turnover and this returns NaN.
+
+  Inverse of two_sbpl_Epeak. At the synchrotron values (alpha2 = -3/2, beta = -p/2 - 1 with
+  p = 2.5, n2 = 2.69) it gives E_j = 0.709 E_peak.
+  '''
+  num, den = -(alpha2 + 2.), (beta + 2.)
+  if not (np.isfinite(num) and np.isfinite(den)) or den == 0. or num/den <= 0.:
+    return np.nan
+  return E_peak*(num/den)**(1./((beta - alpha2)*n2))
+
+
+def two_sbpl_Epeak(E_j, alpha2, beta, n2=RAVASIO_N2):
+  '''E_peak of the nuFnu spectrum from the crossing energy E_j -- the inverse of
+  two_sbpl_Ej, i.e. Ravasio et al. (2018) eq. (4) solved the other way.'''
+  num, den = -(alpha2 + 2.), (beta + 2.)
+  if not (np.isfinite(num) and np.isfinite(den)) or den == 0. or num/den <= 0.:
+    return np.nan
+  return E_j*(num/den)**(-1./((beta - alpha2)*n2))
+
+
+def two_sbpl(E, E_break, E_peak, alpha1=-2/3., alpha2=-1.5, beta=-2.5,
+    n1=RAVASIO_N1, n2=RAVASIO_N2, A=1., nuFnu=False, E_j=None, Ecut=None, cutoff=None):
+  '''
+  The double smoothly broken power law of Ravasio et al. (2018), A&A 613, A16, eq. (3):
+  three power laws joined by two smooth breaks, introduced there to fit GRB 160625B's prompt
+  spectrum, which no single-break model (Band, SBPL) could describe. Written in the PHOTON
+  spectrum N_E they use,
+
+      N_E = A E_break**a1 { [ (E/E_br)**(-a1 n1) + (E/E_br)**(-a2 n1) ]**(n2/n1)
+                            + (E/E_j)**(-b n2) [ (E_j/E_br)**(-a1 n1)
+                                                 + (E_j/E_br)**(-a2 n1) ]**(n2/n1) }**(-1/n2)
+
+  with E_j given by eq. (4) (two_sbpl_Ej) so that the E^2 N_E peak sits at E_peak.
+
+  alpha1, alpha2, beta are PHOTON indices, as in the paper: alpha1 below E_break, alpha2
+  between E_break and the peak, beta above it. The F_nu index is alpha + 1 and the nuFnu
+  index alpha + 2, so the synchrotron values the paper recovers -- alpha1 = -2/3,
+  alpha2 = -3/2 -- are our 1/3 and -1/2 in F_nu, i.e. the SAME asymptotes granot_sari_syn
+  carries, and beta = -psyn/2 - 1 is our -p/2. The defaults here are the paper's fast-cooling
+  synchrotron values, NOT anything measured on this project's spectra.
+
+  n1 (break) and n2 (peak) are smoothing exponents in the SAME convention as GS02's s1, s2:
+  LARGER IS SHARPER. The paper holds them at RAVASIO_N1, RAVASIO_N2.
+
+  WHAT IT IS, ALGEBRAICALLY, AND HOW IT DIFFERS FROM granot_sari_syn. Write the lower
+  two-segment SBPL as L(E) = [(E/E_br)**(-a1 n1) + (E/E_br)**(-a2 n1)]**(-1/n1) and the high
+  power law anchored on it as P(E) = L(E_j) (E/E_j)**b. Then eq. (3) is exactly
+
+      N_E = A E_br**a1 [ L**(-n2) + P**(-n2) ]**(-1/n2),
+
+  the smooth MINIMUM of the lower SBPL and the high power law -- a NESTED smoothly broken
+  power law. granot_sari_syn instead writes the upper break as a multiplicative correction,
+  L(E) x [1 + (E/b_hi)**(s2 (a2 - b))]**(-1/s2). The two agree exactly in the limit where L
+  has reached its a2 asymptote by E_j, since there L/P = (E/E_j)**(a2-b); they differ only
+  through the CURVATURE OF THE LOWER BREAK still present at E_j, i.e. only when the two
+  breaks are close. Measured on this project's asymptotes (a1 = -2/3, a2 = -3/2,
+  b = -2.25) with the breaks, slopes and smoothings all matched (b_lo = E_break,
+  b_hi = E_j, s1 = n1, s2 = n2), the maximum |log10| difference between the two shapes over
+  the whole spectrum, at the two smoothing pairs of interest, is
+
+      log10(b_hi/b_lo)     0.5      1.0      1.5      2.0      3.0
+      s = (1.3, 2.0)     0.084    0.026    0.008    0.002    0.0002
+      s = (5.38, 2.69)   0.005    0.0005   0.0001   0.000    0.000
+
+  i.e. they are the SAME three-segment family, differently parameterised, everywhere the
+  breaks are more than ~1.5 decades apart -- below the fit rms of either. The difference
+  only becomes comparable to that rms in the marginal regime, and it is larger for a SMOOTH
+  lower break (small n1), which is exactly when L still carries curvature at E_j.
+  See ravasio_2sbpl.shape_difference for the scan.
+
+  E_break and E_j are both CROSSING energies (the two terms of their bracket are equal
+  there), so they map one-to-one onto granot_sari_syn's b_lo and b_hi. E_peak does not:
+  it is the nuFnu turnover, which smoothing puts above E_j.
+
+  E_j: pass it directly to bypass eq. (4) -- then E_peak is ignored. Useful when comparing
+  against a fit parameterised on the crossing, and required when alpha2 <= -2 (no turnover).
+  Ecut, cutoff: a high-frequency roll-off, as in granot_sari_syn -- Ecut is where it sits and
+  cutoff its shape, 'R' (the single-electron synchrotron emissivity), 'exp', a callable, or
+  None. The paper's own spectra needed an exponential cut-off at ~50 MeV only once LAT data
+  were included (their Sect. 3); the DEFAULT here is no cut-off at all, because the natural
+  use in this project is on cut-off-flattened spectra.
+  nuFnu: return E^2 N_E (= nu F_nu) instead of the photon spectrum N_E.
+
+  Evaluated in log space for the same reason granot_sari_syn is: E/E_break spans >10 decades
+  on these spectra and the naive powers overflow.
+  '''
+  E = np.asarray(E, float)
+  if E_j is None:
+    E_j = two_sbpl_Ej(E_peak, alpha2, beta, n2)
+  if not np.isfinite(E_j) or E_j <= 0.:
+    return np.full(E.shape, np.nan)
+  u = np.log(E/E_break)                 # ln(E/E_break)
+  w = np.log(E_j/E_break)               # ... at the crossing, for the second term's anchor
+  # [ (E/E_br)**(-a1 n1) + (E/E_br)**(-a2 n1) ]**(n2/n1), in log
+  ln_L = (n2/n1)*np.logaddexp(-alpha1*n1*u, -alpha2*n1*u)
+  ln_P = -beta*n2*np.log(E/E_j) + (n2/n1)*np.logaddexp(-alpha1*n1*w, -alpha2*n1*w)
+  ln_N = np.log(A) + alpha1*np.log(E_break) - np.logaddexp(ln_L, ln_P)/n2
+  if nuFnu:
+    ln_N = ln_N + 2.*np.log(E)
+  N = np.exp(ln_N)
+  if Ecut is not None and cutoff is not None:
+    if cutoff == 'R':
+      N = N*syn_cutoff_R(E/Ecut)
+    elif cutoff == 'exp':
+      N = N*np.exp(-E/Ecut)
+    elif callable(cutoff):
+      N = N*cutoff(E/Ecut)
+    else:
+      raise ValueError(f"cutoff must be 'R', 'exp', None or a callable, got {cutoff!r}")
+  return N
+
+
 def broken_plaw_with_a0(x, g1, g2, g3, a0, a1, a2):
   '''
   Powerlaw with index a0 to g1, -a1 between g1 and g2, -a2 between g2 and g3
