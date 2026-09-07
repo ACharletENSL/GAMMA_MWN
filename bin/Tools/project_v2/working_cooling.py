@@ -99,7 +99,8 @@ def truncate_at_rarefaction(shocked_data, slope_thresh=-8., window=15, minpts=20
     return shocked_data.iloc[:steep[0]]
   return shocked_data
 
-def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=None):
+def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=None,
+    r_max=None):
   '''
   Fit the variable vars, normed by norms, of cell_data
   x0 is the anchor radius (where fitfunc==1); defaults to the first cell radius.
@@ -108,6 +109,15 @@ def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=Non
   reconstruction therefore starts exactly at the cell_d0 (downstream) state.
   The fit window is truncated at the rarefaction arrival (truncate_at_rarefaction):
   the BPL describes the smooth downstream decay, not the rarefaction cliff.
+
+  r_max: hard cap on the fit window, in x/x0 (None = no cap). truncate_at_rarefaction
+  is a HEURISTIC -- a look-ahead log-slope of p over a fixed number of ROWS -- and on a
+  very long run most of a cell's history is post-crash: cooling_g100_hires carries 153224
+  rows per cell out to R/R_inj ~ 700, against ~3500 rows to ~155 in the fiducial. Where
+  the heuristic misses, the BPL is asked to describe the crash and the coasting tail as
+  well as the smooth decay, and the fit that comes out is useless exactly where it is
+  needed. A radius cap cannot miss, and the consumers only ever need the first factor of
+  a few in R/R_inj. Both are applied; the tighter one wins.
   '''
   if x0 is None:
     x0 = cell_data.x.to_numpy()[0]
@@ -128,6 +138,14 @@ def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=Non
     raise RuntimeError('no post-shock data to fit')
   # fit only the smooth downstream decay, not the rarefaction cliff
   shocked_data = truncate_at_rarefaction(shocked_data)
+  if r_max is not None:
+    # hard radius cap, in x/x0. searchsorted is exact (x is monotonic along a worldline);
+    # keep the minpts floor truncate_at_rarefaction uses so a cell caught almost at once
+    # still has something to fit.
+    xs = shocked_data.x.to_numpy(dtype=float)
+    n_cap = int(np.searchsorted(xs, float(r_max)*float(x0), side='right'))
+    if n_cap >= 20:
+      shocked_data = shocked_data.iloc[:n_cap]
   # subsample long histories: ~200 points constrain the smooth profile equally
   # well and cut the curve_fit cost (numeric jacobian scales with N points)
   if len(shocked_data) > 200:
@@ -148,31 +166,41 @@ def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=Non
 _FIT_CACHE_VERSION = 1
 
 def load_or_fit_celldata(cell_data, vars, norms, env, x0, cleanData=False,
-    key=None, k=None):
+    key=None, k=None, r_max=None):
   '''
   Disk-cached wrapper around fit_celldata: curve_fit (x3 per cell) dominates the
   cost of get_cell/shell_nuFnu, and the fit shape depends only on the cell history
   and the anchor x0 (norms and env cancel in the fitfunc(x0)=1 renormalization, and
   u_scale/alpha/zeta rescale *after* fitting), so popts are safe to cache per
-  (key, k, cleanData). Cache lives next to the cell data at
+  (key, k, cleanData, r_max). Cache lives next to the cell data at
   results/{key}/cells/{k:04d}_fit.npz. key/k None => no caching (just fit).
+
+  r_max is part of the cache identity: a cache written with a different window describes a
+  different curve. Files predating it have no 'r_max' key, so the read raises and they are
+  refitted -- which is what a run whose fits were made over the full history needs.
   '''
   if key is None or k is None:
-    return fit_celldata(cell_data, vars, norms, env, x0=x0, cleanData=cleanData)
+    return fit_celldata(cell_data, vars, norms, env, x0=x0, cleanData=cleanData,
+                        r_max=r_max)
   path = get_dirpath(key) + f'cells/{k:04d}_fit.npz'
   if os.path.isfile(path):
     try:
       d = np.load(path)
+      cached_rmax = float(d['r_max'])          # KeyError on a pre-r_max cache -> refit
+      same_rmax = (np.isnan(cached_rmax) if r_max is None
+                   else np.isclose(cached_rmax, float(r_max)))
       if int(d['version']) == _FIT_CACHE_VERSION and bool(d['cleanData']) == bool(cleanData) \
-          and np.isclose(float(d['x0']), float(x0)):
+          and np.isclose(float(d['x0']), float(x0)) and same_rmax:
         return [d['popt_rho'], d['popt_lfac'], d['popt_p']]
     except Exception:
       pass   # unreadable/old cache => refit and overwrite
-  popts = fit_celldata(cell_data, vars, norms, env, x0=x0, cleanData=cleanData)
+  popts = fit_celldata(cell_data, vars, norms, env, x0=x0, cleanData=cleanData,
+                       r_max=r_max)
   try:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     np.savez(path, popt_rho=popts[0], popt_lfac=popts[1], popt_p=popts[2],
-             x0=float(x0), cleanData=bool(cleanData), version=_FIT_CACHE_VERSION)
+             x0=float(x0), cleanData=bool(cleanData), version=_FIT_CACHE_VERSION,
+             r_max=(np.nan if r_max is None else float(r_max)))
   except Exception:
     pass   # caching is best-effort; never fail the pipeline on a write error
   return popts
@@ -529,7 +557,8 @@ def _head_chunk(span):
       continue
     norms = [get_variable(row, nm, env) for nm in varlist]
     try:
-      popts = load_or_fit_celldata(cd, varlist, norms, env, row.x, key=key, k=kk)
+      popts = load_or_fit_celldata(cd, varlist, norms, env, row.x, key=key, k=kk,
+                                   r_max=HEAD_FIT_RMAX)
     except RuntimeError:
       out.append((j, None))
       continue
@@ -748,6 +777,16 @@ def _check_rarefaction_maps(rrar, boff, barT_f, key, z, tol=1e-6, frac_tol=0.05)
       print(f'compute_shell_rarefaction_head: WARNING ({key}, z={z}) barT_off reverses '
             f'by {worst:.1%} of its span across the shell ({(d < 0).sum()}/{len(d)} '
             f'steps) -- the head crossings are under-resolved (raise n_R)')
+
+
+HEAD_FIT_RMAX = 10.          # radius cap (x/x0) on the per-cell fits the rarefaction head
+                             # is traced through. The head only ever needs each cell's
+                             # worldline out to where it is crossed, and that is R/R_inj =
+                             # 1.000-3.905 across the fiducial shell -- so 10 is ~2.5x
+                             # margin on the physics while cutting a hi-res cell's fit
+                             # window from R/R_inj ~ 700 to 10. Most of a long run's cell
+                             # data is POST-crash, which is not what the BPL describes;
+                             # see fit_celldata's r_max.
 
 
 _HEAD_CELLS_PER_CHUNK = 32   # cells per task in the head's fit pass: the payload is a
