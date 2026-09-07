@@ -206,8 +206,13 @@ def fit_celldata(cell_data, vars, norms, env, x0=None, cleanData=False, beta=Non
     popts.append(popt)
   return popts
 
-# bump when the fitting code/conventions change, to invalidate stale caches
-_FIT_CACHE_VERSION = 1
+# bump when the fitting code/conventions change, to invalidate stale caches.
+# 2 (2026-09-07): truncate_at_rarefaction's window and settling skip moved from ROWS to
+# cell crossings, which changes the fit window and therefore every popt. The window
+# parameters are NOT part of the cache key -- they are code, not call arguments -- so this
+# counter is the only thing that invalidates a cache when they change. Bump it whenever
+# truncate_at_rarefaction or fit_celldata's selection changes.
+_FIT_CACHE_VERSION = 2
 
 def load_or_fit_celldata(cell_data, vars, norms, env, x0, cleanData=False,
     key=None, k=None, r_max=None):
