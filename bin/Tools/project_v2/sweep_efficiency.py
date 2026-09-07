@@ -57,17 +57,23 @@ METHOD = 'data'      # reference treatment: get_shell_nuFnu_fromData with rar_cu
                      # i.e. the rarefaction wave as the simulation resolves it and every
                      # cell followed to its last snapshot. THE reference for every ratio
                      # below, and the only model whose cache/figure names are unsuffixed.
-METHODS = ('data', 'data_rarcut', 'data_norar_prerar')
+METHODS = ('data', 'data_rarcut')
                      # the models of the rarefaction wave, all on the same energy budget:
                      #   data                the wave as the simulation resolves it
                      #   data_rarcut         the fit path's sharp modelled cut-off at R_rar
                      #                       (rar_cut='model'), i.e. emission stops there
-                     #   data_norar_prerar   the counterfactual with NO crash: each cell
-                     #                       runs to the same final radius on the smooth
-                     #                       pre-rarefaction decay (prerar_model)
-                     # so the pair (rarcut, prerar) brackets the reference -- the cut can
-                     # only remove radiated energy, the counterfactual can only add it.
-                     # sweep_rarcut / sweep_prerar measure the same three on the FLUX.
+                     # 'data_norar_prerar' -- the counterfactual with NO crash, each cell
+                     # running to the same final radius on the smooth pre-rarefaction decay
+                     # (prerar_model) -- was DROPPED from this tuple on 2026-09-07: it is
+                     # not part of this article and is not to be executed anywhere. The
+                     # METHOD is deliberately KEPT everywhere it is implemented
+                     # (working_cooling_data's grammar, method_outdir, sweep_prerar.py, and
+                     # the style/label maps below) so re-enabling it is putting one string
+                     # back in this tuple. Note it is what made the pair (rarcut, prerar)
+                     # BRACKET the reference -- the cut can only remove radiated energy,
+                     # the counterfactual can only add it -- so with it gone these figures
+                     # bound the reference from one side only.
+                     # sweep_rarcut / sweep_prerar measure the same models on the FLUX.
 METHOD_STY = {'data': ('-', 1.5), 'data_rarcut': ('--', 1.3),
               'data_norar_prerar': (':', 1.6)}   # (linestyle, lw) per model; ONE mapping,
                      # shared by every figure so a dashed curve means the same thing in all
