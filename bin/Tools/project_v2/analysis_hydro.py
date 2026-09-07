@@ -278,9 +278,40 @@ def extract_data_thinshell(key, itmin=0, itmax=None,
 
 
 
+_CELLS_CTX = {}
+
+
+def _cells_init(key, klist, cols, window, rough):
+  """Per-worker context for the cell extraction: read-only, shipped once."""
+  _CELLS_CTX.update(key=key, klist=np.asarray(klist), cols=list(cols),
+                    window=window, rough=rough)
+
+
+def _cells_chunk(task):
+  """
+  One contiguous run of dumps, for every cell of the current block. Returns
+  (j0, array of shape (nk, len(its), ncol)). Module-level so it is picklable.
+
+  The gather is ONE `df.loc[klist, cols]` per dump. The loop this replaces did
+  `df.at[k, var]` per (cell, column) -- 280 000 scalar pandas lookups per dump at
+  20 000 cells, 4e10 over a hi-res run, which is why the old extractor could not be
+  pointed at one.
+  """
+  j0, its = task
+  c = _CELLS_CTX
+  kl, cols = c['klist'], c['cols']
+  out = np.empty((len(kl), len(its), len(cols)))
+  for j, it in enumerate(its):
+    df = openData(c['key'], it)
+    df = smooth_dump_density(df, c['window'], c['rough'])
+    out[:, j, :] = df.loc[kl, cols].to_numpy()
+  return j0, out
+
+
 def extract_data_cells(key, klist, itmin=0, itmax=None, itstep=None,
     savefile=True, noOut=False,
-    rho_smooth_window=RHO_SMOOTH_WINDOW, rho_smooth_rough=RHO_SMOOTH_ROUGH):
+    rho_smooth_window=RHO_SMOOTH_WINDOW, rho_smooth_rough=RHO_SMOOTH_ROUGH,
+    nproc=1, cell_block=None, dump_chunk=64):
   '''
   Extracts hydro data by reorganizing into cells history
     klist: list of cell indices to extract
@@ -290,6 +321,17 @@ def extract_data_cells(key, klist, itmin=0, itmax=None, itstep=None,
     jitter is corrected -- everything downstream (open_celldata -> generate_cell_fromData
     -> the emission kernels) then reads clean rho with no change of its own.
     window=None disables it and reproduces the raw extraction exactly.
+
+  cell_block: how many cells to hold at once (None = all). THE MEMORY KNOB. One block
+    is a dense (nk, n_dumps, ncol) float64 array = nk * n_dumps * 112 bytes; 20 000
+    cells over the 153 224-dump hi-res run is 368 GB, so it MUST be blocked there
+    (8155 cells fits in 150 GB). Each block is one more full pass over the dumps, so
+    prefer fewer, larger blocks.
+  nproc: workers for the dump loop inside a block (forkserver pool, cell_pool). Dumps
+    are independent and every chunk is placed by its own index, so the result does not
+    depend on the worker count -- verified bit-identical, as is nproc=1 against the
+    pre-rewrite extractor.
+  dump_chunk: dumps per task; each task returns nk * dump_chunk * 112 bytes.
   '''
 
   dirpath = get_dirpath(key)
@@ -302,41 +344,57 @@ def extract_data_cells(key, klist, itmin=0, itmax=None, itstep=None,
   # independent); NOT safe for anything differentiating over a fixed number of rows.
   its = dataList(key, itmin, itmax, itstep)[0:]
   # create subfolder to save cells
-  Path(dirpath+'cells').mkdir(parents=True, exist_ok=True) 
+  Path(dirpath+'cells').mkdir(parents=True, exist_ok=True)
 
-  # create dictionaries with arrays to fill
   d0 = openData(key, 0)
-  varlist = d0.keys()
-  varlist = varlist.insert(0, 'it')
+  cols = list(d0.keys())
   if not klist:
     klist = d0.loc[d0['trac']>0]['i'].to_list()
-  dics_arr = [{var:np.zeros(len(its)) for var in varlist} for k in klist]
-  
-  for j, it in enumerate(its):
-    if not (it%1000):
-      print(f'Opening file it {it}')
-    df = openData(key, it)
-    df = smooth_dump_density(df, rho_smooth_window, rho_smooth_rough)
-    for i, k in enumerate(klist):
-      dics_arr[i]['it'][j] += it
-      for var in varlist[1:]:
-        dics_arr[i][var][j] += df.at[k, var]
+  klist = list(klist)
+  its = np.asarray(its)
+  nb = len(klist) if cell_block is None else int(cell_block)
+  out_arr = [] if not noOut else None
 
-  for dic in dics_arr:
-    dic['it'] = dic['it'].astype(int)
-  out_arr = [pd.DataFrame.from_dict(dic).set_index('it') for dic in dics_arr]
+  for b0 in range(0, len(klist), nb):
+    kblock = klist[b0:b0+nb]
+    arr = np.zeros((len(kblock), len(its), len(cols)))
+    tasks = [(j0, tuple(int(x) for x in its[j0:j0+dump_chunk]))
+             for j0 in range(0, len(its), dump_chunk)]
+    npb = cell_pool.resolve_nproc(nproc, cap=len(tasks)) if nproc != 1 else 1
+    tag = f'cells {kblock[0]}-{kblock[-1]}'
+    if npb > 1:
+      with cell_pool.cell_executor(npb, initializer=_cells_init,
+            initargs=(key, kblock, cols, rho_smooth_window, rho_smooth_rough)) as ex:
+        for n, (j0, chunk) in enumerate(ex.map(_cells_chunk, tasks)):
+          arr[:, j0:j0+chunk.shape[1], :] = chunk
+          if not (n % 200):
+            print(f'{tag}: {min((n+1)*dump_chunk, len(its))}/{len(its)} dumps', flush=True)
+    else:
+      _cells_init(key, kblock, cols, rho_smooth_window, rho_smooth_rough)
+      for n, task in enumerate(tasks):
+        j0, chunk = _cells_chunk(task)
+        arr[:, j0:j0+chunk.shape[1], :] = chunk
+        if not (n % 200):
+          print(f'{tag}: {min((n+1)*dump_chunk, len(its))}/{len(its)} dumps', flush=True)
 
+    for i, k in enumerate(kblock):
+      dic = {'it': its.astype(int)}
+      dic.update({var: arr[i, :, c] for c, var in enumerate(cols)})
+      out_k = pd.DataFrame.from_dict(dic).set_index('it')
+      if savefile:
+        # IO.CELL_FMT, not to_csv: at hi-res the sweep re-reads every cell once per point
+        # and the CSV tokenizer dominates. Existing CSV runs stay readable (get_cellfile).
+        save_celldata(key, k, out_k)
+      if not noOut:
+        out_arr.append(out_k)
+    del arr
 
   if savefile:
-    for k, out_k in zip(klist, out_arr):
-      # IO.CELL_FMT, not to_csv: at hi-res the sweep re-reads every cell once per point
-      # and the CSV tokenizer dominates. Existing CSV runs stay readable (get_cellfile).
-      save_celldata(key, k, out_k)
-    # provenance: which de-jittering these CSVs were built with
+    # provenance: which de-jittering these cells were built with
     with open(dirpath + 'cells/_extraction.json', 'w') as f:
       json.dump({'rho_smooth_window': rho_smooth_window,
                  'rho_smooth_rough': rho_smooth_rough,
                  'itmin': itmin, 'itmax': itmax}, f)
-  
+
   if not noOut:
     return out_arr
