@@ -2185,6 +2185,10 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
     for k, l, iT in series:
       col = cols[k]
       sp = r['nuFnu'][iT, :]
+      # zero/negative samples have no place on a log axis: masking them keeps them out of
+      # the drawn curve AND out of the x-clip below, which is otherwise widened by bins
+      # that show nothing there
+      sp = np.where(np.isfinite(sp) & (sp > 0.), sp, np.nan)
       (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
       sps.append(sp/pkmax)
       ident = identify_segments(x, sp, p)
@@ -2203,7 +2207,12 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
           l0 = min(l0, _seg_cross(segs[j-1][1], ln))
         if j + 1 < len(segs):
           l1 = max(l1, _seg_cross(ln, segs[j+1][1]))
-        lxs = np.array([l0 - SEG_EXT,
+        # The LOWEST segment has no neighbour below it, exactly as the 1-p/2 one has none
+        # above, so it runs to the bottom of the band rather than stopping SEG_EXT short.
+        # Without this the extension depended on where the segment happened to be
+        # identified, which is why the FC* band-bottom segment (the 4/3 turn-up caught at
+        # the edge of the array) stopped well short of the VFC one on the same axes.
+        lxs = np.array([np.log10(x.min()) if j == 0 else l0 - SEG_EXT,
                         np.log10(x.max()) if name == 'hi' else l1 + SEG_EXT])
         ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
@@ -2211,7 +2220,8 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
       labels.append(f"{l:+.0f}: {(ident['regime'] or '?') if ident else '?'}")
     ax.set_ylim(ylo, 3.)
     # clip x to where the (y-clipped) spectra are actually visible, +half a decade
-    vis = np.any(np.array(sps) > ylo, axis=0)
+    with np.errstate(invalid='ignore'):
+      vis = np.any(np.nan_to_num(np.array(sps), nan=0.) > ylo, axis=0)
     if vis.any():
       xv = x[vis]
       ax.set_xlim(xv.min()/3., xv.max()*3.)
@@ -2721,6 +2731,11 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
     if norm <= 0.:
       continue
     y = sp / norm
+    # EXCLUDE a point whose flux is zero (or negative, or nan) at the bottom of the band:
+    # on a log axis it simply has no low-frequency end to show, and keeping it would drag
+    # the y-floor set below to something meaningless.
+    if not (np.isfinite(y[0]) and y[0] > 0.):
+      continue
     curves.append((x, y, c))
     ypks.append(float(np.nanmax(y)))
   if not curves:
@@ -2732,6 +2747,20 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
   ymax = max(ypks)
   # 'eff' hangs the floor off the FAINTEST curve so each keeps yclip_dec of its own shape
   ylo = (min(ypks) if mode == 'eff' else ymax)/10.**yclip_dec if ymax > 0. else None
+  # ... but the floor must also be DEEP ENOUGH TO REACH nu_B. LOGNU_MIN sits below the
+  # synchrotron floor now, and every spectrum is positive all the way down to it (checked
+  # on both runs: no non-positive sample anywhere in the band), so the low-frequency end is
+  # not missing -- it was being clipped in Y. How far below its own peak a spectrum's
+  # nu_B end sits grows straight through the sweep, measured on cooling_g100_hires z=4:
+  #     logr    -5    -4    -3    -2    -1    +0    +1    +2    +3
+  #     peak   3.01  3.09  3.84  5.43  6.99  8.14  8.72  9.24  9.75  decades
+  #     fluence 2.81 2.89  3.40  4.73  6.28  7.44  8.07  8.59  9.09
+  # so a fixed 3.5-decade clip showed the band bottom for the fast-cooling points only and
+  # cut everything from logr = -2 upward. The floor now goes to the deepest low-frequency
+  # end among the drawn curves (halved for margin), and yclip_dec becomes a MINIMUM span
+  # rather than the span: a figure whose curves all reach nu_B early is unchanged.
+  if ylo is not None:
+    ylo = min(ylo, min(float(y[0]) for _, y, _ in curves)/2.)
   for x, y, c in _draw_order(curves):
     ax.loglog(x, y, color=c)
   # NO nu = nu_m guide. The x axis is already labelled in nu_m (NU_M_LABEL) and its 10^0
