@@ -1,11 +1,18 @@
 # Full downstream regeneration for the fiducial under the CORRECTED gamma_c definition.
 # Every step is guarded: one failure must not cost the rest of the set.
 # __main__ guard matters -- several of these build forkserver pools.
-import time, traceback
+import os, time, traceback
 
 
 def main():
-  K, NP = 'cooling_g100', 7
+  # REGEN_KEY selects the run (default the fiducial); REGEN_SKIP is a comma-separated list
+  # of substrings, so a step whose name contains one is skipped. sweep_efficiency is the
+  # one worth skipping on a hi-res key: it computes its OWN points at 10 per decade rather
+  # than replotting the sweep's, which is cheap at 500 cells and is not at 10000.
+  K = os.environ.get('REGEN_KEY', 'cooling_g100')
+  NP = int(os.environ.get('REGEN_NPROC', '7'))
+  skip = [t for t in os.environ.get('REGEN_SKIP', '').split(',') if t]
+  print(f'regenerating for key={K!r}, nproc={NP}, skipping={skip}', flush=True)
   import sweep_gammacm as swp
   import lightcurve_shape as lcs
   import sweep_shells, sweep_rarcut, sweep_compare
@@ -29,6 +36,10 @@ def main():
   ]
   results = []
   for name, fn in steps:
+    if any(t in name for t in skip):
+      print(f'\n########## {name}: SKIPPED (REGEN_SKIP) ##########', flush=True)
+      results.append((name, 'skipped', 0.))
+      continue
     t0 = time.time()
     print(f'\n########## {name} ##########', flush=True)
     try:
