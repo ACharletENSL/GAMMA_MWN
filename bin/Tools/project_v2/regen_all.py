@@ -11,12 +11,16 @@ def main():
   # than replotting the sweep's, which is cheap at 500 cells and is not at 10000.
   K = os.environ.get('REGEN_KEY', 'cooling_g100')
   NP = int(os.environ.get('REGEN_NPROC', '7'))
-  skip = [t for t in os.environ.get('REGEN_SKIP', '').split(',') if t]
+  # sweep_efficiency is skipped BY DEFAULT: it computes its own points (101 for the
+  # reference plus 51 per model, both shells) rather than replotting the sweep's, so it is
+  # run separately, on the cluster. Set REGEN_SKIP='' to include it.
+  skip = [t for t in os.environ.get('REGEN_SKIP', 'sweep_efficiency').split(',') if t]
   print(f'regenerating for key={K!r}, nproc={NP}, skipping={skip}', flush=True)
   import sweep_gammacm as swp
   import lightcurve_shape as lcs
   import sweep_shells, sweep_rarcut, sweep_compare
   import nuc_validation, slope_validation, segment_route, sweep_efficiency
+  import mid_slope_evolution
 
   steps = [
     ('sweep_gammacm  data_rarcut z=4', lambda: swp.main(key=K, method='data_rarcut', z=4, nproc=NP)),
@@ -25,6 +29,10 @@ def main():
     ('sweep_gammacm  data        z=1', lambda: swp.main(key=K, method='data', z=1, nproc=NP)),
     ('lightcurve_shape z=4',           lambda: lcs.main(key=K, z=4, nproc=NP)),
     ('lightcurve_shape z=1',           lambda: lcs.main(key=K, z=1, nproc=NP)),
+    # mid_slope_evolution writes mid_slope_evolution.png INTO the sweep's own directory
+    # and it is one of the ARTICLE_SERIES globs -- it was missing from the first hi-res
+    # regeneration because this step was not in the list.
+    ('mid_slope_evolution',            lambda: mid_slope_evolution.main(key=K)),
     ('sweep_shells',                   lambda: sweep_shells.main(key=K, nproc=NP)),
     ('sweep_rarcut',                   lambda: sweep_rarcut.main(key=K, nproc=NP)),
     ('sweep_compare',                  lambda: sweep_compare.main(key=K, nproc=NP)),
