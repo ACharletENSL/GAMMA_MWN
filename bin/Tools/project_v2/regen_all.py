@@ -34,6 +34,30 @@ def main():
     # last: it computes its OWN points, including data_norar_prerar, and is the long pole
     ('sweep_efficiency',               lambda: sweep_efficiency.main(key=K, nproc=NP)),
   ]
+  # COMPLETENESS GUARD. sweep_gammacm.main(use_cache=True) calls load_sweep first and only
+  # falls through to run_sweep when that returns NOTHING -- so a cache holding ONE point
+  # counts as "cached" and every figure below is drawn from that one point, silently. That
+  # is exactly what happened to the fiducial z=4 set on 2026-09-08: a killed run left one
+  # banked point, the relaunch replotted it, and the whole downstream set ran on it.
+  import glob
+  from sweep_gammacm import method_outdir, LOG10RATIO_ARR
+  want = len(LOG10RATIO_ARR)
+  bad = []
+  for m in ('data_rarcut', 'data'):
+    for zz in (4, 1):
+      d = method_outdir(m, K, zz)
+      n = len(glob.glob(d + '/cache/point_logr=*.npz'))
+      if n != want:
+        bad.append(f'{m} z={zz}: {n}/{want} points ({d})')
+  if bad:
+    print('INCOMPLETE SWEEP CACHES -- downstream figures would be drawn from a subset:',
+          flush=True)
+    for b in bad:
+      print('   ' + b, flush=True)
+    raise SystemExit('refusing to regenerate from an incomplete sweep; run '
+                     'sweep_gammacm.main(..., use_cache=False) for those (method, z) first')
+  print(f'all four sweep caches complete at {want} points', flush=True)
+
   results = []
   for name, fn in steps:
     if any(t in name for t in skip):
