@@ -31,7 +31,8 @@ import matplotlib.transforms as mtransforms
 
 from scipy.optimize import least_squares
 
-from environment import MyEnv, rescale_hydro, GAMMA_dir, field_correction_tag
+from environment import (MyEnv, rescale_hydro, GAMMA_dir, field_correction_tag,
+    FIELD_CORR_TAG)
 from phys_functions import granot_sari_syn, syn_cutoff_R
 from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, edge_slope,
     edge_slope_drift, flat_core,
@@ -2971,11 +2972,19 @@ def copy_article_figures(outdir, article_dir=ARTICLE_DIR, series=ARTICLE_SERIES)
   that writes a source directory named in ARTICLE_SERIES, right after trim_pngs, so the
   selection is refreshed whenever those figures are rebuilt and the article folder can
   never hold a stale copy of a figure that has since changed.
-  Keyed on the EXACT source directory name, so the '_z=1' and other suffixed variants are
-  deliberately not mirrored; add an entry to ARTICLE_SERIES to include a new series.
+  Keyed on the source directory name with the FIELD-CORRECTION TAG STRIPPED, so the
+  corrected run mirrors under the same key as the uncorrected one: '_fc' marks a change of
+  DEFINITION (same figures, corrected gamma_c), not a different series. Every other suffix
+  is left in place, so '_z=1' and the per-key variants ('..._cooling_g100_hires_fc') are
+  still deliberately not mirrored -- they are different shells and different RUNS, and the
+  article's figures all come from one of each. Add an entry to ARTICLE_SERIES for a new
+  series.
   '''
   import shutil
-  globs = series.get(os.path.basename(os.path.normpath(outdir)))
+  name = os.path.basename(os.path.normpath(outdir))
+  if name.endswith(FIELD_CORR_TAG):
+    name = name[:-len(FIELD_CORR_TAG)]
+  globs = series.get(name)
   if not globs:
     return []
   os.makedirs(article_dir, exist_ok=True)
