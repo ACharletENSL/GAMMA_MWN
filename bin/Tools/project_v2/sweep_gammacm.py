@@ -86,7 +86,18 @@ R_CAP = 30.               # analysis window in R/R_injection for the '_cap' meth
                           # can be checked against a simulation that has no rarefaction.
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'gammacm_sweep')
 OUTDIR_DATA = OUTDIR + '_data'   # data-driven method (working_cooling_data), see method_outdir
-EARLY_ANA = 'shockfit'    # data method: reconstruct the cadence-missed early datapoints from
+EARLY_ANA = 'measured'    # data method: the injection event comes from each cell's OWN
+                          # velocity jump (working_cooling_data.measured_injection_event) and
+                          # the state from the fitted profiles at that radius. Was 'shockfit',
+                          # which took BOTH from a fitted worldline -- and that worldline runs
+                          # at a constant cell-crossing rate while the measured one varies 26%
+                          # across the shell, so the two cross, _prepend_shocked_row's guard
+                          # flips at each crossing, and the shell splits into corrected and
+                          # uncorrected blocks with a visible step between them. Measured on
+                          # cooling_g100_hires z=4: 'shockfit' gives 7902/9999 cells prepended
+                          # and a 2.365x gap in the onset ladder; 'measured' gives 10000/10000
+                          # and 1.094. See [[injection-event-from-cell-data]].
+                          # OLD NOTE: reconstruct the cadence-missed early datapoints from
                           # this run's shock-front states, so the two methods share their
                           # injection states and the comparison isolates the post-injection
                           # hydro treatment (see working_cooling_data.load_shockfront_states)

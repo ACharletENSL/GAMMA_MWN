@@ -369,7 +369,7 @@ def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK, source=None):
 
 
 def measure_field_correction(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=True,
-    verbose=True, quantity='C', clock='shock', source='measured'):
+    verbose=True, quantity='C', clock='fluid', source='measured'):
   '''
   MEASURE THE RUN'S FIELD CORRECTION AND MAKE IT THE SWEEP'S DEFINITION.
 
@@ -409,12 +409,12 @@ def measure_field_correction(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=True,
     # the analytic-vs-simulated B'_0, and the measured crossing time -- so gamma_c reflects
     # the simulation rather than the analytic setup. 'C_avg' is the historical field
     # average alone, kept so the old definition can still be reproduced.
-    # clock='shock' (the default): the crossing time is the invariant interval
-    # sqrt(dt^2-dx^2) summed along the SHOCK's own trajectory. It is a proper time, of the
-    # shock rather than of the fluid, and it is the frame the crossing's two events sit in
-    # -- the same reasoning that put Gamma_shock in the nominal t_cr/Gamma. clock='fluid'
-    # is dt/Gamma of the material just behind the front; the two differ by 18.5% on the RS
-    # and -7.9% on the FS (opposite signs), so this is a definition choice, not a detail.
+    # clock='fluid' (the default): dt/Gamma of the material just behind the front, i.e.
+    # the proper time OF THE ELECTRONS. gamma_c is set by how much synchrotron cooling the
+    # electrons actually undergo, and the cooling integral runs on the clock they
+    # experience -- not on the shock's. clock='shock' is the invariant interval along the
+    # front's own trajectory; the two differ by 18.5% on the RS and -7.9% on the FS, with
+    # OPPOSITE signs, so this is a definition choice and not a detail.
     out[z] = float(fr['C'] if quantity == 'C' else 1./fr['mean_B2'])
     rows.append((z, fr['mean_B2'], 1./fr['mean_B2'], fr['C']))
   if verbose:
