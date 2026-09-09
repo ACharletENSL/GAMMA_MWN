@@ -98,14 +98,14 @@ var2func = {
 # Legends and labels
 var_exp = {
   "time":"$t$", "x":"$r$", "r":"$r$", "dx":"$dr$", "rho":"$\\rho$", "vx":"$\\beta$", "p":"$p$", "v":"$\\beta$",
-  "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$", "gma_m":"$\\gamma_m$",
+  "D":"$\\gamma\\rho$", "sx":"$\\gamma^2\\rho h$", "tau":"$\\tau$", "gma_m":"$\\gamma_\\mathrm{m}$",
   "trac":"tracer", "trac2":"wasSh", "Sd":"shock id", "gmin":"$\\gamma_{min}$", "gmax":"$\\gamma_{max}$", "zone":"",
   "T":"$\\Theta$", "h":"$h$", "lfac":"$\\Gamma$", "u":"$\\Gamma\\beta$", "u_i":"$\\Gamma\\beta$", "u_sh":"$\\gamma\\beta$",
   "Ei":"$e_{int}$", "Ekin":"$e_k$", "Emass":"$\\rho c^2$", "dt":"dt", "res":"dr/r", "Tth":"$T_\\theta$",
   "numax":"$\\nu'_{max}$", "numin":"$\\nu'_{min}$", "B":"$B'$", "Pmax":"$P'_{max}$",
   "gm":"$\\gamma_0$", "gb":"$\\gamma_1$", "gM":"$\\gamma_2$", "Lp_num":"$L'$", "L":"$L$",
-  "Lth":"$\\tilde{L}_{\\nu_m}$", "Lum":"$\\tilde{L}_{\\nu_m}$", "Lp":"$L'$", "Lbol":"$L'_{bol}$",
-  "num":"$\\nu'_m$", "nub":"$\\nu'_b$", "nuM":"$\\nu'_M$", "inj":"inj", "fc":"fc", "nu_m":"$\\nu_m$","nu_m2":"$\\nu_m$",
+  "Lth":"$\\tilde{L}_{\\nu_\\mathrm{m}}$", "Lum":"$\\tilde{L}_{\\nu_\\mathrm{m}}$", "Lp":"$L'$", "Lbol":"$L'_{bol}$",
+  "num":"$\\nu'_\\mathrm{m}$", "nub":"$\\nu'_b$", "nuM":"$\\nu'_\\mathrm{M}$", "inj":"inj", "fc":"fc", "nu_m":"$\\nu_\\mathrm{m}$","nu_m2":"$\\nu_\\mathrm{m}$",
   "Ton":"$T_{on}$", "Tth":"$T_{\\theta,k}$", "Tej":"$T_{ej,k}$", "tc":"$t_c$",
   "V4":"$\\Delta V^{(4)}$", "V3":"$\\Delta V^{(3)}$", "V4r":"$\\Delta V^{(4)}_c$",
   "i":"i", 'i_sh':'i$_{sh}$', 'i_d':'i$_d$', 'ish':'i$_{sh}$', "syn":"syn"

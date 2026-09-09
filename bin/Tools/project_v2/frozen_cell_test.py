@@ -146,7 +146,7 @@ def main(Ri_target=1.05, logr=1., key=KEY, z=Z, outdir=OUTDIR, Nnu=700,
     for y in (4./3., (3.-p)/2., -(p-2.)/2.):
       axes[1, j].axhline(y, color='#009E73', lw=1., ls=(0, (5, 2)))
     axes[0, j].set_title(rf'$\bar T$ = {Tb[it]:.2f}', fontsize=10)
-    axes[1, j].set(xlabel=r'$\nu/\nu_m$', ylim=(-1.6, 1.8))
+    axes[1, j].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylim=(-1.6, 1.8))
     for ax in (axes[0, j], axes[1, j]):
       ax.grid(alpha=.25)
       ax.axvline(1., color='grey', ls=':', lw=.9)

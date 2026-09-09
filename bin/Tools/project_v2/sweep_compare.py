@@ -202,7 +202,7 @@ def plot_efficiency_compare(pairs, outdir=OUTDIR, labels=LABELS):
   axs[1].plot(logr, eff_d/eff_f, 'k.-')
   axs[1].axhline(1., color='grey', ls=':', lw=.9)
   axs[1].set_ylabel(f'{lb} / {la}')
-  axs[1].set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  axs[1].set_xlabel('$\\log_{10}\\mathcal{C}$')
   fig.tight_layout()
   fig.savefig(os.path.join(outdir, 'radiative_efficiency_cmp.png'), dpi=300)
   plt.close(fig)
@@ -288,7 +288,7 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
     xhi = max(x[np.nanmax([yf, yd], axis=0) > ylo].max() for x, yf, yd, _ in curves)
     ax_s.set_xlim(min(x[0] for x, _, _, _ in curves), 2.*xhi)
   sym = '\\nu F_\\nu' if kind == 'peak' else '\\nu \\mathcal{F}_\\nu'
-  sub = f'({sym})_{{\\nu_m}}' if mode == 'nu_m' else f'({sym})_{{\\rm max}}'
+  sub = f'({sym})_{{\\nu_\\mathrm{{m}}}}' if mode == 'nu_m' else f'({sym})_{{\\rm max}}'
   pre = '\\varepsilon_{\\rm rad}\\,' if mode == 'eff' else ''
   ax_s.set_ylabel(f'${pre}{sym}/{sub}$  ({ln} norm.)')
   # no nu = nu_m guide on either panel -- see sweep_gammacm._plot_spectra_all for why it
@@ -306,7 +306,7 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
     ax_s.set_xlabel(NU_M_LABEL)
   ax_s.set_title(f'{"Peak" if kind=="peak" else "Time-integrated"} spectra, '
                  f'{la} vs {lb} ({_MODE_TITLE[mode]})')
-  fig.colorbar(sm, ax=cb_ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  fig.colorbar(sm, ax=cb_ax, label='log$_{10}\\mathcal{C}$')
   fig.savefig(os.path.join(outdir, f'{kind}_spectra_cmp_norm-{mode}.png'), dpi=300)
   plt.close(fig)
 
@@ -392,7 +392,7 @@ def plot_spectral_evolution_compare(pairs, barT_f, outdir=OUTDIR, labels=LABELS,
     ax.set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm pk}}$  ({ln} norm.)')
     ax.set_xlabel(NU_M_LABEL)
     ax.set_title(f'Spectral evolution, {la} vs {lb}, '
-                 f'$\\log_{{10}}(\\gamma_c/\\gamma_m)={rf["log10ratio"]:+.0f}$')
+                 f'$\\log_{{10}}\\mathcal{{C}}={rf["log10ratio"]:+.0f}$')
     fig.tight_layout()
     fig.savefig(os.path.join(outdir,
         f'spectrum_evolution_cmp_logr={rf["log10ratio"]:+.1f}.png'), dpi=300)
@@ -509,7 +509,7 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     ax_r.set_ylabel(f'{lb} / {la}')
     ax_r.set_xlabel('$\\bar{T}/\\bar{T}_f$')
     ax_f.set_title(f'Lightcurve at $\\nu={nu_t:g}\\,\\nu_{{\\rm pk}}$, {la} vs {lb}')
-    fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+    fig.colorbar(sm, ax=axs, label='log$_{10}\\mathcal{C}$')
     fig.savefig(os.path.join(outdir, f'lightcurve_cmp{suff}_nu={nu_t:g}.png'), dpi=300)
     plt.close(fig)
 
@@ -563,7 +563,7 @@ def plot_summary_ratios(pairs, outdir=OUTDIR, flag_tol=0.15, labels=LABELS):
     ax.plot(s['logr'], s[k], m + '-', label=lab, ms=5)
   ax.axhline(1., color='grey', ls=':', lw=.9)
   ax.axhspan(1.-flag_tol, 1.+flag_tol, color='grey', alpha=0.12, lw=0, zorder=0)
-  ax.set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  ax.set_xlabel('$\\log_{10}\\mathcal{C}$')
   ax.set_ylabel(f'{lb} / {la}')
   ax.set_title(f'{lb} vs {la}, over the cooling regimes')
   ax.legend(fontsize=9, ncol=2)
@@ -643,7 +643,7 @@ def fluence_split(pairs, barT_cut, outdir=OUTDIR, labels=LABELS, cut_label='cut'
     ax.set_ylabel(f'fluence fraction\n({lab})')
     ax.set_ylim(0., 1.)
   axs[0].legend(fontsize=9, loc='lower left')
-  axs[1].set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  axs[1].set_xlabel('$\\log_{10}\\mathcal{C}$')
   axs[0].set_title(f'Where the fluence is emitted, relative to $\\bar T$ = {cut_math}')
   fig.tight_layout()
   fig.savefig(os.path.join(outdir, 'fluence_split.png'), dpi=300)
@@ -805,10 +805,10 @@ def plot_fluence_slope_profile(series, outdir=OUTDIR, labels=LABELS, fname=None,
   ax.set_xlabel(NU_M_LABEL)
   ax.set_ylabel(slope_label('$\\nu \\mathcal{F}_\\nu$'))
   ax.plot([], [], 'k--', label=la); ax.plot([], [], 'k-', label=lb)
-  ax.plot([], [], 'kv', ms=4, ls='none', label='$\\min(\\nu_m,\\nu_c)$')
+  ax.plot([], [], 'kv', ms=4, ls='none', label='$\\min(\\nu_\\mathrm{m},\\nu_\\mathrm{c})$')
   ax.legend(loc='lower left', fontsize=9)
   ax.set_title(f'Low-energy slope of the time-integrated spectra, {la} vs {lb}{title_extra}')
-  fig.colorbar(sm, ax=ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
   fig.savefig(os.path.join(outdir, fname or 'fluence_slope_profile.png'), dpi=300)
   plt.close(fig)
 
@@ -853,7 +853,7 @@ def plot_fluence_slopes_vs_regime(tables, outdir=OUTDIR, labels=LABELS, kind='as
   ax.annotate('1  (Band $\\alpha=-1$)', xy=(0.985, 1. + .012),
               xycoords=transx(ax), fontsize=8, color='grey', ha='right')
   ax.set_ylabel('$a = $ d$\\log(\\nu\\mathcal{F}_\\nu)/$d$\\log\\nu$')
-  ax.set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  ax.set_xlabel('$\\log_{10}\\mathcal{C}$')
   # series keys are colour SWATCHES, not lines: a coloured line would collide with the
   # dashed/solid side keys, and a filled marker with the resolved/not-resolved one
   keys = [Patch(color=col, label=name) for name, (_, col) in tables.items()]

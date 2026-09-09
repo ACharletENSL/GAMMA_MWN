@@ -83,8 +83,8 @@ def main(Ri_target=1.05, key=KEY, z=Z, outdir=OUTDIR, cell_kind='analytic'):
     axes[1].annotate(lab, xy=(1.005, y), xycoords=('axes fraction', 'data'),
                      fontsize=8, color='grey', va='center')
   axes[0].set(ylabel=r'$\nu F_\nu / (\nu F_\nu)_{\rm pk}$', ylim=(1e-6, 3.))
-  axes[0].legend(title=r'$\log_{10}\gamma_c/\gamma_m$', fontsize=9)
-  axes[1].set(xlabel=r'$\nu/\nu_m$', ylabel=r'$d\log(\nu F_\nu)/d\log\nu$',
+  axes[0].legend(title=r'$\log_{10}\mathcal{C}$', fontsize=9)
+  axes[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'$d\log(\nu F_\nu)/d\log\nu$',
               ylim=(-1.6, 1.8))
   for ax in axes:
     ax.grid(alpha=.25)

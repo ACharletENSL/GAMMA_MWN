@@ -134,7 +134,7 @@ def main(Ri_target=1.05, logr=1., key=KEY, z=Z, outdir=OUTDIR, n_times=4):
       ax.loglog(d['nu'][m], s[m], color=COL[name], lw=1.5,
                 ls='--' if name == 'reconstructed' else '-')
     ax.axvline(1., color='grey', ls=':', lw=.9)
-    ax.set(xlabel=r'$\nu/\nu_m$', ylabel=r'$\nu F_\nu$ (this cell)',
+    ax.set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'$\nu F_\nu$ (this cell)',
            title=rf'$\bar T$ = {Tbar[it]:.2f}')
     ax.grid(alpha=.25)
     smax = max(np.nanmax(d['nuFnu'][it]) for d in out.values())
@@ -142,7 +142,7 @@ def main(Ri_target=1.05, logr=1., key=KEY, z=Z, outdir=OUTDIR, n_times=4):
       ax.set_ylim(smax*1e-6, smax*3.)
 
   fig.suptitle(f'cell k={k}  (R_i/R_0 ~ {Ri_target})   '
-               rf'$\log_{{10}}(\gamma_c/\gamma_m)$ = {logr:+.0f},  '
+               rf'$\log_{{10}}\mathcal{{C}}$ = {logr:+.0f},  '
                rf'$\alpha$ = {alpha:.4g}', fontsize=12)
   path = os.path.join(outdir, f'cell_diagnostic_k{k}_logr{logr:+.0f}.png')
   fig.savefig(path, dpi=150, bbox_inches='tight')

@@ -92,7 +92,7 @@ def main(Ri_target=1.05, logr=1., key=KEY, z=Z, outdir=OUTDIR,
     if smax > 0:
       ax0.set_ylim(smax*1e-7, smax*3.)
     ax0.set_title(rf'$\bar T$ = {Tb:.2f}', fontsize=10)
-    ax1.set(xlabel=r'$\nu/\nu_m$', ylim=(-1.6, 1.8))
+    ax1.set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylim=(-1.6, 1.8))
     for ax in (ax0, ax1):
       ax.axvline(1., color='grey', ls=':', lw=.9)
       ax.grid(alpha=.25)
@@ -102,7 +102,7 @@ def main(Ri_target=1.05, logr=1., key=KEY, z=Z, outdir=OUTDIR,
       ax0.legend(fontsize=8, frameon=False)
 
   fig.suptitle(f'cell k={k}   '
-               rf'$\log_{{10}}(\gamma_c/\gamma_m)$={logr:+.0f},  p={p},  '
+               rf'$\log_{{10}}\mathcal{{C}}$={logr:+.0f},  p={p},  '
                rf'$\gamma_{{\max}}/\gamma_{{\min}}\to$'
                f'{out["full"]["cell"].gmax.iloc[-1]/out["full"]["cell"].gmin.iloc[-1]:.0f}'
                ' (full) / '

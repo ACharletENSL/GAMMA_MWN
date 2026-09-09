@@ -735,7 +735,7 @@ def plot_correction(cells, breaks, outdir, key=KEY, clock=CLOCK, fname=FIG):
                   fontsize=7.5, color=col)
   ax.set(yscale='log', xlim=(-0.02, 1.08),
          xlabel='shocking time $t_s/t_{\\rm cr}$ (position along the shell)',
-         ylabel='correction to $\\gamma_c/\\gamma_m$')
+         ylabel='correction to $\\mathcal{C}$')
   ax.grid(color=GRID, lw=0.5)
   ax.legend(fontsize=8, frameon=False, loc='upper left')
   ax.set_title('...and where each fluence spectrum lands on it', fontsize=10, color=INK)

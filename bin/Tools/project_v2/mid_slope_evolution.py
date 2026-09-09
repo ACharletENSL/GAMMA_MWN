@@ -408,7 +408,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
   lrs = sorted({int(r['logr']) for r in rows})
   handles = [Line2D([], [], color=col(lr), lw=1.8) for lr in lrs]
   leg = axes[0].legend(handles, [f'{lr:+d}' for lr in lrs],
-                       title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
+                       title='$\\log_{10}\\mathcal{C}$', fontsize=8.5,
                        title_fontsize=8.5, ncol=len(lrs), loc='upper center',
                        frameon=True, framealpha=0.92, edgecolor=GRID,
                        columnspacing=1.2, handlelength=1.5, handletextpad=0.4,

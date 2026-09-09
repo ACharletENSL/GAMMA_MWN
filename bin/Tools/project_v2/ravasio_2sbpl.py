@@ -1188,7 +1188,7 @@ def plot_compare(df, outdir=OUTDIR):
     axs[1, 0].text(0.02, y, lab, transform=axs[1, 0].get_yaxis_transform(), fontsize=8,
                    va='bottom', color=c)
   axs[1, 0].set(ylabel=r'$s_1$ / $n_1$  (lower break)', yscale='log',
-                xlabel=r'$\log_{10}(\gamma_c/\gamma_m)$', title='sharpness, lower break')
+                xlabel=r'$\log_{10}\mathcal{C}$', title='sharpness, lower break')
   scat(axs[1, 1], free, 's2')
   for y, c, lab in ((S_GS02[1], col['gs02'], 'GS02 2.0'),
                     (S_2SBPL[1], col['2sbpl'], 'Ravasio 2.69')):
@@ -1196,7 +1196,7 @@ def plot_compare(df, outdir=OUTDIR):
     axs[1, 1].text(0.02, y, lab, transform=axs[1, 1].get_yaxis_transform(), fontsize=8,
                    va='bottom', color=c)
   axs[1, 1].set(ylabel=r'$s_2$ / $n_2$  (upper break)', yscale='log',
-                xlabel=r'$\log_{10}(\gamma_c/\gamma_m)$', title='sharpness, upper break')
+                xlabel=r'$\log_{10}\mathcal{C}$', title='sharpness, upper break')
   axs[0, 0].legend(fontsize=7, ncol=2)
   for ax in axs.ravel():
     ax.grid(alpha=.25)
@@ -1272,7 +1272,7 @@ def plot_mid_slope(df, outdir=OUTDIR):
       ax.axhline(y, color='0.5', lw=.9, ls=':')
       ax.text(0.02, y, lab, transform=ax.get_yaxis_transform(), fontsize=8, va='bottom',
               color='0.35')
-    ax.set(xlabel=r'$\log_{10}(\gamma_c/\gamma_m)$', title=ttl)
+    ax.set(xlabel=r'$\log_{10}\mathcal{C}$', title=ttl)
     ax.grid(alpha=.25)
   axs[0].set(ylabel=r'mid slope, $\nu F_\nu$ index')
   axs[0].legend(fontsize=7, ncol=2)
@@ -1356,9 +1356,9 @@ def plot_example(key=KEY, method=METHOD, z=Z_RS, logr=0., logt=0., config='ancho
     axs[1].plot(xf, np.log10(mods[sh]) - yf, color=col[sh], lw=1.2)
   axs[1].axhline(0., color='k', lw=.7)
   axs[0].set(xscale='log', yscale='log', ylabel=r'$\nu F_\nu$ [arb.]',
-             title=(f'{SHELL[z]}  ' + r'$\log_{10}(\gamma_c/\gamma_m)=$' + f'{logr:+.0f}, '
+             title=(f'{SHELL[z]}  ' + r'$\log_{10}\mathcal{C}=$' + f'{logr:+.0f}, '
                     + r'$\log_{10}(\bar T/\bar T_f)=$' + f'{logt:+.1f}  --  {config}\n{sub}'))
-  axs[1].set(xlabel=r'$\nu/\nu_m$', ylabel='model - data [dex]')
+  axs[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel='model - data [dex]')
   axs[0].legend(fontsize=8); axs[0].grid(alpha=.25); axs[1].grid(alpha=.25)
   fig.tight_layout()
   f = os.path.join(outdir, f'example_{config}_z={z}_logr={logr:+.0f}_logt={logt:+.1f}.png')

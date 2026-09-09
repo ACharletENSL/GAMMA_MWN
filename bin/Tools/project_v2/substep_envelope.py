@@ -83,7 +83,7 @@ def main(Ri_target=1.05, logrs=(-4., 3.), key=KEY, z=Z, outdir=OUTDIR, Nnu=2400)
     nu_c = 10.**(2.*logr)
     for ax in axes[:, c]:
       ax.axvline(nu_c, color='grey', ls='--', lw=1.1)
-    axes[0, c].set(title=rf'$\log_{{10}}(\gamma_c/\gamma_m)$ = {logr:+.0f}'
+    axes[0, c].set(title=rf'$\log_{{10}}\mathcal{{C}}$ = {logr:+.0f}'
                          rf'   ({len(live)} sub-steps)',
                    ylabel=r'$\nu F_\nu$ / composite peak', ylim=(1e-7, 3.))
     axes[0, c].legend(fontsize=8, loc='lower center')
@@ -93,7 +93,7 @@ def main(Ri_target=1.05, logrs=(-4., 3.), key=KEY, z=Z, outdir=OUTDIR, Nnu=2400)
     sl = np.gradient(y, x)
     axes[1, c].semilogx(10**x, sl, 'o-', color='k', ms=3.2, lw=1.2)
     axes[1, c].axhline(0., color='grey', lw=.9, ls=':')
-    axes[1, c].set(xlabel=r'$\nu_{\rm peak}$ of the sub-step  $/\nu_m$',
+    axes[1, c].set(xlabel=r'$\nu_{\rm peak}$ of the sub-step  $/\nu_\mathrm{m}$',
                    ylabel=r'$d\log A/d\log\nu_{\rm peak}$ along the envelope',
                    ylim=(-1.6, 1.2))
     for ax in axes[:, c]:
@@ -107,7 +107,7 @@ def main(Ri_target=1.05, logrs=(-4., 3.), key=KEY, z=Z, outdir=OUTDIR, Nnu=2400)
     print(f'   slope range along the envelope: {sl.min():+.3f} .. {sl.max():+.3f}'
           f'   (a straight envelope would be constant)')
   fig.suptitle(f'Envelope = locus of the sub-step PEAKS, cell k={k}  '
-               r'(grey dashed = $\nu_c$)', fontsize=12)
+               r'(grey dashed = $\nu_\mathrm{c}$)', fontsize=12)
   path = os.path.join(outdir, 'substep_envelope.png')
   fig.savefig(path, dpi=140, bbox_inches='tight')
   plt.close(fig)

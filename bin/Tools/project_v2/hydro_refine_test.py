@@ -199,12 +199,12 @@ def main(Ri_target=1.05, logrs=(-4., 3.), dmaxes=(None, 0.02, 0.005), key=KEY, z
     for ax in axes[:, c]:
       ax.axvline(nu_c, color='crimson', ls='--', lw=1.1)
       ax.grid(alpha=.25)
-    axes[0, c].set(title=rf'$\log_{{10}}(\gamma_c/\gamma_m)$ = {logr:+.0f}'
-                         r'   (red dashed = $\nu_c$)',
+    axes[0, c].set(title=rf'$\log_{{10}}\mathcal{{C}}$ = {logr:+.0f}'
+                         r'   (red dashed = $\nu_\mathrm{c}$)',
                    ylabel=r'$d\log(\nu F_\nu)/d\log\nu$', ylim=(-1.2, 1.6))
     axes[0, c].legend(fontsize=8, loc='lower left')
     axes[1, c].axhline(0., color='grey', lw=.8, ls=':')
-    axes[1, c].set(xlabel=r'$\nu/\nu_m$', ylabel='log10( spectrum / GS02 fit )',
+    axes[1, c].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel='log10( spectrum / GS02 fit )',
                    ylim=(-0.25, 0.25))
   fig.suptitle(f'Refining the steps on the emission-relevant hydro (V3p, '
                r"$\nu'_B$)" f'   cell k={k}', fontsize=12)

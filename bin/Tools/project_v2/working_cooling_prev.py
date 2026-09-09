@@ -319,8 +319,8 @@ def plot_hydrostep_Fnus(j, dist, env, width_tol=1.1, ax_in=None, withslope=True,
     ax.text(nu, -0.01, name, ha='center', va='top', transform=transy(ax))
 
   title = '1 cell $\\nu F_\\nu$, ' + f'step {j}, ' + \
-      '$(\\bar{\\gamma}_c/\\gamma_m)_{\\rm cell} =$' + f'$10^{{{reg:.1f}}}$, ' + \
-      "$(\\bar{\\gamma}_c/\\gamma_m)_{\\rm step} =$" + f'$10^{{{loc:.1f}}}$'
+      '$(\\bar{\\gamma}_\\mathrm{c}/\\gamma_\\mathrm{m})_{\\rm cell} =$' + f'$10^{{{reg:.1f}}}$, ' + \
+      "$(\\bar{\\gamma}_\\mathrm{c}/\\gamma_\\mathrm{m})_{\\rm step} =$" + f'$10^{{{loc:.1f}}}$'
   ax.set_title(title)
 
   if withslope:
@@ -424,7 +424,7 @@ def plot_cell_nuFnu(dist, env, width_tol=1.1,
     ax.text(nu, -0.01, name, ha='center', va='top', transform=transy(ax))
   ax.loglog(nub, nF, c='k', **kwargs)
   title = '1 cell $\\nu F_\\nu$ ' + f'all steps, ' + \
-      '$(\\bar{\\gamma}_c/\\gamma_m)_{\\rm cell} =$' + f'$10^{{{reg:.1f}}}$'
+      '$(\\bar{\\gamma}_\\mathrm{c}/\\gamma_\\mathrm{m})_{\\rm cell} =$' + f'$10^{{{reg:.1f}}}$'
   ax.set_title(title)
   # if ax_in is None:
     # ymax = nF.max()*2

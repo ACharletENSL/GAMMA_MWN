@@ -1006,10 +1006,10 @@ def plot_prescription(sides_by_z, summary, outdir=OUTDIR, cases=PRESC_CASES):
     ax.set_xlim(max(x.min(), 1e-7), x.max())
     ax.grid(alpha=.2, lw=.5)
     ax.set_title(f"{rg}: worst bin, rms = {wr:.3f}\n"
-                 f"z={s['z']}, log$_{{10}}(\\gamma_c/\\gamma_m)$={s['logr']:+.0f}, "
+                 f"z={s['z']}, log$_{{10}}\\mathcal{{C}}$={s['logr']:+.0f}, "
                  f"$\\bar{{T}}$={s['fs']['barT'][i]:.2f}",
                  fontsize=8, color=('#b00' if wr > PRESC_RMS_MAX else 'k'))
-    ax.set_xlabel('$\\nu/\\nu_{m,0}$')
+    ax.set_xlabel('$\\nu/\\nu_{\\mathrm{m},0}$')
   for a in axs0[:, 0]:
     a.set_ylabel('$\\nu F_\\nu$ (peak-normalised)')
   axs0.ravel()[0].legend(fontsize=7, framealpha=.9)
@@ -1127,7 +1127,7 @@ def plot_slope_evolution(sides_by_z, outdir=OUTDIR):
                      f"  ({'reverse' if sides[0]['z'] == 4 else 'forward'} shock)", fontsize=10)
     axs[-1][jz].set_xlabel('$\\bar{T}/\\bar{T}_f$')
   axs[0][0].legend(fontsize=7, ncol=2, framealpha=.9,
-                   title='log$_{10}(\\gamma_c/\\gamma_m)$', title_fontsize=7)
+                   title='log$_{10}\\mathcal{C}$', title_fontsize=7)
   fig.suptitle('Segment slopes measured with NO value imposed, vs the values held '
                f'everywhere else (dashed)   [windows at dfac = {sb.FREE_DFAC:g}]', fontsize=11)
   fig.tight_layout()

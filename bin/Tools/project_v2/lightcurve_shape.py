@@ -659,7 +659,7 @@ def _by_nu(rows, nu_t, key):
   return x, y
 
 
-_SCAN_UNITS = {'num': ('nu_num', '$\\nu/\\nu_m$', '', '\\nu_m'),
+_SCAN_UNITS = {'num': ('nu_num', '$\\nu/\\nu_{\\mathrm{m},0}$', '', '\\nu_\\mathrm{m}'),
                'pk': ('nub', '$\\nu/\\nu_{\\rm pk}$', '_pk', '\\nu_{\\rm pk}')}
 
 
@@ -713,7 +713,7 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   '''
   from matplotlib.lines import Line2D
   from sweep_gammacm import _sweep_colors, _draw_order
-  xkey, xlab, tag, ref = _SCAN_UNITS[unit]
+  xkey, xlab, tag, _ = _SCAN_UNITS[unit]      # the unit's symbol is the x label's now
   colors, sm = _sweep_colors(results)
   nu_all = np.array([m[xkey] for m in scan_rows], float)
   nu_lo, nu_hi = nu_all.min(), nu_all.max()
@@ -746,19 +746,21 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
     ylim.append((lo - pad, hi + pad))
 
   inside = lambda i, v: ylim[i] is not None and ylim[i][0] <= v <= ylim[i][1]
-  for i, (ttl, ylab) in enumerate((
-      ('peak time', '$x_{\\rm pk}=\\bar{T}_{\\rm pk}/\\bar{T}_f$'),
-      ('width at half maximum', 'FWHM $/\\bar{T}_f$'),
-      ('pulse asymmetry at $0.1\\,F_{\\rm pk}$', '$t_{\\rm rise}/t_{\\rm fall}$'))):
+  # NO titles, on the figure or on the panels: each panel's y label already names the
+  # quantity it carries (peak time, width at half maximum, asymmetry at 0.1 F_pk), and
+  # the frequency unit the suptitle used to state is the x label of all three.
+  for i, ylab in enumerate(('$x_{\\rm pk}=\\bar{T}_{\\rm pk}/\\bar{T}_f$',
+                            'FWHM $/\\bar{T}_f$',
+                            '$t_{\\rm rise}/t_{\\rm fall}$ at $0.1\\,F_{\\rm pk}$')):
     ax = axs[i]
     ax.axvline(1., color='grey', ls=':', lw=.8)
     if i in (0, 2) and inside(i, 1.):    # x=1 = shell crossing / symmetric pulse
       ax.axhline(1., color='grey', ls=':', lw=.8)
     ax.set_xlim(nu_lo, nu_hi)
-    ax.set_xlabel(xlab); ax.set_ylabel(ylab); ax.set_title(ttl)
+    ax.set_xlabel(xlab); ax.set_ylabel(ylab)
   # one legend, on the peak-time panel: the break marks (always drawn) and the
   # rarefaction line (only where it falls inside that panel's clipped range)
-  brk = '$\\nu_c$' if unit == 'num' else '$\\min(\\nu_m,\\nu_c)$'
+  brk = '$\\nu_\\mathrm{c}$' if unit == 'num' else '$\\min(\\nu_\\mathrm{m},\\nu_\\mathrm{c})$'
   handles = [Line2D([], [], color='grey', ls='--', lw=.7, label=brk)]
   if x_rf is not None and inside(0, x_rf):
     axs[0].axhline(x_rf, color='k', ls='--', lw=.8)
@@ -770,9 +772,7 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   # pad/fraction are fractions of the COMBINED width of the three panels (as in
   # sweep_gammacm.plot_lightcurve_shape): the defaults size the gap for one panel
   fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035,
-               label='log$_{10}(\\gamma_c/\\gamma_m)$')
-  fig.suptitle('Pulse characteristics against frequency: peak time, width and '
-               f'rise/fall asymmetry   (in ${ref}$)')
+               label='log$_{10}\\mathcal{C}$')
   fn = os.path.join(outdir, f'pulse_characteristics_vs_nu{tag}.png')
   fig.savefig(fn, dpi=200)
   plt.close(fig)
@@ -822,7 +822,7 @@ def plot_shape_metrics(rows, outdir, barT_f=None, x_rf=None, unit='pk'):
             marker='s', ms=3)
   ax.set_ylabel('$d\\ln(\\nu F_\\nu)/d\\ln\\bar{T}$')
   ax.set_title('rise index at $10^{-2}$ (solid) and $0.1$ (dashed) of the peak')
-  ax.set_xlabel('log$_{10}(\\gamma_c/\\gamma_m)$')
+  ax.set_xlabel('log$_{10}\\mathcal{C}$')
 
   ax = axs[1, 1]
   for nu in nus:
@@ -832,7 +832,7 @@ def plot_shape_metrics(rows, outdir, barT_f=None, x_rf=None, unit='pk'):
   ax.axhline(-3.25, color='grey', ls=':', lw=.8)
   ax.set_ylabel('$d\\ln(\\nu F_\\nu)/d\\ln\\bar{T}$')
   ax.set_title('decay index at $\\bar{T}_{\\rm rf}$ (solid) and late (dashed, $-3.25$)')
-  ax.set_xlabel('log$_{10}(\\gamma_c/\\gamma_m)$')
+  ax.set_xlabel('log$_{10}\\mathcal{C}$')
 
   ax = axs[1, 2]
   for nu in nus:
@@ -843,10 +843,10 @@ def plot_shape_metrics(rows, outdir, barT_f=None, x_rf=None, unit='pk'):
   ax.set_ylabel('flat top  /  $F_{\\rm br}/F_{\\rm pk}$')
   ax.set_title('flat top $\\Delta x(F>0.9F_{\\rm pk})/x_{\\rm pk}$ (solid),\n'
                'flux level of the rise break (dashed)')
-  ax.set_xlabel('log$_{10}(\\gamma_c/\\gamma_m)$')
+  ax.set_xlabel('log$_{10}\\mathcal{C}$')
 
   fig.suptitle('Pulse characteristics across the cooling sweep'
-               + ('   (at fixed $\\nu/\\nu_m$)' if unit == 'num' else ''))
+               + ('   (at fixed $\\nu/\\nu_{\\mathrm{m},0}$)' if unit == 'num' else ''))
   fig.tight_layout()
   fn = os.path.join(outdir,
                     f'pulse_characteristics_vs_regime{"_num" if unit == "num" else ""}.png')
@@ -864,7 +864,7 @@ def plot_peaktime_reference(rows_pk, rows_num, outdir, x_rf=None):
   change in the pulse.
   '''
   fig, axs = plt.subplots(1, 2, figsize=(11, 4.3), sharey=True)
-  for ax, rows, lab in ((axs[0], rows_pk, '\\nu_{\\rm pk}'), (axs[1], rows_num, '\\nu_m')):
+  for ax, rows, lab in ((axs[0], rows_pk, '\\nu_{\\rm pk}'), (axs[1], rows_num, '\\nu_\\mathrm{m}')):
     for nu in sorted({m['nu_t'] for m in rows}):
       ax.plot(*_by_nu(rows, nu, 'x_pk'), color=NU_COLORS.get(nu, 'k'), marker='o', ms=4,
               label=f'$\\nu={nu:g}\\,{lab}$')
@@ -872,10 +872,10 @@ def plot_peaktime_reference(rows_pk, rows_num, outdir, x_rf=None):
     if x_rf is not None:
       ax.axhline(x_rf, color='k', ls='--', lw=.8)
     ax.axvline(0., color='grey', ls='-', lw=.6, alpha=.5)
-    ax.set_xlabel('log$_{10}(\\gamma_c/\\gamma_m)$')
+    ax.set_xlabel('log$_{10}\\mathcal{C}$')
     ax.set_title(f'fixed $\\nu/{lab}$'); ax.legend(fontsize=9)
   axs[0].set_ylabel('$x_{\\rm pk}=\\bar{T}_{\\rm pk}/\\bar{T}_f$')
-  fig.suptitle('Peak time: the turnover at $\\gamma_c=\\gamma_m$ is the reference frequency, '
+  fig.suptitle('Peak time: the turnover at $\\mathcal{C}=1$ is the reference frequency, '
                'not the pulse')
   fig.tight_layout()
   fn = os.path.join(outdir, 'lightcurve_peaktime_reference.png')
@@ -911,7 +911,7 @@ def plot_normalised_pulses(results, rows, barT_f, outdir, x_rf=None):
     ax.set_xlabel('$\\bar{T}/\\bar{T}_{\\rm pk}$')
     ax.set_title(f'$\\nu={nu:g}\\,\\nu_{{\\rm pk}}$')
   axs[0].set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm max}$')
-  fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  fig.colorbar(sm, ax=axs, label='log$_{10}\\mathcal{C}$')
   fig.suptitle('Pulse profiles, with the peak time divided out')
   fn = os.path.join(outdir, 'pulse_profiles_collapsed.png')
   fig.savefig(fn, dpi=200)

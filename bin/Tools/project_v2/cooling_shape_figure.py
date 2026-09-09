@@ -128,9 +128,9 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   # trajectory, so drawing it there would assert an evolution the model does not have
   cut = lambda y: np.where(y >= 1., y, np.nan)
   axT.loglog(tt, 1./tt, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}$')
-  axT.loglog(tt, cut(gamma_synCooled(tt, gM0)), color='k', lw=1.4, label='$\\gamma_M$')
+  axT.loglog(tt, cut(gamma_synCooled(tt, gM0)), color='k', lw=1.4, label='$\\gamma_\\mathrm{M}$')
   axT.loglog(tt, cut(gamma_synCooled(tt, gm0)), color='k', lw=1.1, ls='--',
-             label='$\\gamma_m$')
+             label='$\\gamma_\\mathrm{m}$')
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
   # the two knees, labelled along the bottom where nothing else runs; each is the
   # cooling time of the edge it burns, tilde{t}_M = 1/gma_M0 and tilde{t}_m = 1/gma_m0

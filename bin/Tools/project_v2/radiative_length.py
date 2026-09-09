@@ -527,7 +527,7 @@ def plot_lengths(cells, outdir, barT_f, key=KEY, fname=FIG_LEN):
                label='$\\bar{T}_\\theta$')
   axes[0].plot(bg/barT_f, dg, '--', color=INK, lw=1.2, zorder=4, label='grid step')
   axes[0].set_ylabel('$\\Delta\\bar{T}_f$', color=INK, fontsize=11)
-  axes[1].set_ylabel('$\\ell_f\\,/\\,(\\gamma_c/\\gamma_m)$', color=INK, fontsize=11)
+  axes[1].set_ylabel('$\\ell_f\\,/\\,\\mathcal{C}$', color=INK, fontsize=11)
   axes[0].set_xlim(right=1.2)
   axes[0].set_ylim(bottom=0.3*np.nanmin([r[f'dT{min(FRACS):g}'] for r in cells]))
   axes[0].set_title('Observed span of the radiative phase', color=INK, fontsize=11,
@@ -547,7 +547,7 @@ def plot_lengths(cells, outdir, barT_f, key=KEY, fname=FIG_LEN):
                    + ', '.join(f'{lr:+.0f}: {100*c:.0f}%' for lr, c in cens.items()),
                    xy=(0.02, 0.97), xycoords='axes fraction', ha='left', va='top',
                    fontsize=8, color=MUTED)
-  leg = axes[0].legend(title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
+  leg = axes[0].legend(title='$\\log_{10}\\mathcal{C}$', fontsize=8.5,
                        title_fontsize=8.5, loc='upper left', frameon=True, ncol=2,
                        framealpha=0.92, edgecolor=GRID)
   leg.get_title().set_color(MUTED)
@@ -610,7 +610,7 @@ def plot_link(times, mid_rows, outdir, barT_f, barT_off=None, fname=FIG_LINK):
                     color=INK, fontsize=11, loc='left', pad=6)
   axes[1].set_xlabel('$\\bar{T}/\\bar{T}_f$', color=INK, fontsize=10)
   for ax in axes:
-    leg = ax.legend(title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
+    leg = ax.legend(title='$\\log_{10}\\mathcal{C}$', fontsize=8.5,
                     title_fontsize=8.5, ncol=2, loc='upper left', frameon=True,
                     framealpha=0.92, edgecolor=GRID)
     leg.get_title().set_color(MUTED)

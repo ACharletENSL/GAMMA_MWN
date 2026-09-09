@@ -150,7 +150,7 @@ def plot_cut_energy_profile(cells=None, logr_list=LOGR_PROFILE, key=KEY,
       ks.append(k); ror_l.append(ror)
       ratio.append(cell_radiated_energy(cf, ef)/Ec)
     axs[0].plot(ks, ratio, '.-', color=c, lw=1.1, ms=4,
-                label=f'$\\log_{{10}}(\\gamma_c/\\gamma_m)={logr:+.0f}$')
+                label=f'$\\log_{{10}}\\mathcal{{C}}={logr:+.0f}$')
     axs[1].plot(ks, ror_l, '.-', color='k', lw=1.1, ms=4)
   axs[0].axhline(1., color='grey', ls=':', lw=.9)
   axs[0].set_yscale('log')

@@ -336,7 +336,7 @@ def plot_efficiency_curve(res_rs, res_fs, outdir=OUTDIR, method=METHOD):
   ax.set_yscale('log')
   ax.grid(alpha=.25, lw=.5)
   ax.set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
-  ax.set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  ax.set_xlabel('$\\log_{10}\\mathcal{C}$')
   ax.legend(fontsize=9)
   ax.set_title('Radiative efficiency across the cooling regime'
                + ('' if method == METHOD else f'  ({METHOD_LABEL[method]})'))
@@ -372,7 +372,7 @@ def plot_efficiency_own_regime(res_rs, res_fs, outdir=OUTDIR, method=METHOD):
   axs[1].plot(xc, ratio, '-', color='k', lw=1.2)
   axs[1].axhline(1., color='grey', ls=':', lw=.9)
   axs[1].set_ylabel('FS / RS')
-  axs[1].set_xlabel("$\\log_{10}(\\gamma_c/\\gamma_m)$   (each shell's own)")
+  axs[1].set_xlabel("$\\log_{10}\\mathcal{C}$   (each shell's own)")
   for ax in axs:
     ax.grid(alpha=.25, lw=.5)
   fig.tight_layout()
@@ -456,7 +456,7 @@ def plot_efficiency_models(res_by_method, outdir=OUTDIR, ref=METHOD,
   # them against
   axs[1].yaxis.set_major_locator(plt.MultipleLocator(0.05))
   axs[1].set_ylabel(f'/ {METHOD_LABEL[ref]}')
-  axs[1].set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  axs[1].set_xlabel('$\\log_{10}\\mathcal{C}$')
   # two legends: colour = shell, linestyle = model. Neither axis of the figure is
   # readable without both, so they are drawn separately rather than as 9 combined entries
   h_shell = [plt.Line2D([], [], color=c, lw=1.5, label=lab) for _, c, lab in series]

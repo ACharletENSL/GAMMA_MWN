@@ -93,7 +93,7 @@ def main(Ri_target=1.05, logr=3., key=KEY, z=Z, outdir=OUTDIR, Nnu=900,
   m = tot > 0
   axes[0].loglog(nu[m], tot[m]/tot.max(), color='k', lw=2., label='sum over sub-steps')
   axes[0].axvline(nu_c, color='crimson', ls='--', lw=1.2,
-                  label=rf'$\nu_c/\nu_m=(\gamma_c/\gamma_m)^2$')
+                  label=rf'$\nu_\mathrm{{c}}/\nu_\mathrm{{m}}=\mathcal{{C}}^2$')
   axes[0].axvline(1., color='grey', ls=':', lw=.9)
   axes[0].set(ylabel=r'$\nu F_\nu$ (normalised to the sum peak)', ylim=(1e-7, 3.))
   axes[0].legend(fontsize=9)
@@ -107,11 +107,11 @@ def main(Ri_target=1.05, logr=3., key=KEY, z=Z, outdir=OUTDIR, Nnu=900,
                      fontsize=8, color='grey', va='center')
   axes[1].axvline(nu_c, color='crimson', ls='--', lw=1.2)
   axes[1].axvline(1., color='grey', ls=':', lw=.9)
-  axes[1].set(xlabel=r'$\nu/\nu_m$', ylabel=r'$d\log(\nu F_\nu)/d\log\nu$', ylim=(-1.6, 1.8))
+  axes[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'$d\log(\nu F_\nu)/d\log\nu$', ylim=(-1.6, 1.8))
   for ax in axes:
     ax.grid(alpha=.25)
   fig.suptitle(f'sub-step decomposition, cell k={k}, '
-               rf'$\log_{{10}}(\gamma_c/\gamma_m)$={logr:+.0f}, p={p}'
+               rf'$\log_{{10}}\mathcal{{C}}$={logr:+.0f}, p={p}'
                f'\n{len(live)} contributing sub-steps at $T_{{\\rm obs}}=T_s$',
                fontsize=11)
   path = os.path.join(outdir, f'substep_slowcool_logr{logr:+.0f}.png')

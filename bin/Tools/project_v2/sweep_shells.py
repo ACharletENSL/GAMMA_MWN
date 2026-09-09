@@ -156,7 +156,7 @@ def _regime_title(p, key=KEY):
   '''Both shells' cooling regimes: they share alpha, so the FS sits at a fixed
   offset above the RS target (see _regime_offset).'''
   off = _regime_offset(key)
-  return (f'$\\log_{{10}}(\\gamma_c/\\gamma_m) = {p["log10ratio"]:+.1f}$ (RS), '
+  return (f'$\\log_{{10}}\\mathcal{{C}} = {p["log10ratio"]:+.1f}$ (RS), '
           f'${p["log10ratio"] + off:+.1f}$ (FS)')
 
 
@@ -331,7 +331,7 @@ def plot_total_fluence_all(pairs, mode, outdir=OUTDIR):
   '''
   Every regime's TOTAL time-integrated spectrum (both shocks summed) on one panel,
   coloured by log10(gamma_c/gamma_m) -- the two-shell counterpart of
-  sweep_gammacm.plot_fluence_all, built with the same _plot_spectra_all so the
+  sweep_gammacm's time-integrated panel, built with the same _plot_spectra_all so the
   normalisation, y-clip and axis conventions match the one-shell figures exactly and
   the two can be laid side by side. mode: 'nu_m' normalises each curve at nu_m,
   'max' at its own peak.
@@ -343,7 +343,7 @@ def plot_total_fluence_all(pairs, mode, outdir=OUTDIR):
   os.makedirs(outdir, exist_ok=True)
   def get_total_fluence(p):
     return compute_fluence_spectrum(p['Tb'], p['nuFnu_tot'])
-  norm_txt = 'normalised at $\\nu_m$' if mode == 'nu_m' else 'peak-normalised'
+  norm_txt = 'normalised at $\\nu_\\mathrm{m}$' if mode == 'nu_m' else 'peak-normalised'
   _plot_spectra_all(pairs, get_total_fluence, mode,
       f'Total time-integrated spectra, both shocks ({norm_txt})',
       f'total_fluence_spectra_norm-{mode}.png', outdir, sym='\\nu \\mathcal{F}_\\nu')
@@ -428,7 +428,7 @@ def plot_shell_shares(pairs, outdir=OUTDIR, nu_ref=NU_REF):
               label=STY['FS']['label'])
   axs[1].set_yscale('log')
   axs[1].set_ylabel('$\\epsilon_{\\rm rad} = E_{\\rm rad}/E_{\\rm inj}$')
-  axs[1].set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$   (RS)')
+  axs[1].set_xlabel('$\\log_{10}\\mathcal{C}$   (RS)')
   axs[1].legend(fontsize=9)
   fig.tight_layout()
   fig.savefig(os.path.join(outdir, 'shell_shares.png'), dpi=300)

@@ -137,7 +137,7 @@ def main(Ri_target=1.05, logrs=(-4., 3.), steps=(0, 3, 10), key=KEY, z=Z, outdir
       F = np.asarray(get_Fnu_step(nu*env.nu0, float(Ton_j), st, K0, env, NG, True, 1.1),
                      float)*nu
       _panel(axes[3, c], nu, F, col, lab, ((4./3., '4/3'), ((3.-p)/2., '(3-p)/2')),
-             r'$\nu F_\nu$', r'$\nu/\nu_m$', (-2.2, 1.8), i == 0)
+             r'$\nu F_\nu$', r'$\nu/\nu_{\mathrm{m},0}$', (-2.2, 1.8), i == 0)
 
       # rows 2 -> 3 may only RESCALE: report the worst shape departure
       mm = (e > 0) & (L > 0) & np.isfinite(e) & np.isfinite(L)
@@ -145,7 +145,7 @@ def main(Ri_target=1.05, logrs=(-4., 3.), steps=(0, 3, 10), key=KEY, z=Z, outdir
         r = L[mm]/e[mm]; r = r/np.median(r)
         print(f"  step {j:2d}  L'/e' shape ratio  min {r.min():.6f}  max {r.max():.6f}"
               f"   (1.000000 = pure rescaling)")
-    axes[0, c].set_title(rf'$\log_{{10}}(\gamma_c/\gamma_m)$ = {logr:+.0f}', fontsize=12)
+    axes[0, c].set_title(rf'$\log_{{10}}\mathcal{{C}}$ = {logr:+.0f}', fontsize=12)
     for r_ in range(4):
       axes[r_, c].legend(fontsize=7, loc='lower left')
   fig.suptitle(f'ONE sub-step through the whole chain, cell k={k}   '

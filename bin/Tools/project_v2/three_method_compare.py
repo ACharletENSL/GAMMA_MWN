@@ -80,7 +80,7 @@ def main(logr=1., key=KEY, z=Z, outdir=OUTDIR):
   for meth, lab, col, ls in METHODS:
     if meth in data:
       axes[0].plot([], [], color='0.35', ls=ls, lw=1.4, label=lab)
-  axes[0].set(xlabel=r'$\nu/\nu_m$', ylabel=r'$\nu F_\nu$ (reference peak = 1)',
+  axes[0].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'$\nu F_\nu$ (reference peak = 1)',
               ylim=(1e-7, 3.), title='spectral evolution (shared epochs)')
 
   # ---- 2. time-integrated (fluence) spectra
@@ -90,7 +90,7 @@ def main(logr=1., key=KEY, z=Z, outdir=OUTDIR):
     flu = TRAPZ(np.nan_to_num(S), barT, axis=0)
     m = flu > 0
     axes[1].loglog(nu[m], flu[m]/np.nanmax(flu), color=col, ls=ls, lw=1.6, label=lab)
-  axes[1].set(xlabel=r'$\nu/\nu_m$', ylabel=r'fluence $\nu F_\nu$, normalised',
+  axes[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'fluence $\nu F_\nu$, normalised',
               ylim=(1e-5, 3.), title='time-integrated spectra')
 
   # ---- 3. lightcurves
@@ -102,7 +102,7 @@ def main(logr=1., key=KEY, z=Z, outdir=OUTDIR):
       lc = np.nan_to_num(S[:, j]); m = (lc > 0) & (barT > 0)
       axes[2].loglog(barT[m], lc[m]/np.nanmax(lc), color=col, ls=ls, lw=1.4, alpha=a)
   for nut, a in zip(NU_LC, (1., .55, .3)):
-    axes[2].plot([], [], color='0.35', lw=2., alpha=a, label=rf'$\nu={nut:g}\,\nu_m$')
+    axes[2].plot([], [], color='0.35', lw=2., alpha=a, label=rf'$\nu={nut:g}\,\nu_\mathrm{{m}}$')
   axes[2].set(xlabel=r'$\bar T$', ylabel=r'$\nu F_\nu$ (each normalised)',
               ylim=(1e-5, 3.), title='lightcurves')
 
@@ -111,8 +111,8 @@ def main(logr=1., key=KEY, z=Z, outdir=OUTDIR):
     ax.legend(fontsize=8, frameon=False)
   for ax in axes[:2]:
     ax.axvline(nu_c, color='crimson', ls=':', lw=1.2)
-  fig.suptitle(rf'full / rarcut / reconstructed, $\log_{{10}}(\gamma_c/\gamma_m)$={logr:+.0f}'
-               r'  (red dotted = $\nu_c$)', fontsize=12)
+  fig.suptitle(rf'full / rarcut / reconstructed, $\log_{{10}}\mathcal{{C}}$={logr:+.0f}'
+               r'  (red dotted = $\nu_\mathrm{c}$)', fontsize=12)
   path = os.path.join(outdir, f'three_method_compare_logr{logr:+.0f}.png')
   fig.savefig(path, dpi=140, bbox_inches='tight')
   plt.close(fig)

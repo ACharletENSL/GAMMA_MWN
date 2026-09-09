@@ -358,8 +358,8 @@ def plot_population(sides, outdir=OUTDIR, estimator='q10', tag=''):
       if tk is None:
         continue
       ax.loglog(b, np.where(tk['valid'], tk['nu_c'], np.nan), color=col, lw=lw,
-                label=f'$\\nu_c$ {name}')
-    ax.set_title(f"log$_{{10}}(\\gamma_c/\\gamma_m)$ = {s['logr']:+.0f}", fontsize=9)
+                label=f'$\\nu_\\mathrm{{c}}$ {name}')
+    ax.set_title(f"log$_{{10}}\\mathcal{{C}}$ = {s['logr']:+.0f}", fontsize=9)
     ax.grid(alpha=.2, lw=.5)
   for ax in axs[len(sides):]:
     ax.axis('off')
@@ -367,7 +367,7 @@ def plot_population(sides, outdir=OUTDIR, estimator='q10', tag=''):
   for ax in axs[-ncol:]:
     ax.set_xlabel('$\\bar{T}$')
   for i in range(0, len(axs), ncol):
-    axs[i].set_ylabel('$\\nu/\\nu_{m,0}$')
+    axs[i].set_ylabel('$\\nu/\\nu_{\\mathrm{m},0}$')
   z = sides[0]['z']
   fig.suptitle(f'cell cooling-frequency population vs the fitted break  (z={z})', fontsize=10)
   fig.tight_layout()
@@ -401,11 +401,11 @@ def plot_collapse(sides, outdir=OUTDIR, estimator='q10', tag='', ref='segments')
     axs[1].loglog(b, np.where(tk['valid'], tk['nu_c'], np.nan)/nominal, color=c, lw=1.4)
   for ax, lab in zip(axs, [f'model ({estimator})', f'measured ({ref})']):
     ax.grid(alpha=.2, lw=.5)
-    ax.set_ylabel(f'$\\nu_c$ {lab} $/[\\nu_{{m,0}}(\\gamma_c/\\gamma_m)^2]$')
+    ax.set_ylabel(f'$\\nu_\\mathrm{{c}}$ {lab} $/[\\nu_{{\\mathrm{{m}},0}}\\mathcal{{C}}^2]$')
   axs[-1].set_xlabel('$\\bar{T}$')
   z = sides[0]['z']
   axs[0].set_title(f'collapse on the nominal cooling ratio  (z={z})', fontsize=10)
-  fig.colorbar(sm, ax=axs, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  fig.colorbar(sm, ax=axs, label='log$_{10}\\mathcal{C}$')
   p = os.path.join(outdir, f'nuc_collapse_z{z}_{ref}{tag}.png')
   fig.savefig(p, dpi=200, bbox_inches='tight')
   plt.close(fig)

@@ -15,7 +15,9 @@ Plot set:
     log10(bar{T}/bar{T}_f) = -3..2), one fig per gamma_c/gamma_m
   - peak & fluence spectra, all regimes together on a nu/nu_m axis, normalised
     to the flux at nu_m, to the peak flux, or peak-normalised and then scaled by
-    each point's radiative efficiency (SPEC_MODES)
+    each point's radiative efficiency (SPEC_MODES). ONE 2-panel figure per mode
+    (plot_spectra_pair): the two are only ever read side by side, and joined they
+    share the colour bar instead of printing it twice
 Example use in command line:
   python -c "import sweep_gammacm as S; S.main(use_cache=False, nproc=4)"
   python -c "import sweep_gammacm as S; S.main(z=1, method='data_rarcut', nproc=7)"
@@ -381,7 +383,14 @@ R_REF = 1.1                                   # cooling-step ratio (gma_max drop
                                              # at its geometric-mean gamma, so the budget is
                                              # second-order in R_REF (the old left-edge sum
                                              # overshot by ~3.5% at 1.1, ~5% at 1.2)
-NU_M_LABEL = '$\\nu/\\nu_m$'
+NU_M_LABEL = '$\\nu/\\nu_{\\mathrm{m},0}$'
+
+
+def _nu_pk_label(nu_t):
+  '''"nu = X nu_pk", with the factor dropped when it is 1 -- a leading "1" in front of
+  a symbol reads as a typo rather than as a multiplier.'''
+  fac = '' if nu_t == 1. else f'{nu_t:g}\\,'
+  return f'$\\nu = {fac}\\nu_{{\\rm pk}}$'
 
 
 def compute_alpha_sweep(key, log10ratio_arr):
@@ -2061,12 +2070,11 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
       if np.isfinite(eff) and eff > 0.:
         axs[1].loglog(x, eff*y, color=c)   # energetics restored, see the docstring
       axs[2].semilogx(x, local_index(x, y), color=c, lw=.9)
-    for ax, sc in zip(axs, ('linear', 'log', 'temporal index')):
+    for ax in axs:
       ax.axvline(1., color='grey', ls=':', lw=.7)
       if xoff is not None:
         ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
       ax.set_xlabel('$\\bar{T}/\\bar{T}_f$')
-      ax.set_title(sc)
     for ax in axs[:2]:
       # on the linear panel every curve passes through y=1 (its own peak); on the log
       # panel the eps_rad scaling turns the same line into the fully radiative reference
@@ -2083,8 +2091,14 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     # pad/fraction are fractions of the COMBINED width of the three panels, so the
     # defaults (0.05/0.15) leave a gap and a bar sized for a single-panel figure
     fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035,
-                 label='log$_{10}(\\gamma_c/\\gamma_m)$')
-    fig.suptitle(f'Lightcurve shape at $\\nu={nu_t:g}\\,\\nu_{{\\rm pk}}$ ')
+                 label='log$_{10}\\mathcal{C}$')
+    # No titles at all -- neither the figure's nor the three panels' ('linear', 'log',
+    # 'temporal index'), which the axis labels already say. The one thing they did NOT
+    # say is which frequency the figure is at, and that now sits inside the LEFT panel,
+    # top right: its upper right corner is empty on every one of these (the curves rise
+    # from the left and peak at x<1), and the log panel's is not.
+    axs[0].text(0.97, 0.97, _nu_pk_label(nu_t), transform=axs[0].transAxes,
+                ha='right', va='top', fontsize=12)
     fig.savefig(os.path.join(outdir, f'lightcurve_shape{tag}_nu={nu_t:g}.png'), dpi=300)
     plt.close(fig)
 
@@ -2238,7 +2252,11 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
       ax.set_xlim(xv.min()/3., xv.max()*3.)
     ax.set_xlabel(NU_M_LABEL)
     ax.set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}$')
-    ax.set_title(f'Spectral evolution, $\\log_{{10}}(\\gamma_c/\\gamma_m)={r["log10ratio"]:+.0f}$')
+    # the regime is stated INSIDE the panel (top left, above the rising low-frequency
+    # ends), not as a title: these go into the article as a series of panels, where a
+    # title band over each one is dead space repeating what one symbol says
+    ax.text(0.03, 0.97, f'$\\log_{{10}}\\mathcal{{C}} = {r["log10ratio"]:+.0f}$',
+            transform=ax.transAxes, ha='left', va='top', fontsize=12)
     # the time is the legend TITLE, not repeated in every entry: six entries each carrying
     # the same axis name is a legend box wider than the panel it sits in. Two columns at
     # the BOTTOM CENTRE -- the spectra all rise from the lower left and fall off to the
@@ -2450,10 +2468,10 @@ def plot_break_evolution(results, tracks, fits, barT_f, barT_off=None, outdir=OU
   u = '' if nu_unit == 1. else f'{nu_unit:g}'
   ax.set_ylabel(f'$\\nu_X/{u}\\nu_{{X,0}}$')
   ax.set_xlabel('$\\bar{T}$')
-  ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.5, ls='-', label='$\\nu_c$'),
-                     plt.Line2D([], [], color='k', lw=1.1, ls='--', label='$\\nu_m$')],
+  ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.5, ls='-', label='$\\nu_\\mathrm{c}$'),
+                     plt.Line2D([], [], color='k', lw=1.1, ls='--', label='$\\nu_\\mathrm{m}$')],
             loc='upper right', fontsize=11, framealpha=.9)
-  fig.colorbar(sm, ax=ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
   png = os.path.join(outdir, 'break_evolution.png')
   fig.savefig(png, dpi=300)
   plt.close(fig)
@@ -2491,9 +2509,9 @@ def plot_break_ratio(results, tracks, barT_f, barT_off=None, outdir=OUTDIR):
   ax.axhline(1., color='grey', ls=':', lw=.9)
   _mark_hydro_times(ax, barT_f, barT_off)
   ax.set_xlabel('$\\bar{T}=(T_{\\rm obs}-T_s)/T_0$')
-  ax.set_ylabel('$\\nu_c(t)/\\nu_m(t)$')
+  ax.set_ylabel('$\\nu_\\mathrm{c}(t)/\\nu_\\mathrm{m}(t)$')
   ax.set_title('Observed cooling regime vs time\n(shaded: breaks unresolved, one blended feature)')
-  fig.colorbar(sm, ax=ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
   fig.savefig(os.path.join(outdir, 'break_ratio_evolution.png'), dpi=300)
   plt.close(fig)
 
@@ -2592,7 +2610,7 @@ def plot_gs02_rms(results, barT_f, barT_off=None, outdir=OUTDIR, n_times=GS02_NT
   ax.set_xlabel('$\\bar{T}=(T_{\\rm obs}-T_s)/T_0$')
   ax.set_ylabel('rms of $\\log_{10}$(data/fit)')
   ax.set_title('Quality of the Granot & Sari (2002) shape vs time')
-  fig.colorbar(sm, ax=ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
+  fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
   fig.savefig(os.path.join(outdir, 'gs02_rms.png'), dpi=300)
   plt.close(fig)
 
@@ -2692,7 +2710,7 @@ def _fit_paired_syn_bpl(x, sp, psyn, nuM, fit_dec=GS02_FIT_DEC):
 
 
 SPEC_MODES = ('nu_m', 'max', 'eff')   # normalisations of the all-regimes spectra figures
-_MODE_TITLE = {'nu_m': 'normalised at $\\nu_m$',
+_MODE_TITLE = {'nu_m': 'normalised at $\\nu_\\mathrm{m}$',
                'max': 'peak-normalised',
                'eff': 'peak-normalised $\\times\\,\\varepsilon_{\\rm rad}$'}
 
@@ -2726,7 +2744,28 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
   '''
   colors, sm = _sweep_colors(results)
   fig, ax = plt.subplots()
-  ylab = {'nu_m': f'${sym}/({sym})_{{\\nu_m}}$',
+  if not _draw_spectra_all(ax, results, get_spec, mode, fname, yclip_dec, sym):
+    plt.close(fig)
+    return
+  fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
+  ax.set_title(title)
+  fig.tight_layout()
+  fig.savefig(os.path.join(outdir, fname), dpi=300)
+  plt.close(fig)
+
+
+def _draw_spectra_all(ax, results, get_spec, mode, fname, yclip_dec=3.5,
+    sym='\\nu F_\\nu'):
+  '''
+  One panel of _plot_spectra_all: the curves, the y-floor, the axis limits and the two
+  axis labels, on an axes supplied by the caller. Split out of it so the peak and the
+  time-integrated spectra can be drawn as two panels of ONE figure (plot_spectra_pair)
+  under exactly the conventions the single-panel version uses -- there is no second
+  copy of the normalisation or of the floor rule to drift. Returns False (having drawn
+  nothing) when no curve survives, which is what the caller reports on.
+  '''
+  colors, _ = _sweep_colors(results)
+  ylab = {'nu_m': f'${sym}/({sym})_{{\\nu_\\mathrm{{m}}}}$',
           'max': f'${sym}/({sym})_{{\\rm max}}$',
           'eff': f'$\\varepsilon_{{\\rm rad}}\\,{sym}/({sym})_{{\\rm max}}$'}[mode]
   curves, ypks = [], []
@@ -2753,8 +2792,7 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
     print(f'{fname}: nothing to plot'
           + (' (energies absent from the cache; re-run with use_cache=False)'
              if mode == 'eff' else ''))
-    plt.close(fig)
-    return
+    return False
   ymax = max(ypks)
   # 'eff' hangs the floor off the FAINTEST curve so each keeps yclip_dec of its own shape
   ylo = (min(ypks) if mode == 'eff' else ymax)/10.**yclip_dec if ymax > 0. else None
@@ -2785,31 +2823,53 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
     ax.set_ylim(ylo, ymax*3.)
     xhi = max(x[y > ylo].max() for x, y, _ in curves if np.any(y > ylo))
     ax.set_xlim(min(x[0] for x, _, _ in curves), 2.*xhi)
-  fig.colorbar(sm, ax=ax, label='log$_{10}(\\gamma_c/\\gamma_m)$')
   ax.set_xlabel(NU_M_LABEL)
   ax.set_ylabel(ylab)
-  ax.set_title(title)
-  fig.tight_layout()
-  fig.savefig(os.path.join(outdir, fname), dpi=300)
-  plt.close(fig)
+  return True
 
 
-def plot_peak_spectra_all(results, detections, mode, outdir=OUTDIR):
-  '''Peak-time spectra of all sweep points together, nu/nu_m axis (mode: SPEC_MODES).'''
+def _peak_getter(results, detections):
+  '''get_spec for the PEAK-time spectrum of a sweep point (detect_rise_peak_tail's row).'''
   ipeak = {id(r): det[3].get('i_peak') for r, det in zip(results, detections)}
-  def get_peak(r):
-    return r['nuFnu'][ipeak[id(r)], :]
-  _plot_spectra_all(results, get_peak, mode, f'Peak spectra ({_MODE_TITLE[mode]})',
-      f'peak_spectra_norm-{mode}.png', outdir)
+  return lambda r: r['nuFnu'][ipeak[id(r)], :]
 
 
-def plot_fluence_all(results, mode, outdir=OUTDIR):
-  '''Time-integrated (fluence) spectra of all sweep points, nu/nu_m axis (mode: SPEC_MODES).'''
-  def get_fluence(r):
-    return compute_fluence_spectrum(r['Tb'], r['nuFnu'])
-  _plot_spectra_all(results, get_fluence, mode,
-      f'Time-integrated spectra ({_MODE_TITLE[mode]})',
-      f'fluence_spectra_norm-{mode}.png', outdir, sym='\\nu \\mathcal{F}_\\nu')
+def _fluence_getter(r):
+  '''get_spec for the time-integrated (fluence) spectrum of a sweep point.'''
+  return compute_fluence_spectrum(r['Tb'], r['nuFnu'])
+
+
+def plot_spectra_pair(results, detections, mode, outdir=OUTDIR):
+  '''
+  The peak-time and the time-integrated spectra of the whole sweep as the TWO PANELS of
+  one figure, sharing a single colour bar. They were two figures until now and were only
+  ever read side by side, which meant the same colour bar, the same x axis and the same
+  normalisation caption printed twice; joined, the pair carries one of each. Each panel
+  is drawn by _draw_spectra_all, so both keep every convention of the single-panel
+  version (normalisation, y-floor, x-clip), and each keeps its own y label -- the two
+  quantities differ (nuF_nu against nu*fluence) and so do their floors.
+  Which panel is which is said INSIDE it, top left, as everywhere else in this suite.
+  mode: SPEC_MODES.
+  '''
+  colors, sm = _sweep_colors(results)
+  fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.6))
+  ok = False
+  for ax, (lab, get_spec, sym) in zip(axs, (
+      ('peak spectrum', _peak_getter(results, detections), '\\nu F_\\nu'),
+      ('time-integrated', _fluence_getter, '\\nu \\mathcal{F}_\\nu'))):
+    if _draw_spectra_all(ax, results, get_spec, mode, f'spectra_norm-{mode}.png',
+                         sym=sym):
+      ax.text(0.03, 0.97, lab, transform=ax.transAxes, ha='left', va='top', fontsize=11)
+      ok = True
+  if not ok:
+    plt.close(fig)
+    return
+  # pad/fraction are fractions of the COMBINED width of both panels, as elsewhere in the
+  # suite: the defaults size the gap and the bar for a single panel
+  fig.colorbar(sm, ax=axs, pad=0.015, fraction=0.045, label='log$_{10}\\mathcal{C}$')
+  fn = os.path.join(outdir, f'spectra_norm-{mode}.png')
+  fig.savefig(fn, dpi=300)
+  plt.close(fig)
 
 
 def compute_efficiency(r):
@@ -2854,7 +2914,7 @@ def plot_radiative_efficiency(results, outdir=OUTDIR):
   fig, ax = plt.subplots()
   ax.plot(logr, eff, 'o-', color='C2')
   ax.axhline(1., color='grey', ls=':', lw=.9)
-  ax.set_xlabel('$\\log_{10}(\\gamma_c/\\gamma_m)$')
+  ax.set_xlabel('$\\log_{10}\\mathcal{C}$')
   ax.set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
   fig.tight_layout()
   fig.savefig(os.path.join(outdir, 'radiative_efficiency.png'), dpi=300)
@@ -2932,8 +2992,7 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   plot_gs02_rms(results, barT_f, barT_off=barT_off, outdir=outdir)
   build_gs02_table(results, detections, outdir=outdir)
   for mode in SPEC_MODES:
-    plot_peak_spectra_all(results, detections, mode, outdir=outdir)
-    plot_fluence_all(results, mode, outdir=outdir)
+    plot_spectra_pair(results, detections, mode, outdir=outdir)
   # build_regime_table(results, detections, outdir=outdir)
   plot_radiative_efficiency(results, outdir=outdir)
 
@@ -2987,8 +3046,10 @@ ARTICLE_SERIES = {        # {source figure dir: globs of the series picked for t
   'gammacm_sweep_data_rarcut': (
       'lightcurve_shape_nu=*.png',     # the three NU_TARGETS; the '_plain' series and the
                                        # 'vs_nu' ones below break this glob by construction
-      'peak_spectra_norm-eff.png',     # peak-normalised x eps_rad: shapes stacked by how
-      'fluence_spectra_norm-eff.png',  # much each regime actually radiates (_plot_spectra_all)
+      'spectra_norm-eff.png',          # peak + time-integrated spectra as one 2-panel
+                                       # figure, peak-normalised x eps_rad: shapes
+                                       # stacked by how much each regime actually
+                                       # radiates (plot_spectra_pair)
       'spectrum_evolution_logr=*.png', # the SPEC_LOGT time series per regime (NOT the
                                        # '_plain' series)
       'pulse_characteristics_vs_nu.png',    # measured peak time / width / asymmetry across
