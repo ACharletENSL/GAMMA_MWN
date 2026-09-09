@@ -580,7 +580,7 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
     out.attrs[key] = attrs[key]
   return out, env
 
-def measured_injection_event(cell_data, env, z):
+def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=5):
   """
   (t_inj, x_inj) at which the shock front crosses THIS cell, from the cell's own history
   and at SUB-CADENCE resolution. Returns (nan, nan) if the cell never gets shocked.
@@ -589,40 +589,80 @@ def measured_injection_event(cell_data, env, z):
   - The shock detector flags a CONTIGUOUS BLOCK OF 3-4 CELLS that straddles the front
     (measured on cooling_g100_hires z=4, constant from it=2000 to 4e5: 3-4 cells, radial
     span 0.9-1.7e-4 lt-s, proper velocity running 199 -> 127 across it). A cell's FIRST
-    Sd firing is therefore 3-4 cell crossings before the front actually reaches it, and
+    Sd firing is therefore 3-4 cell crossings before the front reaches it, and
     select_postshock_rows' first row is that much after -- 102-136 iterations at the
-    measured 34 iterations per cell crossing, which is exactly the 112-130 delay seen.
-    Either edge biases every cell; neither is the crossing.
-  - The fitted worldline (cellsBehindShock_fromData) puts the cells on a CONSTANT crossing
-    rate. Measured, the rate varies 26% across the shell (3.46 -> 4.35 s per cell, i.e.
-    Gamma_sh 116.2 -> 111.7), so the two conventions cross TWICE and the prepend guard
-    flips at each crossing, splitting the shell into treated and untreated blocks.
+    measured 34 iterations per cell crossing. Either edge biases every cell.
+  - The fitted worldline puts the cells on a CONSTANT crossing rate; measured, the rate
+    varies 26% across the shell, so fitted and measured onsets cross and
+    _prepend_shocked_row's guard flips at each crossing.
 
-  WHAT THIS DOES INSTEAD. The front's arrival at a cell IS the jump in that cell's own
-  state, so the crossing is where the cell's proper velocity passes the midpoint between
-  its unshocked and shocked values, interpolated linearly between the two bracketing
-  snapshots. That is the same intersection of the shock and local velocities, evaluated
-  where both are measured in the same data -- so it is limited by how well the jump is
-  resolved, not by the dump cadence, and it cannot drift against the cell histories
-  because it IS the cell histories.
+  THE ASYMPTOTES ARE READ PER CELL, NOT FROM env. The shocked proper velocity is NOT
+  constant: it drifts 126.7 -> 133.6 along the propagation (5.4%, and the same 126-133.5
+  the field-average work measured along a worldline). Anchoring on env.u would be right at
+  the CD and ~5.6% low by the back of the shell -- a MONOTONIC error across the shell, so
+  it would tilt the whole onset ladder rather than scatter it, which is precisely the class
+  of defect this function exists to avoid. u_up and u_dn are therefore the plateaus either
+  side of the cell's own Sd block.
+
+  estimator: 'midpoint' -- u crosses (u_up + u_dn)/2. For a sharp front sweeping a
+    finite-volume cell, the cell average is halfway across when the front is at the cell
+    CENTRE, so this estimates 'front at this cell's position'. Its weakness is that the
+    numerical shock is 3-4 cells wide, so the transition is smeared and its SHAPE enters.
+  estimator: 'inflection' -- the extremum of du/dt, refined parabolically. The centre of
+    the transition profile, independent of where the asymptotes sit.
   """
   t = cell_data.t.to_numpy(dtype=float)
   x = cell_data.x.to_numpy(dtype=float)
   vx = cell_data.vx.to_numpy(dtype=float)
   u = vx/np.sqrt(np.clip(1. - vx*vx, 1e-300, None))
-  u_up = float(env.u4 if z == 4 else env.u1)     # unshocked proper velocity
-  u_mid = 0.5*(u_up + float(env.u))              # halfway to the shocked value
-  # the RS decelerates its material (200 -> 126), the FS accelerates it (100 -> 126), so
-  # look for the crossing in whichever direction this shell runs
-  crossed = (u <= u_mid) if u_up > float(env.u) else (u >= u_mid)
-  j = np.flatnonzero(crossed)
-  if not len(j) or j[0] == 0:
+  sd = cell_data.Sd.to_numpy()
+  nz = np.flatnonzero(sd != 0)
+  if not len(nz) or nz[0] == 0:
     return float('nan'), float('nan')
-  j = int(j[0]); i = j - 1
+  i0 = int(nz[0])
+  i1 = i0                                   # end of the FIRST contiguous Sd run
+  for aa in nz[1:]:
+    if int(aa) == i1 + 1:
+      i1 = int(aa)
+    else:
+      break
+  lo = max(0, i0 - n_plateau)
+  hi = min(len(u) - 1, i1 + n_plateau)
+  if hi - lo < 3:
+    return float('nan'), float('nan')
+  u_up = float(np.median(u[lo:i0])) if i0 > lo else float(u[i0])
+  u_dn = float(np.median(u[i1+1:hi+1])) if hi > i1 else float(u[i1])
+  if not (np.isfinite(u_up) and np.isfinite(u_dn)) or abs(u_up - u_dn) < 1e-9:
+    return float('nan'), float('nan')
+
+  def _interp(i, j, frac):
+    f = float(np.clip(frac, 0., 1.))
+    return t[i] + f*(t[j] - t[i]), x[i] + f*(x[j] - x[i])
+
+  if estimator == 'inflection':
+    seg = slice(lo, hi + 1)
+    du = np.gradient(u[seg], t[seg])
+    m = int(np.argmax(np.abs(du)))
+    # parabolic refinement on |du/dt| about its extremum
+    frac = 0.
+    if 0 < m < len(du) - 1:
+      y0, y1, y2 = np.abs(du[m-1]), np.abs(du[m]), np.abs(du[m+1])
+      den = y0 - 2.*y1 + y2
+      if abs(den) > 1e-30:
+        frac = float(np.clip(0.5*(y0 - y2)/den, -0.5, 0.5))
+    i = lo + m
+    j = i + 1 if frac >= 0. else i - 1
+    j = int(np.clip(j, 0, len(t) - 1))
+    return _interp(i, j, abs(frac))
+
+  u_mid = 0.5*(u_up + u_dn)
+  crossed = (u <= u_mid) if u_up > u_dn else (u >= u_mid)
+  jj = np.flatnonzero(crossed[lo:hi+1])
+  if not len(jj) or (lo + int(jj[0])) == 0:
+    return float('nan'), float('nan')
+  j = lo + int(jj[0]); i = j - 1
   du = u[i] - u[j]
-  f = 0.5 if abs(du) < 1e-12 else (u[i] - u_mid)/du
-  f = float(np.clip(f, 0., 1.))
-  return t[i] + f*(t[j] - t[i]), x[i] + f*(x[j] - x[i])
+  return _interp(i, j, 0.5 if abs(du) < 1e-12 else (u[i] - u_mid)/du)
 
 
 def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3.):
@@ -659,7 +699,67 @@ def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3.):
     t_max = t_max_fac * (env.tRS if fastshell else env.tFS)
     return cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max,
                                     fastshell=fastshell)
-  raise ValueError(f"early_ana source must be 'shockfit' or 'au', got {source!r}")
+  elif source == 'measured':
+    return measured_shockfront_states(key, z, env)
+  raise ValueError(
+      f"early_ana source must be 'shockfit', 'au' or 'measured', got {source!r}")
+
+
+def measured_shockfront_states(key, z, env):
+  """
+  Per-cell shocked-state table with the injection EVENT measured and the injection STATE
+  from the fitted hydro -- the two halves the other sources conflate.
+
+  event: measured_injection_event, i.e. where each cell's own velocity jump puts the
+    front, sub-cadence, read from the same snapshots as the cell histories.
+  state: fits_hydro.state_at_radius, the fitted lfac(x) and shock-strength(x) profiles
+    evaluated at THAT radius. Those fits are smooth functions of R/R0 and that is the one
+    job they do well; what they must not also supply is the worldline.
+
+  Why this exists: 'shockfit' derives both from one fitted worldline laid against cells at
+  uniform initial radii, which fixes the cell-crossing RATE. Measured, the rate varies 26%
+  across a hi-res shell, so the fitted and measured onsets cross, _prepend_shocked_row's
+  `sh_row.t < first.t` guard flips at each crossing, and the shell splits into corrected
+  and uncorrected blocks with a step between them. Each ladder is smooth ON ITS OWN
+  (checked on cooling_g100_hires z=4: worst local gap 1.00 fitted, 1.00-1.02 measured);
+  the defect is only ever in the MIXTURE. One convention throughout removes it, and the
+  measured one is the convention that cannot drift against the cell data.
+
+  Same columns and code units as cellsBehindShock_fromData, so it drops into
+  load_shockfront_states unchanged.
+  """
+  from fits_hydro import get_hydrofits_shell_new, state_at_radius
+  data = open_rundata(key, z)
+  if data is False or not len(data):
+    raise FileNotFoundError(
+        f'run_data_{z}.csv missing/empty for {key}: extract it first with '
+        'analysis_hydro.extract_data_thinshell')
+  popt_lfac, popt_ShSt = get_hydrofits_shell_new(data)[:2]
+  fastshell = (z == 4)
+  kmin = env.Next + (0 if fastshell else env.Nsh4)
+  kmax = kmin + (env.Nsh4 if fastshell else env.Nsh1)
+  rows = []
+  for k in range(int(kmin), int(kmax)):
+    cd = open_celldata(key, k)
+    if cd is False or not len(cd):
+      continue
+    t_inj, x_inj = measured_injection_event(cd, env, z)
+    if not (np.isfinite(t_inj) and np.isfinite(x_inj)):
+      continue
+    R_hit = x_inj*c_                      # lt-s -> cm, the state_at_radius convention
+    init_r = float(cd.x.iloc[0])*c_       # this cell's own radius at t=0
+    x, rho, vx, lfac, p, dx = state_at_radius(R_hit, init_r, env, fastshell,
+                                              popt_lfac, popt_ShSt)
+    rows.append(dict(t=t_inj, i=k, x=x_inj, dx=dx*env.R0/c_,
+                     rho=rho/env.rhoscale, vx=vx, lfac=lfac,
+                     p=p/(env.rhoscale*c_**2),
+                     vx_u=(env.beta4 if fastshell else env.beta1),
+                     trac=(1. if fastshell else 2.)))
+  if not rows:
+    raise RuntimeError(f'no measurable injection event in shell z={z} of {key}')
+  out = pd.DataFrame(rows)
+  out.attrs['key'] = key
+  return out
 
 def _prepend_shocked_row(shocked, sh_row, env, early_frac):
   '''

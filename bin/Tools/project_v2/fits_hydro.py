@@ -88,6 +88,39 @@ def cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max,
   return out
   
 
+def state_at_radius(R_hit, init_rads, env, fastshell, popt_lfac, popt_ShSt):
+  """
+  The shocked state a cell has when the front reaches it at radius R_hit, from the fitted
+  lfac(x) and shock-strength(x) profiles. x = R/R0, so this is a smooth function of RADIUS
+  alone -- which is the one job these fits do well, and the only part of the reconstruction
+  that should depend on them.
+
+  Factored out of reconstruct_data so the injection RADIUS can come from somewhere else.
+  reconstruct_data gets it by intersecting a fitted worldline with cells laid at uniform
+  initial radii, which fixes the crossing rate and is what puts its onsets on a different
+  worldline from the cell histories (see working_cooling_data.measured_injection_event).
+  A measured injection radius can be fed straight in here instead, with no other change.
+
+  init_rads is each cell's radius at t=0, needed only for the cell width dx.
+  Returns (x, rho, vx, lfac, p, dx) in the reconstruct_data conventions (code units).
+  """
+  x = R_hit/env.R0
+  lfac = env.lfac0 * smooth_bpl0_apy(x, *popt_lfac)
+  Gamma2 = lfac**2
+  vx = np.sqrt(Gamma2 - 1.) / lfac
+  rho0, ShSt0, lfac_i0 = (env.rho4, env.lfac34-1., env.lfac4) if fastshell \
+      else (env.rho1, env.lfac21-1., env.lfac1)
+  Gma_ud = 1. + ShSt0 * smooth_bpl0_apy(x, *popt_ShSt)
+  rho = 4 * Gma_ud * rho0 / (x * x)
+  x_k0 = init_rads/env.R0
+  dx = np.abs(env.D04 if fastshell else env.D01)/( (env.Nsh4 if fastshell else env.Nsh1)*env.R0 )
+  dx = dx * x_k0**2 * (lfac_i0/lfac) / (4*Gma_ud)
+  ei = (Gma_ud - 1) * rho * c_*c_
+  adb = (4*Gma_ud + 1)/(3*Gma_ud)
+  p = (adb - 1) * ei
+  return x, rho, vx, lfac, p, dx
+
+
 def reconstruct_data(t_max, env, fastshell, popt_lfac, popt_ShSt, N_in=None):
   '''
   Reconstruct data from environment and fits
