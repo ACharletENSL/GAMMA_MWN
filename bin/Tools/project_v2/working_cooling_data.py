@@ -580,6 +580,51 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
     out.attrs[key] = attrs[key]
   return out, env
 
+def measured_injection_event(cell_data, env, z):
+  """
+  (t_inj, x_inj) at which the shock front crosses THIS cell, from the cell's own history
+  and at SUB-CADENCE resolution. Returns (nan, nan) if the cell never gets shocked.
+
+  WHY NOT THE Sd FLAG, AND WHY NOT A FITTED WORLDLINE.
+  - The shock detector flags a CONTIGUOUS BLOCK OF 3-4 CELLS that straddles the front
+    (measured on cooling_g100_hires z=4, constant from it=2000 to 4e5: 3-4 cells, radial
+    span 0.9-1.7e-4 lt-s, proper velocity running 199 -> 127 across it). A cell's FIRST
+    Sd firing is therefore 3-4 cell crossings before the front actually reaches it, and
+    select_postshock_rows' first row is that much after -- 102-136 iterations at the
+    measured 34 iterations per cell crossing, which is exactly the 112-130 delay seen.
+    Either edge biases every cell; neither is the crossing.
+  - The fitted worldline (cellsBehindShock_fromData) puts the cells on a CONSTANT crossing
+    rate. Measured, the rate varies 26% across the shell (3.46 -> 4.35 s per cell, i.e.
+    Gamma_sh 116.2 -> 111.7), so the two conventions cross TWICE and the prepend guard
+    flips at each crossing, splitting the shell into treated and untreated blocks.
+
+  WHAT THIS DOES INSTEAD. The front's arrival at a cell IS the jump in that cell's own
+  state, so the crossing is where the cell's proper velocity passes the midpoint between
+  its unshocked and shocked values, interpolated linearly between the two bracketing
+  snapshots. That is the same intersection of the shock and local velocities, evaluated
+  where both are measured in the same data -- so it is limited by how well the jump is
+  resolved, not by the dump cadence, and it cannot drift against the cell histories
+  because it IS the cell histories.
+  """
+  t = cell_data.t.to_numpy(dtype=float)
+  x = cell_data.x.to_numpy(dtype=float)
+  vx = cell_data.vx.to_numpy(dtype=float)
+  u = vx/np.sqrt(np.clip(1. - vx*vx, 1e-300, None))
+  u_up = float(env.u4 if z == 4 else env.u1)     # unshocked proper velocity
+  u_mid = 0.5*(u_up + float(env.u))              # halfway to the shocked value
+  # the RS decelerates its material (200 -> 126), the FS accelerates it (100 -> 126), so
+  # look for the crossing in whichever direction this shell runs
+  crossed = (u <= u_mid) if u_up > float(env.u) else (u >= u_mid)
+  j = np.flatnonzero(crossed)
+  if not len(j) or j[0] == 0:
+    return float('nan'), float('nan')
+  j = int(j[0]); i = j - 1
+  du = u[i] - u[j]
+  f = 0.5 if abs(du) < 1e-12 else (u[i] - u_mid)/du
+  f = float(np.clip(f, 0., 1.))
+  return t[i] + f*(t[j] - t[i]), x[i] + f*(x[j] - x[i])
+
+
 def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3.):
   '''
   Per-cell shocked-state table for the early-datapoint reconstruction
