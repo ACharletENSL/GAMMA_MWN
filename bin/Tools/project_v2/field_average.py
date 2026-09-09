@@ -369,7 +369,7 @@ def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK, source=None):
 
 
 def measure_field_correction(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=True,
-    verbose=True):
+    verbose=True, quantity='C', clock='fluid', source='measured'):
   '''
   MEASURE THE RUN'S FIELD CORRECTION AND MAKE IT THE SWEEP'S DEFINITION.
 
@@ -404,9 +404,13 @@ def measure_field_correction(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=True,
   env = MyEnv(key) if env is None else env
   out, rows = {}, []
   for z in zlist:
-    fr = shock_worldline(key, z, env)
-    out[z] = 1./fr['mean_B2']
-    rows.append((z, fr['mean_B2'], out[z], fr['C']))
+    fr = shock_worldline(key, z, env, clock=clock, source=source)
+    # quantity='C': ALL THREE measured factors -- the field average over the propagation,
+    # the analytic-vs-simulated B'_0, and the comoving crossing time -- so gamma_c reflects
+    # the simulation rather than the analytic setup. 'C_avg' is the historical field
+    # average alone, kept so the old definition can still be reproduced.
+    out[z] = float(fr['C'] if quantity == 'C' else 1./fr['mean_B2'])
+    rows.append((z, fr['mean_B2'], 1./fr['mean_B2'], fr['C']))
   if verbose:
     print(f'--- field correction for {key} ---')
     print(f'{"shell":>6} {"<B^2>/B0^2":>11} {"C_avg":>8} {"dex":>7}   (full C, for reference)')
@@ -418,10 +422,13 @@ def measure_field_correction(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=True,
     if path is None:
       raise ValueError(f'{key!r} is not a run directory: nowhere to write the sidecar')
     with open(path, 'w') as fh:
-      json.dump(dict(version=FIELD_CORR_VERSION, key=key, clock=CLOCK,
-                     quantity='C_avg = 1/<B\'^2> over the shock propagation',
-                     source='field_average.measure_field_correction',
-                     C_avg={str(z): float(c) for z, c in out.items()}), fh, indent=2)
+      json.dump(dict(version=FIELD_CORR_VERSION, key=key, clock=clock,
+                     quantity=('C = (B0 ana/sim) x (clock) x C_avg, all measured'
+                               if quantity == 'C' else
+                               "C_avg = 1/<B'^2> over the shock propagation"),
+                     injection_source=source,
+                     written_by='field_average.measure_field_correction',
+                     factor={str(z): float(c) for z, c in out.items()}), fh, indent=2)
     print(f'-> {path}   (MyEnv({key!r}).gma_c is now corrected; sweep caches get '
           f'{FIELD_CORR_TAG!r})')
   return out

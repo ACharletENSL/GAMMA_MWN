@@ -42,8 +42,18 @@ GAMMA_dir = '/'.join(cwd[:iG+1])
 # before. Sweep caches written under the corrected definition are kept apart by
 # sweep_gammacm.method_outdir, which appends field_correction_tag(key).
 FIELD_CORR_FILE = 'field_correction.json'
-FIELD_CORR_VERSION = 1
-FIELD_CORR_TAG = '_fc'          # cache-name marker; a label of +2 means different things with
+FIELD_CORR_VERSION = 2
+# 2 (2026-09-09): the sidecar carries the FULL correction, not C_avg alone. gamma_c is
+# meant to reflect the simulation's physics, so all three factors are measured: the field
+# average over the propagation, the analytic-vs-simulated B'_0, and the COMOVING (fluid)
+# crossing time in place of the nominal t_cr/Gamma. Version 1 sidecars are a different
+# quantity and are rejected rather than reinterpreted.
+# Cache-name marker. IT CARRIES THE VERSION, because a label of +2 means different things
+# under different definitions and the sidecar version alone does not protect the CACHES: a
+# v1 '_fc' directory and a v2 one would collide silently, and their contents are not the
+# same physics. v1 = C_avg only; v2 = the full measured C.
+FIELD_CORR_TAG = '_fc' if FIELD_CORR_VERSION == 1 else f'_fc{FIELD_CORR_VERSION}'
+_FIELD_CORR_TAG_NOTE = ('cache-name marker; a label of +2 means different things with')
                                 # and without the correction, so the two must never share a dir
 
 
@@ -72,7 +82,8 @@ def field_correction(key):
       print(f'{path}: version {d.get("version")} != {FIELD_CORR_VERSION}, ignored '
             '(re-run field_average.measure_field_correction)')
       return None
-    return {int(z): float(c) for z, c in d['C_avg'].items()}
+    fac = d.get('factor', d.get('C_avg'))     # 'C_avg' was the v1 field name
+    return {int(z): float(c) for z, c in fac.items()}
   except (ValueError, KeyError, OSError) as e:
     print(f'{path}: unreadable ({e}), ignored')
     return None
