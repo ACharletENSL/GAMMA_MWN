@@ -316,7 +316,7 @@ def comoving_crossing(q, tcr):
   return np.interp(tcr, q['t'], q['tp']) if q['t'][0] < tcr else np.nan
 
 
-def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK):
+def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK, source=None):
   '''
   The shock's own propagation: the freshly shocked state at the front, cell by cell, and
   the correction that follows from averaging over it.
@@ -333,7 +333,14 @@ def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK):
   '''
   env = MyEnv(key) if env is None else env
   B2ana, _, gc_nom, tcr, lfcr = shell_nominal(env, z)
-  sh = load_shockfront_states(key, z, env, source=EARLY_ANA).sort_values('t')
+  # source: which injection-state convention the cells actually start from. EARLY_ANA
+  # ('shockfit') is the historical one; 'measured' takes the event from each cell's own
+  # velocity jump and the state from the fitted profiles at THAT radius
+  # (working_cooling_data.measured_injection_event). b2_ana_over_sim compares the analytic
+  # B'_0 against sel's FIRST state, so it means "analytic vs the state the cells are given"
+  # -- and that state changes with the source, which is why this is a parameter.
+  sh = load_shockfront_states(key, z, env,
+                              source=(EARLY_ANA if source is None else source)).sort_values('t')
   sel = sh.loc[sh.t <= tcr]
   t = sel.t.to_numpy(dtype=float)
   x = sel.x.to_numpy(dtype=float)
