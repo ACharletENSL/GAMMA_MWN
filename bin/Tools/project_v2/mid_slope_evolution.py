@@ -77,7 +77,23 @@ FLUX_FLOOR = 1e-10                 # skip steps whose peak flux is this far belo
 # panels -- colour follows the entity, not its rank within a panel. NB this is NOT the jet
 # colorbar the sweep figures use; there is no colorbar here, the curves are labelled.
 COL = {-5: '#08306b', -4: '#1f6cb0', -3: '#4393c3', -2: '#7fb8d8',
-       -1: '#a8cfe3', 0: '#737373', 1: '#ef6548', 2: '#a50f15'}
+       -1: '#a8cfe3', 0: '#737373', 1: '#ef6548', 2: '#a50f15', 3: '#67000d'}
+
+
+def col(lr):
+  '''
+  COL for one log10ratio, falling back to the darkest end of the map instead of raising.
+  The dict is written out so a regime keeps its colour across figures, but it was indexed
+  raw -- so extending sweep_gammacm.LOG10RATIO_ARR to +3 made this module die with
+  KeyError: 3 after 17 min of work, and took mid_slope_evolution.png (an ARTICLE_SERIES
+  glob) out of BOTH runs' figure sets without anything noticing. A missing colour must
+  never cost a figure.
+  '''
+  i = int(lr)
+  if i in COL:
+    return COL[i]
+  lo, hi = min(COL), max(COL)
+  return COL[lo if i < lo else hi]
 INK, MUTED, GRID = '#1a1a1a', '#6b6b6b', '#d9d9d9'
 FIELDS = ('logr', 'barT', 'x', 'step', 'branch', 'a_th', 'a_mid', 'dep', 'mid_from',
           'dex_mid', 'a_core', 'dep_core', 'core', 'dex', 'a_win', 'regime',
@@ -343,7 +359,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     drawn = [val(r) for r in sub]
     for lr in sorted({r['logr'] for r in sub}):
       d = sorted([r for r in sub if r['logr'] == lr], key=lambda r: r['x'])
-      c = COL[int(lr)]
+      c = col(lr)
       # SOLID where the measurement window was re-centred on its own slope -- the value
       # the spectral fit holds. HOLLOW where that re-centring found no window and the fit
       # fell back to the line over the identified (asymmetric) window, which carries a
@@ -390,7 +406,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
   # from either axes -- the union of the two branches' regimes is what has to appear, and
   # neither panel carries all of it.
   lrs = sorted({int(r['logr']) for r in rows})
-  handles = [Line2D([], [], color=COL[lr], lw=1.8) for lr in lrs]
+  handles = [Line2D([], [], color=col(lr), lw=1.8) for lr in lrs]
   leg = axes[0].legend(handles, [f'{lr:+d}' for lr in lrs],
                        title='$\\log_{10}(\\gamma_c/\\gamma_m)$', fontsize=8.5,
                        title_fontsize=8.5, ncol=len(lrs), loc='upper center',
