@@ -320,6 +320,7 @@ from phys_functions import savgol_smooth, smooth_bpl0_apy
 from fits_hydro import get_fitting_smoothBPL_new
 from scipy.signal import savgol_filter
 from shell_cells import _history, SHELL_NAME, shell_cell_range
+from IO import open_celldata, get_variable
 import prerar_cell_evolution as P
 
 TABLE_KEY = 'cooling_g100_w5'      # the basis run: widest windows (1.069 dex), coarse, cheap
@@ -1555,11 +1556,171 @@ ARTICLE_CELLS = (1.05, 1.86)   # R_i/R_0 of the representative FIDUCIAL cells. C
                                # neighbours. "Longest window" selection picks it first (it is
                                # shocked first), so it must be excluded explicitly.
 
+INSET_SMOOTH = 41              # Savitzky-Golay window (rows) for the inset traces ONLY
+# The strip says "trailing shock" although the code calls it a wave throughout: it IS one only
+# in the third of the shell nearest the CD (Mach 1.8 and an entropy jump of 1.54 there, Mach ~1
+# and none at 50-75%), and how weak it is belongs in the text, not in a hedged axis label.
+PHASE_NAME = ('post-shock', 'rarefaction', 'post-rarefaction', 'trailing shock')
+PHASE_GREY = ('#e2e2e2', '#b4b4b4', '#8a8a8a', '#5e5e5e')
+# One style per boundary, so a guide is read as WHICH transition it marks before its colour is
+# read as which cell: head dashed, Gamma minimum dash-dot, trailing shock dotted.
+PHASE_LS = {'head': (0, (5, 2)), 'tail': (0, (5, 1.6, 1, 1.6)), 'wave': (0, (1, 1.8))}
+ARTICLE_FRACS = (0.25, 0.50, 0.75)   # what the figure now selects on: fraction of the shell's
+                               # INITIAL width, measured from the contact discontinuity (0 = the
+                               # CD-adjacent cell, shocked first at R_inj = R_0; 1 = the external
+                               # interface, shocked last). Equal-width cells, so this is just the
+                               # cell's rank in the shell.
+                               # READ ARTICLE_CELLS ABOVE BEFORE CHANGING THESE. The 0.50 cell
+                               # lands near R_i/R_0 ~ 1.7, close to where the rho R^1.2 slope
+                               # crosses zero and the per-cell signal is weakest -- fine for a
+                               # figure that shows the DATA (which is what this one now does),
+                               # but do not read a reconstruction residual off it.
+
+
+# --- the four phases of a cell's life -------------------------------------------------------
+# A shocked cell passes through four regimes, and the article figure names them. Boundaries are
+# read off dln(Gamma)/dlnR, which is the ONE series that carries all three transitions cleanly:
+# the density and pressure crash is enormous on the log axes but its END is a slope change with
+# no turning point, and the trailing wave is invisible in rho for the cells it reaches while
+# still subsonic (see below).
+#
+#   1  post-shock         injection -> rarefaction head.  rho R^1.2 and p R^2 flat: the
+#                         causal-contact law prerar_model is built on.
+#   2  rarefaction        head -> the Gamma MINIMUM. The cell is inside the fan, decelerating,
+#                         and every slope is still moving.
+#   3  post-rarefaction   Gamma minimum -> the trailing wave. Gamma turns round and creeps back
+#                         up, rho and p settle onto near power laws.
+#   4  post trailing wave the compression that follows the rarefaction out of the external
+#                         interface.
+#
+# PHASE 2 -> 3 IS A TURNING POINT, NOT A DISCONTINUITY: the fan has no sharp tail here, so the
+# boundary is where the cell stops being decelerated (first return of dln Gamma/dlnR to >= 0),
+# and the density slope is still relaxing for a while past it. Read it as "the fan has done its
+# work", not as "the wave has left".
+#
+# WHY THE BACKOFF. Two bumps in dln Gamma/dlnR follow the crash: the Gamma minimum's own
+# turn-round, right at the phase 2/3 boundary, and the trailing wave. They are comparable in
+# height in the mid-shell cell (0.159 vs 0.154 at 50%), so the peak alone picks the wrong one
+# there. TS_BACKOFF excludes the turn-round; with it the located arrivals are stable over
+# PHASE_SMOOTH = 9..31 (25%: L = 1.220-1.222, 50%: 0.759-0.770, 75%: 0.306-0.310).
+#
+# CROSS-CHECKED against measure_wave_tracks, which detects the front independently on the
+# density+entropy test but only resolves it over k = 340..516 (nearest third to the CD, where it
+# has fallen far enough behind the rarefaction). There it gives t = 5.62e5 s at k = 394 against
+# 5.69e5 s here (1.2%), and its log-linear back-extrapolation gives 2.15e5 s at k = 270 and
+# 8.2e4 s at k = 145 against 2.33e5 and 8.3e4 here. So the Gamma bump and the density front are
+# the same wave, and the Gamma bump is what survives where the front is still subsonic.
+PHASE_SMOOTH = 15      # savgol window (rows) for the dln Gamma/dlnR used to place the boundaries
+TS_BACKOFF   = 0.07    # dex past the Gamma minimum before the trailing wave is looked for
+TS_PLATEAU   = 40      # rows before the foot that set the pre-arrival rho R^1.2 slope
+TS_RHO_TOL   = 0.25    # ... and the departure from it, as a fraction of it, that counts as the
+                       # wave having arrived
+
+
+def cell_phases(s, dex=None, env=None, L_max=None):
+  '''
+  (head, tail, wave) of one cell's history: the rarefaction head, the Gamma minimum that ends
+  the fan's passage, and the trailing compression. Each is a dict(i, L, t, R) -- row index,
+  log10(R/R_inj), source-frame time, radius -- plus barT = (Ton - Ts)/T0 when env is given.
+  wave is None if no bump is available inside L_max, and carries L_crest as well.
+
+  WAVE IS NEITHER THE CREST OF THE GAMMA BUMP NOR ITS FOOT. Both were tried on the figure and
+  both are visibly off, in opposite directions:
+
+      crest   1.221 / 0.755 / 0.296     late by half a rise width (0.024 / 0.037 / 0.032 dex),
+                                        worst on the 75% cell, which has the least room
+      foot    1.199 / 0.718 / 0.256     the last row still ON the phase-3 power law, so early
+      adopted 1.205 / 0.732 / 0.267     the first row measurably OFF it
+
+  The Gamma bump only BRACKETS the arrival (peak -> crest -> foot, see TS_BACKOFF for why the
+  peak is what picks the right bump); the boundary itself is set on rho R^1.2, which is the
+  quantity the top panel actually shows. ALL THREE SLOPES BREAK TOGETHER -- at 75% the plateau
+  runs (sR, sP, sG) = (-0.44, -0.71, 0.083) to L = 0.261 and reads (-0.59, -0.96, 0.102) by
+  0.267 -- so any of them could set it; rho is chosen because it is the one on the figure.
+
+  TS_RHO_TOL is a soft knob and behaves like one: 0.15 -> 1.205/0.730/0.267, 0.40 ->
+  1.205/0.736/0.269, i.e. a few thousandths of a dex over a factor 2.7. Stable over
+  PHASE_SMOOTH = 9..31 as well.
+  '''
+  x, dx, rho, p, lfac, t = P._cols(s)
+  L = np.log10(x/x[0])
+  if dex is None:
+    _, dex = P.prerar_window(s)
+  lnR = np.log(x)
+  sG = np.gradient(savgol_smooth(np.log(lfac), window=PHASE_SMOOTH), lnR)
+  sR = np.gradient(savgol_smooth(np.log(rho*x**(2./GMA_REF)), window=PHASE_SMOOTH), lnR)
+  i_head = int(np.argmin(np.abs(L - dex)))
+  j = i_head + np.flatnonzero(sG[i_head:] >= 0.)
+  i_tail = int(j[0]) if j.size else i_head
+  hi = len(L) if L_max is None else int(np.searchsorted(L, L_max))
+  lo = i_tail + np.flatnonzero(L[i_tail:] > L[i_tail] + TS_BACKOFF)
+  i_wave = i_crest = None
+  if lo.size and int(lo[0]) < hi - 1:
+    i = int(lo[0]) + int(np.argmax(sG[int(lo[0]):hi]))
+    while i - 1 > i_tail and sG[i - 1] > sG[i]:      # climb to the bump's own crest, which
+      i -= 1                                        # TS_BACKOFF may have cut off
+    i_crest = i
+    while i - 1 > i_tail and sG[i - 1] < sG[i]:      # ... then down its leading edge to the foot
+      i -= 1
+    # THE DENSITY SETS THE BOUNDARY, the Gamma bump only brackets it. The foot is the LAST row
+    # still on the phase-3 power law and reads early; the crest is half a rise width late. Take
+    # the FIRST row on which rho R^1.2's slope has left the plateau it held through phase 3 by
+    # TS_RHO_TOL of itself, walking forward from the foot and never past the crest. On a sharp
+    # front the savgol window rings ahead of the jump, so the foot is already off the plateau
+    # and the walk stops where it starts -- which is the right answer there too.
+    b_R = float(np.median(sR[max(i_tail, i - TS_PLATEAU):i + 1]))
+    while i < i_crest and abs(sR[i] - b_R) <= TS_RHO_TOL*abs(b_R):
+      i += 1
+    i_wave = i
+  out = {}
+  for nm, i in (('head', i_head), ('tail', i_tail), ('wave', i_wave)):
+    if i is None:
+      out[nm] = None
+      continue
+    out[nm] = dict(i=i, L=float(L[i]), t=float(t[i]), R=float(x[i]*c_))
+    if env is not None:
+      out[nm]['barT'] = float((get_variable(s.iloc[i], 'Ton', env) - env.Ts)/env.T0)
+  if i_wave is not None:
+    out['wave']['L_crest'] = float(L[i_crest])
+  return out
+
+
+def _frac_cells(test_key, z, fracs, ncells=NCELLS, half_window=8):
+  '''
+  One usable cell per requested fraction of the shell width (from the CD; see ARTICLE_FRACS).
+  Searches outward from the nominal index so a declined cell falls back to its nearest usable
+  neighbour, and returns (frac_requested, frac_achieved, *cell_tuple) with the cell tuple as
+  _test_cells builds it.
+  '''
+  kmin, kmax, kCD = shell_cell_range(test_key, z)
+  span = kmax - kmin
+  sgn = -1 if z == 4 else 1          # index direction away from the CD
+  out = []
+  for f in fracs:
+    k0 = int(round(kCD + sgn*f*span))
+    cand = sorted((k for k in range(max(kmin, k0 - half_window),
+                                    min(kmax, k0 + half_window) + 1)),
+                  key=lambda k: (abs(k - k0), k))
+    got = _test_cells(test_key, z, ncells, ks=cand)
+    if not got:
+      print(f'plot_article: no usable cell within {half_window} of k={k0} (f={f:.2f})')
+      continue
+    c = min(got, key=lambda t: abs(t[0] - k0))
+    out.append((f, abs(c[0] - kCD)/span) + tuple(c))
+  return out
+
+
 def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
-    Ri_targets=ARTICLE_CELLS, test_key='cooling_g100', dex_max=None):
+    frac_targets=ARTICLE_FRACS, test_key='cooling_g100', dex_max=1.7, show_model=False,
+    phases=None):
   """
-  Article figure: the hydro evolution of a couple of representative cells, simulation versus
+  Article figure: the hydro evolution of a few representative cells, simulation versus
   semi-analytic reconstruction.
+
+  Cells are picked at fractions of the shell's initial width measured from the CD
+  (ARTICLE_FRACS), and the SIMULATION is the emphasised curve -- solid, full weight -- with the
+  reconstruction as a light dashed companion. The panels stack vertically on a shared radius
+  axis so the three quantities are read at one R for one cell.
 
   Shown on the FIDUCIAL run and reconstructed OUT-OF-SAMPLE -- the alpha tables come from
   cooling_g100_w5, a different simulation with 5x wider shells and 2x coarser cells, and only
@@ -1576,24 +1737,54 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
 
   Delta' is omitted: it is rho's exact reciprocal through mass conservation (rho R^2 Delta' =
   const), so it would add a panel without adding information.
+
+  THE STRIP ON TOP is drawn for the REVERSE shell only (phases defaults to z == 4). Shell 1
+  neither decelerates through its rarefaction -- Gamma RISES there, so the Gamma-minimum
+  boundary has no meaning -- nor carries a trailing shock: measure_wave_tracks finds no
+  coherent front in it at all, only scattered mesh noise. Forcing the strip on with
+  phases=True there produces four phases that are an artifact of the detector, not of the flow.
+
+  It names the four phases each cell passes through (see cell_phases) and shows
+  that their boundaries are PER CELL, not per radius: the rarefaction and the trailing wave both
+  enter at the external interface, so the 75% cell meets each of them first and the 25% cell
+  last. The phase names sit over the 25% row, which is the one that separates all four. Dotted
+  guides carry each boundary down through the panels in the cell's own colour.
   """
   os.makedirs(outdir, exist_ok=True)
-  tab = with_settle(load_table(table_key, z, ncells), test_key, z, ncells)
-  cells = _test_cells(test_key, z, ncells)
+  tab = with_settle(load_table(table_key, z, ncells), test_key, z, ncells) if show_model else None
+  cells = _frac_cells(test_key, z, frac_targets, ncells)
+  env = MyEnv(test_key)
+  bounds = []          # (fraction, colour, phase dict) per plotted cell, for the strip
 
   gi = 2./GMA_REF
-  # Linear y throughout. Log-y resolves the crash (4-6 decades) but that is not the point of
-  # the figure -- it also drags the eye onto floor-limited, mesh-artifact tails. Linear keeps
-  # the contrast the figure is about: the crash as a cliff against a reconstruction that holds.
-  cols = (('rho', r'$\rho\,(R/R_{\rm inj})^{1.2}$', gi, 'linear'),
-          ('p',   r'$p\,(R/R_{\rm inj})^{2}$',        2., 'linear'),
-          ('G',   r'$\Gamma/\Gamma_{\rm inj}$',      0., 'linear'))
-  ccol = ('#0072B2', '#D55E00')          # Okabe-Ito blue / vermillion, CVD-safe
-  fig, axes = plt.subplots(1, 3, figsize=(13.0, 4.6), layout='constrained')
-  axes = np.atleast_2d(axes)
+  # LOG y on rho and p so the crash is resolved in full (4-6 decades) instead of being a
+  # cliff onto a common zero. The cost is that the post-crash tails are now on show, and
+  # they are floor-limited (P_FLOOR_) and carry the mesh-partition noise -- read the crash
+  # and the plateau before it, not the depth of the tail. Gamma stays linear: it moves by
+  # a few percent and sits in the MIDDLE panel, where the per-cell legend lives.
+  cols = (('rho', r'$\rho\,(R/R_{\rm inj})^{1.2}$', gi, 'log'),
+          ('G',   r'$\Gamma/\Gamma_{\rm inj}$',      0., 'linear'),
+          ('p',   r'$p\,(R/R_{\rm inj})^{2}$',        2., 'log'))
+  ccol = ('#0072B2', '#D55E00', '#009E73')   # Okabe-Ito blue / vermillion / green, CVD-safe
+  # Stacked, shared radius axis: one row per quantity, all three cells in each, under a thin
+  # strip carrying the phase boundaries.
+  show_phases = (z == 4) if phases is None else bool(phases)
+  if show_phases:
+    fig, axf = plt.subplots(4, 1, figsize=(5.9, 8.4), sharex=True, layout='constrained',
+                            height_ratios=[0.62, 3, 3, 3])
+    strip, axes = axf[0], axf[1:]
+  else:
+    fig, axes = plt.subplots(3, 1, figsize=(5.9, 7.8), sharex=True, layout='constrained')
+    strip = None
+  # Linear inset on rho and p, top right, over the PRE-CRASH window only: on the log main
+  # axes the plateau is a few pixels of a 4-decade span, and it is the plateau that carries
+  # the causal-contact law (a flat line at 1) the scaling was chosen to expose.
+  ins, dex_seen = {}, [0.]
+  for jj, (key, lab, pw, sc) in enumerate(cols):
+    if key in ('rho', 'p'):
+      ins[jj] = axes[jj].inset_axes([0.575, 0.575, 0.40, 0.40])
 
-  for ci, Rt in enumerate(Ri_targets):
-    k, s_, h, dex, Ri = min(cells, key=lambda c: abs(c[4] - Rt))
+  for ci, (f_req, f_got, k, s_, h, dex, Ri) in enumerate(cells):
     # FULL measured history -- past the handover too, so the rarefaction CRASH is shown. That
     # crash is the whole point of the counterfactual: it is what the reconstruction is being
     # asked to replace.
@@ -1604,48 +1795,263 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
     m = (Lf >= P.INJ_SAFE) & (Lf <= dex - P.EDGE_EXCL)
     if m.sum() < 10 or mf.sum() < 10:
       continue
-    # reconstruction PROLONGED well past the handover, on the same radial grid as the data
-    xg = cf[0][mf]
-    pr = predict_history(tab, s_.iloc[0], xg, z=z,
-                         anchor_row=s_.iloc[int(np.flatnonzero(m)[0])])
-    if pr is None:
-      continue
-    meas = {'rho': cf[2][mf], 'p': cf[3][mf], 'G': cf[4][mf]}
-    rec = {'rho': pr['rho'], 'p': pr['p'], 'G': pr['lfac']}
+    rec = None
+    if show_model:
+      # reconstruction PROLONGED well past the handover, on the same radial grid as the data
+      pr = predict_history(tab, s_.iloc[0], cf[0][mf], z=z,
+                           anchor_row=s_.iloc[int(np.flatnonzero(m)[0])])
+      if pr is None:
+        continue
+      rec = {'rho': pr['rho'], 'p': pr['p'], 'G': pr['lfac']}
+    full = {'rho': cf[2], 'p': cf[3], 'G': cf[4]}
     Lr = Lf[mf]
-    nres = int(m.sum())          # residuals only over the rarefaction-free stretch
     col = ccol[ci % len(ccol)]
+    dex_h = dex - P.EDGE_EXCL
+    ph = cell_phases(s_, dex=dex, env=env, L_max=dex_max) if show_phases else None
+    if ph is not None:
+      bounds.append((f_req, col, ph))
+    print(f'  {100*f_req:.0f}% of shell -> cell k={k} (achieved {100*f_got:.1f}%), '
+          f'R_i/R_0 = {Ri:.3f}, handover at log10(R/R_inj) = {dex_h:.3f}')
+    for nm in ('head', 'tail', 'wave') if ph is not None else ():
+      if ph[nm] is not None:
+        print(f'      {nm:5s}: log10(R/R_inj) = {ph[nm]["L"]:.3f}, t = {ph[nm]["t"]:.4g} s, '
+              f'barT = {ph[nm]["barT"]:.3f}')
     for jj, (key, lab, pw, sc) in enumerate(cols):
-      ym = meas[key]*10.**(pw*Lr)
-      yr = rec[key]*10.**(pw*Lr)
+      yf = full[key]*10.**(pw*Lf)
+      ym = yf[mf]
       nm = ym[0]
-      axes[0, jj].plot(Lr, ym/nm, color=col, lw=3.2, alpha=0.35, solid_capstyle='round',
-                       zorder=2)
-      axes[0, jj].plot(Lr, yr/nm, color=col, lw=1.5, ls='--', dash_capstyle='round', zorder=3)
-      # mark where the rarefaction reaches this cell
-      jh = int(np.argmin(np.abs(Lr - (dex - P.EDGE_EXCL))))
-      axes[0, jj].plot([Lr[jh]], [(ym/nm)[jh]], 'o', ms=5.5, mfc='white', mec=col, mew=1.4,
-                       zorder=5)
-      if jj == 0:
-        # Label at the END of the reconstruction. On these LINEAR axes the crashed tails all
-        # pile onto zero, so the asymptote is the only place the two cells are separated --
-        # the reverse of the log-y case, where only the crash separated them.
-        axes[0, 0].annotate(rf'$R_i/R_0={Ri:.2f}$', xy=(Lr[-1], (yr/nm)[-1]),
-                            xytext=(-3, 5), textcoords='offset points', fontsize=8,
-                            color=col, ha='right', va='bottom')
+      if rec is not None:
+        axes[jj].plot(Lr, rec[key]*10.**(pw*Lr)/nm, color=col, lw=1.0, ls='--', alpha=0.55,
+                      dash_capstyle='round', zorder=2)
+      # DATA ONLY by default: the figure is about the measured evolution, and the
+      # reconstruction is a separate argument made elsewhere (validate_model).
+      axes[jj].plot(Lr, ym/nm, color=col, lw=1.9, solid_capstyle='round', zorder=4,
+                    label=rf'${100*f_req:.0f}\%$' if key == 'G' else None)
+      if jj in ins:
+        # DISPLAY smoothing, inset only: the plateau is flat to a couple of percent and the
+        # per-dump jitter on it is comparable, so the raw trace reads as fuzz at this zoom.
+        # The main panels stay raw -- nothing quantitative is ever read off the inset.
+        yi = yf[m]/nm
+        wsm = min(INSET_SMOOTH, (len(yi)//4)*2 + 1)
+        if wsm >= 7:
+          yi = savgol_smooth(yi, window=wsm)
+        ins[jj].plot(Lf[m], yi, color=col, lw=1.3, solid_capstyle='round')
+        dex_seen[0] = max(dex_seen[0], dex_h)
 
   for jj, (key, lab, pw, sc) in enumerate(cols):
-    axes[0, jj].set(ylabel=lab, yscale=sc,
-                    xlabel=r'$\log_{10}(R/R_{\rm inj})$')
-    P._style(axes[0, jj])
-  hnd = [plt.Line2D([], [], color=COL_INK, lw=3.2, alpha=0.35,
-                    label='simulation (crashes when the rarefaction arrives)'),
-         plt.Line2D([], [], color=COL_INK, lw=1.5, ls='--',
-                    label='reconstruction, prolonged (no rarefaction)'),
-         plt.Line2D([], [], marker='o', ls='none', mfc='white', mec=COL_INK, mew=1.4,
-                    label='rarefaction reaches the cell')]
-  fig.legend(handles=hnd, fontsize=9, frameon=False, ncol=3, loc='outside lower center')
+    axes[jj].set(ylabel=lab, yscale=sc)
+    P._style(axes[jj])
+    if jj in ins:
+      a = ins[jj]
+      a.set_xlim(0., dex_seen[0]*1.04)
+      a.tick_params(labelsize=7, length=2.5, pad=1.5)
+      a.grid(True, color='0.93', lw=0.5)
+      a.set_axisbelow(True)
+      for sp in a.spines.values():
+        sp.set(color='0.6', linewidth=0.7)
+      a.set_facecolor('white')
+    if key == 'G':
+      # Per-cell key, in the middle panel. R_i IS THE CELL'S INITIAL RADIUS, at t = 0, so the
+      # title is its offset from the CD in units of the shell's initial width and the numbers
+      # read as the percentages they are. It is NOT R_inj, the shock-injection radius the x
+      # axis is normalised by: the shock takes the whole crossing to lay these cells down, so
+      # |R_inj - R_0|/Delta_0 runs to ~1e4 and would make nonsense of this key.
+      axes[jj].legend(title=rf'$|R_i-R_0|/\Delta_{{0,{z}}}$', fontsize=9,
+                      title_fontsize=9, frameon=True, framealpha=0.9, edgecolor='0.85',
+                      loc='lower right', handlelength=1.6)
+  axes[-1].set_xlabel(r'$\log_{10}(R/R_{\rm inj})$')
+
+  # --- phase strip. One row per cell, four segments per row, boundaries from cell_phases.
+  # Greys, not the cell colours: the ROW is the cell (labelled at its left, in the cell's
+  # colour) and the SHADE is the phase, so the two readings never compete.
+  def _edges(ph, x0, x1):
+    return [x0, ph['head']['L'], ph['tail']['L'],
+            ph['wave']['L'] if ph['wave'] else x1, x1]
+
+  if bounds:
+    x0 = P.INJ_SAFE
+    x1 = dex_max if dex_max is not None else max(b[2]['wave']['L'] for b in bounds
+                                                 if b[2]['wave'])
+    strip.set(xlim=(x0, x1), ylim=(0., 1.))
+    strip.set_axis_off()
+    h, gap = 0.19, 0.035
+    for r, (f_req, col, ph) in enumerate(bounds):
+      edges, y0 = _edges(ph, x0, x1), 0.60 - r*(h + gap)
+      for q in range(4):
+        a, b = edges[q], min(edges[q + 1], x1)
+        if b <= a:
+          continue
+        strip.add_patch(plt.Rectangle((a, y0), b - a, h, facecolor=PHASE_GREY[q],
+                                      edgecolor='white', lw=0.8, zorder=2, clip_on=True))
+      strip.text(x0 - 0.012*(x1 - x0), y0 + 0.5*h, rf'${100*f_req:.0f}\%$', color=col,
+                 fontsize=7.5, ha='right', va='center', zorder=3, clip_on=False)
+      for nm in ('head', 'tail', 'wave'):
+        if ph[nm] is None:
+          continue
+        for ax in axes:
+          ax.axvline(ph[nm]['L'], color=col, ls=PHASE_LS[nm], lw=0.9, alpha=0.5, zorder=1)
+    # Names over the 25% row, the one that separates all four phases widely enough to hold them.
+    ed = _edges(bounds[0][2], x0, x1)
+    for q, lab in enumerate(PHASE_NAME):
+      strip.text(0.5*(ed[q] + min(ed[q + 1], x1)), 0.88, lab, fontsize=7.5, ha='center',
+                 va='center', color='0.2')
+
   path = os.path.join(outdir, f'article_cells_z{z}.png')
+  fig.savefig(path, dpi=200, bbox_inches='tight')
+  plt.close(fig)
+  print(f'saved {path}')
+  return path
+
+
+# --- wave tracks ----------------------------------------------------------------------
+# The shell carries TWO waves out of its external interface, not one. The rarefaction head
+# is the first (the crash every cell history shows); a COMPRESSION follows it, steepens into
+# a shock, and re-compresses and re-accelerates the gas the rarefaction left behind. The
+# trailing shock is what ends the plateau in the article figure's 25% cell.
+SHOCK_DLNRHO  = 0.06   # per-dump compression that counts as the front (rho RISES: the
+                       # rarefaction only ever lowers it, so the sign alone separates them)
+SHOCK_ENTROPY = 1.5    # dln p / dln rho above this. Adiabatic compression gives 4/3-5/3, so
+                       # this is the test that entropy is created, i.e. that it is a SHOCK
+                       # and not a sound wave. Measured 2.4 where the front is strong.
+SHOCK_BACKOFF = 0.10   # dex of R/R_inj past the rarefaction handover before looking, so the
+                       # crash's own recovery cannot be mistaken for the front
+SHOCK_MIN_CELLS = 8    # a front must be seen in at least this many cells, with its arrival
+                       # time MONOTONIC in cell index. This is the guard that matters: the
+                       # late-time mesh-partition noise ([[late-time-density-noise]]) throws
+                       # dln rho ~ 0.06-0.12 events that pass both tests above, but they are
+                       # scattered in k, so no long monotonic run survives. Without it the
+                       # forward shell returns 14 noise detections as if they were a wave.
+SHOCK_MAX_DEX = 1.5    # ... and that run must span less than this many decades in t
+SHOCK_MIN_SWEEP = 0.10 # ... and must actually TRAVEL: its fractional position between the
+                       # interface (0) and the CD (1) has to change by this much. Without it
+                       # the forward shell returns a 12-cell "front" that is monotonic in t
+                       # only because it sits ON the CD and follows it (d/W = 1.00 -> 0.98),
+                       # where the reverse shell's real front sweeps 0.30 -> 0.62.
+
+
+def _longest_front(k, t):
+  '''Index mask of the longest run, in cell order, over which arrival time is monotonic --
+  i.e. the longest stretch that behaves like one wave crossing the shell.'''
+  o = np.argsort(k)
+  ts = t[o]
+  if len(ts) < 2:
+    return np.zeros(len(k), dtype=bool)
+  s = np.sign(np.diff(ts))
+  best = (0, 0, 0)                                     # (length, start, stop) in o-space
+  i = 0
+  while i < len(s):
+    j = i
+    while j + 1 < len(s) and s[j + 1] == s[i] and s[i] != 0:
+      j += 1
+    if j - i + 2 > best[0]:
+      best = (j - i + 2, i, j + 2)
+    i = j + 1
+  keep = np.zeros(len(k), dtype=bool)
+  keep[o[best[1]:best[2]]] = True
+  return keep
+
+
+def measure_wave_tracks(key='cooling_g100', z=4, stride=4, verbose=True):
+  '''
+  Arrival of both waves at every cell of shell z: (t, R) of the rarefaction handover and of
+  the trailing shock, plus the interface and CD worldlines to measure them against.
+  Returns dict(rar, shock, interface, cd, D0, n_shock, n_rej).
+  '''
+  env = MyEnv(key)
+  kmin, kmax, kCD = shell_cell_range(key, z)
+  kint = kmin if z == 4 else kmax             # the EXTERNAL interface: the far end from the CD
+  tr = {}
+  for kk, nm in ((kint, 'interface'), (kCD, 'cd')):
+    d = open_celldata(key, int(kk))
+    tr[nm] = (d.t.to_numpy(dtype=float), d.x.to_numpy(dtype=float)*c_)
+  rar, shk = [], []
+  for k in range(kmin, kmax + 1, stride):
+    s = _history(key, int(k), z=z)
+    if s is None or len(s) < 50:
+      continue
+    h, dex = P.prerar_window(s)
+    x = s.x.to_numpy(dtype=float)*c_
+    L = np.log10(x/x[0])
+    t = s.t.to_numpy(dtype=float)
+    rho, p = s.rho.to_numpy(dtype=float), s.p.to_numpy(dtype=float)
+    rar.append((t[h], x[h], k))
+    dr, dp = np.diff(np.log(rho)), np.diff(np.log(p))
+    w = np.flatnonzero((L[1:] > dex + SHOCK_BACKOFF) & (dr > SHOCK_DLNRHO)
+                       & (dp > SHOCK_ENTROPY*dr))
+    if w.size:                                  # FIRST crossing, not the largest
+      shk.append((t[w[0]], x[w[0]], k))
+  rar = np.array(rar, dtype=float)
+  shk = np.array(shk, dtype=float)
+  n_rej, n_run, coherent = 0, 0, False
+  if len(shk):
+    keep = _longest_front(shk[:, 2], shk[:, 0])
+    n_rej, run = int((~keep).sum()), shk[keep]
+    n_run = len(run)
+    Ri = np.interp(run[:, 0], *tr['interface'])
+    Rc = np.interp(run[:, 0], *tr['cd'])
+    frac = np.abs(run[:, 1] - Ri)/np.abs(Rc - Ri)      # 0 at the interface, 1 at the CD
+    sweep = float(frac.max() - frac.min())
+    coherent = (n_run >= SHOCK_MIN_CELLS
+                and np.log10(run[:, 0].max()/run[:, 0].min()) < SHOCK_MAX_DEX
+                and sweep >= SHOCK_MIN_SWEEP)
+    shk = run if coherent else np.empty((0, 3))
+  if verbose:
+    if coherent:
+      print(f'{key} z={z}: rarefaction in {len(rar)} cells, trailing shock front in '
+            f'{n_run} ({n_rej} incoherent detections rejected as mesh noise)')
+    else:
+      print(f'{key} z={z}: rarefaction in {len(rar)} cells, NO coherent trailing shock '
+            f'({n_rej + n_run} detections, longest monotonic run {n_run} cells sweeping '
+            f'{sweep:.2f} of the shell -- fails MIN_CELLS={SHOCK_MIN_CELLS} / '
+            f'MAX_DEX={SHOCK_MAX_DEX} / MIN_SWEEP={SHOCK_MIN_SWEEP})')
+  return dict(rar=rar, shock=shk, interface=tr['interface'], cd=tr['cd'],
+              D0=float(getattr(env, 'D04' if z == 4 else 'D01')), env=env,
+              n_shock=len(shk), n_rej=n_rej)
+
+
+def plot_wave_tracks(key='cooling_g100', z=4, stride=4, outdir=OUTDIR):
+  '''
+  Where each wave is, as a distance behind the shell's external interface in units of the
+  shell's INITIAL width, against source-frame time. The shaded band is the shell itself
+  (interface to CD), so a track reaching the top of the band has crossed the shell.
+
+  READ THE SHOCK TRACK'S LEFT END AS A DETECTION LIMIT, NOT AS THE WAVE'S ORIGIN. Deep in
+  the shell the crash and the compression arrive within SHOCK_BACKOFF of each other and
+  cannot be separated, so the front only becomes measurable once it has fallen far enough
+  behind the rarefaction head -- which is at the outer third of the shell.
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  w = measure_wave_tracks(key, z, stride=stride)
+  D0 = w['D0']
+
+  # ABSOLUTE distance: shell 1's external interface is its OUTER edge, so R - R_int is
+  # negative there. |.| makes both shells read the same way -- 0 at the interface, the top
+  # of the band at the CD -- which is the whole point of measuring from the interface.
+  def dist(a):
+    Ri = np.interp(a[:, 0], *w['interface'])
+    return a[:, 0], np.abs(a[:, 1] - Ri)/D0
+
+  tracks = [(w['rar'], '#0072B2', 'rarefaction head')]
+  if len(w['shock']):
+    tracks.append((w['shock'], '#D55E00', 'trailing shock'))
+  fig, ax = plt.subplots(figsize=(6.4, 4.4), layout='constrained')
+  tlo = min(a[:, 0].min() for a, _, _ in tracks)*0.7
+  thi = max(a[:, 0].max() for a, _, _ in tracks)*1.4
+  tg = np.geomspace(tlo, thi, 400)
+  W = np.abs(np.interp(tg, *w['cd']) - np.interp(tg, *w['interface']))/D0
+  ax.fill_between(tg, 0., W, color='0.90', lw=0, zorder=0)
+  ax.plot(tg, W, color='0.55', lw=1.0, zorder=1)
+  for a, c, lab in tracks:
+    tt, dd = dist(a)
+    o = np.argsort(tt)
+    ax.plot(tt[o], dd[o], color=c, lw=1.9, zorder=3, label=lab)
+  ax.annotate('contact discontinuity', xy=(tg[-1], W[-1]), xytext=(-4, -11),
+              textcoords='offset points', fontsize=8, color='0.4', ha='right', va='top')
+  ax.set(xscale='log', xlabel=r'$t$ [s]',
+         ylabel=rf'$(R - R_{{\rm int}})/\Delta_{{0,{z}}}$', xlim=(tlo, thi), ylim=(0., None))
+  ax.legend(fontsize=9, frameon=False, loc='upper left')
+  P._style(ax)
+  path = os.path.join(outdir, f'wave_tracks_z{z}.png')
   fig.savefig(path, dpi=200, bbox_inches='tight')
   plt.close(fig)
   print(f'saved {path}')
