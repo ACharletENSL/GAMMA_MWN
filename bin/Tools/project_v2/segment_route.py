@@ -48,8 +48,18 @@ TWO THINGS THIS ROUTE DOES THAT THE OTHER DOES NOT
   mid_from='tangent' and carry NO evidence about whether the spectrum is marginal; the merged
   single break is still measured on every MC bin so the two descriptions can be compared.
 
-Ground truth is the cached sweeps; no spectrum is recomputed. The cut-off scan with a free
-sigma costs ~0.8 s a bin, so points are run in parallel (see NPROC).
+Ground truth is the cached sweeps; no spectrum is recomputed.
+
+WHAT THIS COSTS, AND WHY IT IS CACHED. THIS MODULE DRAWS NO FIGURE -- it writes five csv
+tables and nothing else, so it is an analysis step and has no place in a replot pass. The
+cut-off scan with a free sigma costs ~0.8 s a bin, and a bin is not cheap in bulk: the
+observer grid carries 2000 of them per reverse-shock point and 450 per forward-shock one,
+so a cold run is 19600 route fits (~4.4 CPU-hours) plus one held refit per measured bin in
+prescription_check (~18100 of them). Both halves are now spread over the pool, and the
+route's output is cached PER POINT (_run_point), keyed on the sweep point and on
+spectral_breaks.py's mtime so an edit to either invalidates it. Rebuilding a table, pooling
+a class differently or adding a column therefore costs the refits alone; use_cache=False
+forces the route again.
 
   regime_table          - s1, s2 per shape class per shell, and pooled; MC's merged-break s
                           reported separately from the two-break exponents
@@ -60,6 +70,7 @@ sigma costs ~0.8 s a bin, so points are run in parallel (see NPROC).
 '''
 
 import os
+import hashlib
 import numpy as np
 import pandas as pd
 
@@ -95,40 +106,142 @@ def _ensure_outdir(outdir=OUTDIR):
   os.makedirs(outdir, exist_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# per-point TRACK CACHE. The route is the whole cost of this module -- ~0.8 s a bin, and a
+# reverse-shock point carries 2000 of them -- and it is a pure function of (sweep point,
+# route_kw). Everything below it (the four tables, the prescription refits) is a reduction
+# over the tracks, so caching them is what lets a table be rebuilt, a class re-pooled or a
+# new column added without paying for the fits again. Same contract as sweep_gammacm's own
+# point cache: one file per point, use_cache=False to force a recompute.
+# ---------------------------------------------------------------------------
+# object-dtype columns (strings and None); npz cannot hold them without pickling, so they
+# are stored as unicode with '' standing for None
+_TRACK_OBJ = ('regime', 'shape', 'mid_from', 'mid_name')
+
+
+def _route_tag(route_kw):
+  '''A variant of the fit must not reload the shipped one's cache, so route_kw goes in the
+  file name -- hashed, because it is free-form keyword arguments.'''
+  if not route_kw:
+    return ''
+  h = hashlib.md5(repr(sorted(route_kw.items())).encode()).hexdigest()[:8]
+  return f'_{h}'
+
+
+def _sweep_point_path(key, method, z, logr):
+  return os.path.join(swp.method_outdir(method, key, z), 'cache',
+                      f'point_logr={logr:+.1f}.npz')
+
+
+def _track_stamp(key, method, z, logr):
+  '''What the cached track was computed FROM: the sweep point's size and mtime, and the
+  mtime of spectral_breaks.py, which is where the route lives. Editing either invalidates
+  every track that came out of it -- silently reusing a track fitted by an older route is
+  exactly the failure this module cannot afford.'''
+  src = _sweep_point_path(key, method, z, logr)
+  st = os.stat(src)
+  return np.array([st.st_size, st.st_mtime_ns,
+                   os.stat(sb.__file__).st_mtime_ns], dtype=np.int64)
+
+
+def _track_cache_path(key, method, z, logr, route_kw, outdir=OUTDIR):
+  return os.path.join(outdir, 'cache', f'track_{key}_{method}_z={z}'
+                      f'_logr={logr:+.1f}{_route_tag(route_kw)}.npz')
+
+
+def _save_track(path, tk, stamp):
+  os.makedirs(os.path.dirname(path), exist_ok=True)
+  d = {'_stamp': stamp}
+  for k, v in tk.items():
+    if k.startswith('_'):
+      continue                      # '_r' is the whole sweep point, attached later
+    if isinstance(v, np.ndarray) and v.dtype == object:
+      d[k] = np.array(['' if q is None else str(q) for q in v])
+    else:
+      d[k] = v
+  np.savez(path, **d)
+
+
+def _load_track(path, stamp):
+  '''The cached track, or None if it is absent or was computed from something else.'''
+  if not os.path.isfile(path):
+    return None
+  try:
+    with np.load(path, allow_pickle=False) as f:
+      if '_stamp' not in f or not np.array_equal(f['_stamp'], stamp):
+        return None
+      tk = {}
+      for k in f.files:
+        if k == '_stamp':
+          continue
+        v = f[k]
+        if k in _TRACK_OBJ:
+          v = np.array([None if q == '' else str(q) for q in v], dtype=object)
+        elif v.ndim == 0:
+          v = v.item()
+        tk[k] = v
+  except (OSError, ValueError, EOFError):
+    return None                     # a truncated file is a miss, not a crash
+  return tk
+
+
 def _run_point(args):
   '''
   One sweep point, in a worker: load the cache, run the route on every time bin. A trailing
   dict of keyword arguments is passed straight to the route, which is how a variant of the
   fit (free_bhi=False, say) is measured against the shipped one without editing a default.
+  The track is cached (see above) and reloaded whenever the sweep point and the route it
+  came from are unchanged; use_cache=False forces the fits.
   '''
   key, method, z, logr = args[:4]
   route_kw = args[4] if len(args) > 4 else {}
+  use_cache = args[5] if len(args) > 5 else True
+  outdir = args[6] if len(args) > 6 else OUTDIR
+  path = _track_cache_path(key, method, z, logr, route_kw, outdir)
+  stamp = _track_stamp(key, method, z, logr)
+  if use_cache:
+    tk = _load_track(path, stamp)
+    if tk is not None:
+      tk['logr'], tk['z'] = logr, z
+      tk['_cached'] = True
+      return tk
   res = swp.load_sweep(swp.method_outdir(method, key, z))
   r = [q for q in res if abs(q['log10ratio'] - logr) < 1e-9][0]
   tk = sb.track_segment_route(r, **route_kw)
   tk['logr'], tk['z'] = logr, z
+  _save_track(path, tk, stamp)
+  tk['_cached'] = False
   return tk
 
 
-def load_side(z=Z_RS, key=KEY, method=METHOD, nproc=NPROC, route_kw=None):
+def load_side(z=Z_RS, key=KEY, method=METHOD, nproc=NPROC, route_kw=None,
+    use_cache=True, outdir=OUTDIR):
   '''
   Every cached sweep point of one shell, with the segment route run on every time bin.
   Points are independent, so they are run in parallel -- the smeared cut-off scan is ~0.8 s
-  a bin and a point carries ~450 of them.
+  a bin and a reverse-shock point carries 2000 of them, which is why the result is cached
+  per point (_run_point). A cached side loads in seconds and needs no pool.
   '''
   res = swp.load_sweep(swp.method_outdir(method, key, z))
   if not res:
     raise FileNotFoundError(f'no cached sweep for z={z} -- run sweep_gammacm.main first')
   logrs = sorted(float(r['log10ratio']) for r in res)
   barT_f = swp.exit_onset_barT(key, z=z)
-  jobs = [(key, method, z, lr, dict(route_kw or {})) for lr in logrs]
-  np_ = cell_pool.resolve_nproc(nproc, cap=len(jobs))
+  jobs = [(key, method, z, lr, dict(route_kw or {}), use_cache, outdir) for lr in logrs]
+  # nothing to spread if every point is already cached: the pool would cost more to build
+  # than the loads it would parallelise
+  todo = [j for j in jobs if not (use_cache and _load_track(
+      _track_cache_path(key, method, z, j[3], j[4], outdir),
+      _track_stamp(key, method, z, j[3])) is not None)]
+  np_ = cell_pool.resolve_nproc(nproc, cap=len(todo)) if todo else 1
   if np_ > 1:
     ctx = cell_pool.pool_context()
     with ctx.Pool(np_) as pool:
       tracks = pool.map(_run_point, jobs)
   else:
     tracks = [_run_point(j) for j in jobs]
+  nc = sum(1 for tk in tracks if tk.pop('_cached', False))
+  print(f'  z={z}: {nc}/{len(tracks)} points from the track cache', flush=True)
   out = []
   for tk in tracks:
     tk['barT_f'] = barT_f
@@ -281,8 +394,65 @@ def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False):
   return np.nan
 
 
+def _refit_point(args):
+  '''
+  Every held refit asked of ONE sweep point, in a worker. The track comes back off its own
+  cache and the sweep point is loaded here rather than pickled across, exactly as _run_point
+  does -- a track plus its spectra is tens of MB, and the parent would send it once per job.
+  tasks: (spec id, bin indices, s_hold, s1brk_hold, merged) per (class, epoch) case.
+  '''
+  key, method, z, logr, route_kw, outdir, tasks = args
+  tk = _load_track(_track_cache_path(key, method, z, logr, route_kw, outdir),
+                   _track_stamp(key, method, z, logr))
+  tk['logr'], tk['z'] = logr, z
+  res = swp.load_sweep(swp.method_outdir(method, key, z))
+  tk['_r'] = [q for q in res if abs(q['log10ratio'] - logr) < 1e-9][0]
+  return {sid: np.array([_refit(tk, int(i), s_hold=sh, s1brk_hold=sg, merged=mg)
+                         for i in idx], float)
+          for sid, idx, sh, sg, mg in tasks}
+
+
+def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
+  '''
+  The held refits of every (class, epoch) case, one list of rms per spec in specs order and
+  within a spec in the order prescription_check collected its free fits (track order, bins
+  ascending).
+
+  Work is grouped by TRACK, not by case, so each worker touches one sweep point; a track
+  whose cache is missing (sides built by hand, or a route_kw the cache was not written
+  under) forces the whole thing serial in the parent, where the tracks already are.
+  '''
+  held = [[None]*len(sides) for _ in specs]
+  jobs = []
+  for ti, tk in enumerate(sides):
+    tasks = [(si, sp['idx'][ti], sp['s_hold'], sp['s1brk_hold'], sp['merged'])
+             for si, sp in enumerate(specs) if len(sp['idx'][ti])]
+    if tasks:
+      jobs.append((key, method, int(tk['z']), float(tk['logr']), dict(route_kw or {}),
+                   outdir, tasks, ti))
+  cached = all(_load_track(_track_cache_path(key, method, j[2], j[3], j[4], outdir),
+                           _track_stamp(key, method, j[2], j[3])) is not None
+               for j in jobs)
+  np_ = cell_pool.resolve_nproc(nproc, cap=len(jobs)) if jobs else 1
+  if cached and np_ > 1:
+    ctx = cell_pool.pool_context()
+    with ctx.Pool(np_) as pool:
+      outs = pool.map(_refit_point, [j[:7] for j in jobs])
+  else:
+    outs = [{sid: np.array([_refit(sides[j[7]], int(i), s_hold=sh, s1brk_hold=sg,
+                                   merged=mg) for i in idx], float)
+             for sid, idx, sh, sg, mg in j[6]} for j in jobs]
+  for j, out in zip(jobs, outs):
+    for sid, v in out.items():
+      held[sid][j[7]] = v
+  return [np.concatenate([v for v in per_track if v is not None])
+          if any(v is not None for v in per_track) else np.array([], float)
+          for per_track in held]
+
+
 def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=True,
-    rms_max=PRESC_RMS_MAX, bad_max=PRESC_BAD_MAX):
+    rms_max=PRESC_RMS_MAX, bad_max=PRESC_BAD_MAX, nproc=NPROC, route_kw=None,
+    outdir=OUTDIR):
   '''
   Does the tabulated median actually fit? Freeze s at the pooled per-class median, refit every
   bin of that class, and compare against the same bin fitted with s free. The difference is
@@ -290,6 +460,13 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
   is what says whether one number can stand for the class at all.
 
   Needs the spectra, so the sweep cache is re-loaded here and attached to each track.
+
+  This is the OTHER half of the module's cost -- one refit per measured bin, ~19600 of them
+  on the fiducial sweep -- and it used to be the serial half, on one core while the other
+  seven idled. The holds are pooled over every side before any refit, so once they are known
+  the refits are independent: they are grouped BY SWEEP POINT (each worker then loads one
+  point's spectra, not all of them) and run across the same pool load_side uses. The pairing
+  with the free fits is preserved because both are collected in track order, bins ascending.
   '''
   for zi, z in enumerate((Z_RS, Z_FS)):
     res = swp.load_sweep(swp.method_outdir(method, key, z))
@@ -298,9 +475,10 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
   sides = sides_by_z[0] + sides_by_z[1]
   splits = ((True, 'on-axis'), (False, 'post-crossing')) if epoch else ((None, 'all'),)
   rows = []
+  specs = []
   for cls in CLASSES:
     for onax, elab in splits:
-      m = lambda tk: _class_mask(tk, cls, onax)
+      m = lambda tk, c=cls, o=onax: _class_mask(tk, c, o)
       n = int(sum(m(tk).sum() for tk in sides))
       if not n:
         continue
@@ -313,21 +491,24 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
       sg = np.nanmedian(_cat(sides, 's_1brk', m)) if merged else np.nan
       if not (np.isfinite(s2) or np.isfinite(sg)):
         continue                    # VSC: no shape is constrained, so nothing to freeze
-      free, held = [], []
-      for tk in sides:
-        for i in np.flatnonzero(m(tk)):
-          free.append(tk['rms_1brk'][i] if merged else tk['rms'][i])
-          held.append(_refit(tk, i, s_hold=(s1, s2) if np.isfinite(s2) else None,
-                             s1brk_hold=sg if np.isfinite(sg) else None, merged=merged))
-      free, held = np.array(free, float), np.array(held, float)
-      g = np.isfinite(free) & np.isfinite(held)
-      if not g.any():
-        continue
-      rf, rh = float(np.median(free[g])), float(np.median(held[g]))
-      rows.append(dict(regime=cls, epoch=elab, n=int(g.sum()), s1=s1, s2=s2, s_1brk=sg,
-                       rms_free=rf, rms_held=rh, cost=rh - rf,
-                       cost_pct=(100.*(rh/rf - 1.) if rf > 0 else np.nan),
-                       frac_bad=float(np.mean(held[g] > rms_max))))
+      idx = [np.flatnonzero(m(tk)) for tk in sides]
+      specs.append(dict(cls=cls, elab=elab, s1=s1, s2=s2, sg=sg, merged=merged,
+                        s_hold=((s1, s2) if np.isfinite(s2) else None),
+                        s1brk_hold=(sg if np.isfinite(sg) else None), idx=idx,
+                        free=np.array([(tk['rms_1brk'][i] if merged else tk['rms'][i])
+                                       for tk, ii in zip(sides, idx) for i in ii], float)))
+  helds = _run_refits(specs, sides, key, method, route_kw, outdir, nproc)
+  for sp, held in zip(specs, helds):
+    free = sp['free']
+    g = np.isfinite(free) & np.isfinite(held)
+    if not g.any():
+      continue
+    rf, rh = float(np.median(free[g])), float(np.median(held[g]))
+    rows.append(dict(regime=sp['cls'], epoch=sp['elab'], n=int(g.sum()),
+                     s1=sp['s1'], s2=sp['s2'], s_1brk=sp['sg'],
+                     rms_free=rf, rms_held=rh, cost=rh - rf,
+                     cost_pct=(100.*(rh/rf - 1.) if rf > 0 else np.nan),
+                     frac_bad=float(np.mean(held[g] > rms_max))))
   df = pd.DataFrame(rows)
   if verbose and len(df):
     print(f"\n{'=== DOES THE TABULATED VALUE FIT? ':=<96}")
@@ -804,18 +985,28 @@ def write_tables(*dfs_named, outdir=OUTDIR):
       print(f'  wrote {os.path.join(outdir, name)}')
 
 
-def main(key=KEY, method=METHOD, outdir=OUTDIR, nproc=NPROC, route_kw=None):
+def main(key=KEY, method=METHOD, outdir=OUTDIR, nproc=NPROC, route_kw=None,
+    use_cache=True):
+  '''
+  The five tables, from the cached sweeps. THIS MODULE DRAWS NOTHING -- it is an analysis
+  step, not a figure step, so it does not belong in a replot pass.
+
+  use_cache=True (the default) reloads the per-point tracks written by an earlier run
+  instead of refitting them (see _run_point); they are invalidated automatically by an
+  edited sweep point or an edited spectral_breaks.py. Pass False to force the fits.
+  '''
   _ensure_outdir(outdir)
   sides_by_z = []
   for z in (Z_RS, Z_FS):
     print(f'\n--- shell z={z} ---', flush=True)
     sides_by_z.append(load_side(z=z, key=key, method=method, nproc=nproc,
-                                route_kw=route_kw))
+                                route_kw=route_kw, use_cache=use_cache, outdir=outdir))
   cov = coverage_table(sides_by_z)
   reg = regime_table(sides_by_z)
   ep = regime_table(sides_by_z, epoch=True, verbose=False)
   bands = regime_bands(sides_by_z, epoch=True)
-  presc = prescription_check(sides_by_z, key=key, method=method)
+  presc = prescription_check(sides_by_z, key=key, method=method, nproc=nproc,
+                             route_kw=route_kw, outdir=outdir)
   write_tables((cov, 'coverage.csv'), (reg, 'smoothing_by_class.csv'),
                (ep, 'smoothing_by_class_epoch.csv'), (bands, 'smoothing_pooled.csv'),
                (presc, 'prescription_check.csv'), outdir=outdir)

@@ -356,6 +356,40 @@ def flat_core(lx, ly, lo=None, hi=None, tol=CORE_TOL, win=CORE_WIN_DEX, step=COR
 # minimum (rms moves measurably between adjacent steps -- see syn_cutoff_R_smeared).
 SMEAR_SIGMAS = np.arange(0., 0.2001, 0.01)
 
+# ---------------------------------------------------------------------------
+# MEMOISED C_sigma TABLES. The log-u grid measure_cutoff_nuM tabulates on depends on ONE
+# number -- the width in dex of the fit window, see the derivation where lu is built -- and
+# every bin of a sweep point cuts that window out of the same frequency array, so a handful
+# of widths serve thousands of bins. Rebuilding the tables per bin was 58% of the entire
+# segment-route cost (~10.2 M kernel evaluations a bin), and worse than that in parallel:
+# each syn_cutoff_R_smeared call allocates a SMEAR_NODES x len(lu) temporary, which made the
+# route memory-bandwidth bound and cost most of the benefit of a pool (0.72 s/bin on an idle
+# machine against 2.87 s/bin with seven workers running, i.e. 7 cores bought 1.75x).
+# Keyed on the exact grid and the exact sigma list, so a hit returns bit-for-bit what
+# recomputing would have returned.
+# ---------------------------------------------------------------------------
+_SMEAR_TAB_CACHE = {}
+# Measured on the fiducial sweep: a 2000-bin point needs 225-391 distinct grids and very
+# nearly as many RUNS of consecutive bins (391 grids / 399 runs at logr=0), i.e. a grid
+# serves ~5 neighbouring bins and then never recurs. So the cache only has to hold the
+# CURRENT run -- a large one would pin memory in every worker and buy nothing.
+_SMEAR_TAB_MAX = 4
+
+
+def _smear_tables(lu_lo, lu_hi, n, sigmas):
+  '''(lu, tabs): the log-u grid and log10 C_sigma on it, one row per sigma. Memoised.'''
+  key = (float(lu_lo), float(lu_hi), int(n), tuple(np.asarray(sigmas, float).tolist()))
+  hit = _SMEAR_TAB_CACHE.get(key)
+  if hit is not None:
+    return hit
+  lu = np.linspace(lu_lo, lu_hi, n)
+  with np.errstate(divide='ignore', invalid='ignore'):
+    tabs = np.array([np.log10(syn_cutoff_R_smeared(10**lu, float(s))) for s in sigmas])
+  if len(_SMEAR_TAB_CACHE) >= _SMEAR_TAB_MAX:
+    _SMEAR_TAB_CACHE.clear()
+  _SMEAR_TAB_CACHE[key] = (lu, tabs)
+  return lu, tabs
+
 
 def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True, smear=False,
     sigmas=SMEAR_SIGMAS):
@@ -420,25 +454,33 @@ def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True, smear=Fal
   # the isfinite guard below already rejects.
   # The unsmeared branch keeps evaluating the kernel directly, so smear=False stays
   # bit-identical to before this option existed; only the smeared branch is tabulated.
-  lu = np.linspace(lxm.min() - np.log10(grid.max()) - 1.,
-                   lxm.max() - np.log10(grid.min()) + 1., 4000)
-  for sig in sig_grid:
+  # the xM scan runs on the WHOLE grid at once rather than one trial at a time: 400 trials
+  # x 21 sigmas was 8400 turns of a Python loop per bin, each doing an interp and two means
+  # over a handful of points, and the loop overhead dominated the arithmetic. Batched, the
+  # same numbers come out of three array operations. Ties still go to the first trial in
+  # (sigma, xM) order -- argmin returns the first minimum, as the strict < did.
+  lgrid = np.log10(grid)
+  base = lym - a_hi*lxm
+  if smear:
+    lu, tabs = _smear_tables(lxm.min() - lgrid.max() - 1.,
+                             lxm.max() - lgrid.min() + 1., 4000, sig_grid)
+  for j, sig in enumerate(sig_grid):
     if smear:
+      corr = np.interp(lxm[None, :] - lgrid[:, None], lu, tabs[j], left=0., right=np.nan)
+    else:
       with np.errstate(divide='ignore', invalid='ignore'):
-        tab = np.log10(syn_cutoff_R_smeared(10**lu, sig))
-    for xM in grid:
-      if smear:
-        corr = np.interp(lxm - np.log10(xM), lu, tab, left=0., right=np.nan)
-      else:
-        with np.errstate(divide='ignore', invalid='ignore'):
-          corr = np.log10(syn_cutoff_R(10**lxm/xM))
-      if not np.all(np.isfinite(corr)):
-        continue
-      r = lym - a_hi*lxm - corr            # = c_hi + residual
-      c = float(np.mean(r))                 # profile the offset out
-      rms = float(np.sqrt(np.mean((r - c)**2)))
-      if rms < best[0]:
-        best = (rms, xM, sig)
+        corr = np.log10(syn_cutoff_R(10**lxm[None, :]/grid[:, None]))
+    # a trial whose correction runs off the tabulated range carries nans; the old loop
+    # skipped it before doing any arithmetic, this one computes and then rejects it, which
+    # is the same answer with nan arithmetic on the way (hence the errstate)
+    with np.errstate(invalid='ignore'):
+      r = base[None, :] - corr              # = c_hi + residual
+      c = r.mean(axis=1, keepdims=True)     # profile the offset out
+      rms = np.sqrt(((r - c)**2).mean(axis=1))
+    rms[~np.all(np.isfinite(corr), axis=1)] = np.inf
+    k = int(np.argmin(rms))
+    if rms[k] < best[0]:
+      best = (float(rms[k]), float(grid[k]), sig)
   if not np.isfinite(best[1]):
     return out
   xM = float(best[1])

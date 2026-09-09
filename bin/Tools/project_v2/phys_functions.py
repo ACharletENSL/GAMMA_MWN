@@ -188,7 +188,20 @@ def syn_cutoff_R(u):
 # piecewise smooth and polynomial quadrature converges badly on it (measured non-monotonic,
 # still ~4e-3 at 31 Gauss-Hermite nodes). A uniform grid converges cleanly instead -- see the
 # ladder in syn_cutoff_R_smeared's docstring. Cost is one vectorised func_R call per node.
-SMEAR_NODES = 121
+# 61, lowered from 121 on 2026-09-10 after measuring what the node count actually buys.
+# The tabulation is the dominant cost of the segment route, and halving the nodes halves it
+# (2.09x end to end, against 2.22x at 31 nodes -- i.e. 61 already captures nearly all of the
+# available speedup, and below it the cost is the scan rather than the kernel). What it
+# costs, measured over 120 bins of both shells spanning logr -5..+2, against 121 nodes:
+#   nu_M     UNCHANGED, exactly, in every bin (it is picked off a 400-point grid)
+#   sigma    UNCHANGED, exactly, in every bin (picked off SMEAR_SIGMAS' 0.01 dex grid)
+#   s1, s2   median |rel| 1e-7 / 1e-6, worst 1e-4 -- against exponents quoted to 2 decimals
+#   rms      median +3e-8 dex, worst 1.5e-6, against fit rms of 0.02-0.04 dex
+#   s_ok     no bin changed status
+# The shape error itself goes 3.8e-4 -> 9.0e-4 (the ladder below), still an order below the
+# rms of every fit that uses it. Raise it back to 121 if the cut-off shape is ever the
+# quantity under study rather than a nuisance divided out.
+SMEAR_NODES = 61
 SMEAR_NSIG = 4.0
 
 
