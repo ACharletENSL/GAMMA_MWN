@@ -94,7 +94,7 @@ import matplotlib.pyplot as plt
 from sweep_gammacm import (DEFAULT_KEY, DEFAULT_METHOD, Z_SHELL, NU_TARGETS, XLIM_LIN,
     load_sweep, method_outdir, exit_onset_barT, rarefaction_off_barT, run_sweep,
     LOG10RATIO_ARR, nu_over_num, nu_M_over_num, trim_pngs, copy_article_figures,
-    local_index as _slope_profile)
+    local_index as _slope_profile, table_is_current, write_table_stamp)
                                    # the local temporal index (and its fit window, SLOPE_NMIN
                                    # / SLOPE_HALF0) lives in sweep_gammacm, where the
                                    # lightcurve figures draw it as a panel under every curve;
@@ -612,6 +612,7 @@ def build_scan_table(scan_rows, outdir):
     for m in scan_rows:
       w.writerow([('{:d}'.format(int(m[k])) if k == 'rise_edge' else _cell(m, k, fmt))
                   for _, k, fmt in _SCAN_COLS])
+  write_table_stamp(csv_path, outdir)   # which sweep this scan was measured from
   n_edge = sum(1 for m in scan_rows if m['rise_edge'])
   print(f'frequency scan -> {csv_path}  ({len(scan_rows)} rows, '
         f'{n_edge} with an unresolved rise)')
@@ -629,9 +630,14 @@ def read_scan_table(outdir, fname=SCAN_CSV):
   _SCAN_COLS specification, so a column added there is carried by both without further
   edits. Non-finite entries were written as '--' and come back NaN.
 
-  Returns None if the csv is not there.
+  Returns None if the csv is not there, or if it was measured from a DIFFERENT sweep than
+  the one now in outdir (sweep_gammacm.table_is_current) -- a recomputed sweep must not be
+  replotted against the old scan.
   '''
   path = os.path.join(outdir, fname)
+  if os.path.isfile(path) and not table_is_current(path, outdir):
+    print(f'{fname} was measured from a different sweep -- ignoring it')
+    return None
   if not os.path.isfile(path):
     return None
   rows = []
@@ -1006,9 +1012,16 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGET
   # peak time, width and asymmetry across the WHOLE frequency grid, on the nu/nu_m axis
   scan_rows = []
   if scan:
-    print('\nfrequency scan:')
-    scan_rows = measure_frequency_scan(results, barT_f, barT_rf)
-    build_scan_table(scan_rows, outdir)
+    # the scan is the expensive half of this module, and it is a property of the SWEEP, not
+    # of the figures -- so it is reused whenever the csv on disk was measured from the sweep
+    # now in outdir, and re-measured only when it was not (read_scan_table checks the stamp).
+    scan_rows = read_scan_table(outdir)
+    if scan_rows:
+      print(f'\nfrequency scan: {len(scan_rows)} rows reused from {SCAN_CSV}')
+    else:
+      print('\nfrequency scan:')
+      scan_rows = measure_frequency_scan(results, barT_f, barT_rf)
+      build_scan_table(scan_rows, outdir)
   _figures(results, rows, rows_num, scan_rows, barT_f, x_rf, outdir)
   print(f'\nFigures saved to {outdir}')
   return rows, rows_num, scan_rows

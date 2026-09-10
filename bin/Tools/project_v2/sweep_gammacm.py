@@ -768,6 +768,50 @@ def load_sweep(outdir=OUTDIR):
   return results
 
 
+# ---------------------------------------------------------------------------
+# DERIVED-TABLE STAMPS. Several modules measure something expensive off a sweep, write it
+# to a csv and replot from that csv forever after (mid_slope_evolution's mid_slopes.csv,
+# lightcurve_shape's frequency scan). None of them could tell whether the sweep had MOVED
+# under the csv, so a recomputed sweep was silently replotted with the old measurement --
+# the same failure the point cache and segment_route's track cache are stamped against.
+# A table now carries a sidecar naming the point files it was measured from.
+# ---------------------------------------------------------------------------
+def sweep_stamp(outdir):
+  '''Fingerprint of a sweep's point cache: {point file: [size, mtime_ns]}.'''
+  cdir = os.path.join(outdir, 'cache')
+  out = {}
+  for f in sorted(glob.glob(os.path.join(cdir, 'point_logr=*.npz'))):
+    st = os.stat(f)
+    out[os.path.basename(f)] = [st.st_size, st.st_mtime_ns]
+  return out
+
+
+def _stamp_path(table_path):
+  return table_path + '.stamp.json'
+
+
+def write_table_stamp(table_path, outdir):
+  '''Record which sweep a derived table was measured from. Call it right after writing the
+  table, with the sweep directory the measurement came from.'''
+  import json
+  with open(_stamp_path(table_path), 'w') as f:
+    json.dump(sweep_stamp(outdir), f, indent=0, sort_keys=True)
+
+
+def table_is_current(table_path, outdir):
+  '''True when the table exists AND was measured from the sweep now in outdir. An UNSTAMPED
+  table counts as stale: it predates this check, so nothing says what it came from, and
+  silently reusing it is exactly what the stamp exists to stop.'''
+  import json
+  if not os.path.isfile(table_path):
+    return False
+  try:
+    with open(_stamp_path(table_path)) as f:
+      return json.load(f) == sweep_stamp(outdir)
+  except (OSError, ValueError):
+    return False
+
+
 def nu_over_num(r):
   '''
   Frequency axis in units of the injection frequency nu_m (= env.nu0), recovered
@@ -2921,8 +2965,56 @@ def plot_radiative_efficiency(results, outdir=OUTDIR):
   plt.close(fig)
 
 
+def build_derived_tables(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, outdir=None,
+    nproc=None, force=False):
+  '''
+  Measure everything a LATER figure would otherwise have to measure, and leave it on disk
+  as a stamped csv. Run right after a sweep, so plotting is only ever plotting.
+
+  Two tables qualify, both expensive and both a property of the SWEEP rather than of any
+  figure drawn from it:
+    lightcurve_freqscan_nu_m.csv  a peak measurement per sweep point per grid frequency
+                                  (lightcurve_shape.measure_frequency_scan)
+    mid_slopes.csv                the mid-segment slope per point per time bin
+                                  (mid_slope_evolution.measure) -- 14 min at hi-res
+  Each is skipped when its stamp already matches this sweep (table_is_current), so calling
+  this on an unchanged sweep costs two stat loops. force=True re-measures regardless.
+
+  The imports are LOCAL because both modules import this one at module level; hoisting them
+  to the top would be a cycle.
+  '''
+  outdir = method_outdir(method, key, z) if outdir is None else outdir
+  results = load_sweep(outdir)
+  if not results:
+    print(f'build_derived_tables: no sweep in {outdir}')
+    return []
+  import lightcurve_shape as lcs
+  import mid_slope_evolution as mse
+  built = []
+
+  scan_csv = os.path.join(outdir, lcs.SCAN_CSV)
+  if force or not table_is_current(scan_csv, outdir):
+    barT_f, barT_rf, _ = lcs._time_marks(key, z, verbose=False)
+    rows = lcs.measure_frequency_scan(results, barT_f, barT_rf)
+    lcs.build_scan_table(rows, outdir)
+    built.append(lcs.SCAN_CSV)
+  else:
+    print(f'{lcs.SCAN_CSV}: already current')
+
+  mid_csv = os.path.join(outdir, mse.CSV_NAME)
+  if force or not table_is_current(mid_csv, outdir):
+    rows = mse.measure(key, method, z)
+    mse.write_rows(rows, outdir)
+    built.append(mse.CSV_NAME)
+  else:
+    print(f'{mse.CSV_NAME}: already current')
+
+  print(f'derived tables {"rebuilt: " + ", ".join(built) if built else "all current"}')
+  return built
+
+
 def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
-    nproc=None, method=DEFAULT_METHOD, z=Z_SHELL):
+    nproc=None, method=DEFAULT_METHOD, z=Z_SHELL, tables=True):
   '''
   Full figure set of one (key, method, z) sweep. z selects the emitting shell:
   Z_SHELL=4 (reverse shock) or 1 (forward shock); both are computed on the
@@ -2955,6 +3047,12 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
     x = nu_over_num(r)
     assert x.min() < 1. < x.max(), \
         f"nu_m off-grid for log10ratio={r['log10ratio']:+.1f} (nu/nu_m in [{x.min():.1e},{x.max():.1e}])"
+
+  # the derived tables are built HERE, off the sweep, so that every figure downstream --
+  # in this module and in lightcurve_shape / mid_slope_evolution -- is a pure replot. They
+  # are stamped, so an unchanged sweep skips them and a recomputed one rebuilds them.
+  if tables:
+    build_derived_tables(key=key, method=method, z=z, outdir=outdir, nproc=nproc)
 
   barT_f = exit_onset_barT(key, z=z)
   print(f'lightcurve time normalisation: crossing bar_T_f = {barT_f:.4f}')
@@ -3038,12 +3136,14 @@ def trim_pngs(target=OUTDIR, since=_T_IMPORT):
 
 
 ARTICLE_DIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'article_choice')
-ARTICLE_SERIES = {        # {source figure dir: globs of the series picked for the article}
+ARTICLE_DIR_HIRES = ARTICLE_DIR + '_hires'    # the same selection from the hi-res run,
+                                              # kept apart because it is a different RUN
+ARTICLE_SERIES = {   # {source figure dir: (destination folder, globs of the series)}
   # The article figures all come from ONE sweep: the rarefaction-cut method on the reverse
   # shock (sweep_rarcut's METHOD_A, z=4), so every figure in the folder describes the same
   # prescription on the same shell. The A/B comparison figures of rarcut_compare are the
   # evidence for choosing it, not the article's own figures, and are no longer mirrored.
-  'gammacm_sweep_data_rarcut': (
+  'gammacm_sweep_data_rarcut': (ARTICLE_DIR, (
       'lightcurve_shape_nu=*.png',     # the three NU_TARGETS; the '_plain' series and the
                                        # 'vs_nu' ones below break this glob by construction
       'spectra_norm-eff.png',          # peak + time-integrated spectra as one 2-panel
@@ -3063,11 +3163,17 @@ ARTICLE_SERIES = {        # {source figure dir: globs of the series picked for t
                                        # normalisation (plot_break_evolution). The glob is
                                        # exact, so the _table.png and break_ratio_* of the
                                        # same family stay out
-  ),
+  )),
 }
+# The hi-res run is the SAME selection from a different simulation, so it mirrors the same
+# globs into its own folder rather than overwriting the fiducial's. Keyed on the source
+# directory with the field-correction tag stripped, exactly as the fiducial one is:
+# 'gammacm_sweep_data_rarcut_cooling_g100_hires_fc2' -> ..._hires.
+ARTICLE_SERIES['gammacm_sweep_data_rarcut_cooling_g100_hires'] = (
+    ARTICLE_DIR_HIRES, ARTICLE_SERIES['gammacm_sweep_data_rarcut'][1])
 
 
-def copy_article_figures(outdir, article_dir=ARTICLE_DIR, series=ARTICLE_SERIES):
+def copy_article_figures(outdir, article_dir=None, series=ARTICLE_SERIES):
   '''
   Mirror the figures picked for the article into one flat folder. Called by every main
   that writes a source directory named in ARTICLE_SERIES, right after trim_pngs, so the
@@ -3078,23 +3184,27 @@ def copy_article_figures(outdir, article_dir=ARTICLE_DIR, series=ARTICLE_SERIES)
   DEFINITION (same figures, corrected gamma_c), not a different series. Every other suffix
   is left in place, so '_z=1' and the per-key variants ('..._cooling_g100_hires_fc') are
   still deliberately not mirrored -- they are different shells and different RUNS, and the
-  article's figures all come from one of each. Add an entry to ARTICLE_SERIES for a new
-  series.
+  article's figures all come from one of each. The HI-RES key is the exception: it is a
+  different run and gets the same selection in its OWN folder (ARTICLE_DIR_HIRES), which
+  is why an entry carries its destination alongside its globs. Add an entry to
+  ARTICLE_SERIES for a new series.
   '''
   import shutil
   name = os.path.basename(os.path.normpath(outdir))
   if name.endswith(FIELD_CORR_TAG):
     name = name[:-len(FIELD_CORR_TAG)]
-  globs = series.get(name)
-  if not globs:
+  entry = series.get(name)
+  if not entry:
     return []
-  os.makedirs(article_dir, exist_ok=True)
+  dest, globs = entry
+  dest = article_dir or dest        # an explicit article_dir still overrides, for one-offs
+  os.makedirs(dest, exist_ok=True)
   copied = []
   for g in globs:
     for f in sorted(glob.glob(os.path.join(outdir, g))):
-      shutil.copy2(f, os.path.join(article_dir, os.path.basename(f)))
+      shutil.copy2(f, os.path.join(dest, os.path.basename(f)))
       copied.append(os.path.basename(f))
-  print(f'copied {len(copied)} figures to {article_dir}' if copied else
+  print(f'copied {len(copied)} figures to {dest}' if copied else
         f'copy_article_figures: nothing matched in {outdir}')
   return copied
 

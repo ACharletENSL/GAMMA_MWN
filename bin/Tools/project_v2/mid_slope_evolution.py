@@ -57,7 +57,8 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 from sweep_gammacm import (DEFAULT_KEY, Z_SHELL, load_sweep, method_outdir,
-    exit_onset_barT, rarefaction_off_barT, trim_pngs, copy_article_figures)
+    exit_onset_barT, rarefaction_off_barT, trim_pngs, copy_article_figures,
+    table_is_current, write_table_stamp)
 import spectral_breaks as sb
 import cell_pool
 
@@ -215,16 +216,23 @@ def measure(key=DEFAULT_KEY, method=METHOD, z=Z_SHELL, verbose=True, nproc=NPROC
 
 
 def write_rows(rows, outdir, fname=CSV_NAME):
-  with open(os.path.join(outdir, fname), 'w', newline='') as fh:
+  path = os.path.join(outdir, fname)
+  with open(path, 'w', newline='') as fh:
     w = csv.DictWriter(fh, fieldnames=list(FIELDS))
     w.writeheader(); w.writerows(rows)
-  return os.path.join(outdir, fname)
+  write_table_stamp(path, outdir)     # which sweep these slopes were measured from
+  return path
 
 
 def read_rows(outdir, fname=CSV_NAME):
-  '''Rows back from the csv, or None if it is not there.'''
+  '''Rows back from the csv, or None if it is not there OR was measured from a
+  DIFFERENT sweep than the one now in outdir (sweep_gammacm.table_is_current). A
+  recomputed sweep therefore forces a re-measure instead of silently replotting the
+  old slopes, which is what used to happen.'''
   path = os.path.join(outdir, fname)
-  if not os.path.isfile(path):
+  if not table_is_current(path, outdir):
+    if os.path.isfile(path):
+      print(f'{fname} was measured from a different sweep -- re-measuring')
     return None
   rows = []
   for r in csv.DictReader(open(path)):
