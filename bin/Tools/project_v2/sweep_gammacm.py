@@ -3100,10 +3100,48 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   return results, detections
 
 
+def _trim_one_pil(path):
+  '''
+  'mogrify -trim' in Pillow: crop away the uniform border, taking the border colour from
+  the top-left pixel exactly as ImageMagick does. Returns True if the file was rewritten.
+
+  The fallback exists because the CLUSTER HAS NO IMAGEMAGICK, so every figure a Slurm job
+  drew came back untrimmed while trim_pngs reported nothing worse than a skipped step.
+  Pillow is present on both machines, so this makes the trim a property of the code rather
+  than of what happens to be installed.
+
+  dpi and the rest of the PNG metadata are carried across explicitly -- Image.save does not
+  keep them otherwise, and a figure that silently lost its dpi would be the wrong size in
+  a LaTeX \\includegraphics.
+  '''
+  from PIL import Image, ImageChops
+  with Image.open(path) as im:
+    im.load()
+    info = dict(im.info)
+    bg = Image.new(im.mode, im.size, im.getpixel((0, 0)))
+    diff = ImageChops.difference(im, bg)
+    # alpha_only=False IS THE WHOLE POINT on these figures. Pillow's getbbox() looks at the
+    # ALPHA channel by default, and a matplotlib png is opaque RGBA -- alpha 255 everywhere,
+    # so the difference image's alpha is uniformly 0 and the default call returns None, i.e.
+    # 'nothing to crop', on every figure. Measured against mogrify on a plain 900x600
+    # figure: this crops to 771x523, the default call cropped nothing.
+    try:
+      bbox = diff.getbbox(alpha_only=False)
+    except TypeError:               # Pillow < 9.2 has no such keyword and never had the bug
+      bbox = diff.getbbox()
+    if bbox is None or bbox == (0, 0, im.width, im.height):
+      return False                      # already tight, or uniformly blank
+    out = im.crop(bbox)
+  out.save(path, **{k: v for k, v in info.items() if k in ('dpi', 'transparency')})
+  return True
+
+
 def trim_pngs(target=OUTDIR, since=_T_IMPORT):
   '''
   Auto-trim surrounding whitespace from the figures THIS RUN produced, i.e. run
-  'mogrify -trim' (ImageMagick) on them. No-op if mogrify is absent.
+  'mogrify -trim' (ImageMagick) on them, falling back to Pillow (_trim_one_pil) where
+  ImageMagick is absent -- as it is on the cluster, where this used to skip silently and
+  every figure a Slurm job drew came back untrimmed.
 
   A sweep directory accumulates ~50 figures from half a dozen modules, and mogrify is
   ~0.1 s each, so trimming the whole directory to publish one figure was the dominant
@@ -3119,9 +3157,6 @@ def trim_pngs(target=OUTDIR, since=_T_IMPORT):
   routine to be exact there, or since=0 to trim every png in the directory.
   '''
   import subprocess, shutil, numbers
-  if shutil.which('mogrify') is None:
-    print('trim_pngs: mogrify (ImageMagick) not found; skipping whitespace trim')
-    return
   if isinstance(target, (str, bytes, os.PathLike)):
     pngs = glob.glob(os.path.join(target, '*.png'))
     if isinstance(since, numbers.Real) and since > 0.:
@@ -3130,9 +3165,19 @@ def trim_pngs(target=OUTDIR, since=_T_IMPORT):
       pngs = [p for p in pngs if os.path.getmtime(p) >= since - 1e-3]
   else:
     pngs = [p for p in target if p]
-  if pngs:
+  if not pngs:
+    return
+  if shutil.which('mogrify') is not None:
     subprocess.run(['mogrify', '-trim'] + pngs, check=False)
     print(f'trimmed {len(pngs)} figure{"s" if len(pngs) > 1 else ""} with mogrify -trim')
+    return
+  try:
+    n = sum(_trim_one_pil(p) for p in pngs)
+  except Exception as e:                # never let a cosmetic step lose a figure
+    print(f'trim_pngs: Pillow trim failed ({type(e).__name__}: {e}); figures left untrimmed')
+    return
+  print(f'trimmed {n}/{len(pngs)} figure{"s" if len(pngs) > 1 else ""} with Pillow '
+        '(no ImageMagick here)')
 
 
 ARTICLE_DIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'article_choice')
@@ -3202,8 +3247,17 @@ def copy_article_figures(outdir, article_dir=None, series=ARTICLE_SERIES):
   copied = []
   for g in globs:
     for f in sorted(glob.glob(os.path.join(outdir, g))):
-      shutil.copy2(f, os.path.join(dest, os.path.basename(f)))
+      out = os.path.join(dest, os.path.basename(f))
+      shutil.copy2(f, out)
       copied.append(os.path.basename(f))
+  # TRIM WHAT LANDS HERE, not just what the drawing step happened to trim. Every main
+  # calls trim_pngs before this, but that only covers figures THAT run wrote, and on a
+  # machine without ImageMagick it used to do nothing at all -- so the article folder
+  # could fill with untrimmed figures while every step reported success. Trimming the
+  # copies makes the folder's margins a property of this function. Re-trimming an already
+  # tight figure is a no-op, so the double pass costs nothing.
+  if copied:
+    trim_pngs([os.path.join(dest, c) for c in copied])
   print(f'copied {len(copied)} figures to {dest}' if copied else
         f'copy_article_figures: nothing matched in {outdir}')
   return copied
