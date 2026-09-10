@@ -340,12 +340,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from environment import GAMMA_dir
+from environment import GAMMA_dir, figdir
 from phys_functions import granot_sari_syn, syn_cutoff_R
 import spectral_breaks as sb
 import sweep_gammacm as swp
 
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'slope_check')
+OUTDIR_NAME = 'slope_check'          # figdir(OUTDIR_NAME, key) puts it under the
+OUTDIR = figdir(OUTDIR_NAME)    # run's own folder; this is the fiducial's
 KEY = 'cooling_g100'
 METHOD = swp.DEFAULT_METHOD        # the reference computation; imported, not hardcoded, so
                                # this module cannot drift from sweep_gammacm's default
@@ -963,7 +964,8 @@ def plot_prescription(sides_by_z, summary, outdir=OUTDIR, cases=PRESC_CASES):
   The cases are the split ones actually being recommended, not the unsplit regimes -- including
   the one that fails, since a reader needs to see what "DO NOT USE" looks like.
   '''
-  _ensure_outdir()
+  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
+  _ensure_outdir(outdir)
   allsides = [s for sides in sides_by_z for s in sides]
   panels = []
   for rg, onax in cases:
@@ -1157,7 +1159,7 @@ def write_tables(tab, ep, conv, outdir=OUTDIR, reg=None, presc=None, refined=Non
   print('-> ' + outdir + '/' + ', '.join(fn for _, fn in out))
 
 
-def main(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), outdir=OUTDIR, dfac=sb.FREE_DFAC):
+def main(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), outdir=None, dfac=sb.FREE_DFAC):
   '''
   Full free-slope diagnostic on the cached sweeps of both shells, every time bin. No shell
   spectrum is recomputed -- the breaks positioning the windows come from track_breaks_gs02

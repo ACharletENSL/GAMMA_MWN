@@ -37,6 +37,7 @@ import matplotlib.pyplot as plt
 
 from working_cooling_data import get_shell_nuFnu_fromData
 from plotting_functions import COL_RS, COL_FS, COL_TOT
+from environment import figdir
 from sweep_gammacm import (GAMMA_dir, DEFAULT_KEY, Z_SHELL, TMAX, NT, TB_MIN, TB_LIN,
     SUBCELL_DLOGT, SUBCELL_MAX, R_REF, EARLY_ANA, compute_alpha_sweep, compute_efficiency,
     method_outdir, load_sweep, trim_pngs, _data_method_spec)
@@ -79,7 +80,8 @@ METHOD_STY = {'data': ('-', 1.5), 'data_rarcut': ('--', 1.3),
                      # shared by every figure so a dashed curve means the same thing in all
 METHOD_LABEL = {'data': 'reference', 'data_rarcut': 'rarefaction cut',
                 'data_norar_prerar': 'no rarefaction'}
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'efficiency_sweep')
+OUTDIR_NAME = 'efficiency_sweep'   # figdir(OUTDIR_NAME, key) puts it under the run's
+OUTDIR = figdir(OUTDIR_NAME)       # own folder; this is the fiducial's
 
 # Sub-cell ladder. SUBCELL_DLOGT (0.008) is what the cached flux sweep used, so it is
 # the default and makes the coarse-point check EXACT (measured: 0.00e+00 relative
@@ -590,7 +592,7 @@ def replot(outdir=OUTDIR, z_list=Z_LIST, methods=METHODS):
   return res_by_method
 
 
-def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST, outdir=OUTDIR,
+def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST, outdir=None,
     use_cache=True, nproc=None, subcell_dlogT=SUBCELL_DLOGT, check=True,
     methods=(METHOD,)):
   '''

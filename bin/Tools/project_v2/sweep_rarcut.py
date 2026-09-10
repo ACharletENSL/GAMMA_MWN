@@ -60,7 +60,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from environment import MyEnv
+from environment import MyEnv, figdir
 from IO import open_celldata, get_variable
 from plotting_functions import COL_RS, COL_FS, COL_TOT
 from working_cooling import (load_shell_rarefaction, rar_map_lookup,
@@ -80,7 +80,8 @@ NORM_SIDE = 'A'                              # the flux panels are anchored on t
                                              # cut leaves out. Linestyles are untouched by
                                              # this (dashed = cut, solid = full), and so are
                                              # the ratio panels, which stay full/cut.
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'rarcut_compare')
+OUTDIR_NAME = 'rarcut_compare'          # figdir(OUTDIR_NAME, key) puts it under the
+OUTDIR = figdir(OUTDIR_NAME)    # run's own folder; this is the fiducial's
 N_PROFILE = 42                               # per-cell energy profile: cells sampled per shell
 LOGR_PROFILE = (-3., 0., 2.)
 SHELL_NAME = {4: 'RS', 1: 'FS'}              # z -> shell name, for figure titles
@@ -178,7 +179,8 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
   z: 4 (reverse shock, default) or 1 (forward shock); the latter gets its own
   '_z={z}' output directory, as its sweep caches do (method_outdir).
   '''
-  outdir = (OUTDIR if z == Z_SHELL else f'{OUTDIR}_z={z}') if outdir is None else outdir
+  outdir = (figdir(OUTDIR_NAME if z == Z_SHELL else f'{OUTDIR_NAME}_z={z}', key)
+            if outdir is None else outdir)
   os.makedirs(outdir, exist_ok=True)
   for m in (METHOD_A, METHOD_B):
     d = method_outdir(m, key, z)

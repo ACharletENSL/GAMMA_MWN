@@ -74,12 +74,13 @@ import hashlib
 import numpy as np
 import pandas as pd
 
-from environment import GAMMA_dir
+from environment import GAMMA_dir, figdir
 import cell_pool
 import spectral_breaks as sb
 import sweep_gammacm as swp
 
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'segment_route')
+OUTDIR_NAME = 'segment_route'          # figdir(OUTDIR_NAME, key) puts it under the
+OUTDIR = figdir(OUTDIR_NAME)    # run's own folder; this is the fiducial's
 KEY = 'cooling_g100'
 METHOD = swp.DEFAULT_METHOD    # the reference computation; imported, not hardcoded, so the
                                # paper route cannot drift from sweep_gammacm's default
@@ -985,7 +986,7 @@ def write_tables(*dfs_named, outdir=OUTDIR):
       print(f'  wrote {os.path.join(outdir, name)}')
 
 
-def main(key=KEY, method=METHOD, outdir=OUTDIR, nproc=NPROC, route_kw=None,
+def main(key=KEY, method=METHOD, outdir=None, nproc=NPROC, route_kw=None,
     use_cache=True):
   '''
   The five tables, from the cached sweeps. THIS MODULE DRAWS NOTHING -- it is an analysis
@@ -995,6 +996,7 @@ def main(key=KEY, method=METHOD, outdir=OUTDIR, nproc=NPROC, route_kw=None,
   instead of refitting them (see _run_point); they are invalidated automatically by an
   edited sweep point or an edited spectral_breaks.py. Pass False to force the fits.
   '''
+  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
   _ensure_outdir(outdir)
   sides_by_z = []
   for z in (Z_RS, Z_FS):

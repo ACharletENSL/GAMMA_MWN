@@ -48,7 +48,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from functools import lru_cache
 
-from environment import MyEnv, GAMMA_dir
+from environment import MyEnv, GAMMA_dir, figdir
 from IO import get_dirpath
 from peak_modeling import offset_gcgm_from_au
 from plotting_functions import nF_label, COL_RS, COL_FS, COL_TOT
@@ -62,7 +62,8 @@ KEY = 'cooling_g100'
 METHOD = DEFAULT_METHOD           # reference computation, imported from sweep_gammacm
                                   # ('data_rarcut' since 2026-09-07)
 Z_RS, Z_FS = 4, 1                 # reverse (fast) shell, forward (slow) shell
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'shells_split')
+OUTDIR_NAME = 'shells_split'          # figdir(OUTDIR_NAME, key) puts it under the
+OUTDIR = figdir(OUTDIR_NAME)    # run's own folder; this is the fiducial's
 
 # one style per curve, used by every figure here. Colours come from the suite-wide
 # convention (plotting_functions: RS red, FS blue, sum black -- Charlet et al. 2025);
@@ -460,7 +461,8 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, method=METHOD, outdir=None,
   method: the reference METHOD ('data') writes to OUTDIR; any other computation
   gets its own '_{method}' directory so the two sets coexist.
   '''
-  outdir = (OUTDIR if method == METHOD else f'{OUTDIR}_{method}') if outdir is None else outdir
+  outdir = (figdir(OUTDIR_NAME if method == METHOD else f'{OUTDIR_NAME}_{method}', key)
+            if outdir is None else outdir)
   os.makedirs(outdir, exist_ok=True)
   for z in (Z_RS, Z_FS):
     _check_frontdata(key, z)

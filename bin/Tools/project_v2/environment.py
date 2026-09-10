@@ -42,6 +42,39 @@ GAMMA_dir = '/'.join(cwd[:iG+1])
 # before. Sweep caches written under the corrected definition are kept apart by
 # sweep_gammacm.method_outdir, which appends field_correction_tag(key).
 FIELD_CORR_FILE = 'field_correction.json'
+
+# ---------------------------------------------------------------------------
+# FIGURE LAYOUT: one folder per RUN. Everything a run produces lives under
+# figures/<run>/, so two runs can never write the same path.
+#
+# They used to share it. sweep_gammacm.method_outdir keyed its directory on (method, key,
+# z), but shells_split, rarcut_compare, gammacm_sweep_compare, nuc_model and slope_check
+# keyed on NOTHING but z -- so a regen_all on the hi-res key overwrote the fiducial's
+# figures in place, indistinguishably. On 2026-09-10 the two jobs ran concurrently and
+# sweep_shells was genuinely written twice, hi-res first and the fiducial three minutes
+# later; which survived was decided by scheduling.
+# ---------------------------------------------------------------------------
+FIG_ROOT = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures')
+FIDUCIAL_KEY = 'cooling_g100'      # the run the article is built on; sweep_gammacm's
+                                   # DEFAULT_KEY is this, imported rather than repeated
+
+
+def run_folder(key=None):
+  '''The folder name a run's figures live under: 'fiducial' for the reference run, 'hires'
+  for its high-resolution counterpart, the key itself for anything else.'''
+  key = FIDUCIAL_KEY if key is None else key
+  if key == FIDUCIAL_KEY:
+    return 'fiducial'
+  if key == FIDUCIAL_KEY + '_hires':
+    return 'hires'
+  return key
+
+
+def figdir(name, key=None):
+  '''figures/<run>/<name>. `name` no longer carries the key -- the run folder does.'''
+  return os.path.join(FIG_ROOT, run_folder(key), name)
+
+
 FIELD_CORR_VERSION = 2
 # 2 (2026-09-09): the sidecar carries the FULL correction, not C_avg alone. gamma_c is
 # meant to reflect the simulation's physics, so all three factors are measured: the field

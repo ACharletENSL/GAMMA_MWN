@@ -76,7 +76,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from environment import MyEnv, GAMMA_dir
+from environment import MyEnv, GAMMA_dir, figdir
 from IO import open_celldata
 from working_cooling_data import generate_cell_fromData
 import cooling_frequency as cf
@@ -92,7 +92,8 @@ import sweep_gammacm as swp
 # hides, and it is what decides whether a residual drift in C belongs to the model.
 TRACKERS = {'gs02': swp.track_breaks_gs02, 'segments': sb.track_breaks_segments}
 
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'nuc_model')
+OUTDIR_NAME = 'nuc_model'          # figdir(OUTDIR_NAME, key) puts it under the
+OUTDIR = figdir(OUTDIR_NAME)    # run's own folder; this is the fiducial's
 KEY = 'cooling_g100'
 METHOD = swp.DEFAULT_METHOD  # the reference computation; imported, not hardcoded, so this
                          # module cannot drift from sweep_gammacm's default
@@ -339,7 +340,8 @@ def plot_population(sides, outdir=OUTDIR, estimator='q10', tag=''):
   with the fitted break (solid) and the chosen estimator (dashed) over it, one panel per
   cooling regime. Where the tracker declares no measurement there is a gap, not a line.
   '''
-  _ensure_outdir()
+  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
+  _ensure_outdir(outdir)
   n = len(sides)
   ncol = min(4, n)
   nrow = int(np.ceil(n/ncol))
@@ -426,7 +428,7 @@ def write_tables(cal, est, outdir=OUTDIR, gt=None, ep=None):
   print(f'-> {outdir}/{names}')
 
 
-def main(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), estimator='q05', outdir=OUTDIR,
+def main(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), estimator='q05', outdir=None,
     trackers=('gs02', 'segments')):
   '''
   Full diagnostic on the cached sweeps of both shells, against EVERY requested break

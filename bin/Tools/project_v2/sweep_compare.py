@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from environment import GAMMA_dir
+from environment import GAMMA_dir, figdir
 import spectral_breaks as sb
 import sweep_gammacm as swp
 from plotting_functions import slope_label, transx
@@ -36,7 +36,8 @@ from sweep_gammacm import (load_sweep, method_outdir, _sweep_colors, _draw_order
     LOG10RATIO_ARR, NU_TARGETS, NU_M_LABEL, NU_REF, Z_SHELL, DEFAULT_KEY,
     SPEC_LOGT, SPEC_SERIES_YSPAN, XLIM_LIN, XLIM_LOG, SPEC_MODES, _MODE_TITLE)
 
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'gammacm_sweep_compare')
+OUTDIR_NAME = 'gammacm_sweep_compare'          # figdir(OUTDIR_NAME, key) puts it under the
+OUTDIR = figdir(OUTDIR_NAME)    # run's own folder; this is the fiducial's
 YCLIP_DEC = 3.5           # decades below the highest curve shown on the spectral panels
 RATIO_SPAN = (0.5, 2.)    # default y-range of the ratio panels (rescaled if exceeded)
 YSPAN_LINLOG = 4          # decades of flux shown on the linear-time / log-flux variant,
@@ -878,7 +879,7 @@ def plot_fluence_slopes_vs_regime(tables, outdir=OUTDIR, labels=LABELS, kind='as
   plt.close(fig)
 
 
-def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=OUTDIR,
+def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None,
     use_cache=True, nproc=None, methods=METHODS, labels=LABELS, norm_side='A'):
   '''
   Ensure both sweeps exist (computing whichever is missing), then build every
@@ -891,6 +892,7 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=OUTDIR,
   prescription being tested, so anchoring on it makes the full run read as the extra
   emission the cut leaves out (see LABELS). Pass 'B' for a run-vs-run comparison.
   '''
+  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
   os.makedirs(outdir, exist_ok=True)
   for m in methods:
     d = method_outdir(m, key)

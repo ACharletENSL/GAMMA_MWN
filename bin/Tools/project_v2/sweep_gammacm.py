@@ -35,6 +35,7 @@ import matplotlib.transforms as mtransforms
 from scipy.optimize import least_squares
 
 from environment import (MyEnv, rescale_hydro, GAMMA_dir, field_correction_tag,
+    figdir, run_folder, FIDUCIAL_KEY, FIG_ROOT,
     FIELD_CORR_TAG)
 from phys_functions import granot_sari_syn, syn_cutoff_R
 from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, edge_slope,
@@ -61,7 +62,7 @@ _ENV_KEYS = ('nu0', 'nuc', 'T0', 'Ts', 'nu0F0', 'gma_c', 'gma_m', 'gma_max', 'ps
 # existed still load.
 _ENV_KEYS_OPT = ('nu0FS', 'T0FS', 'fac_nu', 'fac_F', 'gma_mFS', 'gma_cFS', 'gma_maxFS')
 
-DEFAULT_KEY = 'cooling_g100'    # fiducial simulation the sweep runs on unless told otherwise;
+DEFAULT_KEY = FIDUCIAL_KEY      # fiducial simulation the sweep runs on unless told otherwise;
                                 # it gets the unsuffixed cache dirs (method_outdir)
 DEFAULT_METHOD = 'data_rarcut'
                           # DEFAULT SINCE 2026-09-07: the modelled sharp R_rar cut-off
@@ -87,8 +88,11 @@ R_CAP = 30.               # analysis window in R/R_injection for the '_cap' meth
                           # 30 sits inside cooling_g100_semi's coverage (R/R_inj reaches
                           # 64..155) for every cell, so the capped variant is the one that
                           # can be checked against a simulation that has no rarefaction.
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'gammacm_sweep')
-OUTDIR_DATA = OUTDIR + '_data'   # data-driven method (working_cooling_data), see method_outdir
+# BASE NAMES now, not paths: figdir(name, key) puts them under the run's own folder
+OUTDIR_NAME = 'gammacm_sweep'
+OUTDIR_DATA_NAME = OUTDIR_NAME + '_data'   # data-driven method (working_cooling_data)
+OUTDIR = figdir(OUTDIR_NAME)               # the fiducial's, for defaults
+OUTDIR_DATA = figdir(OUTDIR_DATA_NAME)
 EARLY_ANA = 'measured'    # data method: the injection event comes from each cell's OWN
                           # velocity jump (working_cooling_data.measured_injection_event) and
                           # the state from the fitted profiles at that radius. The jump locates
@@ -504,36 +508,38 @@ def method_outdir(method=DEFAULT_METHOD, key=None, z=Z_SHELL):
   filename and would otherwise overwrite each other (see sweep_shells.py).
   '''
   if method == 'fit':
-    d = OUTDIR
+    d = OUTDIR_NAME
   elif method == 'data':
-    d = OUTDIR_DATA
+    d = OUTDIR_DATA_NAME
   elif method == 'data_rarcut':
-    d = OUTDIR_DATA + '_rarcut'
+    d = OUTDIR_DATA_NAME + '_rarcut'
   elif method == 'data+rarcut':
     # not a cache of its own: it fills the 'data' and 'data_rarcut' directories (see
     # _compute_point). Report the reference one so run_sweep's reload finds points.
-    d = OUTDIR_DATA
+    d = OUTDIR_DATA_NAME
   elif method == 'cap+norar_cap':
     # likewise, fills 'data_cap' and 'data_norar_cap'; report the reference one
-    d = OUTDIR_DATA + f'_cap={R_CAP:g}'
+    d = OUTDIR_DATA_NAME + f'_cap={R_CAP:g}'
   else:
     law, cap, _ = _data_method_spec(method)     # raises on anything unknown
-    d = OUTDIR_DATA
+    d = OUTDIR_DATA_NAME
     if law is not None:
       d += f'_norar_{law}'      # law ALWAYS explicit; see data_method_name
     if cap is not None:
       # R_CAP goes in NUMERICALLY: it changes the numbers, so a different window must
       # never silently reuse a cache written with the old one
       d += f'_cap={cap:g}'
-  if key not in (None, DEFAULT_KEY):
-    d = f'{d}_{key}'
+  # the RUN no longer suffixes the name -- figdir puts the whole thing under the run's own
+  # folder instead, which is what stops two runs sharing a path (see environment.figdir)
   # A run whose FIELD CORRECTION has been measured (field_average.measure_field_correction)
   # reports a corrected gamma_c, so its sweep targets a different physical ratio than the
   # same label did before. The point cache is keyed on log10ratio alone, so the two
   # definitions MUST NOT share a directory -- a '+2' written under each would silently
   # overwrite the other and neither could be told from the other on reload.
   d += field_correction_tag(key if key is not None else DEFAULT_KEY)
-  return d if z == Z_SHELL else f'{d}_z={z}'
+  if z != Z_SHELL:
+    d = f'{d}_z={z}'
+  return figdir(d, key)
 
 
 def _compute_point(key, z, logr, alpha, Tmax, NT, lognu_min, lognu_above, outdir,
@@ -3288,15 +3294,16 @@ def trim_pngs(target=OUTDIR, since=_T_IMPORT):
         '(no ImageMagick here)')
 
 
-ARTICLE_DIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'article_choice')
-ARTICLE_DIR_HIRES = ARTICLE_DIR + '_hires'    # the same selection from the hi-res run,
-                                              # kept apart because it is a different RUN
-ARTICLE_SERIES = {   # {source figure dir: (destination folder, globs of the series)}
+ARTICLE_NAME = 'article_choice'   # the picked figures live beside the sweep that made
+                                 # them, under the SAME run folder (environment.figdir), so
+                                 # the destination is derived rather than tabulated
+ARTICLE_DIR = figdir(ARTICLE_NAME)            # the fiducial's, for defaults
+ARTICLE_SERIES = {   # {source figure dir (run folder stripped): globs of the series}
   # The article figures all come from ONE sweep: the rarefaction-cut method on the reverse
   # shock (sweep_rarcut's METHOD_A, z=4), so every figure in the folder describes the same
   # prescription on the same shell. The A/B comparison figures of rarcut_compare are the
   # evidence for choosing it, not the article's own figures, and are no longer mirrored.
-  'gammacm_sweep_data_rarcut': (ARTICLE_DIR, (
+  'gammacm_sweep_data_rarcut': (
       'lightcurve_shape_nu=*.png',     # the three NU_TARGETS; the '_plain' series and the
                                        # 'vs_nu' ones below break this glob by construction
       'spectra_norm-eff.png',          # peak + time-integrated spectra as one 2-panel
@@ -3316,14 +3323,8 @@ ARTICLE_SERIES = {   # {source figure dir: (destination folder, globs of the ser
                                        # normalisation (plot_break_evolution). The glob is
                                        # exact, so the _table.png and break_ratio_* of the
                                        # same family stay out
-  )),
+  ),
 }
-# The hi-res run is the SAME selection from a different simulation, so it mirrors the same
-# globs into its own folder rather than overwriting the fiducial's. Keyed on the source
-# directory with the field-correction tag stripped, exactly as the fiducial one is:
-# 'gammacm_sweep_data_rarcut_cooling_g100_hires_fc2' -> ..._hires.
-ARTICLE_SERIES['gammacm_sweep_data_rarcut_cooling_g100_hires'] = (
-    ARTICLE_DIR_HIRES, ARTICLE_SERIES['gammacm_sweep_data_rarcut'][1])
 
 
 def copy_article_figures(outdir, article_dir=None, series=ARTICLE_SERIES):
@@ -3346,11 +3347,12 @@ def copy_article_figures(outdir, article_dir=None, series=ARTICLE_SERIES):
   name = os.path.basename(os.path.normpath(outdir))
   if name.endswith(FIELD_CORR_TAG):
     name = name[:-len(FIELD_CORR_TAG)]
-  entry = series.get(name)
-  if not entry:
+  globs = series.get(name)
+  if not globs:
     return []
-  dest, globs = entry
-  dest = article_dir or dest        # an explicit article_dir still overrides, for one-offs
+  # beside the sweep, under ITS run folder: figures/<run>/gammacm_sweep_... ->
+  # figures/<run>/article_choice. One entry now serves every run.
+  dest = article_dir or os.path.join(os.path.dirname(os.path.normpath(outdir)), ARTICLE_NAME)
   os.makedirs(dest, exist_ok=True)
   copied = []
   for g in globs:
