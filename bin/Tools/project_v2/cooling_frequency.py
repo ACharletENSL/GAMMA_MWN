@@ -302,10 +302,11 @@ def iter_shell_cells(key, z=4, u_scale=1., alpha=1., zeta=1., klist=None, r_ref=
   if subcell_dlogT is not None:
     barT_on = np.array([((get_variable(r, 'Ton', env) - env.Ts)/env.T0) if r is not None else np.nan
                         for r in inj_rows])
-    finite = np.flatnonzero(np.isfinite(barT_on))
-    if len(finite):
-      barT_on[finite[0]] = 0.
-    sub_edges = compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max)
+    # first cell's sub-cells anchored down to the grid floor, its onset interval left
+    # alone (compute_subcell_edges: anchoring the ONSET stretches the window its dx is
+    # spread over, which is the emission rate)
+    sub_edges = compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max,
+                                      anchor_first=True)
 
   kw = dict(u_scale=u_scale, alpha=alpha, zeta=zeta, r_ref=r_ref, Tmax=Tmax,
             dlnrho_max=dlnrho_max, dlnsyn_max=dlnsyn_max)

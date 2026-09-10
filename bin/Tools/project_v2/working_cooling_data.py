@@ -608,6 +608,12 @@ def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=
     finite-volume cell, the cell average is halfway across when the front is at the cell
     CENTRE, so this estimates 'front at this cell's position'. Its weakness is that the
     numerical shock is 3-4 cells wide, so the transition is smeared and its SHAPE enters.
+
+  NB THIS RETURNS THE CENTRE CROSSING, WHICH IS NOT THE CELL'S ONSET. Everything
+  downstream wants the LEADING edge -- when the cell starts being shocked. The caller
+  (measured_shockfront_states -> _leading_edge_event) converts, by interpolating the front
+  between adjacent cells' centre crossings. Do not feed this function's output straight
+  into an onset ladder.
   estimator: 'inflection' -- the extremum of du/dt, refined parabolically. The centre of
     the transition profile, independent of where the asymptotes sit.
   """
@@ -705,6 +711,92 @@ def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3.):
       f"early_ana source must be 'shockfit', 'au' or 'measured', got {source!r}")
 
 
+def _repair_front_order(ev, key, z):
+  """
+  Reject measured injection events that break the front's monotonicity along the cell
+  ordering, and replace them by interpolation from the neighbours that survive.
+
+  The shock reaches spatially ordered cells in order, so t must increase along `ev`.
+  Where it does not, the velocity-jump measurement has latched onto something that is not
+  the shock -- on cooling_g100 z=4 that is the shell's REARMOST cell (k=20), which borders
+  the external medium and starts expanding at t=0: it reads 0.908 in bar{T} where its
+  neighbours k=21,22 sit at 1.353, 1.348. That one cell IS the centre ladder's worst local
+  gap (ratio 3.754 at bar{T}=0.907); it predates the leading-edge construction and was
+  simply carried through, self-consistently misplaced.
+
+  It matters more now because _leading_edge_event pairs ADJACENT events, so a bad one
+  corrupts its own edge and its successor's rather than only itself.
+
+  A rejected event is replaced by a linear interpolation in cell index between the nearest
+  good neighbours on each side, or -- past the last good one -- extrapolated with the
+  median local spacing. Never silent: the count and the cells are printed.
+  """
+  t = np.array([e[1] for e in ev], dtype=float)
+  x = np.array([e[2] for e in ev], dtype=float)
+  good = np.ones(len(ev), dtype=bool)
+  run = -np.inf
+  for j in range(len(ev)):
+    if t[j] <= run:
+      good[j] = False
+    else:
+      run = t[j]
+  if good.all():
+    return ev
+  j_ok = np.flatnonzero(good)
+  bad = np.flatnonzero(~good)
+  # interpolate in cell index; np.interp clamps past the ends, so fix those up with the
+  # median spacing of the good run rather than repeating its last value
+  t_new, x_new = np.interp(bad, j_ok, t[j_ok]), np.interp(bad, j_ok, x[j_ok])
+  dt, dx_ = np.median(np.diff(t[j_ok])), np.median(np.diff(x[j_ok]))
+  for m, j in enumerate(bad):
+    if j > j_ok[-1]:
+      t_new[m], x_new[m] = t[j_ok[-1]] + (j - j_ok[-1])*dt, x[j_ok[-1]] + (j - j_ok[-1])*dx_
+    elif j < j_ok[0]:
+      t_new[m], x_new[m] = t[j_ok[0]] - (j_ok[0] - j)*dt, x[j_ok[0]] - (j_ok[0] - j)*dx_
+  print(f'measured_shockfront_states on {key} z={z}: {len(bad)} injection event(s) out of '
+        f'order along the front, replaced by neighbour interpolation (cells '
+        f'{[ev[j][0] for j in bad]})')
+  out = list(ev)
+  for m, j in enumerate(bad):
+    k, _, _, init_r = ev[j]
+    out[j] = (k, float(t_new[m]), float(x_new[m]), init_r)
+  return out
+
+
+def _leading_edge_event(ev, j, env):
+  """
+  The shock at cell j's LEADING EDGE, from the measured centre-crossings around it.
+
+  measured_injection_event deliberately reports the front at the cell CENTRE (for a sharp
+  front sweeping a finite-volume cell, the cell average is halfway across when the front is
+  at the centre). The model wants the onset where the cell STARTS being shocked, and every
+  downstream consumer reads it that way: compute_subcell_edges spreads a cell's dx over
+  (onset_k, onset_{k+1}), and 'shockfit' -- the convention that came before -- intersected
+  its worldline with the cells' initial INTERFACE radii (fits_hydro.reconstruct_data, which
+  also sets t_hit[0] = 0 outright). Handing that machinery cell centres shifts every cell's
+  emission half a crossing late and, because the first cell's interval is anchored to
+  bar{T}=0, stretches that one interval by 1.5x -- a 34% emitter-density deficit and a step
+  in the temporal index. See compute_subcell_edges' anchor_first note.
+
+  THE EVENTS ARE THEMSELVES SAMPLES OF THE FRONT'S TRAJECTORY, so no model is needed: the
+  boundary between cells j-1 and j is the front interpolated to cell index j-1/2, i.e. the
+  MIDPOINT of the two adjacent centre-crossings. That is an average of two measurements, so
+  it HALVES their jitter where differencing (edge = centre - spacing/2) amplifies it --
+  measured on cooling_g100 z=4, worst local gap ratio in the onset ladder:
+  centre 3.754, differenced 38.31, midpoint 1.721 (the fitted 'shockfit' edge is 3.683,
+  and its p01/p99 of exactly 1.000 is the constant crossing rate that made it drift against
+  the cells in the first place).
+
+  j = 0 is the CD-adjacent cell: its leading edge IS the contact discontinuity, shocked at
+  collision, so the event is (t=0, x=R0) exactly -- the same point 'shockfit' hard-set.
+  """
+  if j == 0:
+    return 0., env.R0/c_                  # collision at the CD; x in lt-s
+  _, t0, x0, _ = ev[j-1]
+  _, t1, x1, _ = ev[j]
+  return 0.5*(t0 + t1), 0.5*(x0 + x1)
+
+
 def measured_shockfront_states(key, z, env):
   """
   Per-cell shocked-state table with the injection EVENT measured and the injection STATE
@@ -738,25 +830,36 @@ def measured_shockfront_states(key, z, env):
   fastshell = (z == 4)
   kmin = env.Next + (0 if fastshell else env.Nsh4)
   kmax = kmin + (env.Nsh4 if fastshell else env.Nsh1)
-  rows = []
-  for k in range(int(kmin), int(kmax)):
+  # cells in the order the shock reaches them: outward from the contact discontinuity,
+  # which for the fast shell is DESCENDING k (the driver's klist does the same flip).
+  # _leading_edge_event pairs SPATIAL neighbours, so it must run in this order.
+  ks = list(range(int(kmin), int(kmax)))
+  if fastshell:
+    ks = ks[::-1]
+  ev = []
+  for k in ks:
     cd = open_celldata(key, k)
     if cd is False or not len(cd):
       continue
     t_inj, x_inj = measured_injection_event(cd, env, z)
     if not (np.isfinite(t_inj) and np.isfinite(x_inj)):
       continue
-    R_hit = x_inj*c_                      # lt-s -> cm, the state_at_radius convention
-    init_r = float(cd.x.iloc[0])*c_       # this cell's own radius at t=0
+    ev.append((k, t_inj, x_inj, float(cd.x.iloc[0])*c_))
+  if not ev:
+    raise RuntimeError(f'no measurable injection event in shell z={z} of {key}')
+  ev = _repair_front_order(ev, key, z)
+
+  rows = []
+  for j, (k, t_c, x_c, init_r) in enumerate(ev):
+    t_e, x_e = _leading_edge_event(ev, j, env)
+    R_hit = x_e*c_                        # lt-s -> cm, the state_at_radius convention
     x, rho, vx, lfac, p, dx = state_at_radius(R_hit, init_r, env, fastshell,
                                               popt_lfac, popt_ShSt)
-    rows.append(dict(t=t_inj, i=k, x=x_inj, dx=dx*env.R0/c_,
+    rows.append(dict(t=t_e, i=k, x=x_e, dx=dx*env.R0/c_,
                      rho=rho/env.rhoscale, vx=vx, lfac=lfac,
                      p=p/(env.rhoscale*c_**2),
                      vx_u=(env.beta4 if fastshell else env.beta1),
                      trac=(1. if fastshell else 2.)))
-  if not rows:
-    raise RuntimeError(f'no measurable injection event in shell z={z} of {key}')
   out = pd.DataFrame(rows)
   out.attrs['key'] = key
   return out
@@ -922,7 +1025,11 @@ outweighs the mean chunk 5-18x and caps the shell pass no matter how many cores 
 thrown at it -- measured makespan/ideal 1.74 at 7 workers and 31.9 at 128. Splitting
 inside a cell costs only a re-read of that cell's history in the second chunk.'''
 
-_SCAN_CACHE_VERSION = 1
+_SCAN_CACHE_VERSION = 2   # 2: early_ana='measured' onsets are the cells' LEADING EDGES
+                          # (measured_shockfront_states / _leading_edge_event), not the
+                          # velocity-jump centres. The cache path carries the early_ana
+                          # NAME but not its semantics, so a v1 'measured' scan would be
+                          # reused unchanged under the new convention -- bump, don't trust.
 _SCAN_CELLS_PER_CHUNK = 64      # scan is I/O bound, so keep chunks small enough to fill a
                                 # large pool (10k cells -> ~157 tasks)
 
@@ -1453,18 +1560,18 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
   floor = barT_grid[barT_grid > 0.].min()   # earliest resolved bar{T} on the obs grid
   sub_edges = [None]*len(klist)
   if subcell_dlogT is not None:
-    barT_on = scan['barT_on'].copy()
     # measured onsets are late by the settle + snapshot-cadence delay (the first
     # settled row is 1+ snapshots after the crossing), so they cannot reach below
     # the cadence; the CD-adjacent first cell is physically shocked at collision
-    # (barT ~ 0, as the fit's reconstructed sh_data states). Anchor its interval
-    # at 0 so its sub-cells span down to the grid floor, reconstructing the
-    # cadence-missed early rise (their onsets are then placed exactly by the
-    # worldline shift in the sub-cell loop below).
-    finite = np.flatnonzero(np.isfinite(barT_on))
-    if len(finite):
-      barT_on[finite[0]] = 0.
-    sub_edges = compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max)
+    # (barT ~ 0, as the fit's reconstructed sh_data states). anchor_first spans its
+    # sub-cells down to the grid floor, reconstructing the cadence-missed early rise
+    # (their onsets are then placed exactly by the worldline shift in the sub-cell
+    # loop below). It anchors the EDGES and leaves the onset interval alone -- this
+    # used to set barT_on[first] = 0, which also stretched the window that cell's dx
+    # is spread over and put a step in the temporal index at barT_on[1] under
+    # early_ana='measured'. See compute_subcell_edges.
+    sub_edges = compute_subcell_edges(scan['barT_on'], floor, subcell_dlogT,
+                                      subcell_max, anchor_first=True)
 
   # flat emitter list, in the historical evaluation order: one entry per unsplit cell
   # (j = -1), else one per sub-cell. This is the unit of work AND the unit of chunking --

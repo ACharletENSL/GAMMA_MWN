@@ -1699,7 +1699,8 @@ def _interp_state(a, b, f, dx):
   out['dx'] = dx
   return out
 
-def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max, subcell_min=2):
+def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max, subcell_min=2,
+    anchor_first=False):
   '''
   Adaptive sub-cell onset edges for the early-lightcurve staircase smoothing.
   The cell onsets bar{T}_on are ~linearly spaced, so the earliest cells (near the
@@ -1712,6 +1713,24 @@ def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max, subcell_mi
   Each parent's interval [a,b] is split into n_k = clip(ceil(gap/subcell_dlogT),
   subcell_min, subcell_max) equal log-intervals. Sub-cell weights follow the interval
   widths (dx * (e1-e0)/(b-a) in the emitters), so the split is flux-conserving.
+
+  anchor_first extends the FIRST usable parent's sub-cells down to the grid floor,
+  reconstructing the early rise the snapshot cadence could not resolve (the data path
+  wants this; the fit path's worldline already reaches bar{T}=0, so its first onset is
+  0 and the two are the same thing there). It moves the parent's EDGES only: (a,b) --
+  which sets both the dx per unit bar{T} the window carries and the endpoints of the
+  state interpolation -- stays the cells' own onsets.
+  THE CALLERS USED TO DO THIS BY SETTING barT_on[first] = 0, and that is the bug this
+  keyword exists to close. Widening (a,b) widens the interval one cell's dx is spread
+  over, i.e. it lowers the EMISSION RATE. That was a no-op under early_ana='shockfit',
+  whose onsets are the cells' leading edges (first onset exactly 0); under 'measured'
+  the event is the cell CENTRE -- on cooling_g100 z=4 the first onset is 0.507 of the
+  ladder spacing -- so the first window ran 1.507x too wide on one cell's mass. The
+  resulting 34% deficit in emitter density healed the instant the next cell landed,
+  putting a step of +0.54 in d ln(nuFnu)/d ln(bar{T}) at bar{T} = barT_on[1]. It is
+  resolution-placed, not resolution-cured: the ladder spacing is bar{T}_f/N_sh, so the
+  step sat at bar{T}/bar{T}_f = 3.0e-3 on the 500-cell shell and 1.5e-4 on the
+  10000-cell one, the second merely left of the plotted window.
 
   subcell_min = 2 IS WHAT KEEPS THE EMITTER DENSITY SMOOTH, and it is not free (it
   splits every parent, +51% emitters on cooling_g100 z=4: 872 -> 1316). n_k is an
@@ -1747,12 +1766,19 @@ def compute_subcell_edges(barT_on, floor, subcell_dlogT, subcell_max, subcell_mi
   fast-cooling kink at bar{T}/bar{T}_f = 0.044 is the early_ana='shockfit' prepend
   boundary, and no change to this scheme moves it.
   '''
+  first = None
+  if anchor_first:
+    fin = np.flatnonzero(np.isfinite(barT_on))
+    first = int(fin[0]) if len(fin) else None
   sub_edges = [None]*len(barT_on)
   for idx in range(len(barT_on)-1):
     a, b = barT_on[idx], barT_on[idx+1]
     if not (np.isfinite(a) and np.isfinite(b)) or b <= 0.:
       continue
-    lo = max(a, floor)                     # first cell (a=0) starts at the grid floor
+    # ANCHOR THE EDGES, NOT THE ONSET: the anchored parent's sub-cells reach down to the
+    # grid floor, but the interval (a, b) it is spread over stays its OWN. See the
+    # anchor_first note above for what conflating the two cost.
+    lo = floor if idx == first else max(a, floor)
     if b <= lo:
       continue
     nk = int(np.clip(np.ceil((np.log10(b)-np.log10(lo))/subcell_dlogT),

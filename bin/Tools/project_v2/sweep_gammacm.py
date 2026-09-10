@@ -90,7 +90,14 @@ OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'gammacm_sweep')
 OUTDIR_DATA = OUTDIR + '_data'   # data-driven method (working_cooling_data), see method_outdir
 EARLY_ANA = 'measured'    # data method: the injection event comes from each cell's OWN
                           # velocity jump (working_cooling_data.measured_injection_event) and
-                          # the state from the fitted profiles at that radius. Was 'shockfit',
+                          # the state from the fitted profiles at that radius. The jump locates
+                          # the front at the cell CENTRE, so measured_shockfront_states then
+                          # converts it to the cell's LEADING EDGE -- the front interpolated to
+                          # the cell boundary, i.e. the midpoint of adjacent events. That is
+                          # the onset the model means and the one every consumer reads (the
+                          # sub-cell split spreads a cell's dx over (onset_k, onset_k+1), and
+                          # 'shockfit' intersected its worldline with the cell INTERFACES).
+                          # Was 'shockfit',
                           # which took BOTH from a fitted worldline -- and that worldline runs
                           # at a constant cell-crossing rate while the measured one varies 26%
                           # across the shell, so the two cross, _prepend_shocked_row's guard
