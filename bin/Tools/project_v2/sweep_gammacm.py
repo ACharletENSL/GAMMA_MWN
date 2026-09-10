@@ -28,6 +28,7 @@ import glob
 import time
 from types import SimpleNamespace
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 
@@ -43,7 +44,7 @@ from working_cooling import (get_shell_nuFnu, open_rundata, cellsBehindShock_fro
     load_shell_rarefaction_offT, check_extracted_cells, open_celldata)
 from working_cooling_data import (get_shell_nuFnu_fromData, data_method_name,
     select_postshock_rows, NORAR_LAW)
-from IO import get_variable
+from IO import get_variable, get_cellfile
 from plotting_functions import nF_label, sci_notation
 import cell_pool
 
@@ -91,9 +92,10 @@ OUTDIR_DATA = OUTDIR + '_data'   # data-driven method (working_cooling_data), se
 EARLY_ANA = 'measured'    # data method: the injection event comes from each cell's OWN
                           # velocity jump (working_cooling_data.measured_injection_event) and
                           # the state from the fitted profiles at that radius. The jump locates
-                          # the front at the cell CENTRE, so measured_shockfront_states then
-                          # converts it to the cell's LEADING EDGE -- the front interpolated to
-                          # the cell boundary, i.e. the midpoint of adjacent events. That is
+                          # the front at the cell CENTRE, so the event is backed off by half of
+                          # that cell's OWN measured crossing time (cell_crossing_time: its width
+                          # over the closing speed from the jump conditions) to give the cell's
+                          # LEADING EDGE. That is
                           # the onset the model means and the one every consumer reads (the
                           # sub-cell split spreads a cell's dx over (onset_k, onset_k+1), and
                           # 'shockfit' intersected its worldline with the cell INTERFACES).
@@ -1889,6 +1891,98 @@ def rarefaction_off_barT(key, z=Z_SHELL):
   return float(b.min()), float(b.max())
 
 
+_TON_COLS = ('t', 'x', 'vx')    # variables.var2func['Ton'][1]: what deriving Ton reads
+
+
+def _npz_tail(path, cols):
+  '''
+  The LAST element of each named column of an extracted-cell npz, without reading the
+  columns. IO._write_cell_npz uses savez, NOT savez_compressed, so every member is STORED
+  and its bytes are addressable: parse the .npy header, seek to the final element, read
+  one itemsize. O(1) per column instead of O(snapshots).
+  Returns None if the file is not a zip, a column is missing, or anything about the layout
+  is not what this fast path assumes -- the caller then falls back to the full read.
+  '''
+  import zipfile
+  try:
+    with zipfile.ZipFile(path) as zf:
+      have = set(zf.namelist())
+      out = {}
+      for c in cols:
+        name = c + '.npy'
+        if name not in have or zf.getinfo(name).compress_type != zipfile.ZIP_STORED:
+          return None
+        with zf.open(name) as f:
+          if not f.seekable():
+            return None
+          # the PUBLIC header readers, dispatched on the magic: numpy 2.x has no
+          # np.lib.format._read_array_header, and reaching for it made this whole fast
+          # path dead-but-silent (the except below turned it into a fallback)
+          ver = np.lib.format.read_magic(f)
+          if ver == (1, 0):
+            shape, fortran, dtype = np.lib.format.read_array_header_1_0(f)
+          elif ver == (2, 0):
+            shape, fortran, dtype = np.lib.format.read_array_header_2_0(f)
+          else:
+            return None
+          if len(shape) != 1 or shape[0] < 1 or dtype.hasobject or fortran:
+            return None
+          f.seek(f.tell() + (shape[0] - 1)*dtype.itemsize)
+          buf = f.read(dtype.itemsize)
+          if len(buf) != dtype.itemsize:
+            return None
+          out[c] = np.frombuffer(buf, dtype=dtype, count=1)[0]
+      return out
+  except (zipfile.BadZipFile, OSError, ValueError, AttributeError, KeyError):
+    return None
+
+
+def _csv_tail(path, cols, probe=65536):
+  '''The same for the CSV storage format: header line + last line, read from the end.'''
+  try:
+    with open(path, 'rb') as f:
+      head = f.readline().decode()
+      f.seek(0, os.SEEK_END)
+      end = f.tell()
+      f.seek(max(0, end - probe))
+      tail = f.read().decode(errors='replace').splitlines()
+    names = [c.strip() for c in head.strip().split(',')]
+    last = next((l for l in reversed(tail) if l.strip()), None)
+    if last is None or last.strip() == head.strip():
+      return None
+    vals = last.strip().split(',')
+    if len(vals) != len(names):
+      return None                 # the probe cut a line in half, or the file is ragged
+    row = dict(zip(names, vals))
+    return {c: float(row[c]) for c in cols} if all(c in row for c in cols) else None
+  except (OSError, ValueError):
+    return None
+
+
+def cell_last_row(key, k, cols=_TON_COLS):
+  '''
+  The last snapshot of cell k as a Series carrying only `cols` -- or None when the cell is
+  absent, empty, or the fast path does not apply (the caller then reads it in full).
+
+  WHY THIS EXISTS. data_end_barT wants ONE number per cell, Ton of the final row, and used
+  to get it by building the entire history: every column, every snapshot, through pandas.
+  At the fiducial's ~500 CSV cells that is seconds; at cooling_g100_hires it is 20000 npz
+  cells and hundreds of GB, and it ran for SIX HOURS inside sweep_rarcut on 2026-09-10
+  before the job was cancelled -- with no output, because the loop prints nothing.
+
+  The Series is deliberately restricted to `cols` and fed to the SAME get_variable, so the
+  derivation is untouched: get_params falls through to df[var] for anything not in attrs,
+  and Ton reads t, x, vx only.
+  '''
+  path, ok = get_cellfile(key, k)
+  if not ok:
+    return None
+  vals = _npz_tail(path, cols) if path.endswith('.npz') else _csv_tail(path, cols)
+  if vals is None:
+    return None
+  return pd.Series({c: float(vals[c]) for c in cols})
+
+
 _DATA_END_MEM = {}      # (key, z) -> (first, last); the CSV scan is ~0.5 GB for a long run
 
 def data_end_barT(key, z=Z_SHELL):
@@ -1910,10 +2004,15 @@ def data_end_barT(key, z=Z_SHELL):
   for k in check_extracted_cells(key):
     if not (kmin <= k < kmax):
       continue                                  # stray files outside the shell's id range
-    d = open_celldata(key, k)
-    if d is False or not len(d):
-      continue
-    b.append((get_variable(d.iloc[-1], 'Ton', env0) - env0.Ts)/env0.T0)
+    # the fast path reads ONLY the last element of the three columns Ton needs; the full
+    # read stays as the fallback for anything it cannot address (see cell_last_row)
+    row = cell_last_row(key, k)
+    if row is None:
+      d = open_celldata(key, k)
+      if d is False or not len(d):
+        continue
+      row = d.iloc[-1]
+    b.append((get_variable(row, 'Ton', env0) - env0.Ts)/env0.T0)
   b = np.array(b, float)
   b = b[np.isfinite(b)]
   out = (float(b.min()), float(b.max())) if b.size else None
