@@ -2899,11 +2899,13 @@ def plot_spectra_pair(results, detections, mode, outdir=OUTDIR):
   fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.6))
   ok = False
   for ax, (lab, get_spec, sym) in zip(axs, (
-      ('peak spectrum', _peak_getter(results, detections), '\\nu F_\\nu'),
+      ('peak', _peak_getter(results, detections), '\\nu F_\\nu'),
       ('time-integrated', _fluence_getter, '\\nu \\mathcal{F}_\\nu'))):
     if _draw_spectra_all(ax, results, get_spec, mode, f'spectra_norm-{mode}.png',
                          sym=sym):
-      ax.text(0.03, 0.97, lab, transform=ax.transAxes, ha='left', va='top', fontsize=11)
+      # top RIGHT: the curves climb out of the lower left and only the decaying tails reach
+      # this corner, so a label here sits clear of every one of them
+      ax.text(0.97, 0.97, lab, transform=ax.transAxes, ha='right', va='top', fontsize=11)
       ok = True
   if not ok:
     plt.close(fig)
