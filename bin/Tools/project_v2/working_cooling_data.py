@@ -37,6 +37,7 @@ from types import SimpleNamespace
 
 from working_cooling import *
 from working_cooling import _interp_state, _one_minus_beta_over_beta
+from phys_functions_shells import derive_betaRS, derive_betaFS
 # (underscore names are skipped by import *)
 import cell_pool
 
@@ -267,6 +268,48 @@ def data_method_name(law=None, cap=None):
 
 
 
+def shock_sd_block(sd, u, n_plateau=5):
+  """
+  The contiguous Sd run that actually straddles the shock, as (i0, i1), or None.
+
+  Sd fires on more than the shock. The external interface launches a rarefaction into the
+  shell's rear face at t=0, and the detector flags it too: on cooling_g100 z=4 cell k=20
+  carries two runs -- rows 1-168 with |u_up - u_dn| = 0.2 (the rarefaction, no velocity
+  jump at all) and rows 1471-1475 with 86.6 (the reverse shock). Both consumers of Sd used
+  to take the FIRST run, which for that cell meant an injection at t = 23 s instead of
+  4.04e4 (a factor 48 early) and a "post-shock" history starting at t = 1784 that is mostly
+  unshocked, rarefying material.
+
+  Selecting by velocity contrast is a no-op wherever there is one run, and also for the
+  CD-adjacent cell k=519, whose two runs are 72.3 then 1.0 -- there the real shock IS the
+  first. It changed exactly one cell of 500 on this run.
+  """
+  nz = np.flatnonzero(sd != 0)
+  if not len(nz):
+    return None
+  runs = []
+  s0 = p0 = int(nz[0])
+  for aa in nz[1:]:
+    if int(aa) == p0 + 1:
+      p0 = int(aa)
+    else:
+      runs.append((s0, p0)); s0 = p0 = int(aa)
+  runs.append((s0, p0))
+  best, best_jump = runs[0], -1.
+  for (rs, re) in runs:
+    rlo, rhi = max(0, rs - n_plateau), min(len(u) - 1, re + n_plateau)
+    a_up = float(np.median(u[rlo:rs])) if rs > rlo else float(u[rs])
+    a_dn = float(np.median(u[re+1:rhi+1])) if rhi > re else float(u[re])
+    jump = abs(a_up - a_dn)
+    if np.isfinite(jump) and jump > best_jump:
+      best, best_jump = (rs, re), jump
+  return best
+
+
+def _proper_velocity(vx):
+  return vx/np.sqrt(np.clip(1. - vx*vx, 1e-300, None))
+
+
 def select_postshock_rows(cell_data, n_settle=1):
   '''
   Rows of a cell history from the moment the cell is shocked (same selection as
@@ -279,8 +322,9 @@ def select_postshock_rows(cell_data, n_settle=1):
   sd = cell_data.Sd.to_numpy()
   ish = np.flatnonzero(sd != 0)
   if len(ish):
-    after = np.flatnonzero(sd[ish[0]:] == 0)
-    start = ish[0] + after[0] + n_settle if len(after) else len(sd)
+    # the run that straddles the shock, not simply the first one to fire
+    blk = shock_sd_block(sd, _proper_velocity(cell_data.vx.to_numpy(dtype=float)))
+    start = min(blk[1] + 1 + n_settle, len(sd)) if blk is not None else len(sd)
     return cell_data.iloc[start:].copy()
   # no crossing recorded: a raw full history (starts at it=0) means the shock
   # never reached this cell -> empty; otherwise assume pre-trimmed data
@@ -580,7 +624,42 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
     out.attrs[key] = attrs[key]
   return out, env
 
-def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=5):
+def cell_crossing_time(u_up, u_dn, w, fastshell):
+  """
+  How long the shock takes to cross ONE cell, from that cell's own plateaus and width.
+
+  Everything here is per-cell and measured: u_up and u_dn are the proper velocities either
+  side of the cell's own Sd block, w is its width just before it is shocked, and the shock's
+  lab velocity follows from the JUMP CONDITIONS on those two plateaus
+  (derive_betaRS/derive_betaFS, fed the relative proper velocity of the two states). No
+  neighbouring cell and no fitted worldline enters, which is the point: the alternatives
+  either assume the crossing equals the spacing between neighbouring events, or take the
+  shock speed from a fit that is known to drift against the cells.
+
+    T = w / |beta_up - beta_sh|          (w in lt-s -> T in seconds)
+
+  The closing speed is a near-cancellation -- |beta_up - beta_sh| ~ 2.7e-5 here -- so it is
+  computed from the jump conditions rather than by differencing two velocities near 1.
+  Returns nan if the plateaus do not admit a shock.
+  """
+  if not (np.isfinite(u_up) and np.isfinite(u_dn) and np.isfinite(w)) or w <= 0.:
+    return float('nan')
+  lfac_up = derive_Lorentz_from_proper(u_up)
+  lfac_dn = derive_Lorentz_from_proper(u_dn)
+  lfac_rel = derive_relatLfac(lfac_up, lfac_dn)
+  if not np.isfinite(lfac_rel) or lfac_rel < 1.:
+    return float('nan')
+  u_rel = derive_proper_from_Lorentz(lfac_rel)
+  beta_sh = (derive_betaRS(u_up, u_rel, u_dn) if fastshell
+             else derive_betaFS(u_up, u_rel, u_dn))
+  dv = abs(u_up/lfac_up - beta_sh)
+  if not np.isfinite(dv) or dv <= 0.:
+    return float('nan')
+  return w/dv
+
+
+def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=5,
+    at='edge'):
   """
   (t_inj, x_inj) at which the shock front crosses THIS cell, from the cell's own history
   and at SUB-CADENCE resolution. Returns (nan, nan) if the cell never gets shocked.
@@ -609,11 +688,21 @@ def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=
     CENTRE, so this estimates 'front at this cell's position'. Its weakness is that the
     numerical shock is 3-4 cells wide, so the transition is smeared and its SHAPE enters.
 
-  NB THIS RETURNS THE CENTRE CROSSING, WHICH IS NOT THE CELL'S ONSET. Everything
-  downstream wants the LEADING edge -- when the cell starts being shocked. The caller
-  (measured_shockfront_states -> _leading_edge_event) converts, by interpolating the front
-  between adjacent cells' centre crossings. Do not feed this function's output straight
-  into an onset ladder.
+  THE MIDPOINT IS NOT THE CELL'S ONSET, so `at` decides what comes back. Everything
+  downstream wants the LEADING edge -- when the cell starts being shocked -- and at='edge'
+  (the default) returns it, by backing off half of THIS cell's own crossing time
+  (cell_crossing_time) and re-reading the cell's position from its own worldline there.
+  at='centre' returns the raw midpoint crossing, for inspection.
+
+  WHY PER-CELL AND NOT FROM THE NEIGHBOURS. The boundary between two cells can also be had
+  as the midpoint of two adjacent centre crossings, and that is smooth (it averages two
+  measurements rather than differencing them). But it mixes the two cells' RADII, so the
+  observer time it implies carries a geometric -dr/c term belonging to neither cell: the
+  same event then reads at a different fraction of its crossing in lab time (0.31) and in
+  bar{T} (0.51), with no way to say which is meant. Backing off half of the cell's own
+  crossing keeps everything on one worldline, and the fraction is 1/2 by the estimator's
+  own definition -- the front is at the cell centre when the cell average is halfway
+  between the plateaus.
   estimator: 'inflection' -- the extremum of du/dt, refined parabolically. The centre of
     the transition profile, independent of where the asymptotes sit.
   """
@@ -625,13 +714,11 @@ def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=
   nz = np.flatnonzero(sd != 0)
   if not len(nz) or nz[0] == 0:
     return float('nan'), float('nan')
-  i0 = int(nz[0])
-  i1 = i0                                   # end of the FIRST contiguous Sd run
-  for aa in nz[1:]:
-    if int(aa) == i1 + 1:
-      i1 = int(aa)
-    else:
-      break
+  # the run that straddles the shock, not simply the first to fire (shock_sd_block)
+  blk = shock_sd_block(sd, u, n_plateau)
+  if blk is None:
+    return float('nan'), float('nan')
+  i0, i1 = blk
   lo = max(0, i0 - n_plateau)
   hi = min(len(u) - 1, i1 + n_plateau)
   if hi - lo < 3:
@@ -661,14 +748,33 @@ def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=
     j = int(np.clip(j, 0, len(t) - 1))
     return _interp(i, j, abs(frac))
 
-  u_mid = 0.5*(u_up + u_dn)
-  crossed = (u <= u_mid) if u_up > u_dn else (u >= u_mid)
-  jj = np.flatnonzero(crossed[lo:hi+1])
-  if not len(jj) or (lo + int(jj[0])) == 0:
-    return float('nan'), float('nan')
-  j = lo + int(jj[0]); i = j - 1
-  du = u[i] - u[j]
-  return _interp(i, j, 0.5 if abs(du) < 1e-12 else (u[i] - u_mid)/du)
+  if estimator == 'midpoint':
+    u_mid = 0.5*(u_up + u_dn)
+    crossed = (u <= u_mid) if u_up > u_dn else (u >= u_mid)
+    jj = np.flatnonzero(crossed[lo:hi+1])
+    if not len(jj) or (lo + int(jj[0])) == 0:
+      return float('nan'), float('nan')
+    j = lo + int(jj[0]); i = j - 1
+    du = u[i] - u[j]
+    t_c, x_c = _interp(i, j, 0.5 if abs(du) < 1e-12 else (u[i] - u_mid)/du)
+  else:
+    raise ValueError(f"unknown estimator {estimator!r}")
+
+  if at == 'centre':
+    return t_c, x_c
+  # LEADING EDGE: back off half of THIS cell's own crossing, then re-read the cell's
+  # position from its own worldline. Both halves are per-cell, so no neighbour's radius
+  # leaks into the event -- which is what makes the observer time unambiguous (see the
+  # docstring). w is taken just ahead of the Sd block, where the cell is still unshocked.
+  w = float(np.median(cell_data.dx.to_numpy(dtype=float)[lo:i0])) if i0 > lo \
+      else float(cell_data.dx.to_numpy(dtype=float)[i0])
+  T = cell_crossing_time(u_up, u_dn, w, fastshell=(z == 4))
+  if not np.isfinite(T):
+    return t_c, x_c
+  t_e = t_c - 0.5*T
+  if t_e <= t[0]:
+    return float(t[0]), float(x[0])       # the CD-adjacent cell: shocked from collision
+  return float(t_e), float(np.interp(t_e, t, x))
 
 
 def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3.):
@@ -724,8 +830,8 @@ def _repair_front_order(ev, key, z):
   gap (ratio 3.754 at bar{T}=0.907); it predates the leading-edge construction and was
   simply carried through, self-consistently misplaced.
 
-  It matters more now because _leading_edge_event pairs ADJACENT events, so a bad one
-  corrupts its own edge and its successor's rather than only itself.
+  The events are per-cell, so a bad one corrupts only itself -- but it still lands out of
+  order along the front, and the ladder must stay monotone.
 
   A rejected event is replaced by a linear interpolation in cell index between the nearest
   good neighbours on each side, or -- past the last good one -- extrapolated with the
@@ -763,40 +869,6 @@ def _repair_front_order(ev, key, z):
   return out
 
 
-def _leading_edge_event(ev, j, env):
-  """
-  The shock at cell j's LEADING EDGE, from the measured centre-crossings around it.
-
-  measured_injection_event deliberately reports the front at the cell CENTRE (for a sharp
-  front sweeping a finite-volume cell, the cell average is halfway across when the front is
-  at the centre). The model wants the onset where the cell STARTS being shocked, and every
-  downstream consumer reads it that way: compute_subcell_edges spreads a cell's dx over
-  (onset_k, onset_{k+1}), and 'shockfit' -- the convention that came before -- intersected
-  its worldline with the cells' initial INTERFACE radii (fits_hydro.reconstruct_data, which
-  also sets t_hit[0] = 0 outright). Handing that machinery cell centres shifts every cell's
-  emission half a crossing late and, because the first cell's interval is anchored to
-  bar{T}=0, stretches that one interval by 1.5x -- a 34% emitter-density deficit and a step
-  in the temporal index. See compute_subcell_edges' anchor_first note.
-
-  THE EVENTS ARE THEMSELVES SAMPLES OF THE FRONT'S TRAJECTORY, so no model is needed: the
-  boundary between cells j-1 and j is the front interpolated to cell index j-1/2, i.e. the
-  MIDPOINT of the two adjacent centre-crossings. That is an average of two measurements, so
-  it HALVES their jitter where differencing (edge = centre - spacing/2) amplifies it --
-  measured on cooling_g100 z=4, worst local gap ratio in the onset ladder:
-  centre 3.754, differenced 38.31, midpoint 1.721 (the fitted 'shockfit' edge is 3.683,
-  and its p01/p99 of exactly 1.000 is the constant crossing rate that made it drift against
-  the cells in the first place).
-
-  j = 0 is the CD-adjacent cell: its leading edge IS the contact discontinuity, shocked at
-  collision, so the event is (t=0, x=R0) exactly -- the same point 'shockfit' hard-set.
-  """
-  if j == 0:
-    return 0., env.R0/c_                  # collision at the CD; x in lt-s
-  _, t0, x0, _ = ev[j-1]
-  _, t1, x1, _ = ev[j]
-  return 0.5*(t0 + t1), 0.5*(x0 + x1)
-
-
 def measured_shockfront_states(key, z, env):
   """
   Per-cell shocked-state table with the injection EVENT measured and the injection STATE
@@ -832,7 +904,7 @@ def measured_shockfront_states(key, z, env):
   kmax = kmin + (env.Nsh4 if fastshell else env.Nsh1)
   # cells in the order the shock reaches them: outward from the contact discontinuity,
   # which for the fast shell is DESCENDING k (the driver's klist does the same flip).
-  # _leading_edge_event pairs SPATIAL neighbours, so it must run in this order.
+  # _repair_front_order checks monotonicity along the front, so it must run in this order.
   ks = list(range(int(kmin), int(kmax)))
   if fastshell:
     ks = ks[::-1]
@@ -850,8 +922,7 @@ def measured_shockfront_states(key, z, env):
   ev = _repair_front_order(ev, key, z)
 
   rows = []
-  for j, (k, t_c, x_c, init_r) in enumerate(ev):
-    t_e, x_e = _leading_edge_event(ev, j, env)
+  for j, (k, t_e, x_e, init_r) in enumerate(ev):
     R_hit = x_e*c_                        # lt-s -> cm, the state_at_radius convention
     x, rho, vx, lfac, p, dx = state_at_radius(R_hit, init_r, env, fastshell,
                                               popt_lfac, popt_ShSt)
@@ -1026,7 +1097,7 @@ thrown at it -- measured makespan/ideal 1.74 at 7 workers and 31.9 at 128. Split
 inside a cell costs only a re-read of that cell's history in the second chunk.'''
 
 _SCAN_CACHE_VERSION = 2   # 2: early_ana='measured' onsets are the cells' LEADING EDGES
-                          # (measured_shockfront_states / _leading_edge_event), not the
+                          # (measured_shockfront_states, half a measured crossing back), not the
                           # velocity-jump centres. The cache path carries the early_ana
                           # NAME but not its semantics, so a v1 'measured' scan would be
                           # reused unchanged under the new convention -- bump, don't trust.
