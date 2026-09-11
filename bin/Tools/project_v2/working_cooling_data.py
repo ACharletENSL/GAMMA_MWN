@@ -268,59 +268,6 @@ def data_method_name(law=None, cap=None):
 
 
 
-def shock_sd_block(sd, u, n_plateau=5):
-  """
-  The contiguous Sd run that actually straddles the shock, as (i0, i1), or None.
-
-  Sd fires on more than the shock. The external interface launches a rarefaction into the
-  shell's rear face at t=0, and the detector flags it too: on cooling_g100 z=4 cell k=20
-  carries two runs -- rows 1-168 with |u_up - u_dn| = 0.2 (the rarefaction, no velocity
-  jump at all) and rows 1471-1475 with 86.6 (the reverse shock). Both consumers of Sd used
-  to take the FIRST run, which for that cell meant an injection at t = 23 s instead of
-  4.04e4 (a factor 48 early) and a "post-shock" history starting at t = 1784 that is mostly
-  unshocked, rarefying material.
-
-  Selecting by velocity contrast is a no-op wherever there is one run, and also for the
-  CD-adjacent cell k=519, whose two runs are 72.3 then 1.0 -- there the real shock IS the
-  first. It changed exactly one cell of 500 on this run.
-  """
-  nz = np.flatnonzero(sd != 0)
-  if not len(nz):
-    return None
-  runs = []
-  s0 = p0 = int(nz[0])
-  for aa in nz[1:]:
-    if int(aa) == p0 + 1:
-      p0 = int(aa)
-    else:
-      runs.append((s0, p0)); s0 = p0 = int(aa)
-  runs.append((s0, p0))
-  best, best_jump = runs[0], -1.
-  for (rs, re) in runs:
-    rlo, rhi = max(0, rs - n_plateau), min(len(u) - 1, re + n_plateau)
-    a_up = float(np.median(u[rlo:rs])) if rs > rlo else float(u[rs])
-    a_dn = float(np.median(u[re+1:rhi+1])) if rhi > re else float(u[re])
-    jump = abs(a_up - a_dn)
-    if np.isfinite(jump) and jump > best_jump:
-      best, best_jump = (rs, re), jump
-  return best
-
-
-def _proper_velocity(vx):
-  return vx/np.sqrt(np.clip(1. - vx*vx, 1e-300, None))
-
-
-def postshock_start(sd, vx, n_settle=1):
-  """
-  First row of a cell's post-shock history: one past the Sd run that straddles the shock,
-  plus n_settle. ONE definition, so a caller working from plain columns
-  (IO.open_cellcolumns) and select_postshock_rows' DataFrame path cannot drift apart.
-  Returns len(sd) where no run qualifies, i.e. an empty history.
-  """
-  blk = shock_sd_block(sd, _proper_velocity(np.asarray(vx, dtype=float)))
-  return min(blk[1] + 1 + n_settle, len(sd)) if blk is not None else len(sd)
-
-
 def select_postshock_rows(cell_data, n_settle=1):
   '''
   Rows of a cell history from the moment the cell is shocked (same selection as
