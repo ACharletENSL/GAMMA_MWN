@@ -1182,13 +1182,22 @@ outweighs the mean chunk 5-18x and caps the shell pass no matter how many cores 
 thrown at it -- measured makespan/ideal 1.74 at 7 workers and 31.9 at 128. Splitting
 inside a cell costs only a re-read of that cell's history in the second chunk.'''
 
-_SCAN_CACHE_VERSION = 2   # 2: early_ana='measured' onsets are the cells' LEADING EDGES
+_SCAN_CACHE_VERSION = 3   # 3: the stored injection rows carry HISTORY_COLS only
+                          # 2: 2: early_ana='measured' onsets are the cells' LEADING EDGES
                           # (measured_shockfront_states, half a measured crossing back), not the
                           # velocity-jump centres. The cache path carries the early_ana
                           # NAME but not its semantics, so a v1 'measured' scan would be
                           # reused unchanged under the new convention -- bump, don't trust.
 _SCAN_CELLS_PER_CHUNK = 64      # scan is I/O bound, so keep chunks small enough to fill a
                                 # large pool (10k cells -> ~157 tasks)
+
+
+HISTORY_COLS = ('t', 'i', 'x', 'dx', 'rho', 'vx', 'p', 'trac', 'Sd')
+# The nine columns of the fourteen that the emission actually consumes, established by
+# dropping each in turn and checking generate_cell_fromHistory returns bit-identical
+# output: nact, dlx, D, sx and tau are never read. Reading only these costs 3.46 s
+# against 4.85 s on a cold hi-res cell (1.40x) -- the file open is ~2.3 s of it and does
+# not care how many columns you want, so this is worth having and is not a large win.
 
 
 def _load_cell_history(key, k, n_settle, env, sh_data=None, early_frac=0.):
@@ -1201,7 +1210,7 @@ def _load_cell_history(key, k, n_settle, env, sh_data=None, early_frac=0.):
   injection row the sub-cell edges are built from cannot drift from the injection row
   the emission actually uses.
   '''
-  cell_data = open_celldata(key, k)
+  cell_data = open_cellframe(key, k, HISTORY_COLS)
   if cell_data is False:
     return None, None, 0
   t_off = cell_data.t.iloc[0] if (len(cell_data) and cell_data.index[0] == 0) else 0.

@@ -785,6 +785,7 @@ def compute_shell_rarefaction_head(key, z, env, R_fac=50., n_R=2000,
     good = np.isfinite(R_rar) and R_rar > R0
     rrar[ci['i']] = max(R_rar, R0*(1.+1e-6))/R0 if good else np.inf
     boff[ci['i']] = _barT_off(s_rar) if good else np.inf
+  _patch_isolated_gaps(rrar, boff, key, z)
   _check_rarefaction_maps(rrar, boff, _barT_off(s_L), key, z)
   return rrar, boff
 
@@ -867,6 +868,44 @@ def fit_cache_stamp(key, cells):
     except OSError:
       h.update(f'{k}:missing;'.encode())
   return h.hexdigest()
+
+
+def _patch_isolated_gaps(rrar, boff, key, z):
+  """
+  Repair an ISOLATED cell with no head crossing, in place, from its two neighbours.
+
+  R_rar = inf means the head never caught the cell inside the horizon, which is a real
+  outcome for a cell near the end of the shell -- but not for one sitting between two
+  neighbours that are both caught, since R_rar varies smoothly along the shell. There the
+  cause is upstream: the head is propagated on the cells' FITTED worldlines, and a fit that
+  railed against its bounds gives a cell a trajectory the head cannot meet.
+
+  Measured on cooling_g100 z=4 cell k=45, the only railed fit in 1000 cells (popt_rho,
+  popt_lfac and popt_p all pinned at -28., 0.05): its D = s_head - s_cell ends at +0.746
+  where k=44 and k=46 reach -53.98 and -1523.72, so it alone returned inf where its
+  neighbours give 1.0520 and 1.0580. Left alone that cell emits with NO rarefaction cut.
+
+  ONLY isolated gaps are filled: a run of consecutive non-finite cells is left as it is,
+  because that is what "the head never reaches this part of the shell" looks like and it
+  is not this function's business to invent one. Never silent -- every patched cell is
+  printed, with a pointer to the fit that caused it.
+  """
+  ks = sorted(rrar)
+  patched = []
+  for a, b, c in zip(ks, ks[1:], ks[2:]):
+    if np.isfinite(rrar[b]):
+      continue
+    if not (np.isfinite(rrar[a]) and np.isfinite(rrar[c])):
+      continue                                  # part of a run, not an isolated gap
+    rrar[b] = 0.5*(rrar[a] + rrar[c])
+    if np.isfinite(boff[a]) and np.isfinite(boff[c]):
+      boff[b] = 0.5*(boff[a] + boff[c])
+    patched.append(b)
+  if patched:
+    print(f'compute_shell_rarefaction_head ({key}, z={z}): {len(patched)} isolated '
+          f'cell(s) with no head crossing, filled from their neighbours: {patched}. '
+          'Check those cells\' hydro fits -- a railed fit is the usual cause.')
+  return patched
 
 
 def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None, nproc=1):

@@ -378,6 +378,43 @@ def _write_cell_npz(path, df):
               _CELL_IDX: df.index.to_numpy(),
               _CELL_IDXNAME: np.array(name if name is not None else '')})
 
+def open_cellframe(key, k, cols):
+  """
+  open_celldata restricted to `cols` (the stored index and attrs are kept), or False if
+  the cell is not extracted.
+
+  For callers that need a DataFrame -- because what they pass it to is pandas-shaped --
+  but only a few of the fourteen columns. Reading a cooling_g100_hires cell cold costs
+  4.85 s for all fourteen against 3.46 s for the nine the emission path uses: the file
+  open dominates (~2.3 s of it is fixed, whatever the column count), so this is a 1.40x
+  saving, not the order of magnitude a column count would suggest. Use open_cellcolumns
+  where plain arrays will do.
+  """
+  dfile_path, dfile_bool = get_cellfile(key, k)
+  if not dfile_bool:
+    return dfile_bool
+  if dfile_path.endswith('.npz'):
+    with np.load(dfile_path, allow_pickle=False) as d:
+      keep = [c for c in (str(c) for c in d[_CELL_COLS]) if c in cols]
+      if not keep:
+        return False
+      df = pd.DataFrame({c: d[c] for c in keep}, columns=keep)
+      name = str(d[_CELL_IDXNAME])
+      df.index = pd.Index(d[_CELL_IDX], name=(name if name else None))
+  else:
+    df = open_celldata(key, k)
+    if df is False:
+      return False
+    df = df[[c for c in df.columns if c in cols]]
+  mode, runname, rhoNorm, geometry = get_runatts(key)
+  df.attrs['key'] = key
+  df.attrs['mode'] = mode
+  df.attrs['runname'] = runname
+  df.attrs['rhoNorm'] = rhoNorm
+  df.attrs['geometry'] = geometry
+  return df
+
+
 def open_cellcolumns(key, k, cols):
   """
   Named columns of cell k as plain float arrays, or None if the cell is not extracted.
