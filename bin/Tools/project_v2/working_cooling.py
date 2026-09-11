@@ -215,9 +215,16 @@ def load_or_fit_celldata(cell_data, vars, norms, env, x0, cleanData=False,
   r_max is part of the cache identity: a cache written with a different window describes a
   different curve. Files predating it have no 'r_max' key, so the read raises and they are
   refitted -- which is what a run whose fits were made over the full history needs.
+
+  cell_data may be a ZERO-ARGUMENT CALLABLE returning the history, and then it is called
+  only when a fit is actually needed. On a cache hit the history is never read at all --
+  which is the whole cost of a warm shell: open_celldata is 3.6 s on a hi-res cell, so
+  compute_shell_rarefaction_head was reading 10000 histories, ~10 h of pandas, to answer
+  every one of them from a cache file it had not looked at yet.
   '''
+  resolve = (lambda: cell_data()) if callable(cell_data) else (lambda: cell_data)
   if key is None or k is None:
-    return fit_celldata(cell_data, vars, norms, env, x0=x0, cleanData=cleanData,
+    return fit_celldata(resolve(), vars, norms, env, x0=x0, cleanData=cleanData,
                         r_max=r_max)
   path = get_dirpath(key) + f'cells/{k:04d}_fit.npz'
   if os.path.isfile(path):
@@ -231,7 +238,7 @@ def load_or_fit_celldata(cell_data, vars, norms, env, x0, cleanData=False,
         return [d['popt_rho'], d['popt_lfac'], d['popt_p']]
     except Exception:
       pass   # unreadable/old cache => refit and overwrite
-  popts = fit_celldata(cell_data, vars, norms, env, x0=x0, cleanData=cleanData,
+  popts = fit_celldata(resolve(), vars, norms, env, x0=x0, cleanData=cleanData,
                        r_max=r_max)
   try:
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -588,14 +595,17 @@ def _head_chunk(span):
   for j in range(j0, j1):
     row = sh.iloc[j]
     kk = int(row.i)
-    cd = open_celldata(key, kk)
-    if cd is False:
+    # EXISTENCE, not the history: open_celldata costs 3.6 s on a hi-res cell and the fit
+    # below answers from {k:04d}_fit.npz whenever that is warm, so the read is deferred
+    # behind a callable and never happens on a hit. get_cellfile's flag is exactly what
+    # open_celldata returns False on, so a missing cell still yields (j, None).
+    if not get_cellfile(key, kk)[1]:
       out.append((j, None))
       continue
     norms = [get_variable(row, nm, env) for nm in varlist]
     try:
-      popts = load_or_fit_celldata(cd, varlist, norms, env, row.x, key=key, k=kk,
-                                   r_max=HEAD_FIT_RMAX)
+      popts = load_or_fit_celldata(lambda kk=kk: open_celldata(key, kk), varlist, norms,
+                                   env, row.x, key=key, k=kk, r_max=HEAD_FIT_RMAX)
     except RuntimeError:
       out.append((j, None))
       continue
@@ -831,6 +841,34 @@ _HEAD_CELLS_PER_CHUNK = 32   # cells per task in the head's fit pass: the payloa
                              # dispatch overhead against the ~0.1-0.3 s per cell
 
 
+def fit_cache_stamp(key, cells):
+  """
+  Fingerprint of the per-cell hydro fits a rarefaction head is built from: the size and
+  mtime of each {k:04d}_fit.npz, hashed. Cheap -- stat only, no reads.
+
+  THE HEAD IS A FUNCTION OF THOSE FITS AND ITS VERSION NUMBER DOES NOT SAY SO. The
+  fiducial heads on disk were dated 9 August while the fits under them had been refitted
+  on 7 September, and because _RAR_CACHE_VERSION had not moved, load_shell_rarefaction
+  served the stale head to every sweep: rebuilding shifted R_rar/R_inj on essentially
+  every cell (by up to 0.3%). This is the same silent-staleness trap the derived tables
+  carry a sweep_stamp against.
+
+  Copying a run between machines rewrites mtimes unless cp/scp preserves them, so the
+  stamp can miss and force a rebuild that was not needed. That is the safe direction, and
+  a rebuild is cheap once the fits are warm (the head defers the history read entirely).
+  """
+  import hashlib
+  h = hashlib.sha1()
+  for k in sorted(int(c) for c in cells):
+    f = get_dirpath(key) + f'cells/{k:04d}_fit.npz'
+    try:
+      st = os.stat(f)
+      h.update(f'{k}:{st.st_size}:{st.st_mtime_ns};'.encode())
+    except OSError:
+      h.update(f'{k}:missing;'.encode())
+  return h.hexdigest()
+
+
 def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None, nproc=1):
   '''(key, z)-cached rarefaction maps ({cell_index: R_rar/R_inj}, {cell_index: barT_off})
   from the single shared head (compute_shell_rarefaction_head -- see it for what R_inj is
@@ -850,8 +888,13 @@ def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None, nproc=1):
     try:
       d = np.load(path)
       covered = (n_shell is None) or (len(d['cell_i']) >= int(n_shell))
+      stamp = str(d['fit_stamp']) if 'fit_stamp' in d.files else ''
+      fresh = (stamp == fit_cache_stamp(key, d['cell_i']))
+      if not fresh:
+        print(f'load_shell_rarefaction: cached head for ({key}, {z}) was built from '
+              'different per-cell fits -- rebuilding')
       if int(d['version']) == _RAR_CACHE_VERSION and np.isclose(float(d['R_fac']), R_fac) \
-          and covered:
+          and covered and fresh:
         memo = ({int(i): float(r) for i, r in zip(d['cell_i'], d['rrar_over_R0'])},
                 {int(i): float(b) for i, b in zip(d['cell_i'], d['barT_off'])})
         _RAR_HEAD_MEM[(key, z)] = memo
@@ -872,7 +915,8 @@ def _load_shell_rarefaction_maps(key, z, env, R_fac=50., n_shell=None, nproc=1):
     np.savez(path, cell_i=ci, rrar_over_R0=np.array([rrar[i] for i in ci], float),
              barT_off=np.array([boff[i] for i in ci], float),
              R_fac=float(R_fac), version=_RAR_CACHE_VERSION,
-             n_shell=int(n_shell) if n_shell is not None else len(ci))
+             n_shell=int(n_shell) if n_shell is not None else len(ci),
+             fit_stamp=fit_cache_stamp(key, ci))
   except Exception:
     pass
   _RAR_HEAD_MEM[(key, z)] = (rrar, boff)

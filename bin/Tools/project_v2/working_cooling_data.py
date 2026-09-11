@@ -310,6 +310,17 @@ def _proper_velocity(vx):
   return vx/np.sqrt(np.clip(1. - vx*vx, 1e-300, None))
 
 
+def postshock_start(sd, vx, n_settle=1):
+  """
+  First row of a cell's post-shock history: one past the Sd run that straddles the shock,
+  plus n_settle. ONE definition, so a caller working from plain columns
+  (IO.open_cellcolumns) and select_postshock_rows' DataFrame path cannot drift apart.
+  Returns len(sd) where no run qualifies, i.e. an empty history.
+  """
+  blk = shock_sd_block(sd, _proper_velocity(np.asarray(vx, dtype=float)))
+  return min(blk[1] + 1 + n_settle, len(sd)) if blk is not None else len(sd)
+
+
 def select_postshock_rows(cell_data, n_settle=1):
   '''
   Rows of a cell history from the moment the cell is shocked (same selection as
@@ -322,9 +333,7 @@ def select_postshock_rows(cell_data, n_settle=1):
   sd = cell_data.Sd.to_numpy()
   ish = np.flatnonzero(sd != 0)
   if len(ish):
-    # the run that straddles the shock, not simply the first one to fire
-    blk = shock_sd_block(sd, _proper_velocity(cell_data.vx.to_numpy(dtype=float)))
-    start = min(blk[1] + 1 + n_settle, len(sd)) if blk is not None else len(sd)
+    start = postshock_start(sd, cell_data.vx.to_numpy(dtype=float), n_settle)
     return cell_data.iloc[start:].copy()
   # no crossing recorded: a raw full history (starts at it=0) means the shock
   # never reached this cell -> empty; otherwise assume pre-trimmed data

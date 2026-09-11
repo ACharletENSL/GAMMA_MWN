@@ -37,15 +37,15 @@ from scipy.optimize import least_squares
 from environment import (MyEnv, rescale_hydro, GAMMA_dir, field_correction_tag,
     figdir, run_folder, FIDUCIAL_KEY, FIG_ROOT,
     FIELD_CORR_TAG)
-from phys_functions import granot_sari_syn, syn_cutoff_R
+from phys_functions import granot_sari_syn, syn_cutoff_R, derive_obsOnTime
 from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, edge_slope,
     edge_slope_drift, flat_core,
     SLOPE_SMOOTH, SLOPE_TOL, MIN_PTS, MIN_DEX, FIT_DEC, CUT_FAC, EDGE_VFC_TOL)
 from working_cooling import (get_shell_nuFnu, open_rundata, cellsBehindShock_fromData,
     load_shell_rarefaction_offT, check_extracted_cells, open_celldata)
 from working_cooling_data import (get_shell_nuFnu_fromData, data_method_name,
-    select_postshock_rows, NORAR_LAW)
-from IO import get_variable, get_cellfile
+    select_postshock_rows, NORAR_LAW, postshock_start)
+from IO import get_variable, get_cellfile, open_cellcolumns
 from plotting_functions import nF_label, sci_notation
 import cell_pool
 
@@ -1898,6 +1898,7 @@ def rarefaction_off_barT(key, z=Z_SHELL):
 
 
 _TON_COLS = ('t', 'x', 'vx')    # variables.var2func['Ton'][1]: what deriving Ton reads
+_CAP_COLS = _TON_COLS + ('Sd',)  # cap_end_barT also needs Sd, to find the post-shock start
 
 
 def _npz_tail(path, cols):
@@ -2048,14 +2049,18 @@ def cap_end_barT(key, z=Z_SHELL, cap=R_CAP):
   for k in check_extracted_cells(key):
     if not (kmin <= k < kmax):
       continue
-    d = open_celldata(key, k)
-    if d is False or not len(d):
+    # columns, not a DataFrame: this loop walks the WHOLE shell and uses four of the
+    # fourteen, and at hi-res building the frame is 3.6 s a cell against 0.017 -- ten
+    # hours against three minutes (IO.open_cellcolumns). Ton is derived straight from
+    # its inputs because get_variable's dispatch reaches for df.attrs and df.__len__.
+    cols = open_cellcolumns(key, k, _CAP_COLS)
+    if cols is None or not len(cols['t']):
       continue
-    s = select_postshock_rows(d)
-    if len(s) < 2:
+    s0 = postshock_start(cols['Sd'], cols['vx'])
+    if len(cols['t']) - s0 < 2:
       continue
-    x = s.x.to_numpy(dtype=float)
-    Ton = np.asarray(get_variable(s, 'Ton', env0), dtype=float)
+    t, x, vx = (cols[c][s0:] for c in ('t', 'x', 'vx'))
+    Ton = np.asarray(derive_obsOnTime(t, x, vx, env0.t0, env0.z), dtype=float)
     b.append((np.interp(min(cap*x[0], x[-1]), x, Ton) - env0.Ts)/env0.T0)
   b = np.array(b, float)
   b = b[np.isfinite(b)]
