@@ -104,8 +104,12 @@ BART_LO = 1e-2                 # below this the sub-cell reconstruction dominate
                                # population and the fit has little dynamic range
 
 
-def _ensure_outdir():
-  os.makedirs(OUTDIR, exist_ok=True)
+def _ensure_outdir(outdir=None):
+  '''Create the directory a caller is writing to; OUTDIR (the fiducial run's) when
+  none is given. main resolves the run's own folder from its key and passes it down --
+  without the argument every writer landed in the fiducial's folder whatever the key,
+  which is the cross-run overwrite figdir() exists to prevent.'''
+  os.makedirs(outdir or OUTDIR, exist_ok=True)
 
 
 def load_side(z=Z_RS, key=KEY, method=METHOD, trackers=('gs02', 'segments')):
@@ -340,7 +344,7 @@ def plot_population(sides, outdir=OUTDIR, estimator='q10', tag=''):
   with the fitted break (solid) and the chosen estimator (dashed) over it, one panel per
   cooling regime. Where the tracker declares no measurement there is a gap, not a line.
   '''
-  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
+  outdir = OUTDIR if outdir is None else outdir
   _ensure_outdir(outdir)
   n = len(sides)
   ncol = min(4, n)
@@ -435,7 +439,9 @@ def main(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), estimator='q05', outdir=Non
   tracker. No shell spectrum is recomputed: the references come from the caches, the
   population from cell frames only.
   '''
-  _ensure_outdir()
+  # the run's own folder, from the key THIS call was given -- not the module's
+  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
+  _ensure_outdir(outdir)
   check_identity(key=key, z=zlist[0])
   all_sides, cals, ests, gts, eps = [], [], [], [], []
   for z in zlist:

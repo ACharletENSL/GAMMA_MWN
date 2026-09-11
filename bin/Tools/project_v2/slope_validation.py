@@ -363,8 +363,12 @@ EPOCHS = ('rise', 'crossing', 'HLE')
 MIN_BINS = 6                   # an epoch summarised from fewer bins than this is not reported
 
 
-def _ensure_outdir():
-  os.makedirs(OUTDIR, exist_ok=True)
+def _ensure_outdir(outdir=None):
+  '''Create the directory a caller is writing to; OUTDIR (the fiducial run's) when
+  none is given. main resolves the run's own folder from its key and passes it down --
+  without the argument every writer landed in the fiducial's folder whatever the key,
+  which is the cross-run overwrite figdir() exists to prevent.'''
+  os.makedirs(outdir or OUTDIR, exist_ok=True)
 
 
 def load_side(z=Z_RS, key=KEY, method=METHOD, dfac=sb.FREE_DFAC):
@@ -964,7 +968,7 @@ def plot_prescription(sides_by_z, summary, outdir=OUTDIR, cases=PRESC_CASES):
   The cases are the split ones actually being recommended, not the unsplit regimes -- including
   the one that fails, since a reader needs to see what "DO NOT USE" looks like.
   '''
-  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
+  outdir = OUTDIR if outdir is None else outdir
   _ensure_outdir(outdir)
   allsides = [s for sides in sides_by_z for s in sides]
   panels = []
@@ -1165,7 +1169,9 @@ def main(key=KEY, method=METHOD, zlist=(Z_RS, Z_FS), outdir=None, dfac=sb.FREE_D
   spectrum is recomputed -- the breaks positioning the windows come from track_breaks_gs02
   on the cache.
   '''
-  _ensure_outdir()
+  # the run's own folder, from the key THIS call was given -- not the module's
+  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
+  _ensure_outdir(outdir)
   sides_by_z, tabs, eps, regs, convs = [], [], [], [], []
   for z in zlist:
     print(f'\n--- shell z={z} ---', flush=True)

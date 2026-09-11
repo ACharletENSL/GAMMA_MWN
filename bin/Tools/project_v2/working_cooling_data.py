@@ -706,11 +706,15 @@ def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=
   estimator: 'inflection' -- the extremum of du/dt, refined parabolically. The centre of
     the transition profile, independent of where the asymptotes sit.
   """
-  t = cell_data.t.to_numpy(dtype=float)
-  x = cell_data.x.to_numpy(dtype=float)
-  vx = cell_data.vx.to_numpy(dtype=float)
+  # a DataFrame (any caller) or the plain-array mapping IO.open_cellcolumns returns. The
+  # array form exists because building the DataFrame costs 213x the read at hi-res and
+  # every column but these five is then discarded -- see open_cellcolumns.
+  if hasattr(cell_data, 'columns'):
+    col = lambda c: cell_data[c].to_numpy(dtype=float)
+  else:
+    col = lambda c: np.asarray(cell_data[c], dtype=float)
+  t, x, vx, dxa, sd = (col(c) for c in ('t', 'x', 'vx', 'dx', 'Sd'))
   u = vx/np.sqrt(np.clip(1. - vx*vx, 1e-300, None))
-  sd = cell_data.Sd.to_numpy()
   nz = np.flatnonzero(sd != 0)
   if not len(nz) or nz[0] == 0:
     return float('nan'), float('nan')
@@ -766,8 +770,7 @@ def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=
   # position from its own worldline. Both halves are per-cell, so no neighbour's radius
   # leaks into the event -- which is what makes the observer time unambiguous (see the
   # docstring). w is taken just ahead of the Sd block, where the cell is still unshocked.
-  w = float(np.median(cell_data.dx.to_numpy(dtype=float)[lo:i0])) if i0 > lo \
-      else float(cell_data.dx.to_numpy(dtype=float)[i0])
+  w = float(np.median(dxa[lo:i0])) if i0 > lo else float(dxa[i0])
   T = cell_crossing_time(u_up, u_dn, w, fastshell=(z == 4))
   if not np.isfinite(T):
     return t_c, x_c
@@ -777,7 +780,7 @@ def measured_injection_event(cell_data, env, z, estimator='midpoint', n_plateau=
   return float(t_e), float(np.interp(t_e, t, x))
 
 
-def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3.):
+def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3., nproc=1):
   '''
   Per-cell shocked-state table for the early-datapoint reconstruction
   (columns [t, i, x, dx, rho, vx, lfac, p, vx_u, trac], code units, t since
@@ -812,7 +815,7 @@ def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3.):
     return cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max,
                                     fastshell=fastshell)
   elif source == 'measured':
-    return measured_shockfront_states(key, z, env)
+    return measured_shockfront_states(key, z, env, nproc=nproc)
   raise ValueError(
       f"early_ana source must be 'shockfit', 'au' or 'measured', got {source!r}")
 
@@ -869,7 +872,82 @@ def _repair_front_order(ev, key, z):
   return out
 
 
-def measured_shockfront_states(key, z, env):
+def _shockfront_cache_path(key, z):
+  return get_dirpath(key) + f'shockfront_measured_z={z}.npz'
+
+
+def _read_shockfront_cache(path, key):
+  """The cached table, or None if it is not the current version."""
+  try:
+    with np.load(path, allow_pickle=False) as d:
+      if int(d['version']) != _SHOCKFRONT_CACHE_VERSION:
+        print(f'shock-front cache {os.path.basename(path)} is version {int(d["version"])}, '
+              f'not {_SHOCKFRONT_CACHE_VERSION}; rebuilding')
+        return None
+      cols = [str(c) for c in d['cols']]
+      out = pd.DataFrame({c: d[c] for c in cols}, columns=cols)
+  except Exception as e:
+    print(f'shock-front cache {os.path.basename(path)} unreadable ({e}); rebuilding')
+    return None
+  out.attrs['key'] = key
+  return out
+
+
+def _write_shockfront_cache(path, out):
+  np.savez(path, version=_SHOCKFRONT_CACHE_VERSION,
+           cols=np.array([str(c) for c in out.columns]),
+           **{c: out[c].to_numpy() for c in out.columns})
+
+
+_EVENT_COLS = ('t', 'x', 'dx', 'vx', 'Sd')
+_SHOCKFRONT_CACHE_VERSION = 1
+
+
+def _event_chunk(ks):
+  '''Injection events of a run of cells; module-level so it is picklable.'''
+  key, z, env = _EVENT_CTX.key, _EVENT_CTX.z, _EVENT_CTX.env
+  out = []
+  for k in ks:
+    cols = open_cellcolumns(key, int(k), _EVENT_COLS)
+    if cols is None or not len(cols['t']):
+      continue
+    t_inj, x_inj = measured_injection_event(cols, env, z)
+    if not (np.isfinite(t_inj) and np.isfinite(x_inj)):
+      continue
+    out.append((int(k), float(t_inj), float(x_inj), float(cols['x'][0])*c_))
+  return out
+
+
+_EVENT_CTX = None
+
+def _event_init(ctx):
+  global _EVENT_CTX
+  _EVENT_CTX = ctx
+
+
+def _measure_events(key, z, env, ks, nproc=1):
+  '''
+  (k, t, x, init_r) for every cell of the shell, in shock order.
+
+  Reads the FIVE columns the estimator needs rather than the whole history: building the
+  DataFrame, not the I/O, is the cost, and at hi-res it is 213x the read (open_cellcolumns).
+  That alone takes a 10000-cell shell from ~10 h to ~3 min; the pool is on top of it.
+  '''
+  ks = [int(k) for k in ks]
+  if nproc is not None and nproc > 1 and len(ks) > 1:
+    import concurrent.futures as cf
+    nchunk = min(len(ks), max(1, int(nproc)*4))
+    bounds = np.array_split(np.asarray(ks), nchunk)
+    ctx = SimpleNamespace(key=key, z=z, env=env)
+    with cf.ProcessPoolExecutor(max_workers=int(nproc), mp_context=cell_pool.pool_context(),
+                                initializer=_event_init, initargs=(ctx,)) as ex:
+      parts = list(ex.map(_event_chunk, [b for b in bounds if len(b)]))
+    return [e for part in parts for e in part]
+  _event_init(SimpleNamespace(key=key, z=z, env=env))
+  return _event_chunk(ks)
+
+
+def measured_shockfront_states(key, z, env, nproc=1, use_cache=True):
   """
   Per-cell shocked-state table with the injection EVENT measured and the injection STATE
   from the fitted hydro -- the two halves the other sources conflate.
@@ -900,6 +978,11 @@ def measured_shockfront_states(key, z, env):
         'analysis_hydro.extract_data_thinshell')
   popt_lfac, popt_ShSt = get_hydrofits_shell_new(data)[:2]
   fastshell = (z == 4)
+  path = _shockfront_cache_path(key, z)
+  if use_cache and os.path.isfile(path):
+    out = _read_shockfront_cache(path, key)
+    if out is not None:
+      return out
   kmin = env.Next + (0 if fastshell else env.Nsh4)
   kmax = kmin + (env.Nsh4 if fastshell else env.Nsh1)
   # cells in the order the shock reaches them: outward from the contact discontinuity,
@@ -908,15 +991,7 @@ def measured_shockfront_states(key, z, env):
   ks = list(range(int(kmin), int(kmax)))
   if fastshell:
     ks = ks[::-1]
-  ev = []
-  for k in ks:
-    cd = open_celldata(key, k)
-    if cd is False or not len(cd):
-      continue
-    t_inj, x_inj = measured_injection_event(cd, env, z)
-    if not (np.isfinite(t_inj) and np.isfinite(x_inj)):
-      continue
-    ev.append((k, t_inj, x_inj, float(cd.x.iloc[0])*c_))
+  ev = _measure_events(key, z, env, ks, nproc)
   if not ev:
     raise RuntimeError(f'no measurable injection event in shell z={z} of {key}')
   ev = _repair_front_order(ev, key, z)
@@ -933,6 +1008,8 @@ def measured_shockfront_states(key, z, env):
                      trac=(1. if fastshell else 2.)))
   out = pd.DataFrame(rows)
   out.attrs['key'] = key
+  if use_cache:
+    _write_shockfront_cache(path, out)
   return out
 
 def _prepend_shocked_row(shocked, sh_row, env, early_frac):
@@ -1610,7 +1687,7 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
   paired = len(variants) == 2
 
   # shock-front state table for the early-datapoint reconstruction, once per shell
-  sh_data = load_shockfront_states(key, z, env, source=early_ana) \
+  sh_data = load_shockfront_states(key, z, env, source=early_ana, nproc=(ncell_proc or 1)) \
             if early_ana is not None else None
 
   # first pass: injection rows + usability + cost weights (klist = onset order), so the
