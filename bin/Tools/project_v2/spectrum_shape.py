@@ -445,7 +445,11 @@ def pair_rows(rows):
 # tables
 # ---------------------------------------------------------------------------------------
 SHAPE_CSV = 'spectrum_shape_table.csv'
-RATIO_CSV = 'spectrum_shape_fluence_vs_peak.csv'
+RATIO_CSV = 'spectrum_shape_ratios.csv'
+# NOT 'spectrum_shape_fluence_vs_peak.csv': _write_table derives its png from the csv name,
+# and that collided exactly with plot_fluence_vs_peak's figure. build_tables runs first, so
+# the figure silently overwrote the table png on every run until the figures were split per
+# shell and the clash disappeared by accident. Renamed so it cannot come back.
 
 _COLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
          ('log10(C) shell', 'logC_shell', '{:+.2f}'),
@@ -606,25 +610,51 @@ def build_tables(rows, outdir):
 # ---------------------------------------------------------------------------------------
 # figures
 # ---------------------------------------------------------------------------------------
-# Shells as COLOUR (RS red, FS blue -- plotting_functions.COL_RS/COL_FS, the Charlet et al.
-# convention), kinds as LINESTYLE (fluence solid, peak dashed, as the existing
-# fluence_vs_peak_sweep overlay draws them). No titles: the y label carries the quantity.
+# ONE SHELL PER FIGURE. The two shells were overlaid by colour until 2026-09-12, which cost
+# the colour channel: every quantity in a panel then had to be told apart by marker shape
+# alone, and a panel carrying three of them ran out of shapes that read differently at 4 pt
+# (nu_knee_lo and nu_knee_hi were a down- and an up-triangle, which is the pair that made
+# this necessary). Split, colour is free and carries the QUANTITY, so each series is
+# legible on its own; the shell is named INSIDE the panel, as the article convention wants
+# a parameter carried.
+#
+# The kind stays the linestyle: peak dashed with an open marker, time-integrated solid and
+# filled, as the fluence_vs_peak overlay already drew them.
+#
+# Quantity colours are lightcurve_shape's NU_COLORS family (purple/orange/green, plus brown
+# for a fourth) rather than anything near the shell pair -- COL_RS/COL_FS mean RS and FS
+# throughout this project, and a red curve inside a figure labelled FS would read as the
+# other shell however the legend is worded. COL_RS/COL_FS are still used, for the one thing
+# they should be: the shell tag itself.
 _STY = {'peak': dict(ls='--', marker='o', ms=4, mfc='none'),
         'fluence': dict(ls='-', marker='o', ms=4)}
 _CLABEL = '$\\log_{10}\\mathcal{C}$'
+_QCOL = ('tab:purple', 'tab:orange', 'tab:green', 'tab:brown')
+_QMK = ('o', 's', 'D', '^')       # circle / square / diamond / triangle: four shapes that
+                                  # stay distinguishable filled or open at this size
 
 
 def _held_mid_band(ax, logrs, half=0.35):
-  """
+  '''
   Shade the sweep points whose knee target needed a HELD mid slope. Those are the MC
   points, where no mid plateau exists to measure one on: the turnover there is not a free
   measurement, and the band says so without spending a colour, a marker or a fill on it.
-  """
+  '''
   # deliberately unlabelled: the callers either build their legend from explicit handles
   # or explain the band in the figure caption, and an axvspan label picked up by a bare
   # ax.legend() lands a full-width swatch in the middle of a crowded panel
   for lr in sorted(set(logrs)):
     ax.axvspan(lr - half, lr + half, color='0.85', alpha=0.55, lw=0, zorder=0)
+
+
+def _shell_tag(ax, z):
+  '''The shell, inside the panel -- these figures carry no titles.'''
+  # upper LEFT with a white box behind it: upper right is where the steeply rising
+  # break and separation curves end up, and a bare tag there is drawn over by them
+  ax.annotate(_shell_name(z), (0.025, 0.97), xycoords='axes fraction', fontsize=9,
+              fontweight='bold', ha='left', va='top', zorder=7,
+              color=COL_RS if z == Z_RS else COL_FS,
+              bbox=dict(fc='w', ec='none', alpha=0.8, pad=1.5))
 
 
 def _series(rows, z, kind, key):
@@ -634,28 +664,44 @@ def _series(rows, z, kind, key):
           np.array([m[key] for m in s], float))
 
 
-def _kind_legend(ax, shells, **kw):
-  h = [plt.Line2D([], [], color='k', **_STY[k]) for k in KINDS]
-  lab = ['peak', 'time-integrated']
-  for z in shells:
-    h.append(plt.Line2D([], [], color=COL_RS if z == Z_RS else COL_FS, lw=2))
-    lab.append(_shell_name(z))
+def _kind_legend(ax, **kw):
+  h = [plt.Line2D([], [], color='0.35', **_STY[k]) for k in KINDS]
+  ax.legend(h, ['peak', 'time-integrated'], fontsize=7, **kw)
+
+
+def _qstyle(kind, i):
+  '''Series style: colour and marker from the quantity, fill and dash from the kind.'''
+  st = dict(_STY[kind])
+  st.update(color=_QCOL[i % len(_QCOL)], marker=_QMK[i % len(_QMK)])
+  if kind == 'peak':
+    st['mfc'] = 'none'
+  return st
+
+
+def _qlegend(ax, labels, kinds=True, **kw):
+  '''Quantity legend (colour + marker), with the two kinds appended unless told not to.'''
+  h = [plt.Line2D([], [], color=_QCOL[i % len(_QCOL)], marker=_QMK[i % len(_QMK)],
+                  ms=4.5, ls='-') for i in range(len(labels))]
+  lab = list(labels)
+  if kinds:
+    h += [plt.Line2D([], [], color='0.35', **_STY[k]) for k in KINDS]
+    lab += ['peak', 'time-integrated']
   ax.legend(h, lab, fontsize=7, **kw)
 
 
-def plot_shape_vs_regime(rows, outdir, shells=(Z_RS, Z_FS)):
-  """
-  The three answers against the cooling regime: the free slopes, the break positions and
-  the half-maximum width, peak against time-integrated.
+def plot_shape_vs_regime(rows, outdir, z):
+  '''
+  The three answers against the cooling regime, for ONE shell: the free slopes, where the
+  spectrum turns over, and the half-maximum width.
 
   The low-slope points that did NOT converge inside the band are drawn hollow and
   unjoined. They are bounds, not measurements (see lo_conv), and joining them to the
   converged ones draws a slope change that is a band limit.
-  """
+  '''
   fig, axes = plt.subplots(1, 3, figsize=(13.8, 4.2))
   p = float(np.median([m['psyn'] for m in rows]))
 
-  # --- free slopes
+  # --- free slopes, one colour per segment
   ax = axes[0]
   for a, lab in ((4./3., '$4/3$'), (0.5, '$1/2$'), ((3.-p)/2., '$(3-p)/2$'),
                  (1. - p/2., '$1-p/2$')):
@@ -665,119 +711,107 @@ def plot_shape_vs_regime(rows, outdir, shells=(Z_RS, Z_FS)):
     ax.annotate(lab, (0.995, a), xycoords=('axes fraction', 'data'), fontsize=6.5,
                 color='0.45', va='bottom', ha='right', zorder=6,
                 bbox=dict(fc='w', ec='none', alpha=0.75, pad=0.6))
-  for z in shells:
-    c = COL_RS if z == Z_RS else COL_FS
-    for kind in KINDS:
-      st = _STY[kind]
-      for key in ('a_mid', 'a_hi'):
-        lr, v = _series(rows, z, kind, key)
-        ax.plot(lr, v, color=c, **st)
-      lr, v = _series(rows, z, kind, 'a_lo')
-      _, cv = _series(rows, z, kind, 'lo_conv')
-      cv = cv.astype(bool)
-      ax.plot(np.where(cv, lr, np.nan), np.where(cv, v, np.nan), color=c, **st)
-      ax.plot(lr[~cv], v[~cv], color=c, ls='none', marker=st['marker'], ms=st['ms'],
-              mfc='none', alpha=0.55)
+  for kind in KINDS:
+    for i, key in enumerate(('a_lo', 'a_mid', 'a_hi')):
+      st = _qstyle(kind, i)
+      lr, v = _series(rows, z, kind, key)
+      if key == 'a_lo':          # hollow and unjoined where the asymptote is not in band
+        cv = _series(rows, z, kind, 'lo_conv')[1].astype(bool)
+        ax.plot(np.where(cv, lr, np.nan), np.where(cv, v, np.nan), **st)
+        ax.plot(lr[~cv], v[~cv], color=st['color'], ls='none', marker=st['marker'],
+                ms=st['ms'], mfc='none', alpha=0.55)
+      else:
+        ax.plot(lr, v, **st)
   ax.set_ylabel('free slope  $\\mathrm{d}\\log\\nu F_\\nu/\\mathrm{d}\\log\\nu$')
-  _kind_legend(ax, shells, loc='lower left', framealpha=0.9)
-  ax.annotate('hollow, unjoined: asymptote not reached in band',
-              (0.5, 0.73), xycoords='axes fraction', fontsize=6.5, color='0.35',
-              ha='center', va='center')
+  # the empty band between the mid segments (~0.2-0.63) and the low ones (~1.33) is the
+  # only part of this panel no curve crosses at any regime
+  _qlegend(ax, ['$a_{\\rm lo}$', '$a_{\\rm mid}$', '$a_{\\rm hi}$'], loc='center',
+           bbox_to_anchor=(0.5, 0.63), ncol=2, framealpha=0.9)
 
   # --- the TURNOVERS and the nuFnu maximum. The knees, not the crossings: b_lo/b_hi are
   # where the extrapolated asymptotes meet, which is a point the spectrum never passes
   # through, and at the lower break the route's held 4/3 line displaces it (see the
   # turnover section header). Both crossings stay in the table.
   ax = axes[1]
-  _held_mid_band(ax, [m['logr'] for m in rows if m['knee_from'] == 'route'])
-  bkeys = (('nu_knee_lo', 'v', '$\\nu_{\\rm knee,lo}$'),
-           ('nu_knee_hi', '^', '$\\nu_{\\rm knee,hi}$'),
-           ('x_pk', 's', '$\\nu_{\\rm pk}$'))
-  for z in shells:
-    c = COL_RS if z == Z_RS else COL_FS
-    for kind in KINDS:
-      for key, mk, _ in bkeys:
-        lr, v = _series(rows, z, kind, key)
-        st = dict(_STY[kind]); st.update(marker=mk)
-        if key == 'x_pk':
-          st.update(alpha=0.5, ms=3.5)
-        ax.semilogy(lr, v, color=c, **st)
+  _held_mid_band(ax, [m['logr'] for m in rows
+                      if m['z'] == z and m['knee_from'] == 'route'])
+  bkeys = (('nu_knee_lo', '$\\nu_{\\rm knee,lo}$'),
+           ('nu_knee_hi', '$\\nu_{\\rm knee,hi}$'),
+           ('x_pk', '$\\nu_{\\rm pk}$'))
+  for kind in KINDS:
+    for i, (key, _) in enumerate(bkeys):
+      lr, v = _series(rows, z, kind, key)
+      ax.semilogy(lr, v, **_qstyle(kind, i))
   ax.set_ylabel('$\\nu/\\nu_{\\mathrm{m},0}$')
-  h = [plt.Line2D([], [], color='0.35', marker=mk, ms=4, ls='-') for _, mk, _ in bkeys]
-  lb = [lab for _, _, lab in bkeys]
-  h.append(plt.Rectangle((0, 0), 1, 1, color='0.85'))
-  lb.append('mid slope held')
-  ax.legend(h, lb, fontsize=7, loc='upper left', ncol=2)
+  _qlegend(ax, [lab for _, lab in bkeys], loc='lower right', ncol=2)
 
   # --- the width
   ax = axes[2]
-  for z in shells:
-    c = COL_RS if z == Z_RS else COL_FS
-    for kind in KINDS:
-      lr, v = _series(rows, z, kind, 'logW_half')
-      ax.plot(lr, v, color=c, **_STY[kind])
-      lr, v = _series(rows, z, kind, 'logW_tenth')
-      st = dict(_STY[kind]); st.update(alpha=0.4, ms=3)
-      ax.plot(lr, v, color=c, **st)
+  for kind in KINDS:
+    for i, key in enumerate(('logW_half', 'logW_tenth')):
+      ax.plot(*_series(rows, z, kind, key), **_qstyle(kind, i))
   ax.set_ylabel('$\\log_{10}$ peak width  $\\nu_+/\\nu_-$')
-  ax.annotate('half maximum', (0.03, 0.30), xycoords='axes fraction', fontsize=7,
-              color='0.35')
-  ax.annotate('tenth maximum (faint)', (0.03, 0.90), xycoords='axes fraction',
-              fontsize=7, color='0.55')
+  _qlegend(ax, ['half maximum', 'tenth maximum'], loc='lower right')
+
   for ax in axes:
     ax.set_xlabel(_CLABEL)
     ax.grid(alpha=0.25)
+    _shell_tag(ax, z)
   fig.tight_layout()
-  f = os.path.join(outdir, 'spectrum_shape_vs_regime.png')
+  fig.text(0.5, -0.005, 'hollow, unjoined = asymptote not reached inside the band;   '
+           'grey band = no mid plateau, knee target used a held mid slope',
+           fontsize=7.5, color='0.3', ha='center')
+  f = os.path.join(outdir, 'spectrum_shape_vs_regime_%s.png' % _shell_name(z))
   fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
   return f
 
 
-def plot_fluence_vs_peak(pairs, outdir, shells=(Z_RS, Z_FS)):
-  """
-  The comparison itself: how far each quantity moves from peak to time-integrated.
+def plot_fluence_vs_peak(pairs, outdir, z):
+  '''
+  The comparison itself, for ONE shell: how far each quantity moves from peak to
+  time-integrated.
 
   The two low-energy slope differences are masked on their convergence flags -- an
   unconverged pair differs by up to 0.25, which is the gap between two band limits and
   not a softening. Those points are drawn hollow and unjoined, as in the table.
-  """
+  '''
+  s_ = sorted([m for m in pairs if m['z'] == z], key=lambda m: m['logr'])
+  lr = np.array([m['logr'] for m in s_], float)
+  flip = np.array([m['class_flip'] for m in s_], bool)
+  col = lambda k: np.array([m[k] for m in s_], float)
+
   fig, axes = plt.subplots(1, 3, figsize=(13.8, 4.2))
-  def ser(z, key):
-    s_ = sorted([m for m in pairs if m['z'] == z], key=lambda m: m['logr'])
-    return (np.array([m['logr'] for m in s_], float),
-            np.array([m[key] for m in s_], float),
-            np.array([m['class_flip'] for m in s_], bool))
-  panels = [(('R_W_half', 'W_{1/2}', None), ('R_W_tenth', 'W_{1/10}', None),
-             ('R_Wlo_half', 'W_{\\rm lo}', None), ('R_Whi_half', 'W_{\\rm hi}', None)),
-            (('R_x_pk', '\\nu_{\\rm pk}', None),
-             ('R_nu_knee_lo', '\\nu_{\\rm knee,lo}', None),
-             ('R_nu_knee_hi', '\\nu_{\\rm knee,hi}', None),
-             ('R_nuM', '\\nu_{\\rm M}', None)),
-            (('d_a_lo', 'a_{\\rm lo}', 'lo_conv'), ('d_a_mid', 'a_{\\rm mid}', None),
-             ('d_a_hi', 'a_{\\rm hi}', None), ('d_a_inf', 'a_\\infty', 'inf_conv'))]
-  mk = ('o', 's', '^', 'v')
+  panels = [(('R_W_half', '$W_{1/2}$', None), ('R_W_tenth', '$W_{1/10}$', None),
+             ('R_Wlo_half', '$W_{\\rm lo}$', None), ('R_Whi_half', '$W_{\\rm hi}$', None)),
+            (('R_x_pk', '$\\nu_{\\rm pk}$', None),
+             ('R_nu_knee_lo', '$\\nu_{\\rm knee,lo}$', None),
+             ('R_nu_knee_hi', '$\\nu_{\\rm knee,hi}$', None),
+             ('R_nuM', '$\\nu_{\\rm M}$', None)),
+            (('d_a_lo', '$a_{\\rm lo}$', 'lo_conv'), ('d_a_mid', '$a_{\\rm mid}$', None),
+             ('d_a_hi', '$a_{\\rm hi}$', None), ('d_a_inf', '$a_\\infty$', 'inf_conv'))]
   for ax, keys in zip(axes, panels):
     if any(k.startswith('R_nu_knee') for k, _, _ in keys):
-      _held_mid_band(ax, [m['logr'] for m in pairs if m['knee_held']])
+      _held_mid_band(ax, [m['logr'] for m in s_ if m['knee_held']])
     ax.axhline(1. if keys[0][0].startswith('R_') else 0., color='0.6', lw=0.9, zorder=0)
-    for z in shells:
-      c = COL_RS if z == Z_RS else COL_FS
-      for (k, lab, gate), m_ in zip(keys, mk):
-        lr, v, fl = ser(z, k)
-        lb = f'${lab}$' if z == shells[0] else None
-        if gate is None:
-          ax.plot(lr, v, color=c, ls='-', lw=1.0, marker=m_, ms=4, label=lb)
-        else:
-          cv = ser(z, gate)[1].astype(bool)
-          ax.plot(np.where(cv, lr, np.nan), np.where(cv, v, np.nan), color=c, ls='-',
-                  lw=1.0, marker=m_, ms=4, label=lb)
-          ax.plot(lr[~cv], v[~cv], color=c, ls='none', marker=m_, ms=4, mfc='none',
-                  alpha=0.55)
-        if fl.any():           # a class flip: the segment columns are not like for like
-          ax.plot(lr[fl], v[fl], ls='none', marker='x', ms=9, color='k', zorder=5)
+    for i, (k, lab, gate) in enumerate(keys):
+      v = col(k)
+      c, mk = _QCOL[i], _QMK[i]
+      if gate is None:
+        ax.plot(lr, v, color=c, ls='-', lw=1.1, marker=mk, ms=4.5, label=lab)
+      else:
+        cv = col(gate).astype(bool)
+        ax.plot(np.where(cv, lr, np.nan), np.where(cv, v, np.nan), color=c, ls='-',
+                lw=1.1, marker=mk, ms=4.5, label=lab)
+        ax.plot(lr[~cv], v[~cv], color=c, ls='none', marker=mk, ms=4.5, mfc='none',
+                alpha=0.55)
+      if flip.any():         # a class flip: the segment columns are not like for like
+        ax.plot(lr[flip], v[flip], ls='none', marker='x', ms=9, color='k', zorder=5)
     ax.set_xlabel(_CLABEL)
     ax.grid(alpha=0.25)
-    ax.legend(fontsize=7, ncol=2, loc='best')
+    # 'best' does not know about annotations, and _shell_tag lives in the top-left
+    # corner; the bbox keeps the legend out of the strip the tag occupies
+    ax.legend(fontsize=7, ncol=2, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
+    _shell_tag(ax, z)
   axes[0].set_ylabel('width, time-integrated / peak')
   axes[1].set_ylabel('frequency, time-integrated / peak')
   axes[1].set_yscale('log')
@@ -786,14 +820,14 @@ def plot_fluence_vs_peak(pairs, outdir, shells=(Z_RS, Z_FS)):
   fig.text(0.5, -0.005, '$\\times$ = shape class differs;   hollow, unjoined = asymptote '
            'not reached inside the band;   grey band = no mid plateau, knee target used a '
            'held mid slope', fontsize=7.5, color='0.3', ha='center')
-  f = os.path.join(outdir, 'spectrum_shape_fluence_vs_peak.png')
+  f = os.path.join(outdir, 'spectrum_shape_fluence_vs_peak_%s.png' % _shell_name(z))
   fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
   return f
 
 
-def plot_knee_ratios(rows, outdir, shells=(Z_RS, Z_FS)):
-  """
-  The two questions the turnover columns are really there to answer, side by side.
+def plot_knee_ratios(rows, outdir, z):
+  '''
+  The two questions the turnover columns are really there to answer, for ONE shell.
 
   LEFT: each knee of the peak spectrum over the same knee of the time-integrated one, so
   >1 means the pulse-integrated turnover has moved DOWN in frequency. The two breaks are
@@ -807,59 +841,50 @@ def plot_knee_ratios(rows, outdir, shells=(Z_RS, Z_FS)):
   Both panels start at the lowest regime that HAS a lower knee: VFC and FC* assert no
   nu^(4/3) segment in band, so there is no lower turnover to ratio or to separate from.
 
-  THE x AXIS IS THE REVERSE SHOCK'S C for both shells, as everywhere else in this suite.
-  The right panel is a ratio of two frequencies on one axis, so the RS normalisation of
-  the FS grid cancels out of it exactly -- but the FS shell's OWN ratio is ~0.5 dex above
-  the label (C = 312 at log10(C) = +2), so most of the factor ~15 by which the FS
-  separation exceeds the RS one at a given x is the two shells being at different cooling
-  ratios, not a difference between the shells at equal C. `logC_shell` in the table is the
-  number to reach for before reading that gap as physical.
-  """
+  THE x AXIS IS THE REVERSE SHOCK'S C, on the FS figure too, as everywhere else in this
+  suite. The right panel is a ratio of two frequencies on one axis, so the RS
+  normalisation of the FS grid cancels out of it exactly -- but the FS shell's OWN ratio
+  is ~0.5 dex above the label (C = 312 at log10(C) = +2), so the FS separation cannot be
+  read against the RS one at equal x. `logC_shell` in the table is the number to reach for
+  first; placed at their own C the two shells' separations differ by ~1.6, not ~15.
+  '''
   by = {}
   for m in rows:
-    by.setdefault((m['z'], m['kind']), []).append(m)
-  for v in by.values():
-    v.sort(key=lambda m: m['logr'])
+    if m['z'] == z:
+      by.setdefault(m['kind'], {})[m['logr']] = m
+  held = [m['logr'] for m in rows if m['z'] == z and m['knee_from'] == 'route']
 
-  fig, axes = plt.subplots(1, 2, figsize=(9.6, 4.2))
-  held = [m['logr'] for m in rows if m['knee_from'] == 'route']
-
+  fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.2))
   ax = axes[0]
   _held_mid_band(ax, held)
   ax.axhline(1., color='0.6', lw=0.9, zorder=0)
-  for z in shells:
-    c = COL_RS if z == Z_RS else COL_FS
-    pk = {m['logr']: m for m in by.get((z, 'peak'), [])}
-    fl = {m['logr']: m for m in by.get((z, 'fluence'), [])}
-    lr = np.array(sorted(set(pk) & set(fl)), float)
-    for key, mk, lab in (('nu_knee_lo', 'v', '$\\nu_{\\rm knee,lo}$'),
-                         ('nu_knee_hi', '^', '$\\nu_{\\rm knee,hi}$')):
-      v = np.array([pk[x][key]/fl[x][key]
-                    if np.isfinite(pk[x][key]) and np.isfinite(fl[x][key])
-                    and fl[x][key] > 0. else np.nan for x in lr], float)
-      ax.plot(lr, v, color=c, ls='-', lw=1.1, marker=mk, ms=4.5,
-              label=lab if z == shells[0] else None)
+  pk, fl = by.get('peak', {}), by.get('fluence', {})
+  lr = np.array(sorted(set(pk) & set(fl)), float)
+  for i, (key, lab) in enumerate((('nu_knee_lo', '$\\nu_{\\rm knee,lo}$'),
+                                  ('nu_knee_hi', '$\\nu_{\\rm knee,hi}$'))):
+    v = np.array([pk[x][key]/fl[x][key]
+                  if np.isfinite(pk[x][key]) and np.isfinite(fl[x][key])
+                  and fl[x][key] > 0. else np.nan for x in lr], float)
+    ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.2, marker=_QMK[i], ms=5.5, label=lab)
   ax.set_ylabel('knee, peak / time-integrated')
-  ax.legend(fontsize=8, loc='best')
+  ax.legend(fontsize=8, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
 
   ax = axes[1]
   _held_mid_band(ax, held)
-  for z in shells:
-    c = COL_RS if z == Z_RS else COL_FS
-    for kind in KINDS:
-      v = by.get((z, kind), [])
-      ax.semilogy([m['logr'] for m in v], [m['knee_sep'] for m in v], color=c,
-                  **_STY[kind])
+  for kind in KINDS:
+    st = dict(_STY[kind]); st.update(color=_QCOL[2], marker=_QMK[2], ms=5)
+    ax.semilogy(*_series(rows, z, kind, 'knee_sep'), **st)
   ax.set_ylabel('$\\nu_{\\rm knee,hi}/\\nu_{\\rm knee,lo}$')
-  _kind_legend(ax, shells, loc='best')
+  _kind_legend(ax, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
 
   for ax in axes:
     ax.set_xlabel(_CLABEL)
     ax.grid(alpha=0.25)
+    _shell_tag(ax, z)
   fig.tight_layout()
   fig.text(0.5, -0.01, 'grey band = no mid plateau, knee target used a held mid slope',
            fontsize=7.5, color='0.3', ha='center')
-  f = os.path.join(outdir, 'spectrum_shape_knee_ratios.png')
+  f = os.path.join(outdir, 'spectrum_shape_knee_ratios_%s.png' % _shell_name(z))
   fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
   return f
 
@@ -883,9 +908,10 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, shells=(Z_RS, Z_FS), nproc=None
     rows += measure_sweep(results, z)
   outdir = method_outdir(method, key, shells[0])
   _, _, pairs = build_tables(rows, outdir)
-  plot_shape_vs_regime(rows, outdir, shells=shells)
-  plot_fluence_vs_peak(pairs, outdir, shells=shells)
-  plot_knee_ratios(rows, outdir, shells=shells)
+  for z in shells:                     # one figure per shell -- see the figures header
+    plot_shape_vs_regime(rows, outdir, z)
+    plot_fluence_vs_peak(pairs, outdir, z)
+    plot_knee_ratios(rows, outdir, z)
   trim_pngs(outdir)
   print(f'\nfigures -> {outdir}/spectrum_shape_*.png')
   return rows, pairs
