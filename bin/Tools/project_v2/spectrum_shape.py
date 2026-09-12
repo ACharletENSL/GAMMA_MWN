@@ -387,8 +387,8 @@ def measure_sweep(results, z, **kw):
 # position and a width are scales, and their ratio is what "shifted down by x" means.
 _DIFF_KEYS = ('a_lo', 'a_mid', 'a_hi', 'a_inf', 'asym_half', 'asym_tenth',
               'logW_half', 'logW_tenth')
-_RATIO_KEYS = ('x_pk', 'b_lo', 'b_hi', 'sep', 'nuM', 'W_half', 'W_tenth',
-               'Wlo_half', 'Whi_half', 'F_pk')
+_RATIO_KEYS = ('x_pk', 'b_lo', 'b_hi', 'nu_knee_lo', 'nu_knee_hi', 'sep', 'nuM',
+               'W_half', 'W_tenth', 'Wlo_half', 'Whi_half', 'F_pk')
 
 
 def pair_rows(rows):
@@ -414,7 +414,10 @@ def pair_rows(rows):
                # the gap between two bounds and reads as a large spurious softening --
                # -0.25 at log10(C) = -3, where neither kind reaches the asymptote in band.
                lo_conv=bool(pk['lo_conv'] and fl['lo_conv']),
-               inf_conv=bool(pk['inf_conv'] and fl['inf_conv']))
+               inf_conv=bool(pk['inf_conv'] and fl['inf_conv']),
+               # the knee target needed a held mid slope on BOTH sides or on neither;
+               # the figures grey the points where it did
+               knee_held=bool(pk['knee_from'] == 'route' or fl['knee_from'] == 'route'))
     for k in _DIFF_KEYS:
       row['d_' + k] = fl[k] - pk[k]
     for k in _RATIO_KEYS:
@@ -468,6 +471,9 @@ _RCOLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
           ('d asym', 'd_asym_half', '{:+.3f}'),
           ('x_pk flu/pk', 'R_x_pk', '{:.3f}'),
           ('b_lo flu/pk', 'R_b_lo', '{:.3f}'), ('b_hi flu/pk', 'R_b_hi', '{:.3f}'),
+          ('knee_lo flu/pk', 'R_nu_knee_lo', '{:.3f}'),
+          ('knee_hi flu/pk', 'R_nu_knee_hi', '{:.3f}'),
+          ('knee_held', 'knee_held', '{:d}'),
           ('sep flu/pk', 'R_sep', '{:.3f}'), ('nu_M flu/pk', 'R_nuM', '{:.3f}'),
           ('d a_lo', 'd_a_lo', '{:+.3f}'), ('lo_conv', 'lo_conv', '{:d}'),
           ('d a_mid', 'd_a_mid', '{:+.3f}'),
@@ -587,6 +593,19 @@ _STY = {'peak': dict(ls='--', marker='o', ms=4, mfc='none'),
 _CLABEL = '$\\log_{10}\\mathcal{C}$'
 
 
+def _held_mid_band(ax, logrs, half=0.35):
+  """
+  Shade the sweep points whose knee target needed a HELD mid slope. Those are the MC
+  points, where no mid plateau exists to measure one on: the turnover there is not a free
+  measurement, and the band says so without spending a colour, a marker or a fill on it.
+  """
+  # deliberately unlabelled: the callers either build their legend from explicit handles
+  # or explain the band in the figure caption, and an axvspan label picked up by a bare
+  # ax.legend() lands a full-width swatch in the middle of a crowded panel
+  for lr in sorted(set(logrs)):
+    ax.axvspan(lr - half, lr + half, color='0.85', alpha=0.55, lw=0, zorder=0)
+
+
 def _series(rows, z, kind, key):
   s = sorted([m for m in rows if m['z'] == z and m['kind'] == kind],
              key=lambda m: m['logr'])
@@ -644,9 +663,14 @@ def plot_shape_vs_regime(rows, outdir, shells=(Z_RS, Z_FS)):
               (0.5, 0.73), xycoords='axes fraction', fontsize=6.5, color='0.35',
               ha='center', va='center')
 
-  # --- breaks and the nuFnu maximum
+  # --- the TURNOVERS and the nuFnu maximum. The knees, not the crossings: b_lo/b_hi are
+  # where the extrapolated asymptotes meet, which is a point the spectrum never passes
+  # through, and at the lower break the route's held 4/3 line displaces it (see the
+  # turnover section header). Both crossings stay in the table.
   ax = axes[1]
-  bkeys = (('b_lo', 'v', '$b_{\\rm lo}$'), ('b_hi', '^', '$b_{\\rm hi}$'),
+  _held_mid_band(ax, [m['logr'] for m in rows if m['knee_from'] == 'route'])
+  bkeys = (('nu_knee_lo', 'v', '$\\nu_{\\rm knee,lo}$'),
+           ('nu_knee_hi', '^', '$\\nu_{\\rm knee,hi}$'),
            ('x_pk', 's', '$\\nu_{\\rm pk}$'))
   for z in shells:
     c = COL_RS if z == Z_RS else COL_FS
@@ -658,9 +682,11 @@ def plot_shape_vs_regime(rows, outdir, shells=(Z_RS, Z_FS)):
           st.update(alpha=0.5, ms=3.5)
         ax.semilogy(lr, v, color=c, **st)
   ax.set_ylabel('$\\nu/\\nu_{\\mathrm{m},0}$')
-  ax.legend([plt.Line2D([], [], color='0.35', marker=mk, ms=4, ls='-')
-             for _, mk, _ in bkeys], [lab for _, _, lab in bkeys],
-            fontsize=7, loc='upper left', ncol=3)
+  h = [plt.Line2D([], [], color='0.35', marker=mk, ms=4, ls='-') for _, mk, _ in bkeys]
+  lb = [lab for _, _, lab in bkeys]
+  h.append(plt.Rectangle((0, 0), 1, 1, color='0.85'))
+  lb.append('mid slope held')
+  ax.legend(h, lb, fontsize=7, loc='upper left', ncol=2)
 
   # --- the width
   ax = axes[2]
@@ -702,12 +728,16 @@ def plot_fluence_vs_peak(pairs, outdir, shells=(Z_RS, Z_FS)):
             np.array([m['class_flip'] for m in s_], bool))
   panels = [(('R_W_half', 'W_{1/2}', None), ('R_W_tenth', 'W_{1/10}', None),
              ('R_Wlo_half', 'W_{\\rm lo}', None), ('R_Whi_half', 'W_{\\rm hi}', None)),
-            (('R_x_pk', '\\nu_{\\rm pk}', None), ('R_b_lo', 'b_{\\rm lo}', None),
-             ('R_b_hi', 'b_{\\rm hi}', None), ('R_nuM', '\\nu_{\\rm M}', None)),
+            (('R_x_pk', '\\nu_{\\rm pk}', None),
+             ('R_nu_knee_lo', '\\nu_{\\rm knee,lo}', None),
+             ('R_nu_knee_hi', '\\nu_{\\rm knee,hi}', None),
+             ('R_nuM', '\\nu_{\\rm M}', None)),
             (('d_a_lo', 'a_{\\rm lo}', 'lo_conv'), ('d_a_mid', 'a_{\\rm mid}', None),
              ('d_a_hi', 'a_{\\rm hi}', None), ('d_a_inf', 'a_\\infty', 'inf_conv'))]
   mk = ('o', 's', '^', 'v')
   for ax, keys in zip(axes, panels):
+    if any(k.startswith('R_nu_knee') for k, _, _ in keys):
+      _held_mid_band(ax, [m['logr'] for m in pairs if m['knee_held']])
     ax.axhline(1. if keys[0][0].startswith('R_') else 0., color='0.6', lw=0.9, zorder=0)
     for z in shells:
       c = COL_RS if z == Z_RS else COL_FS
@@ -732,8 +762,9 @@ def plot_fluence_vs_peak(pairs, outdir, shells=(Z_RS, Z_FS)):
   axes[1].set_yscale('log')
   axes[2].set_ylabel('slope, time-integrated $-$ peak')
   fig.tight_layout()
-  fig.text(0.5, -0.005, '$\\times$ = shape class differs;   hollow, unjoined = '
-           'asymptote not reached inside the band', fontsize=7.5, color='0.3', ha='center')
+  fig.text(0.5, -0.005, '$\\times$ = shape class differs;   hollow, unjoined = asymptote '
+           'not reached inside the band;   grey band = no mid plateau, knee target used a '
+           'held mid slope', fontsize=7.5, color='0.3', ha='center')
   f = os.path.join(outdir, 'spectrum_shape_fluence_vs_peak.png')
   fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
   return f
