@@ -634,17 +634,33 @@ _QMK = ('o', 's', 'D', '^')       # circle / square / diamond / triangle: four s
                                   # stay distinguishable filled or open at this size
 
 
-def _held_mid_band(ax, logrs, half=0.35):
+def _held_mid_band(ax, logrs, half=0.35, gap=1.5):
   '''
   Shade the sweep points whose knee target needed a HELD mid slope. Those are the MC
   points, where no mid plateau exists to measure one on: the turnover there is not a free
   measurement, and the band says so without spending a colour, a marker or a fill on it.
+
+  ADJACENT POINTS GET ONE SPAN, not one each. The MC points are consecutive on the sweep
+  (log10(C) = -1 and 0, a single marginal-cooling stretch), and drawing them as two bands
+  with a sliver of white between reads as two separate exclusions rather than the one
+  regime it is. Runs are cut where the gap exceeds `gap`, so a genuinely isolated point
+  still gets its own band.
   '''
   # deliberately unlabelled: the callers either build their legend from explicit handles
   # or explain the band in the figure caption, and an axvspan label picked up by a bare
   # ax.legend() lands a full-width swatch in the middle of a crowded panel
-  for lr in sorted(set(logrs)):
-    ax.axvspan(lr - half, lr + half, color='0.85', alpha=0.55, lw=0, zorder=0)
+  v = sorted(set(logrs))
+  if not v:
+    return
+  runs, lo, prev = [], v[0], v[0]
+  for x in v[1:]:
+    if x - prev <= gap:
+      prev = x
+    else:
+      runs.append((lo, prev)); lo = prev = x
+  runs.append((lo, prev))
+  for lo, hi in runs:
+    ax.axvspan(lo - half, hi + half, color='0.85', alpha=0.55, lw=0, zorder=0)
 
 
 def _shell_tag(ax, z):
@@ -816,6 +832,30 @@ def plot_fluence_vs_peak(pairs, outdir, z):
   axes[1].set_ylabel('frequency, time-integrated / peak')
   axes[1].set_yscale('log')
   axes[2].set_ylabel('slope, time-integrated $-$ peak')
+  # SCALE THE SLOPE PANEL ON THE MEASUREMENTS ALONE. The gated points are differences
+  # between two band limits, not slope differences -- they reach -0.25 while everything
+  # measured sits inside +-0.04, so letting them set the axis flattens the real structure
+  # into a line on zero. They are still drawn, hollow, and the count of any that fall off
+  # scale is stated rather than left for the reader to notice.
+  keep = []
+  for k, _, gate in panels[2]:
+    v = col(k)
+    m = np.isfinite(v)
+    if gate is not None:
+      m &= col(gate).astype(bool)
+    keep.append(v[m])
+  keep = np.concatenate(keep) if keep else np.array([])
+  if keep.size:
+    lo, hi = float(keep.min()), float(keep.max())
+    pad = max(0.15*(hi - lo), 0.005)
+    lo, hi = min(lo - pad, -pad), max(hi + pad, pad)
+    axes[2].set_ylim(lo, hi)
+    off = sum(int(np.sum(np.isfinite(col(k)) & ((col(k) < lo) | (col(k) > hi))))
+              for k, _, _ in panels[2])
+    if off:
+      axes[2].annotate(f'{off} point{"s" if off > 1 else ""} off scale (not measurements)',
+                       (0.5, 0.02), xycoords='axes fraction', fontsize=6.5, color='0.45',
+                       ha='center')
   fig.tight_layout()
   fig.text(0.5, -0.005, '$\\times$ = shape class differs;   hollow, unjoined = asymptote '
            'not reached inside the band;   grey band = no mid plateau, knee target used a '
