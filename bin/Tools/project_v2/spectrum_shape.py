@@ -351,6 +351,10 @@ def measure_spectrum(x, sp, psyn, **kw):
   m.update(segments_and_breaks(x, sp, psyn, **kw))
   m['bhi_over_xpk'] = (m['b_hi']/m['x_pk']
                        if np.isfinite(m['b_hi']) and m['x_pk'] > 0. else np.nan)
+  # the separation the TURNOVERS give, as against `sep` = b_hi/b_lo from the crossings
+  m['knee_sep'] = (m['nu_knee_hi']/m['nu_knee_lo']
+                   if np.isfinite(m['nu_knee_hi']) and np.isfinite(m['nu_knee_lo'])
+                   and m['nu_knee_lo'] > 0. else np.nan)
   return m
 
 
@@ -364,8 +368,17 @@ def measure_point(r, z, **kw):
     if sp[kind] is None:
       continue
     m = measure_spectrum(x, sp[kind], env.psyn, **kw)
+    # C is the SWEEP LABEL's ratio, which is the reverse shock's whatever z is -- the
+    # observer grids are RS-normalised for both shells and every figure in this suite is
+    # drawn against it. C_shell is the emitting shell's OWN gamma_c/gamma_m, and the two
+    # are NOT the same number on the forward shock: at the label log10(C) = +2 the FS sits
+    # at C = 312, i.e. +2.49. Read a cross-shell comparison with that in hand.
+    C_shell = float(env.gma_c/env.gma_m)
+    if z != Z_RS and hasattr(env, 'gma_cFS') and hasattr(env, 'gma_mFS'):
+      C_shell = float(env.gma_cFS/env.gma_mFS)
     m.update(kind=kind, z=z, logr=float(r['log10ratio']), psyn=float(env.psyn),
-             C=float(env.gma_c/env.gma_m), nuM_env=float((env.gma_max/env.gma_m)**2))
+             C=float(env.gma_c/env.gma_m), C_shell=C_shell,
+             nuM_env=float((env.gma_max/env.gma_m)**2))
     rows.append(m)
   return rows
 
@@ -387,7 +400,8 @@ def measure_sweep(results, z, **kw):
 # position and a width are scales, and their ratio is what "shifted down by x" means.
 _DIFF_KEYS = ('a_lo', 'a_mid', 'a_hi', 'a_inf', 'asym_half', 'asym_tenth',
               'logW_half', 'logW_tenth')
-_RATIO_KEYS = ('x_pk', 'b_lo', 'b_hi', 'nu_knee_lo', 'nu_knee_hi', 'sep', 'nuM',
+_RATIO_KEYS = ('x_pk', 'b_lo', 'b_hi', 'nu_knee_lo', 'nu_knee_hi', 'sep', 'knee_sep',
+               'nuM',
                'W_half', 'W_tenth', 'Wlo_half', 'Whi_half', 'F_pk')
 
 
@@ -434,6 +448,7 @@ SHAPE_CSV = 'spectrum_shape_table.csv'
 RATIO_CSV = 'spectrum_shape_fluence_vs_peak.csv'
 
 _COLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
+         ('log10(C) shell', 'logC_shell', '{:+.2f}'),
          ('kind', 'kind', '{:s}'), ('class', 'cls', '{:s}'),
          ('x_pk', 'x_pk', '{:.4g}'), ('top_dex', 'top_dex', '{:.2f}'),
          ('nu_1/2 lo', 'nu_lo_half', '{:.4g}'), ('nu_1/2 hi', 'nu_hi_half', '{:.4g}'),
@@ -443,6 +458,7 @@ _COLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
          ('W_1/10', 'W_tenth', '{:.4g}'), ('log W_1/10', 'logW_tenth', '{:.3f}'),
          ('b_lo', 'b_lo', '{:.4g}'), ('b_hi', 'b_hi', '{:.4g}'),
          ('b_hi/b_lo', 'sep', '{:.4g}'), ('b_hi/x_pk', 'bhi_over_xpk', '{:.3f}'),
+         ('knee_hi/knee_lo', 'knee_sep', '{:.4g}'),
          ('knee_lo', 'nu_knee_lo', '{:.4g}'), ('knee_hi', 'nu_knee_hi', '{:.4g}'),
          ('knee/b lo', 'knee_off_lo', '{:.3f}'), ('knee/b hi', 'knee_off_hi', '{:.3f}'),
          ('knee/bf lo', 'kneef_off_lo', '{:.3f}'),
@@ -483,6 +499,10 @@ _RCOLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
 _NOTE = (
   'Frequencies are nu/nu_{m,0} (the collision nu_m of MyEnv, nu_over_num), so a column can '
   'be read across the sweep.\n'
+  'log10(C) is the SWEEP LABEL, which is the reverse shock ratio for both shells (the '
+  'observer grids are RS-normalised, and every figure here is drawn against it). '
+  '"log10(C) shell" is the emitting shell own gamma_c/gamma_m: on the FS it runs ~0.5 dex '
+  'above the label, so the two shells at one x are NOT at the same cooling ratio.\n'
   'WIDTH (no fit, no class): x_pk is the nuFnu maximum, W_1/2 = nu_hi/nu_lo the ratio of '
   'the frequencies at half of it, W_lo = x_pk/nu_lo and W_hi = nu_hi/x_pk its two halves, '
   'asym = log(W_hi)/log(W_lo) (1 = symmetric in the log). top_dex is the span within 1% of '
@@ -570,6 +590,7 @@ def build_tables(rows, outdir):
   '''The measurement table and the fluence-against-peak table.'''
   for m in rows:
     m['shell'] = _shell_name(m['z'])
+    m['logC_shell'] = np.log10(m['C_shell']) if m.get('C_shell', 0.) > 0. else np.nan
   srt = sorted(rows, key=lambda m: (-m['z'], m['logr'], KINDS.index(m['kind'])))
   p1 = _write_table(srt, _COLS, os.path.join(outdir, SHAPE_CSV), _NOTE, outdir,
                     'Peak and time-integrated spectra')
@@ -770,6 +791,79 @@ def plot_fluence_vs_peak(pairs, outdir, shells=(Z_RS, Z_FS)):
   return f
 
 
+def plot_knee_ratios(rows, outdir, shells=(Z_RS, Z_FS)):
+  """
+  The two questions the turnover columns are really there to answer, side by side.
+
+  LEFT: each knee of the peak spectrum over the same knee of the time-integrated one, so
+  >1 means the pulse-integrated turnover has moved DOWN in frequency. The two breaks are
+  plotted separately because they do not move together -- that is the point of the panel.
+
+  RIGHT: knee_hi/knee_lo, the separation the turnovers themselves give, one curve per
+  kind. It is the counterpart of the table's `sep` (= b_hi/b_lo) built from where the
+  spectrum actually breaks rather than from where its asymptotes would meet, and unlike
+  `sep` it does not inherit the held 4/3 line's displacement of b_lo.
+
+  Both panels start at the lowest regime that HAS a lower knee: VFC and FC* assert no
+  nu^(4/3) segment in band, so there is no lower turnover to ratio or to separate from.
+
+  THE x AXIS IS THE REVERSE SHOCK'S C for both shells, as everywhere else in this suite.
+  The right panel is a ratio of two frequencies on one axis, so the RS normalisation of
+  the FS grid cancels out of it exactly -- but the FS shell's OWN ratio is ~0.5 dex above
+  the label (C = 312 at log10(C) = +2), so most of the factor ~15 by which the FS
+  separation exceeds the RS one at a given x is the two shells being at different cooling
+  ratios, not a difference between the shells at equal C. `logC_shell` in the table is the
+  number to reach for before reading that gap as physical.
+  """
+  by = {}
+  for m in rows:
+    by.setdefault((m['z'], m['kind']), []).append(m)
+  for v in by.values():
+    v.sort(key=lambda m: m['logr'])
+
+  fig, axes = plt.subplots(1, 2, figsize=(9.6, 4.2))
+  held = [m['logr'] for m in rows if m['knee_from'] == 'route']
+
+  ax = axes[0]
+  _held_mid_band(ax, held)
+  ax.axhline(1., color='0.6', lw=0.9, zorder=0)
+  for z in shells:
+    c = COL_RS if z == Z_RS else COL_FS
+    pk = {m['logr']: m for m in by.get((z, 'peak'), [])}
+    fl = {m['logr']: m for m in by.get((z, 'fluence'), [])}
+    lr = np.array(sorted(set(pk) & set(fl)), float)
+    for key, mk, lab in (('nu_knee_lo', 'v', '$\\nu_{\\rm knee,lo}$'),
+                         ('nu_knee_hi', '^', '$\\nu_{\\rm knee,hi}$')):
+      v = np.array([pk[x][key]/fl[x][key]
+                    if np.isfinite(pk[x][key]) and np.isfinite(fl[x][key])
+                    and fl[x][key] > 0. else np.nan for x in lr], float)
+      ax.plot(lr, v, color=c, ls='-', lw=1.1, marker=mk, ms=4.5,
+              label=lab if z == shells[0] else None)
+  ax.set_ylabel('knee, peak / time-integrated')
+  ax.legend(fontsize=8, loc='best')
+
+  ax = axes[1]
+  _held_mid_band(ax, held)
+  for z in shells:
+    c = COL_RS if z == Z_RS else COL_FS
+    for kind in KINDS:
+      v = by.get((z, kind), [])
+      ax.semilogy([m['logr'] for m in v], [m['knee_sep'] for m in v], color=c,
+                  **_STY[kind])
+  ax.set_ylabel('$\\nu_{\\rm knee,hi}/\\nu_{\\rm knee,lo}$')
+  _kind_legend(ax, shells, loc='best')
+
+  for ax in axes:
+    ax.set_xlabel(_CLABEL)
+    ax.grid(alpha=0.25)
+  fig.tight_layout()
+  fig.text(0.5, -0.01, 'grey band = no mid plateau, knee target used a held mid slope',
+           fontsize=7.5, color='0.3', ha='center')
+  f = os.path.join(outdir, 'spectrum_shape_knee_ratios.png')
+  fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
+  return f
+
+
 # ---------------------------------------------------------------------------------------
 def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, shells=(Z_RS, Z_FS), nproc=None):
   '''
@@ -791,6 +885,7 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, shells=(Z_RS, Z_FS), nproc=None
   _, _, pairs = build_tables(rows, outdir)
   plot_shape_vs_regime(rows, outdir, shells=shells)
   plot_fluence_vs_peak(pairs, outdir, shells=shells)
+  plot_knee_ratios(rows, outdir, shells=shells)
   trim_pngs(outdir)
   print(f'\nfigures -> {outdir}/spectrum_shape_*.png')
   return rows, pairs
