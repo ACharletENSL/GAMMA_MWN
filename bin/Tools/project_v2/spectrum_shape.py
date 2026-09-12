@@ -198,7 +198,12 @@ def segments_and_breaks(x, sp, psyn, **kw):
              a_lo=np.nan, a_mid=np.nan, a_hi=np.nan,
              dex_lo=np.nan, dex_mid=np.nan, dex_hi=np.nan,
              da_lo=np.nan, da_hi=np.nan, p_hi=np.nan, lo_conv=False,
-             a_inf=np.nan, inf_conv=False, inf_band=False)
+             a_inf=np.nan, inf_conv=False, inf_band=False,
+             b_lo_free=np.nan, b_hi_free=np.nan, s1_def=np.nan, s2_def=np.nan,
+             sag_lo=np.nan, sag_hi=np.nan, s_clean=False, s_stable=False,
+             nu_knee_lo=np.nan, nu_knee_hi=np.nan,
+             knee_off_lo=np.nan, knee_off_hi=np.nan,
+             kneef_off_lo=np.nan, kneef_off_hi=np.nan, knee_from=None)
   b = sb.breaks_from_identified(x, sp, psyn, **kw)
   out.update(cls=b['regime'], shape=b['shape'], mid_from=b['mid_from'],
              n_breaks=int(b['n_breaks']), br_ok=bool(b['ok']),
@@ -212,9 +217,34 @@ def segments_and_breaks(x, sp, psyn, **kw):
   if b['n_breaks'] and np.isfinite(b['b_hi']) and np.isfinite(b_lo):
     f = sb.free_slopes(x, sp, psyn, b_lo, b['b_hi'], b['nuM'], vfc=vfc)
     for k in ('a_lo', 'a_mid', 'a_hi', 'dex_lo', 'dex_mid', 'dex_hi',
-              'da_lo', 'da_hi', 'p_hi'):
+              'da_lo', 'da_hi', 'p_hi', 'b_lo_free', 'b_hi_free'):
       out[k] = f[k]
     out['lo_conv'] = bool(f['lo_converged'])
+    # the sag at those free crossings, which is what free_slopes' s1/s2 are read off
+    out['s1_def'], out['s2_def'] = f['s1'], f['s2']
+    out['s_clean'], out['s_stable'] = bool(f['s_clean']), bool(f['s_stable'])
+    for tag, sv in (('lo', f['s1']), ('hi', f['s2'])):
+      out['sag_' + tag] = float(np.log10(2.)/sv) if np.isfinite(sv) and sv > 0. else np.nan
+
+    # ... and where the spectrum actually turns over. The mid slope is the measured one
+    # where there is a plateau to measure it on; where there is not (MC, whose mid line is
+    # the tangent) the route's held value is used instead and knee_from says so, because a
+    # target built on a held slope is not a free measurement of the turnover.
+    a_mid_k, out['knee_from'] = f['a_mid'], 'free'
+    if not np.isfinite(a_mid_k):
+      a_mid_k, out['knee_from'] = b['a_mid'], 'route'
+    a_lo_k = f['a_lo'] if np.isfinite(f['a_lo']) else b['a_lo']
+    a_hi_k = f['a_hi'] if np.isfinite(f['a_hi']) else b['a_hi']
+    out.update(turnovers(x, sp, b['nuM'], b['sigma'], a_lo_k, a_mid_k, a_hi_k))
+    # AGAINST BOTH CROSSINGS, and the second one is not optional -- see the section header.
+    # b_* is the route's, whose low line is HELD at 4/3; b_*_free is the crossing of the
+    # lines free_slopes actually measured. Where the spectrum's low index is not 4/3 the
+    # held line is tilted and its crossing displaced, and knee/b inherits that displacement.
+    for tag in ('lo', 'hi'):
+      kn = out['nu_knee_' + tag]
+      for pre, bb in (('knee_off_', out['b_' + tag]), ('kneef_off_', out['b_%s_free' % tag])):
+        out[pre + tag] = (float(kn/bb) if np.isfinite(kn) and np.isfinite(bb) and bb > 0.
+                          else np.nan)
 
   # the low index that needs no break: bounded by min(nu_m, nu_c) where the route found it,
   # so the scan cannot lock onto the fast-cooling nu^(1/2) plateau instead of the asymptote
@@ -222,6 +252,96 @@ def segments_and_breaks(x, sp, psyn, **kw):
   fl = sb.fluence_low_slope(x, sp, nu_break=nu_break)
   out.update(a_inf=fl['a_inf'], inf_conv=bool(fl['converged']),
              inf_band=bool(fl['in_band']))
+  return out
+
+
+# ---------------------------------------------------------------------------------------
+# WHERE THE SPECTRUM ACTUALLY TURNS OVER, as against where the asymptotes cross
+# ---------------------------------------------------------------------------------------
+# b_lo and b_hi are CROSSINGS: extrapolate the two neighbouring segments until they meet.
+# The spectrum is nowhere near that point -- it sits log10(2)/s dex below it -- so "the
+# break" has two meanings and this module reports both.
+#
+# The turnover is taken as the HALF-SLOPE POINT: the frequency at which the local index has
+# fallen half way from one segment's slope to the next's. That choice is not arbitrary. For
+# granot_sari_syn, F = F_ext [y^(-s b1) + y^(-s b2)]^(-1/s), the local index at y = 1 is
+#     d ln F/d ln y = [b1 y^(-s b1) + b2 y^(-s b2)] / (y^(-s b1) + y^(-s b2)) = (b1 + b2)/2
+# EXACTLY, for every s. So on a GS02 break the half-slope point and the crossing are the same
+# frequency whatever the smoothing, and knee/b is 1 by construction -- verified numerically
+# to 1e-5 at s1 = 0.4, 0.8, 1.3, 2.0, 4.0. knee/b is therefore not a re-measurement of the
+# break: it is a test of whether the break has the GS02 SHAPE, and it departs from 1 only
+# when the turnover is asymmetric or when the neighbouring break overlaps it (the same
+# synthetic returns knee_hi/nu_m = 1.13 once s1 = 0.4 smears the lower break into the mid
+# segment, which is what SEP_CLEAN is about).
+#
+# READ knee/b AGAINST BOTH CROSSINGS OR NOT AT ALL. The route's b_lo is where the HELD 4/3
+# line meets the mid line; b_lo_free is where the two lines free_slopes measured meet. On a
+# spectrum whose low index is not 4/3 the held line is tilted, and the several decades of
+# lever between window and crossing turn that tilt into a displaced b_lo -- so knee/b_lo
+# picks up the displacement and reads as break asymmetry.
+# That is not hypothetical, it is the whole result here. Against b_lo the time-integrated
+# turnover looks far more displaced than the peak one (RS log10(C) = +3: 1.343 -> 1.537;
+# +2: 1.346 -> 1.503; -2: 0.976 -> 1.317). Against b_lo_free the difference is GONE
+# (1.270 -> 1.233, 1.268 -> 1.268, 0.958 -> 0.939): the two kinds agree to 2-4%, and what
+# looked like a broader fluence break was the fluence spectrum's a_lo ~ 1.30 being held at
+# 4/3. What DOES survive is common to both kinds -- knee/b_lo_free ~ 1.26-1.29 at every
+# slow-cooling point, both shells, i.e. the turnover sits ~27% above even the free crossing.
+# That is a departure from the GS02 break shape in these shell-integrated spectra, not
+# anything to do with time integration.
+#
+# The SAG is the other half of the answer -- how far below the crossing the spectrum passes.
+# free_slopes already measures it, as the deficit its s1/s2 are read off: sag = log10(2)/s
+# dex. READ s_stable AND s_clean BEFORE EITHER. The deficit is taken at the FREE lines'
+# crossing, which moves with the window standoff, so s drifts monotonically along the dfac
+# ladder with no plateau (see _free_smoothing). These are standoff-tagged estimates of the
+# sag depth, not measurements of the smoothing, and must not be quoted against GS02's
+# tabulated s. The segment route's fit_smoothing_held is what measures s properly.
+
+
+def _slope_at_level(lx, sl, target, lo=None, hi=None):
+  """First frequency, scanning up, at which the local index falls to `target`."""
+  m = np.isfinite(sl)
+  if lo is not None:
+    m &= lx >= lo
+  if hi is not None:
+    m &= lx <= hi
+  if m.sum() < 2:
+    return np.nan
+  lxm, slm = lx[m], sl[m]
+  k = np.flatnonzero(slm <= target)
+  if not k.size or k[0] == 0:
+    return np.nan            # never reaches it, or is already below it at the window start
+  i = k[0]
+  d = slm[i] - slm[i-1]
+  f = 0.5 if d == 0. else (target - slm[i-1])/d
+  return float(10.**(lxm[i-1] + f*(lxm[i] - lxm[i-1])))
+
+
+def turnovers(x, sp, nuM, sigma, a_lo, a_mid, a_hi, cutfac=sb.CUT_FAC,
+    smooth=sb.SLOPE_SMOOTH):
+  """
+  The half-slope point of each break, measured on the cut-off-flattened spectrum -- the
+  same curve breaks_from_identified fits its lines to, so the turnover and the crossing
+  refer to one spectrum and not to two versions of it.
+
+  Needs the pair of slopes bounding each break; whichever are passed in are used, so the
+  caller decides whether the mid slope is the measured one or the route's held fallback
+  (and records which in `knee_from`).
+  """
+  out = dict(nu_knee_lo=np.nan, nu_knee_hi=np.nan)
+  g = np.isfinite(sp) & (sp > 0.) & np.isfinite(x) & (x > 0.)
+  if g.sum() < 12 or not np.isfinite(nuM) or nuM <= 0.:
+    return out
+  yv = sb._flatten_cutoff(x[g], sp[g], nuM, sigma)
+  ok = np.isfinite(yv) & (yv > 0.)
+  if ok.sum() < 12:
+    return out
+  lx, ly, sl = sb.segment_slopes(x[g][ok], yv[ok], smooth)
+  cap = np.log10(nuM/cutfac)
+  if np.isfinite(a_lo) and np.isfinite(a_mid):
+    out['nu_knee_lo'] = _slope_at_level(lx, sl, 0.5*(a_lo + a_mid), hi=cap)
+  if np.isfinite(a_mid) and np.isfinite(a_hi):
+    out['nu_knee_hi'] = _slope_at_level(lx, sl, 0.5*(a_mid + a_hi), hi=cap)
   return out
 
 
@@ -320,6 +440,14 @@ _COLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
          ('W_1/10', 'W_tenth', '{:.4g}'), ('log W_1/10', 'logW_tenth', '{:.3f}'),
          ('b_lo', 'b_lo', '{:.4g}'), ('b_hi', 'b_hi', '{:.4g}'),
          ('b_hi/b_lo', 'sep', '{:.4g}'), ('b_hi/x_pk', 'bhi_over_xpk', '{:.3f}'),
+         ('knee_lo', 'nu_knee_lo', '{:.4g}'), ('knee_hi', 'nu_knee_hi', '{:.4g}'),
+         ('knee/b lo', 'knee_off_lo', '{:.3f}'), ('knee/b hi', 'knee_off_hi', '{:.3f}'),
+         ('knee/bf lo', 'kneef_off_lo', '{:.3f}'),
+         ('knee/bf hi', 'kneef_off_hi', '{:.3f}'),
+         ('b_lo free', 'b_lo_free', '{:.4g}'), ('b_hi free', 'b_hi_free', '{:.4g}'),
+         ('knee_from', 'knee_from', '{:s}'),
+         ('sag_lo', 'sag_lo', '{:.3f}'), ('sag_hi', 'sag_hi', '{:.3f}'),
+         ('s_stab', 's_stable', '{:d}'), ('s_clean', 's_clean', '{:d}'),
          ('nu_M', 'nuM', '{:.4g}'), ('sigma', 'sigma', '{:.3f}'),
          ('a_lo', 'a_lo', '{:+.3f}'), ('lo_conv', 'lo_conv', '{:d}'),
          ('a_mid', 'a_mid', '{:+.3f}'), ('a_hi', 'a_hi', '{:+.4f}'),
@@ -358,6 +486,20 @@ _NOTE = (
   'how far apart the two definitions are for that spectrum. nu_M and sigma are the smeared '
   'cut-off. class is what the spectrum displays; a peak/fluence disagreement is flagged in '
   'the ratio table.\n'
+  'TURNOVER, i.e. where the spectrum actually breaks rather than where the asymptotes meet: '
+  'knee_lo/knee_hi are the half-slope points, and sag_* is how far below the crossing the '
+  'spectrum passes, in dex. On a Granot-Sari break the half-slope point IS the crossing for '
+  'any smoothing, so knee/b = 1 is the null and a departure means the turnover is '
+  'asymmetric or overlapped by its neighbour -- it is a shape test, not a second break '
+  'position. knee_from=route: no mid plateau existed, so the target used the route held mid '
+  'slope. sag = log10(2)/s at the FREE lines crossing, which moves with the window '
+  'standoff: read s_stab (and s_clean, the separation gate) before quoting either, and '
+  'never against GS02 tabulated s.\n'
+  'knee/b uses the route crossing, whose low line is HELD at 4/3; knee/bf uses the crossing '
+  'of the lines actually measured (b_lo free / b_hi free). QUOTE knee/bf. Where a spectrum '
+  'does not carry 4/3 the held line is tilted and its crossing displaced, and knee/b '
+  'inherits that: the peak-to-fluence growth visible in knee/b lo is absent from knee/bf lo.'
+  '\n'
   'SLOPES: a_lo/a_mid/a_hi are MEASURED (free_slopes: a free line in a window standing off '
   'FREE_DFAC from each break, no slope value in the selection), dex_* their widths. a_lo is '
   'NaN by construction in the single-break classes VFC/FC*, which assert no nu^(4/3) '
