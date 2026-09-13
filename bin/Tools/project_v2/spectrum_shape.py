@@ -208,6 +208,7 @@ def segments_and_breaks(x, sp, psyn, **kw):
              nu_knee_lo=np.nan, nu_knee_hi=np.nan,
              nu_curv_lo=np.nan, nu_curv_hi=np.nan, dexc_lo=np.nan, dexc_hi=np.nan,
              curv_off_lo=np.nan, curv_off_hi=np.nan,
+             nu_knee_1=np.nan, nu_curv_1=np.nan, dexc_1=np.nan, curv_off_1=np.nan,
              knee_off_lo=np.nan, knee_off_hi=np.nan,
              kneef_off_lo=np.nan, kneef_off_hi=np.nan, knee_from=None)
   b = sb.breaks_from_identified(x, sp, psyn, **kw)
@@ -236,17 +237,35 @@ def segments_and_breaks(x, sp, psyn, **kw):
     for tag, sv in (('lo', f['s1']), ('hi', f['s2'])):
       out['sag_' + tag] = float(np.log10(2.)/sv) if np.isfinite(sv) and sv > 0. else np.nan
 
-    # ... and where the spectrum actually turns over. The mid slope is the measured one
-    # where there is a plateau to measure it on; where there is not (MC, whose mid line is
-    # the tangent) the route's held value is used instead and knee_from says so, because a
-    # target built on a held slope is not a free measurement of the turnover.
-    a_mid_k, out['knee_from'] = f['a_mid'], 'free'
-    if not np.isfinite(a_mid_k):
-      a_mid_k, out['knee_from'] = b['a_mid'], 'route'
+    # ... and where the spectrum actually turns over.
+    #
+    # A MERGED SPECTRUM GETS ONE KNEE, NOT TWO. Where free_slopes finds no mid plateau the
+    # spectrum HAS no mid segment: its index runs 4/3 -> 1-p/2 in a single turn, and that
+    # is what MC means. Two knees could still be produced by borrowing the route's tangent
+    # mid slope, and were until 2026-09-13, but they are not two measurements of anything:
+    # the target levels are built on a held value, and the curvature estimator -- which
+    # needs no level and so cannot be steered by one -- returns the SAME frequency for
+    # both brackets (curv_hi/curv_lo = 0.97 at RS log10(C) = 0, 0.98 at FS +0, against
+    # nominal separations of 18 and 98). A single turn admits a single knee, measured at
+    # the half-slope point between the two OUTER asymptotes, and the pair is left NaN.
     a_lo_k = f['a_lo'] if np.isfinite(f['a_lo']) else b['a_lo']
     a_hi_k = f['a_hi'] if np.isfinite(f['a_hi']) else b['a_hi']
-    out.update(turnovers(x, sp, b['nuM'], b['sigma'], a_lo_k, a_mid_k, a_hi_k))
-    out.update(turnovers_curvature(x, sp, b['nuM'], b['sigma'], a_lo_k, a_mid_k, a_hi_k))
+    a_mid_k = f['a_mid']
+    if np.isfinite(a_mid_k):
+      out['knee_from'] = 'free'
+      out.update(turnovers(x, sp, b['nuM'], b['sigma'], a_lo_k, a_mid_k, a_hi_k))
+      out.update(turnovers_curvature(x, sp, b['nuM'], b['sigma'], a_lo_k, a_mid_k, a_hi_k))
+    else:
+      # one turn: pass the HIGH asymptote where the mid one would go, so the single target
+      # is (a_lo + a_hi)/2 and the single curvature bracket spans the whole transition
+      out['knee_from'] = 'merged'
+      out['nu_knee_1'] = turnovers(x, sp, b['nuM'], b['sigma'],
+                                   a_lo_k, a_hi_k, np.nan)['nu_knee_lo']
+      cv1 = turnovers_curvature(x, sp, b['nuM'], b['sigma'], a_lo_k, a_hi_k, np.nan)
+      out['nu_curv_1'], out['dexc_1'] = cv1['nu_curv_lo'], cv1['dexc_lo']
+      k1, c1 = out['nu_knee_1'], out['nu_curv_1']
+      out['curv_off_1'] = (float(c1/k1) if np.isfinite(c1) and np.isfinite(k1) and k1 > 0.
+                           else np.nan)
     # AGAINST BOTH CROSSINGS, and the second one is not optional -- see the section header.
     # b_* is the route's, whose low line is HELD at 4/3; b_*_free is the crossing of the
     # lines free_slopes actually measured. Where the spectrum's low index is not 4/3 the
@@ -528,8 +547,8 @@ def measure_sweep(results, z, **kw):
 # position and a width are scales, and their ratio is what "shifted down by x" means.
 _DIFF_KEYS = ('a_lo', 'a_mid', 'a_hi', 'a_inf', 'asym_half', 'asym_tenth',
               'logW_half', 'logW_tenth')
-_RATIO_KEYS = ('x_pk', 'b_lo', 'b_hi', 'nu_knee_lo', 'nu_knee_hi', 'sep', 'knee_sep',
-               'nuM',
+_RATIO_KEYS = ('x_pk', 'b_lo', 'b_hi', 'nu_knee_lo', 'nu_knee_hi', 'nu_knee_1',
+               'sep', 'knee_sep', 'nuM',
                'W_half', 'W_tenth', 'Wlo_half', 'Whi_half', 'F_pk')
 
 
@@ -559,7 +578,8 @@ def pair_rows(rows):
                inf_conv=bool(pk['inf_conv'] and fl['inf_conv']),
                # the knee target needed a held mid slope on BOTH sides or on neither;
                # the figures grey the points where it did
-               knee_held=bool(pk['knee_from'] == 'route' or fl['knee_from'] == 'route'))
+               knee_held=bool(pk['knee_from'] == 'merged'
+                              or fl['knee_from'] == 'merged'))
     for k in _DIFF_KEYS:
       row['d_' + k] = fl[k] - pk[k]
     for k in _RATIO_KEYS:
@@ -595,6 +615,8 @@ _COLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
          ('knee/b lo', 'knee_off_lo', '{:.3f}'), ('knee/b hi', 'knee_off_hi', '{:.3f}'),
          ('knee/bf lo', 'kneef_off_lo', '{:.3f}'),
          ('knee/bf hi', 'kneef_off_hi', '{:.3f}'),
+         ('knee_1', 'nu_knee_1', '{:.4g}'), ('curv_1', 'nu_curv_1', '{:.4g}'),
+         ('curv/knee 1', 'curv_off_1', '{:.3f}'),
          ('curv_lo', 'nu_curv_lo', '{:.4g}'), ('curv_hi', 'nu_curv_hi', '{:.4g}'),
          ('curv/knee lo', 'curv_off_lo', '{:.3f}'),
          ('curv/knee hi', 'curv_off_hi', '{:.3f}'),
@@ -881,7 +903,7 @@ def plot_shape_vs_regime(rows, outdir, z):
   # turnover section header). Both crossings stay in the table.
   ax = axes[1]
   _held_mid_band(ax, [m['logr'] for m in rows
-                      if m['z'] == z and m['knee_from'] == 'route'])
+                      if m['z'] == z and m['knee_from'] == 'merged'])
   bkeys = (('nu_knee_lo', '$\\nu_{\\rm knee,lo}$'),
            ('nu_knee_hi', '$\\nu_{\\rm knee,hi}$'),
            ('x_pk', '$\\nu_{\\rm pk}$'))
@@ -1023,7 +1045,7 @@ def plot_knee_ratios(rows, outdir, z):
   for m in rows:
     if m['z'] == z:
       by.setdefault(m['kind'], {})[m['logr']] = m
-  held = [m['logr'] for m in rows if m['z'] == z and m['knee_from'] == 'route']
+  held = [m['logr'] for m in rows if m['z'] == z and m['knee_from'] == 'merged']
 
   fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.2))
   ax = axes[0]
@@ -1111,9 +1133,11 @@ def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
         if np.isfinite(a_) and np.isfinite(c_):
           axS.plot(10.**lx, 10.**(a_*lx + c_ - ly.max()), color='0.55', lw=0.8,
                    ls=(0, (4, 3)), zorder=2)
-      for i, tag in enumerate(('lo', 'hi')):
+      tags = (('1',),) if m['knee_from'] == 'merged' else (('lo', 'hi'),)
+      for tg in tags[0]:
+        i = {'lo': 0, 'hi': 1, '1': 2}[tg]
         for key, lsv in (('nu_knee_', '-'), ('nu_curv_', ':')):
-          v = m[key + tag]
+          v = m[key + tg]
           if np.isfinite(v):
             for ax in (axS, axA):
               ax.axvline(v, color=_QCOL[i], ls=lsv, lw=1.3, alpha=0.85)
@@ -1121,7 +1145,9 @@ def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
       am = m['a_mid'] if np.isfinite(m['a_mid']) else m['a_mid_route']
       al = m['a_lo'] if np.isfinite(m['a_lo']) else m['a_lo_h']
       ah = m['a_hi'] if np.isfinite(m['a_hi']) else m['a_hi_h']
-      for i, t in enumerate((0.5*(al + am), 0.5*(am + ah))):
+      levels = ([(2, 0.5*(al + ah))] if m['knee_from'] == 'merged'
+                else [(0, 0.5*(al + am)), (1, 0.5*(am + ah))])
+      for i, t in levels:
         if np.isfinite(t):
           axA.axhline(t, color=_QCOL[i], lw=0.7, alpha=0.4, zorder=0)
     axS.set_ylim(1e-4, 3.)
@@ -1133,9 +1159,10 @@ def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
     # measurement; the lines only show which feature each one picked.
     if m is not None:
       cell = lambda k: ('--' if not np.isfinite(m[k]) else f'{m[k]:.2f}')
-      axA.annotate(f"curv/half-slope\nlo {cell('curv_off_lo')}   hi {cell('curv_off_hi')}",
-                   (0.03, 0.05), xycoords='axes fraction', fontsize=6.5, color='0.3',
-                   va='bottom', family='monospace')
+      lab = (f"merged  {cell('curv_off_1')}" if m['knee_from'] == 'merged'
+             else f"lo {cell('curv_off_lo')}   hi {cell('curv_off_hi')}")
+      axA.annotate('curv/half-slope\n' + lab, (0.03, 0.05), xycoords='axes fraction',
+                   fontsize=6.5, color='0.3', va='bottom', family='monospace')
     axA.set_xlabel(NU_M_LABEL)
     axA.set_ylim(-0.6, 1.6)
     for ax in (axS, axA):
@@ -1149,14 +1176,15 @@ def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
                        'fluence': 'time-integrated spectrum'}[kind],
                       (0.04, 0.14), xycoords='axes fraction', fontsize=8, color='0.3')
   h = [plt.Line2D([], [], color=_QCOL[0], lw=1.3), plt.Line2D([], [], color=_QCOL[1], lw=1.3),
+       plt.Line2D([], [], color=_QCOL[2], lw=1.3),
        plt.Line2D([], [], color='0.35', ls='-', lw=1.3),
        plt.Line2D([], [], color='0.35', ls=':', lw=1.3),
        plt.Line2D([], [], color='0.55', ls=(0, (4, 3)), lw=0.9)]
   fig.tight_layout()
   # below the axes, not inside one: every panel here is full to the edges, and the corner
   # the legend used covered the regime label of the last column
-  fig.legend(h, ['lower break', 'upper break', 'half-slope point',
-                 'curvature maximum', 'free asymptotes'], fontsize=7.5, ncol=5,
+  fig.legend(h, ['lower break', 'upper break', 'merged break', 'half-slope point',
+                 'curvature maximum', 'free asymptotes'], fontsize=7.5, ncol=6,
              loc='upper center', bbox_to_anchor=(0.5, 0.035), frameon=False)
   f = os.path.join(outdir,
                    'spectrum_shape_knee_estimators_%s_%s.png' % (_shell_name(z), kind))
