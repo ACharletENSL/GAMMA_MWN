@@ -289,6 +289,29 @@ def segments_and_breaks(x, sp, psyn, **kw):
 # That is a departure from the GS02 break shape in these shell-integrated spectra, not
 # anything to do with time integration.
 #
+# IS THE UPPER KNEE THE SPECTRAL PEAK? Only where a_mid = -a_hi, and that is a statement
+# about the regime, not about the estimator. The knee is placed where the local index
+# reaches t = (a_mid + a_hi)/2; the nuFnu maximum is where it reaches 0. So:
+#   slow cooling   a_mid -> (3-p)/2, a_hi -> 1-p/2, hence t -> 0 and the two COINCIDE.
+#                  Measured |t| <= 0.01 at log10(C) = +2, +3 both shells, and knee_hi/x_pk
+#                  = 0.88-1.08 there.
+#   fast cooling   a_mid -> 1/2 against a_hi -> 1-p/2, so t -> +0.13 and the knee sits
+#                  BELOW the peak -- measured knee_hi/x_pk = 0.37-0.67, i.e. 0.2-0.4 dex.
+#   log10(C) = +1  a_mid is still 0.17-0.21, short of the asymptote, so t goes NEGATIVE
+#                  and the knee crosses to ABOVE the peak (1.19-1.52).
+# The estimator itself is exact: run _slope_at_level at target 0 and it returns the nuFnu
+# maximum to 0.0031 dex worst case over all 36 spectra of this sweep, against the parabolic
+# argmax measured independently on the unflattened curve.
+#
+# WHICH MEANS: IN SLOW COOLING, QUOTE x_pk, NOT knee_hi. They are the same feature there,
+# and x_pk needs no fit while knee_hi carries a_mid's error into it -- and carries it
+# amplified, because the lever is 1/(ds/dlog nu) at the knee and the slope profile is
+# flattest around the peak exactly when the breaks are far apart. Perturbing a_mid by
+# +-0.05 moves knee_hi by 0.045-0.067 dex in fast cooling but 0.12-0.18 dex in slow, so a
+# mid slope good to a few 0.01 still leaves the slow-cooling upper knee the softest number
+# in the table. It is worth having as the counterpart of the lower knee and as the input to
+# knee_sep; it is not worth preferring to the maximum it is trying to find.
+#
 # The SAG is the other half of the answer -- how far below the crossing the spectrum passes.
 # free_slopes already measures it, as the deficit its s1/s2 are read off: sag = log10(2)/s
 # dex. READ s_stable AND s_clean BEFORE EITHER. The deficit is taken at the FREE lines'
