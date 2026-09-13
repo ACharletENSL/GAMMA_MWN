@@ -2265,12 +2265,12 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     # say is which frequency the figure is at, and that now sits inside the LEFT panel,
     # top right: its upper right corner is empty on every one of these (the curves rise
     # from the left and peak at x<1), and the log panel's is not.
-    # DROPPED FROM y=0.97 to 0.87: these curves are peak-normalised, so the flux tops out
-    # at exactly 1, and matplotlib's 5% margin puts that line at ~0.95 of the axes height
-    # -- the label was sitting on it. 0.87 clears the line with the text's own height to
-    # spare and is still clear of the curves, which have fallen well below 1 by the time
-    # they reach the right-hand edge.
-    axs[0].text(0.97, 0.87, _nu_0_label(nu_t), transform=axs[0].transAxes,
+    # y=0.92, and the value is fussier than it looks: these curves are peak-normalised so
+    # the flux tops out at exactly 1, and matplotlib's 5% margin puts that line at ~0.95 of
+    # the axes height. 0.97 (the original) had the label sitting ON it; 0.87 cleared it by
+    # more than the text's own height and read as detached. 0.92 with va='top' puts the
+    # label's top just under the line without touching it.
+    axs[0].text(0.97, 0.92, _nu_0_label(nu_t), transform=axs[0].transAxes,
                 ha='right', va='top', fontsize=12)
     fig.savefig(os.path.join(outdir, f'lightcurve_shape{tag}_nu={nu_t:g}.png'), dpi=300)
     plt.close(fig)
