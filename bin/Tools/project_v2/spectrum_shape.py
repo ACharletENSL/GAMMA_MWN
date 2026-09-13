@@ -1022,9 +1022,10 @@ def plot_knee_ratios(rows, outdir, z):
   '''
   The two questions the turnover columns are really there to answer, for ONE shell.
 
-  LEFT: each knee of the peak spectrum over the same knee of the time-integrated one, so
-  >1 means the pulse-integrated turnover has moved DOWN in frequency. The two breaks are
-  plotted separately because they do not move together -- that is the point of the panel.
+  LEFT: each turnover of the peak spectrum over the same turnover of the time-integrated
+  one, so >1 means the pulse-integrated feature has moved DOWN in frequency. The two breaks
+  are plotted separately because they do not move together -- that is the point of the
+  panel -- and the merged knee and nu_pk carry the regimes where the pair does not exist.
 
   RIGHT: knee_hi/knee_lo, the separation the turnovers themselves give, one curve per
   kind. It is the counterpart of the table's `sep` (= b_hi/b_lo) built from where the
@@ -1053,14 +1054,29 @@ def plot_knee_ratios(rows, outdir, z):
   ax.axhline(1., color='0.6', lw=0.9, zorder=0)
   pk, fl = by.get('peak', {}), by.get('fluence', {})
   lr = np.array(sorted(set(pk) & set(fl)), float)
-  for i, (key, lab) in enumerate((('nu_knee_lo', '$\\nu_{\\rm knee,lo}$'),
-                                  ('nu_knee_hi', '$\\nu_{\\rm knee,hi}$'))):
+  # FOUR SERIES, because no single one covers the sweep. The knee PAIR exists only where
+  # the spectrum shows a mid segment; the merged knee only where it does not; and nu_pk
+  # everywhere. Leaving the merged regimes blank would say the turnover cannot be located
+  # there, which is false -- the breaks cannot be SEPARATED there, and the spectrum still
+  # peaks. nu_pk is the fit-free measurement that covers the gap (argmax refined by a
+  # parabola, verified to 0.0031 dex against the estimator run at target slope 0).
+  # It is a SEPARATE series and not a stand-in for nu_knee_hi: the two differ by up to 2x
+  # where both exist (knee_hi/x_pk = 0.55 at log10(C) = -2, 1.52 at +1), because the mid
+  # segment tilts the maximum away from the break. Splicing them would put a step in the
+  # curve that is a change of quantity, not of physics.
+  series = (('nu_knee_lo', 0, '$\\nu_{\\rm knee,lo}$'),
+            ('nu_knee_hi', 1, '$\\nu_{\\rm knee,hi}$'),
+            ('nu_knee_1', 2, '$\\nu_{\\rm knee}$ (merged)'),
+            ('x_pk', 3, '$\\nu_{\\rm pk}$'))
+  for key, i, lab in series:
     v = np.array([pk[x][key]/fl[x][key]
                   if np.isfinite(pk[x][key]) and np.isfinite(fl[x][key])
                   and fl[x][key] > 0. else np.nan for x in lr], float)
+    if not np.isfinite(v).any():
+      continue
     ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.2, marker=_QMK[i], ms=5.5, label=lab)
-  ax.set_ylabel('knee, peak / time-integrated')
-  ax.legend(fontsize=8, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
+  ax.set_ylabel('turnover, peak / time-integrated')
+  ax.legend(fontsize=7.5, loc='best', ncol=2, bbox_to_anchor=(0., 0., 1., 0.92))
 
   ax = axes[1]
   _held_mid_band(ax, held)
