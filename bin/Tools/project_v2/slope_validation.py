@@ -1015,7 +1015,7 @@ def plot_prescription(sides_by_z, summary, outdir=OUTDIR, cases=PRESC_CASES):
                  f"z={s['z']}, log$_{{10}}\\mathcal{{C}}$={s['logr']:+.0f}, "
                  f"$\\bar{{T}}$={s['fs']['barT'][i]:.2f}",
                  fontsize=8, color=('#b00' if wr > PRESC_RMS_MAX else 'k'))
-    ax.set_xlabel('$\\nu/\\nu_{\\mathrm{m},0}$')
+    ax.set_xlabel('$\\nu/\\nu_{\\mathrm{m},\\!0}$')
   for a in axs0[:, 0]:
     a.set_ylabel('$\\nu F_\\nu$ (peak-normalised)')
   axs0.ravel()[0].legend(fontsize=7, framealpha=.9)

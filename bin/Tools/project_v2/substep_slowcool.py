@@ -107,7 +107,7 @@ def main(Ri_target=1.05, logr=3., key=KEY, z=Z, outdir=OUTDIR, Nnu=900,
                      fontsize=8, color='grey', va='center')
   axes[1].axvline(nu_c, color='crimson', ls='--', lw=1.2)
   axes[1].axvline(1., color='grey', ls=':', lw=.9)
-  axes[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'$d\log(\nu F_\nu)/d\log\nu$', ylim=(-1.6, 1.8))
+  axes[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},\!0}$', ylabel=r'$d\log(\nu F_\nu)/d\log\nu$', ylim=(-1.6, 1.8))
   for ax in axes:
     ax.grid(alpha=.25)
   fig.suptitle(f'sub-step decomposition, cell k={k}, '

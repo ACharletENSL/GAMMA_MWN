@@ -396,14 +396,21 @@ R_REF = 1.1                                   # cooling-step ratio (gma_max drop
                                              # at its geometric-mean gamma, so the budget is
                                              # second-order in R_REF (the old left-edge sum
                                              # overshot by ~3.5% at 1.1, ~5% at 1.2)
-NU_M_LABEL = '$\\nu/\\nu_{\\mathrm{m},0}$'
+NU_M_LABEL = '$\\nu/\\nu_{\\mathrm{m},\\!0}$'
 
 
-def _nu_pk_label(nu_t):
-  '''"nu = X nu_pk", with the factor dropped when it is 1 -- a leading "1" in front of
-  a symbol reads as a typo rather than as a multiplier.'''
+def _nu_0_label(nu_t):
+  '''
+  "nu = X nu_0", with the factor dropped when it is 1 -- a leading "1" in front of a
+  symbol reads as a typo rather than as a multiplier.
+
+  nu_0, NOT nu_pk. This is the lightcurve figures' frequency REFERENCE, max(nu_m, nu_c),
+  and calling it nu_pk collided with the PEAK OF THE COMPUTED SPECTRUM, which is a
+  different frequency and is measured separately (spectrum_shape's nu_pk). Peak-flux and
+  peak-time quantities keep their _pk: only the frequency unit is renamed.
+  '''
   fac = '' if nu_t == 1. else f'{nu_t:g}\\,'
-  return f'$\\nu = {fac}\\nu_{{\\rm pk}}$'
+  return f'$\\nu = {fac}\\nu_0$'
 
 
 def compute_alpha_sweep(key, log10ratio_arr):
@@ -2258,7 +2265,12 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     # say is which frequency the figure is at, and that now sits inside the LEFT panel,
     # top right: its upper right corner is empty on every one of these (the curves rise
     # from the left and peak at x<1), and the log panel's is not.
-    axs[0].text(0.97, 0.97, _nu_pk_label(nu_t), transform=axs[0].transAxes,
+    # DROPPED FROM y=0.97 to 0.87: these curves are peak-normalised, so the flux tops out
+    # at exactly 1, and matplotlib's 5% margin puts that line at ~0.95 of the axes height
+    # -- the label was sitting on it. 0.87 clears the line with the text's own height to
+    # spare and is still clear of the curves, which have fallen well below 1 by the time
+    # they reach the right-hand edge.
+    axs[0].text(0.97, 0.87, _nu_0_label(nu_t), transform=axs[0].transAxes,
                 ha='right', va='top', fontsize=12)
     fig.savefig(os.path.join(outdir, f'lightcurve_shape{tag}_nu={nu_t:g}.png'), dpi=300)
     plt.close(fig)

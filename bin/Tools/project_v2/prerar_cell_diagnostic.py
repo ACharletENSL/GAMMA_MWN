@@ -134,7 +134,7 @@ def main(Ri_target=1.05, logr=1., key=KEY, z=Z, outdir=OUTDIR, n_times=4):
       ax.loglog(d['nu'][m], s[m], color=COL[name], lw=1.5,
                 ls='--' if name == 'reconstructed' else '-')
     ax.axvline(1., color='grey', ls=':', lw=.9)
-    ax.set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'$\nu F_\nu$ (this cell)',
+    ax.set(xlabel=r'$\nu/\nu_{\mathrm{m},\!0}$', ylabel=r'$\nu F_\nu$ (this cell)',
            title=rf'$\bar T$ = {Tbar[it]:.2f}')
     ax.grid(alpha=.25)
     smax = max(np.nanmax(d['nuFnu'][it]) for d in out.values())

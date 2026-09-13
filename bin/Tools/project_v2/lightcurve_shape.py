@@ -665,8 +665,8 @@ def _by_nu(rows, nu_t, key):
   return x, y
 
 
-_SCAN_UNITS = {'num': ('nu_num', '$\\nu/\\nu_{\\mathrm{m},0}$', '', '\\nu_\\mathrm{m}'),
-               'pk': ('nub', '$\\nu/\\nu_{\\rm pk}$', '_pk', '\\nu_{\\rm pk}')}
+_SCAN_UNITS = {'num': ('nu_num', '$\\nu/\\nu_{\\mathrm{m},\\!0}$', '', '\\nu_\\mathrm{m}'),
+               'pk': ('nub', '$\\nu/\\nu_0$', '_pk', '\\nu_0')}
 
 
 def _by_logr(scan_rows, logr, key, mask_edge=False, xkey='nu_num'):
@@ -852,7 +852,7 @@ def plot_shape_metrics(rows, outdir, barT_f=None, x_rf=None, unit='pk'):
   ax.set_xlabel('log$_{10}\\mathcal{C}$')
 
   fig.suptitle('Pulse characteristics across the cooling sweep'
-               + ('   (at fixed $\\nu/\\nu_{\\mathrm{m},0}$)' if unit == 'num' else ''))
+               + ('   (at fixed $\\nu/\\nu_{\\mathrm{m},\\!0}$)' if unit == 'num' else ''))
   fig.tight_layout()
   fn = os.path.join(outdir,
                     f'pulse_characteristics_vs_regime{"_num" if unit == "num" else ""}.png')
@@ -870,7 +870,7 @@ def plot_peaktime_reference(rows_pk, rows_num, outdir, x_rf=None):
   change in the pulse.
   '''
   fig, axs = plt.subplots(1, 2, figsize=(11, 4.3), sharey=True)
-  for ax, rows, lab in ((axs[0], rows_pk, '\\nu_{\\rm pk}'), (axs[1], rows_num, '\\nu_\\mathrm{m}')):
+  for ax, rows, lab in ((axs[0], rows_pk, '\\nu_0'), (axs[1], rows_num, '\\nu_\\mathrm{m}')):
     for nu in sorted({m['nu_t'] for m in rows}):
       ax.plot(*_by_nu(rows, nu, 'x_pk'), color=NU_COLORS.get(nu, 'k'), marker='o', ms=4,
               label=f'$\\nu={nu:g}\\,{lab}$')

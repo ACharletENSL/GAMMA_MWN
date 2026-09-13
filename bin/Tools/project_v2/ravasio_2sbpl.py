@@ -1358,7 +1358,7 @@ def plot_example(key=KEY, method=METHOD, z=Z_RS, logr=0., logt=0., config='ancho
   axs[0].set(xscale='log', yscale='log', ylabel=r'$\nu F_\nu$ [arb.]',
              title=(f'{SHELL[z]}  ' + r'$\log_{10}\mathcal{C}=$' + f'{logr:+.0f}, '
                     + r'$\log_{10}(\bar T/\bar T_f)=$' + f'{logt:+.1f}  --  {config}\n{sub}'))
-  axs[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel='model - data [dex]')
+  axs[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},\!0}$', ylabel='model - data [dex]')
   axs[0].legend(fontsize=8); axs[0].grid(alpha=.25); axs[1].grid(alpha=.25)
   fig.tight_layout()
   f = os.path.join(outdir, f'example_{config}_z={z}_logr={logr:+.0f}_logt={logt:+.1f}.png')

@@ -204,7 +204,7 @@ def main(Ri_target=1.05, logrs=(-4., 3.), dmaxes=(None, 0.02, 0.005), key=KEY, z
                    ylabel=r'$d\log(\nu F_\nu)/d\log\nu$', ylim=(-1.2, 1.6))
     axes[0, c].legend(fontsize=8, loc='lower left')
     axes[1, c].axhline(0., color='grey', lw=.8, ls=':')
-    axes[1, c].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel='log10( spectrum / GS02 fit )',
+    axes[1, c].set(xlabel=r'$\nu/\nu_{\mathrm{m},\!0}$', ylabel='log10( spectrum / GS02 fit )',
                    ylim=(-0.25, 0.25))
   fig.suptitle(f'Refining the steps on the emission-relevant hydro (V3p, '
                r"$\nu'_B$)" f'   cell k={k}', fontsize=12)

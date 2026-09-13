@@ -80,7 +80,7 @@ def main(logr=1., key=KEY, z=Z, outdir=OUTDIR):
   for meth, lab, col, ls in METHODS:
     if meth in data:
       axes[0].plot([], [], color='0.35', ls=ls, lw=1.4, label=lab)
-  axes[0].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'$\nu F_\nu$ (reference peak = 1)',
+  axes[0].set(xlabel=r'$\nu/\nu_{\mathrm{m},\!0}$', ylabel=r'$\nu F_\nu$ (reference peak = 1)',
               ylim=(1e-7, 3.), title='spectral evolution (shared epochs)')
 
   # ---- 2. time-integrated (fluence) spectra
@@ -90,7 +90,7 @@ def main(logr=1., key=KEY, z=Z, outdir=OUTDIR):
     flu = TRAPZ(np.nan_to_num(S), barT, axis=0)
     m = flu > 0
     axes[1].loglog(nu[m], flu[m]/np.nanmax(flu), color=col, ls=ls, lw=1.6, label=lab)
-  axes[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},0}$', ylabel=r'fluence $\nu F_\nu$, normalised',
+  axes[1].set(xlabel=r'$\nu/\nu_{\mathrm{m},\!0}$', ylabel=r'fluence $\nu F_\nu$, normalised',
               ylim=(1e-5, 3.), title='time-integrated spectra')
 
   # ---- 3. lightcurves

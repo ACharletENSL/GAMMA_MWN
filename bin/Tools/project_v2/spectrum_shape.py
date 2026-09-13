@@ -948,7 +948,7 @@ def plot_shape_vs_regime(rows, outdir, z):
     for i, (key, _) in enumerate(bkeys):
       lr, v = _series(rows, z, kind, key)
       ax.semilogy(lr, v, **_qstyle(kind, i))
-  ax.set_ylabel('$\\nu/\\nu_{\\mathrm{m},0}$')
+  ax.set_ylabel('$\\nu/\\nu_{\\mathrm{m},\\!0}$')
   _qlegend(ax, [lab for _, lab in bkeys], loc='lower right', ncol=2)
 
   # --- the width

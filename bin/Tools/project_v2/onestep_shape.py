@@ -137,7 +137,7 @@ def main(Ri_target=1.05, logrs=(-4., 3.), steps=(0, 3, 10), key=KEY, z=Z, outdir
       F = np.asarray(get_Fnu_step(nu*env.nu0, float(Ton_j), st, K0, env, NG, True, 1.1),
                      float)*nu
       _panel(axes[3, c], nu, F, col, lab, ((4./3., '4/3'), ((3.-p)/2., '(3-p)/2')),
-             r'$\nu F_\nu$', r'$\nu/\nu_{\mathrm{m},0}$', (-2.2, 1.8), i == 0)
+             r'$\nu F_\nu$', r'$\nu/\nu_{\mathrm{m},\!0}$', (-2.2, 1.8), i == 0)
 
       # rows 2 -> 3 may only RESCALE: report the worst shape departure
       mm = (e > 0) & (L > 0) & np.isfinite(e) & np.isfinite(L)

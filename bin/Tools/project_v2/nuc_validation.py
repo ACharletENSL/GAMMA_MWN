@@ -373,7 +373,7 @@ def plot_population(sides, outdir=OUTDIR, estimator='q10', tag=''):
   for ax in axs[-ncol:]:
     ax.set_xlabel('$\\bar{T}$')
   for i in range(0, len(axs), ncol):
-    axs[i].set_ylabel('$\\nu/\\nu_{\\mathrm{m},0}$')
+    axs[i].set_ylabel('$\\nu/\\nu_{\\mathrm{m},\\!0}$')
   z = sides[0]['z']
   fig.suptitle(f'cell cooling-frequency population vs the fitted break  (z={z})', fontsize=10)
   fig.tight_layout()
