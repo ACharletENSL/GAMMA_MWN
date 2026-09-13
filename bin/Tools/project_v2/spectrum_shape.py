@@ -203,6 +203,7 @@ def segments_and_breaks(x, sp, psyn, **kw):
              da_lo=np.nan, da_hi=np.nan, p_hi=np.nan, lo_conv=False,
              a_inf=np.nan, inf_conv=False, inf_band=False,
              b_lo_free=np.nan, b_hi_free=np.nan, s1_def=np.nan, s2_def=np.nan,
+             c_lo_f=np.nan, c_mid_f=np.nan, c_hi_f=np.nan,
              sag_lo=np.nan, sag_hi=np.nan, s_clean=False, s_stable=False,
              nu_knee_lo=np.nan, nu_knee_hi=np.nan,
              nu_curv_lo=np.nan, nu_curv_hi=np.nan, dexc_lo=np.nan, dexc_hi=np.nan,
@@ -224,6 +225,10 @@ def segments_and_breaks(x, sp, psyn, **kw):
     for k in ('a_lo', 'a_mid', 'a_hi', 'dex_lo', 'dex_mid', 'dex_hi',
               'da_lo', 'da_hi', 'p_hi', 'b_lo_free', 'b_hi_free'):
       out[k] = f[k]
+    # the INTERCEPTS of the same free lines, so a figure can draw the asymptotes a knee is
+    # being judged against instead of leaving the reader to guess where they run
+    for k in ('lo', 'mid', 'hi'):
+      out['c_' + k + '_f'] = f.get('c_' + k, np.nan)
     out['lo_conv'] = bool(f['lo_converged'])
     # the sag at those free crossings, which is what free_slopes' s1/s2 are read off
     out['s1_def'], out['s2_def'] = f['s1'], f['s2']
@@ -1093,8 +1098,19 @@ def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
       sp = sps[kind]
       ok = np.isfinite(sp) & (sp > 0.) & (xall > 0.)
       lx, ly, sl = sb.segment_slopes(xall[ok], sp[ok], sb.SLOPE_SMOOTH)
-      axS.loglog(10.**lx, 10.**(ly - ly.max()), color='0.25', lw=1.2)
-      axA.semilogx(10.**lx, sl, color='0.25', lw=1.2)
+      axS.loglog(10.**lx, 10.**(ly - ly.max()), color='0.25', lw=1.2, zorder=4)
+      axA.semilogx(10.**lx, sl, color='0.25', lw=1.2, zorder=4)
+      # THE ASYMPTOTES THEMSELVES. Without them a reader judges the knee against the
+      # visible bend of the curve, and on a break this broad (s1 ~ 0.8-1.2, the spectrum
+      # sagging 0.25-0.37 dex under its own crossing) there is no bend to judge against:
+      # the transition runs 1.2-1.9 dex and the curve only settles onto the mid segment
+      # 2.6x above the knee. Drawn, the crossing is a place on the figure rather than a
+      # number in a table. Free lines, and only where flattening is negligible.
+      for a_, c_ in ((m['a_lo'], m['c_lo_f']), (m['a_mid'], m['c_mid_f']),
+                     (m['a_hi'], m['c_hi_f'])):
+        if np.isfinite(a_) and np.isfinite(c_):
+          axS.plot(10.**lx, 10.**(a_*lx + c_ - ly.max()), color='0.55', lw=0.8,
+                   ls=(0, (4, 3)), zorder=2)
       for i, tag in enumerate(('lo', 'hi')):
         for key, lsv in (('nu_knee_', '-'), ('nu_curv_', ':')):
           v = m[key + tag]
@@ -1134,12 +1150,13 @@ def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
                       (0.04, 0.14), xycoords='axes fraction', fontsize=8, color='0.3')
   h = [plt.Line2D([], [], color=_QCOL[0], lw=1.3), plt.Line2D([], [], color=_QCOL[1], lw=1.3),
        plt.Line2D([], [], color='0.35', ls='-', lw=1.3),
-       plt.Line2D([], [], color='0.35', ls=':', lw=1.3)]
+       plt.Line2D([], [], color='0.35', ls=':', lw=1.3),
+       plt.Line2D([], [], color='0.55', ls=(0, (4, 3)), lw=0.9)]
   fig.tight_layout()
   # below the axes, not inside one: every panel here is full to the edges, and the corner
   # the legend used covered the regime label of the last column
   fig.legend(h, ['lower break', 'upper break', 'half-slope point',
-                 'curvature maximum'], fontsize=7.5, ncol=4,
+                 'curvature maximum', 'free asymptotes'], fontsize=7.5, ncol=5,
              loc='upper center', bbox_to_anchor=(0.5, 0.035), frameon=False)
   f = os.path.join(outdir,
                    'spectrum_shape_knee_estimators_%s_%s.png' % (_shell_name(z), kind))
