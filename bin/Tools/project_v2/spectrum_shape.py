@@ -859,8 +859,19 @@ def _series(rows, z, kind, key):
           np.array([m[key] for m in s], float))
 
 
-def _kind_legend(ax, **kw):
-  h = [plt.Line2D([], [], color='0.35', **_STY[k]) for k in KINDS]
+def _kind_legend(ax, color='0.35', marker=None, **kw):
+  '''
+  The peak/time-integrated key. `marker` and `color` OVERRIDE the _STY defaults and must be
+  set to whatever the panel actually drew: _STY carries a circle, so a panel that recoloured
+  and re-markered its series got a legend showing circles against squares on the axes.
+  '''
+  h = []
+  for k in KINDS:
+    st = dict(_STY[k])
+    st['color'] = color
+    if marker is not None:
+      st['marker'] = marker
+    h.append(plt.Line2D([], [], **st))
   ax.legend(h, ['peak', 'time-integrated'], fontsize=7, **kw)
 
 
@@ -1096,7 +1107,8 @@ def plot_knee_ratios(rows, outdir, z):
     st = dict(_STY[kind]); st.update(color=_QCOL[1], marker=_QMK[1], ms=5.5)
     ax.semilogy(*_series(rows, z, kind, 'pk_over_bk'), **st)
   ax.set_ylabel('$\\nu_{\\rm pk}/\\nu_{\\rm bk}$')
-  _kind_legend(ax, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
+  _kind_legend(ax, color=_QCOL[1], marker=_QMK[1], loc='best',
+               bbox_to_anchor=(0., 0., 1., 0.92))
 
   for ax in axes:
     ax.set_xlabel(_CLABEL)
