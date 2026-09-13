@@ -1825,6 +1825,46 @@ def fit_break_evolution(r, tr, barT_f, barT_off=None, rise_win=RISE_WIN):
   return out
 
 
+def bolometric_lightcurve(nuFnu, nub):
+  '''
+  L(bar{T}) = int F_nu dnu, the frequency-integrated flux at each observer time.
+
+  Evaluated as int nuFnu dln(nu) -- the same integral, F_nu dnu = (nu F_nu) dln(nu), in
+  the form the stored grid is logarithmic in. It is the inner half of the double integral
+  sweep_shells.shell_shares calls the bolometric fluence, taken per time bin rather than
+  on the time-integrated spectrum.
+
+  BOLOMETRIC OVER THE COMPUTED BAND, which is what the word can mean here: the window runs
+  from LOGNU_MIN, sitting at the gamma=1 synchrotron floor nu_B where there is nothing to
+  miss, to LOGNU_ABOVE_NUM decades past each point's own nu_M, by which the spectrum has
+  rolled over. Complete for practical purposes, but a band integral.
+  '''
+  return np.trapezoid(nuFnu, np.log(nub), axis=1)
+
+
+def bolometric_peak_index(nuFnu, nub):
+  '''
+  THE PEAK TIME OF A SWEEP POINT: the row where the bolometric flux is largest.
+
+  This is what every PEAK SPECTRUM in the suite is now taken at (2026-09-13). It used to
+  be detect_rise_peak_tail's i_peak -- the argmax of the lightcurve at the single
+  frequency nu_0 = max(nu_m, nu_c) -- which is a monochromatic peak whose answer depends
+  on which frequency it is asked at: measured on cooling_g100, moving that reference a
+  decade down shifts the selected time by up to +0.76 in bar{T} and the resulting
+  spectrum's own peak by a factor 0.4. The bolometric peak has no such knob.
+
+  The two are close, so the switch moved little: -0.075 to +0.096 in bar{T} (3-30 grid
+  rows), and the spectrum it picks differs by 0.87-1.10 in its own nuFnu peak.
+
+  detect_rise_peak_tail KEEPS its monochromatic i_peak and is not deprecated. Its rise and
+  tail times are levels on that same single-frequency curve, so its three indices have to
+  come from one curve to mean anything, and three_method_compare reads all three as a
+  phase triplet. What changed is only which row a peak SPECTRUM is drawn at.
+  '''
+  L = bolometric_lightcurve(nuFnu, nub)
+  return int(np.nanargmax(L)) if np.isfinite(L).any() else None
+
+
 def detect_rise_peak_tail(Tb, nub, nuFnu, nu_ref=NU_REF,
     frac_rise=FRAC_RISE, frac_tail=FRAC_TAIL):
   '''
@@ -3024,9 +3064,9 @@ def _draw_spectra_all(ax, results, get_spec, mode, fname, yclip_dec=3.5,
   return True
 
 
-def _peak_getter(results, detections):
-  '''get_spec for the PEAK-time spectrum of a sweep point (detect_rise_peak_tail's row).'''
-  ipeak = {id(r): det[3].get('i_peak') for r, det in zip(results, detections)}
+def _peak_getter(results):
+  '''get_spec for the PEAK-time spectrum of a sweep point (bolometric_peak_index's row).'''
+  ipeak = {id(r): bolometric_peak_index(r['nuFnu'], r['nub']) for r in results}
   return lambda r: r['nuFnu'][ipeak[id(r)], :]
 
 
@@ -3035,7 +3075,7 @@ def _fluence_getter(r):
   return compute_fluence_spectrum(r['Tb'], r['nuFnu'])
 
 
-def plot_spectra_pair(results, detections, mode, outdir=OUTDIR):
+def plot_spectra_pair(results, mode, outdir=OUTDIR):
   '''
   The peak-time and the time-integrated spectra of the whole sweep as the TWO PANELS of
   one figure, sharing a single colour bar. They were two figures until now and were only
@@ -3051,7 +3091,7 @@ def plot_spectra_pair(results, detections, mode, outdir=OUTDIR):
   fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.6))
   ok = False
   for ax, (lab, get_spec, sym) in zip(axs, (
-      ('peak', _peak_getter(results, detections), '\\nu F_\\nu'),
+      ('peak', _peak_getter(results), '\\nu F_\\nu'),
       ('time-integrated', _fluence_getter, '\\nu \\mathcal{F}_\\nu'))):
     if _draw_spectra_all(ax, results, get_spec, mode, f'spectra_norm-{mode}.png',
                          sym=sym):
@@ -3244,7 +3284,7 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   plot_gs02_rms(results, barT_f, barT_off=barT_off, outdir=outdir)
   build_gs02_table(results, detections, outdir=outdir)
   for mode in SPEC_MODES:
-    plot_spectra_pair(results, detections, mode, outdir=outdir)
+    plot_spectra_pair(results, mode, outdir=outdir)
   # build_regime_table(results, detections, outdir=outdir)
   plot_radiative_efficiency(results, outdir=outdir)
 

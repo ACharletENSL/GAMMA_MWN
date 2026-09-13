@@ -54,7 +54,7 @@ from peak_modeling import offset_gcgm_from_au
 from plotting_functions import nF_label, COL_RS, COL_FS, COL_TOT
 from sweep_compare import _regrid_onto
 from sweep_gammacm import (run_sweep, load_sweep, method_outdir, compute_alpha_sweep,
-    exit_onset_barT, rarefaction_off_barT, nu_over_num, detect_rise_peak_tail,
+    exit_onset_barT, rarefaction_off_barT, nu_over_num, bolometric_peak_index,
     compute_fluence_spectrum, _plot_spectra_all, trim_pngs, LOG10RATIO_ARR,
     NU_TARGETS, NU_REF, NU_M_LABEL, SPEC_YSPAN, XLIM_LIN, DEFAULT_METHOD)
 
@@ -355,14 +355,14 @@ def plot_peak_spectra_per_regime(pairs, key=KEY, nu_ref=NU_REF, outdir=OUTDIR):
   '''
   One figure per regime: the INSTANTANEOUS spectra of both shells and their sum, all
   three taken at the same observer time -- the peak of the TOTAL lightcurve at
-  nu = nu_ref*nu_pk,RS (detect_rise_peak_tail on the sum). Taking each shell at its
-  own peak would compare different instants and could not be added; here the three
-  curves are simultaneous, so the sum is literally the sum of the two below it.
+  peak of the TOTAL's BOLOMETRIC lightcurve (bolometric_peak_index on the sum), as every
+  peak spectrum in the suite is. Taking each shell at its own peak would compare
+  different instants and could not be added; here the three curves are simultaneous, so
+  the sum is literally the sum of the two below it.
   '''
   os.makedirs(outdir, exist_ok=True)
   for p in pairs:
-    _, _, _, info = detect_rise_peak_tail(p['Tb'], p['nub'], p['nuFnu_tot'], nu_ref=nu_ref)
-    ipk = info.get('i_peak')
+    ipk = bolometric_peak_index(p['nuFnu_tot'], p['nub'])
     if ipk is None:
       print(f'log10ratio={p["log10ratio"]:+.1f}: no peak found, skipped')
       continue
@@ -389,8 +389,8 @@ def shell_shares(pairs, nu_ref=NU_REF):
     lnnu = np.log(p['nub'])
     F = {tag: np.trapezoid(compute_fluence_spectrum(p['Tb'], nF), lnnu)
          for tag, nF in _curves(p)}
-    _, _, _, info = detect_rise_peak_tail(p['Tb'], p['nub'], p['nuFnu_tot'], nu_ref=nu_ref)
-    ipk = info.get('i_peak', 0)
+    ipk = bolometric_peak_index(p['nuFnu_tot'], p['nub'])
+    ipk = 0 if ipk is None else ipk
     inu = min(np.searchsorted(p['nub'], nu_ref), len(p['nub']) - 1)
     pk = {tag: nF[ipk, inu] for tag, nF in _curves(p)}
     out['logr'].append(p['log10ratio'])

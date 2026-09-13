@@ -30,7 +30,8 @@ import spectral_breaks as sb
 import sweep_gammacm as swp
 from plotting_functions import slope_label, transx
 from sweep_gammacm import (load_sweep, method_outdir, _sweep_colors, _draw_order, nu_over_num,
-    compute_fluence_spectrum, detect_rise_peak_tail, compute_efficiency,
+    compute_fluence_spectrum, detect_rise_peak_tail, bolometric_peak_index,
+    compute_efficiency,
     exit_onset_barT, rarefaction_off_barT, data_end_barT, run_sweep, trim_pngs,
     local_index, _hle_index, _index_panel, _spectra_series, _series_colors,
     LOG10RATIO_ARR, NU_TARGETS, NU_M_LABEL, NU_REF, Z_SHELL, DEFAULT_KEY,
@@ -149,9 +150,13 @@ def _lc_at(r, nu_t):
   return r['nuFnu'][:, inu]
 
 def _peak_spectrum(r):
-  '''Spectrum at this point's own lightcurve peak (per method, not a shared index).'''
-  i_peak = detect_rise_peak_tail(r['Tb'], r['nub'], r['nuFnu'])[3].get('i_peak', 0)
-  return r['nuFnu'][i_peak, :]
+  '''
+  Spectrum at this point's own peak (per method, not a shared index) -- the row where its
+  BOLOMETRIC flux is largest, as every peak spectrum in the suite now is
+  (sweep_gammacm.bolometric_peak_index).
+  '''
+  i_peak = bolometric_peak_index(r['nuFnu'], r['nub'])
+  return r['nuFnu'][i_peak if i_peak is not None else 0, :]
 
 def _norm_label(labels, norm_side):
   """

@@ -102,48 +102,15 @@ EDGE_N = 3                         # a level crossing landing within this many s
                                    # grid edge is the WINDOW, not the spectrum
 
 
-def bolometric_lightcurve(r):
-  """
-  L(bar{T}) = int F_nu dnu, the frequency-integrated flux at each observer time.
-
-  Evaluated as int nuFnu dln(nu), the same integral -- F_nu dnu = (nu F_nu) dln(nu) --
-  in the form the stored grid is logarithmic in. It is the inner half of the double
-  integral sweep_shells.shell_shares calls the bolometric fluence, taken per time bin
-  instead of on the time-integrated spectrum.
-
-  BOLOMETRIC OVER THE COMPUTED BAND, which is what the word can mean here: the window
-  runs from LOGNU_MIN, which sits at the gamma=1 synchrotron floor nu_B where there is no
-  emission to miss, to LOGNU_ABOVE_NUM decades past each point's own nu_M, by which the
-  spectrum has rolled over. Complete for practical purposes, but a band integral.
-  """
-  return np.trapezoid(r['nuFnu'], np.log(r['nub']), axis=1)
-
-
 def _peak_index(r):
   """
   The observer-time row whose spectrum is "the peak spectrum": the argmax of the
-  BOLOMETRIC lightcurve.
-
-  CHANGED 2026-09-13, and it is a change of definition rather than a refinement. It was
-  detect_rise_peak_tail's row -- the argmax of the lightcurve at the single frequency
-  nub = NU_REF = 1, i.e. at nu_0 = max(nu_m, nu_c). That is a monochromatic peak, and
-  which frequency it is asked at moves it: on this sweep, shifting the reference a decade
-  down moves the selected time by up to +0.76 in bar{T} and the resulting spectrum's own
-  peak by a factor 0.4. The bolometric peak has no such knob.
-
-  WHAT IT COST. Little, which is why nothing downstream jumped: the bolometric row sits
-  -0.075 to +0.096 in bar{T} from the old one (3-30 grid rows; later at every regime but
-  log10(C) = 0), and the spectrum it picks differs by 0.87-1.10 in nu_pk, 0.89-0.99 in
-  nu_bk and 0.97-1.06 in the half-maximum width.
-
-  WHAT IT BREAKS, and this is the part to keep in mind: sweep_gammacm's plot_spectra_pair
-  still selects on nu_0, so THIS MODULE'S peak spectrum is no longer the one that figure
-  draws. plot_spectra_and_ratios builds its own getter off this index rather than
-  borrowing swp._peak_getter, so the panels and the numbers here at least agree with each
-  other.
+  BOLOMETRIC lightcurve, sweep_gammacm.bolometric_peak_index. One definition, shared with
+  plot_spectra_pair, sweep_compare and sweep_shells, so every peak spectrum in the suite
+  is taken at the same row -- see that function for what the definition is and what
+  changing to it moved.
   """
-  L = bolometric_lightcurve(r)
-  return int(np.nanargmax(L)) if np.isfinite(L).any() else None
+  return swp.bolometric_peak_index(r['nuFnu'], r['nub'])
 
 
 def spectra_of(r):
@@ -721,9 +688,9 @@ _NOTE = (
   '"log10(C) shell" is the emitting shell own gamma_c/gamma_m: on the FS it runs ~0.5 dex '
   'above the label, so the two shells at one x are NOT at the same cooling ratio.\n'
   'The PEAK spectrum is the observer-time row at which the BOLOMETRIC flux int F_nu dnu '
-  'is maximal (bolometric_lightcurve), not the row where the lightcurve at one reference '
-  'frequency peaks. sweep_gammacm.plot_spectra_pair still uses the latter, so its peak '
-  'panel is a different row from this one.\n'
+  'is maximal (sweep_gammacm.bolometric_peak_index), not the row where the lightcurve at '
+  'one reference frequency peaks. Shared with plot_spectra_pair, sweep_compare and '
+  'sweep_shells, so every peak spectrum in the suite is the same row.\n'
   'REFERENCE FREQUENCIES: nu_pk is the nuFnu maximum and nu_bk the measured low-energy '
   'break (nu_knee_lo alone -- blank below log10(C) = -2, where nu_c falls under nu_B, and '
   'at the merged regimes, where the single turn is the pair run together and is reported '
@@ -1306,10 +1273,7 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   three would put a redundant scale beside an axis already labelled with it.
   '''
   colors, sm = swp._sweep_colors(results)
-  # this module's own peak row (bolometric, see _peak_index), not swp._peak_getter's nu_0
-  # one: borrowing that would draw a different spectrum from the one panel 3 measured.
-  ipk = {id(r): _peak_index(r) for r in results}
-  peak_getter = lambda r: r['nuFnu'][ipk[id(r)], :]
+  peak_getter = swp._peak_getter(results)   # the shared bolometric row
   # THE AXES ARE PLACED BY HAND, and the two gaps set INDIVIDUALLY, because a gridspec
   # spaces every column alike while these two gaps have different jobs: the one between
   # the spectra holds panel 2's tick labels and its y label, the one before the ratio
