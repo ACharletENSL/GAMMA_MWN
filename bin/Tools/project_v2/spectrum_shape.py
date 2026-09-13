@@ -822,6 +822,19 @@ _QMK = ('o', 's', 'D', '^')       # circle / square / diamond / triangle: four s
                                   # stay distinguishable filled or open at this size
 
 
+RATIO_YSPAN = (1., 4.)   # the peak/time-integrated ratio panels always SHOW these two
+                         # ticks, whatever the data does. Autoscaling them cropped y=1 off
+                         # the bottom (nothing gets that close to unity except nu_pk at
+                         # marginal cooling) and gave the two shells different axes, so an
+                         # RS panel and an FS one could not be read against each other.
+
+
+def _ratio_ylim(ax, span=RATIO_YSPAN, pad=0.10):
+  """Widen an axis until it contains `span`, keeping whatever the data already needed."""
+  lo, hi = ax.get_ylim()
+  ax.set_ylim(min(lo, span[0] - pad), max(hi, span[1] + pad*3.))
+
+
 def _held_mid_band(ax, logrs, half=0.35, gap=1.5):
   '''
   Shade the sweep points whose knee target needed a HELD mid slope. Those are the MC
@@ -1098,7 +1111,8 @@ def plot_knee_ratios(rows, outdir, z):
   fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.2))
   ax = axes[0]
   _held_mid_band(ax, held)
-  ax.axhline(1., color='0.6', lw=0.9, zorder=0)
+  # no y=1 rule: _ratio_ylim now guarantees the y=1 TICK is on the axis, which says the
+  # same thing, and spectra_and_ratios' panel dropped the rule for that reason already
   pk, fl = by.get('peak', {}), by.get('fluence', {})
   lr = np.array(sorted(set(pk) & set(fl)), float)
   for i, (key, lab) in enumerate((('nu_pk', '$\\nu_{\\rm pk}$'),
@@ -1108,7 +1122,8 @@ def plot_knee_ratios(rows, outdir, z):
                   and fl[q][key] > 0. else np.nan for q in lr], float)
     ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.3, marker=_QMK[i], ms=6, label=lab)
   ax.set_ylabel('peak / time-integrated')
-  ax.legend(fontsize=8, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
+  _ratio_ylim(ax)
+  ax.legend(fontsize=8, loc='upper left')
 
   ax = axes[1]
   _held_mid_band(ax, held)
@@ -1324,7 +1339,8 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   ax.yaxis.set_label_position('right')
   ax.set_ylabel('peak / time-integrated')
   ax.grid(alpha=0.25)
-  ax.legend(fontsize=8, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
+  _ratio_ylim(ax)
+  ax.legend(fontsize=8, loc='upper left')
 
   # the bar sits INSIDE the gap before the ratio panel, and its label goes ABOVE it:
   # rotated beside it, the label needs a panel gap of its own.
