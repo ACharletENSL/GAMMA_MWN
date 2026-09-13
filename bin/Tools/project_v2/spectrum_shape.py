@@ -502,6 +502,21 @@ def measure_spectrum(x, sp, psyn, **kw):
   m['knee_sep'] = (m['nu_knee_hi']/m['nu_knee_lo']
                    if np.isfinite(m['nu_knee_hi']) and np.isfinite(m['nu_knee_lo'])
                    and m['nu_knee_lo'] > 0. else np.nan)
+  # THE TWO REFERENCE FREQUENCIES THE FIGURES USE.
+  #   nu_bk  the low-energy break, as MEASURED: the half-slope knee. Where the breaks are
+  #          separated that is nu_knee_lo; where they are merged there is one knee and it
+  #          is that one, so the quantity stays defined across the merge instead of
+  #          vanishing at log10(C) = -1, 0. Undefined below -2, where nu_c falls under the
+  #          synchrotron floor nu_B and there is no low-energy break to measure at all.
+  #   nu_pk  the high-energy reference: the nuFnu maximum, NOT nu_knee_hi. The maximum is
+  #          fit-free (parabolic argmax, verified to 0.0031 dex against the estimator run
+  #          at target slope 0) and defined at every regime, while nu_knee_hi is levered by
+  #          a_mid -- 0.12-0.18 dex per 0.05 of it in slow cooling, the softest number in
+  #          the table -- and undefined once the breaks merge.
+  m['nu_bk'] = (m['nu_knee_lo'] if np.isfinite(m['nu_knee_lo']) else m['nu_knee_1'])
+  m['nu_pk'] = m['x_pk']
+  m['pk_over_bk'] = (m['nu_pk']/m['nu_bk']
+                     if np.isfinite(m['nu_bk']) and m['nu_bk'] > 0. else np.nan)
   return m
 
 
@@ -547,8 +562,8 @@ def measure_sweep(results, z, **kw):
 # position and a width are scales, and their ratio is what "shifted down by x" means.
 _DIFF_KEYS = ('a_lo', 'a_mid', 'a_hi', 'a_inf', 'asym_half', 'asym_tenth',
               'logW_half', 'logW_tenth')
-_RATIO_KEYS = ('x_pk', 'b_lo', 'b_hi', 'nu_knee_lo', 'nu_knee_hi', 'nu_knee_1',
-               'sep', 'knee_sep', 'nuM',
+_RATIO_KEYS = ('x_pk', 'nu_bk', 'pk_over_bk', 'b_lo', 'b_hi', 'nu_knee_lo',
+               'nu_knee_hi', 'nu_knee_1', 'sep', 'knee_sep', 'nuM',
                'W_half', 'W_tenth', 'Wlo_half', 'Whi_half', 'F_pk')
 
 
@@ -602,7 +617,9 @@ RATIO_CSV = 'spectrum_shape_ratios.csv'
 _COLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
          ('log10(C) shell', 'logC_shell', '{:+.2f}'),
          ('kind', 'kind', '{:s}'), ('class', 'cls', '{:s}'),
-         ('x_pk', 'x_pk', '{:.4g}'), ('top_dex', 'top_dex', '{:.2f}'),
+         ('nu_pk', 'nu_pk', '{:.4g}'), ('nu_bk', 'nu_bk', '{:.4g}'),
+         ('nu_pk/nu_bk', 'pk_over_bk', '{:.4g}'),
+         ('top_dex', 'top_dex', '{:.2f}'),
          ('nu_1/2 lo', 'nu_lo_half', '{:.4g}'), ('nu_1/2 hi', 'nu_hi_half', '{:.4g}'),
          ('W_1/2', 'W_half', '{:.4g}'), ('log W_1/2', 'logW_half', '{:.3f}'),
          ('W_lo', 'Wlo_half', '{:.3g}'), ('W_hi', 'Whi_half', '{:.3g}'),
@@ -642,7 +659,9 @@ _RCOLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
           ('W_lo flu/pk', 'R_Wlo_half', '{:.3f}'),
           ('W_hi flu/pk', 'R_Whi_half', '{:.3f}'),
           ('d asym', 'd_asym_half', '{:+.3f}'),
-          ('x_pk flu/pk', 'R_x_pk', '{:.3f}'),
+          ('nu_pk flu/pk', 'R_x_pk', '{:.3f}'),
+          ('nu_bk flu/pk', 'R_nu_bk', '{:.3f}'),
+          ('nu_pk/nu_bk flu/pk', 'R_pk_over_bk', '{:.3f}'),
           ('b_lo flu/pk', 'R_b_lo', '{:.3f}'), ('b_hi flu/pk', 'R_b_hi', '{:.3f}'),
           ('knee_lo flu/pk', 'R_nu_knee_lo', '{:.3f}'),
           ('knee_hi flu/pk', 'R_nu_knee_hi', '{:.3f}'),
@@ -660,6 +679,10 @@ _NOTE = (
   'observer grids are RS-normalised, and every figure here is drawn against it). '
   '"log10(C) shell" is the emitting shell own gamma_c/gamma_m: on the FS it runs ~0.5 dex '
   'above the label, so the two shells at one x are NOT at the same cooling ratio.\n'
+  'REFERENCE FREQUENCIES: nu_pk is the nuFnu maximum and nu_bk the measured low-energy '
+  'break (the half-slope knee -- nu_knee_lo where the breaks separate, the merged knee '
+  'where they do not, undefined below log10(C) = -2 where nu_c falls under nu_B). Those '
+  'two, not the knee pair, are what the ratio figure uses.\n'
   'WIDTH (no fit, no class): x_pk is the nuFnu maximum, W_1/2 = nu_hi/nu_lo the ratio of '
   'the frequencies at half of it, W_lo = x_pk/nu_lo and W_hi = nu_hi/x_pk its two halves, '
   'asym = log(W_hi)/log(W_lo) (1 = symmetric in the log). top_dex is the span within 1% of '
@@ -1020,27 +1043,25 @@ def plot_fluence_vs_peak(pairs, outdir, z):
 
 def plot_knee_ratios(rows, outdir, z):
   '''
-  The two questions the turnover columns are really there to answer, for ONE shell.
+  The two reference frequencies of this module, against the cooling regime, for ONE shell.
 
-  LEFT: each turnover of the peak spectrum over the same turnover of the time-integrated
-  one, so >1 means the pulse-integrated feature has moved DOWN in frequency. The two breaks
-  are plotted separately because they do not move together -- that is the point of the
-  panel -- and the merged knee and nu_pk carry the regimes where the pair does not exist.
+    nu_bk   the low-energy break AS MEASURED -- the half-slope knee. nu_knee_lo where the
+            breaks are separated, the merged knee where they are not, so the quantity
+            survives the merge at log10(C) = -1, 0 instead of vanishing there. It does not
+            exist below -2: nu_c falls under the synchrotron floor nu_B (nu_c/nu_B = 0.048
+            at -4, 4.8e-4 at -5), so there is no low-energy break, at any resolution.
+    nu_pk   the high-energy reference -- the nuFnu maximum, and deliberately NOT
+            nu_knee_hi. The maximum needs no fit and is defined at every regime; the upper
+            knee is levered by a_mid (0.12-0.18 dex per 0.05 of it in slow cooling) and is
+            undefined once the breaks merge. Where both exist they differ by up to 2x, so
+            this is a change of quantity, not a relabelling.
 
-  RIGHT: knee_hi/knee_lo, the separation the turnovers themselves give, one curve per
-  kind. It is the counterpart of the table's `sep` (= b_hi/b_lo) built from where the
-  spectrum actually breaks rather than from where its asymptotes would meet, and unlike
-  `sep` it does not inherit the held 4/3 line's displacement of b_lo.
+  LEFT: nu_bk of the peak spectrum over nu_bk of the time-integrated one. >1 means the
+  break has moved DOWN in frequency under integration.
 
-  Both panels start at the lowest regime that HAS a lower knee: VFC and FC* assert no
-  nu^(4/3) segment in band, so there is no lower turnover to ratio or to separate from.
-
-  THE x AXIS IS THE REVERSE SHOCK'S C, on the FS figure too, as everywhere else in this
-  suite. The right panel is a ratio of two frequencies on one axis, so the RS
-  normalisation of the FS grid cancels out of it exactly -- but the FS shell's OWN ratio
-  is ~0.5 dex above the label (C = 312 at log10(C) = +2), so the FS separation cannot be
-  read against the RS one at equal x. `logC_shell` in the table is the number to reach for
-  first; placed at their own C the two shells' separations differ by ~1.6, not ~15.
+  RIGHT: nu_pk/nu_bk, one curve per kind -- the span between the two references, which is
+  the separation of the spectrum's two features measured without ever fitting the upper
+  one.
   '''
   by = {}
   for m in rows:
@@ -1054,40 +1075,20 @@ def plot_knee_ratios(rows, outdir, z):
   ax.axhline(1., color='0.6', lw=0.9, zorder=0)
   pk, fl = by.get('peak', {}), by.get('fluence', {})
   lr = np.array(sorted(set(pk) & set(fl)), float)
-  # FOUR SERIES, because no single one covers the sweep. The knee PAIR exists only where
-  # the spectrum shows a mid segment; the merged knee only where it does not; and nu_pk
-  # everywhere. Leaving the merged regimes blank would say the turnover cannot be located
-  # there, which is false -- the breaks cannot be SEPARATED there, and the spectrum still
-  # peaks. nu_pk is the fit-free measurement that covers the gap (argmax refined by a
-  # parabola, verified to 0.0031 dex against the estimator run at target slope 0).
-  # It is a SEPARATE series and not a stand-in for nu_knee_hi: the two differ by up to 2x
-  # where both exist (knee_hi/x_pk = 0.55 at log10(C) = -2, 1.52 at +1), because the mid
-  # segment tilts the maximum away from the break. Splicing them would put a step in the
-  # curve that is a change of quantity, not of physics.
-  series = (('nu_knee_lo', 0, '$\\nu_{\\rm knee,lo}$'),
-            ('nu_knee_hi', 1, '$\\nu_{\\rm knee,hi}$'),
-            ('nu_knee_1', 2, '$\\nu_{\\rm knee}$ (merged)'),
-            ('x_pk', 3, '$\\nu_{\\rm pk}$'))
-  for key, i, lab in series:
-    v = np.array([pk[x][key]/fl[x][key]
-                  if np.isfinite(pk[x][key]) and np.isfinite(fl[x][key])
-                  and fl[x][key] > 0. else np.nan for x in lr], float)
-    if not np.isfinite(v).any():
-      continue
-    ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.2, marker=_QMK[i], ms=5.5, label=lab)
-  ax.set_ylabel('turnover, peak / time-integrated')
-  ax.legend(fontsize=7.5, loc='best', ncol=2, bbox_to_anchor=(0., 0., 1., 0.92))
+  v = np.array([pk[q]['nu_bk']/fl[q]['nu_bk']
+                if np.isfinite(pk[q]['nu_bk']) and np.isfinite(fl[q]['nu_bk'])
+                and fl[q]['nu_bk'] > 0. else np.nan for q in lr], float)
+  ax.plot(lr, v, color=_QCOL[0], ls='-', lw=1.3, marker=_QMK[0], ms=6)
+  ax.set_ylabel('$\\nu_{\\rm bk}$,  peak / time-integrated')
 
   ax = axes[1]
   _held_mid_band(ax, held)
   for kind in KINDS:
-    st = dict(_STY[kind]); st.update(color=_QCOL[2], marker=_QMK[2], ms=5)
-    ax.semilogy(*_series(rows, z, kind, 'knee_sep'), **st)
-  ax.set_ylabel('$\\nu_{\\rm knee,hi}/\\nu_{\\rm knee,lo}$')
+    st = dict(_STY[kind]); st.update(color=_QCOL[1], marker=_QMK[1], ms=5.5)
+    ax.semilogy(*_series(rows, z, kind, 'pk_over_bk'), **st)
+  ax.set_ylabel('$\\nu_{\\rm pk}/\\nu_{\\rm bk}$')
   _kind_legend(ax, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
 
-  # no shell tag and no band caption here, by request: the shell is in the filename and
-  # the band is documented in this docstring and in the table note
   for ax in axes:
     ax.set_xlabel(_CLABEL)
     ax.grid(alpha=0.25)
