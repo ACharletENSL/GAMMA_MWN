@@ -2882,7 +2882,18 @@ def _fit_paired_syn_bpl(x, sp, psyn, nuM, fit_dec=GS02_FIT_DEC):
   return float(np.sqrt(np.mean(r.fun**2)))
 
 
-SPEC_MODES = ('nu_m', 'max', 'eff')   # normalisations of the all-regimes spectra figures
+SPEC_MODES = ('eff',)   # normalisations of the all-regimes spectra figures that are
+                        # actually DRAWN. 'nu_m' and 'max' were retired 2026-09-13: the
+                        # three differ only in what they divide out, and 'eff' is the one
+                        # that divides out the least -- it keeps the shapes of 'max' and
+                        # restores the energetics both shape normalisations throw away, so
+                        # a slow-cooling regime radiating a few % of the injected electron
+                        # energy is no longer drawn as bright as a fast-cooling one. The
+                        # other two were three copies of one figure with the y axis
+                        # rescaled. _draw_spectra_all and _MODE_TITLE still understand
+                        # them, so a caller that wants one can still ask for it by name;
+                        # nothing in the suite does any more, and sweep_compare will
+                        # reject it since it validates against this tuple.
 _MODE_TITLE = {'nu_m': 'normalised at $\\nu_\\mathrm{m}$',
                'max': 'peak-normalised',
                'eff': 'peak-normalised $\\times\\,\\varepsilon_{\\rm rad}$'}

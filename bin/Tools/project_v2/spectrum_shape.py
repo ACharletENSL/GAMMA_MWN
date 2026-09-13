@@ -1129,7 +1129,10 @@ def plot_knee_ratios(rows, outdir, z):
 # shape into the top tenth of the panel. Six decades shows the peak, both breaks and the
 # cut-off on every regime of this sweep.
 SPEC_YLO = 1e-6        # y floor, as a fraction of the peak
-SPEC_XLO = 1e-7        # left x edge, in nu/nu_m,0 (the grid itself starts at 2e-7)
+SPEC_XLO = 10**-6.5    # left x edge, in nu/nu_m,0. The grid starts at LOGNU_MIN = -6.7 and
+                       # every point shares it, so anything below this is blank margin on
+                       # the left of every curve; -6.5 trims that at the cost of the
+                       # lowest 0.2 dex of the curves themselves.
 
 
 SPEC_REGIMES = (-4., -2., 0., 2.)   # the four the spectra figures have always shown: deep
@@ -1243,7 +1246,7 @@ def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
   return f
 
 
-def plot_spectra_and_ratios(rows, results, outdir, z, mode='max'):
+def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   '''
   The sweep's two spectra families and what this module measures off them, in one
   figure: peak spectra, time-integrated spectra, and how far the two reference
@@ -1269,8 +1272,8 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='max'):
   # EXPLICIT GRIDSPEC, with a column reserved for the colour bar. Letting
   # fig.colorbar(ax=axs[:2]) steal the space instead puts the bar hard against panel 3,
   # whose y label then runs straight through its tick labels.
-  fig = plt.figure(figsize=(16.4, 4.5))
-  gs = fig.add_gridspec(1, 4, width_ratios=[1., 1., 0.045, 1.], wspace=0.52)
+  fig = plt.figure(figsize=(14.2, 4.2))
+  gs = fig.add_gridspec(1, 4, width_ratios=[1., 1., 0.04, 1.], wspace=0.26)
   axs = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
   cax = fig.add_subplot(gs[2])
   ax_r = fig.add_subplot(gs[3])
@@ -1304,12 +1307,21 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='max'):
                   and fl[q][key] > 0. else np.nan for q in lr], float)
     ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.3, marker=_QMK[i], ms=6, label=lab)
   ax.set_xlabel(_CLABEL)
+  # ticks and label on the RIGHT. This is the last panel, so nothing sits beyond it, and
+  # on the left they would have to clear the colour bar -- which is what was forcing a
+  # panel-width gap there. Moved, the three panels sit as close as their own labels allow.
+  ax.yaxis.tick_right()
+  ax.yaxis.set_label_position('right')
   ax.set_ylabel('peak / time-integrated')
   ax.grid(alpha=0.25)
   ax.legend(fontsize=8, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
   _shell_tag(ax, z)
 
-  fig.colorbar(sm, cax=cax, label='log$_{10}\\mathcal{C}$')
+  # the bar's label goes ABOVE it, not rotated beside it: rotated, it needs the same
+  # horizontal room as a panel gap, which is most of what was being spent between the
+  # spectra and the ratio panel
+  cb = fig.colorbar(sm, cax=cax)
+  cb.ax.set_title('log$_{10}\\mathcal{C}$', fontsize=9, pad=6)
   f = os.path.join(outdir, 'spectrum_shape_spectra_ratios_%s.png' % _shell_name(z))
   fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
   return f
