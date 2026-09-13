@@ -80,7 +80,7 @@ import sweep_gammacm as swp
                                    # be the ones plot_spectra_pair already draws
 from sweep_gammacm import (DEFAULT_KEY, DEFAULT_METHOD, Z_SHELL, LOG10RATIO_ARR,
     load_sweep, method_outdir, run_sweep, nu_over_num, compute_fluence_spectrum,
-    detect_rise_peak_tail, write_table_stamp, trim_pngs, NU_M_LABEL)
+    write_table_stamp, trim_pngs, NU_M_LABEL)
 from plotting_functions import COL_RS, COL_FS
 from lightcurve_shape import _level_cross
                                    # the log-log level crossing, shared with the PULSE
@@ -102,14 +102,48 @@ EDGE_N = 3                         # a level crossing landing within this many s
                                    # grid edge is the WINDOW, not the spectrum
 
 
+def bolometric_lightcurve(r):
+  """
+  L(bar{T}) = int F_nu dnu, the frequency-integrated flux at each observer time.
+
+  Evaluated as int nuFnu dln(nu), the same integral -- F_nu dnu = (nu F_nu) dln(nu) --
+  in the form the stored grid is logarithmic in. It is the inner half of the double
+  integral sweep_shells.shell_shares calls the bolometric fluence, taken per time bin
+  instead of on the time-integrated spectrum.
+
+  BOLOMETRIC OVER THE COMPUTED BAND, which is what the word can mean here: the window
+  runs from LOGNU_MIN, which sits at the gamma=1 synchrotron floor nu_B where there is no
+  emission to miss, to LOGNU_ABOVE_NUM decades past each point's own nu_M, by which the
+  spectrum has rolled over. Complete for practical purposes, but a band integral.
+  """
+  return np.trapezoid(r['nuFnu'], np.log(r['nub']), axis=1)
+
+
 def _peak_index(r):
-  '''
-  The observer-time row whose spectrum is "the peak spectrum". Taken from
-  detect_rise_peak_tail exactly as sweep_gammacm._peak_getter takes it, so the spectrum
-  measured here is the one plot_spectra_pair draws -- the lightcurve peak at nub = NU_REF,
-  not the row whose own spectrum peaks highest.
-  '''
-  return detect_rise_peak_tail(r['Tb'], r['nub'], r['nuFnu'])[3].get('i_peak')
+  """
+  The observer-time row whose spectrum is "the peak spectrum": the argmax of the
+  BOLOMETRIC lightcurve.
+
+  CHANGED 2026-09-13, and it is a change of definition rather than a refinement. It was
+  detect_rise_peak_tail's row -- the argmax of the lightcurve at the single frequency
+  nub = NU_REF = 1, i.e. at nu_0 = max(nu_m, nu_c). That is a monochromatic peak, and
+  which frequency it is asked at moves it: on this sweep, shifting the reference a decade
+  down moves the selected time by up to +0.76 in bar{T} and the resulting spectrum's own
+  peak by a factor 0.4. The bolometric peak has no such knob.
+
+  WHAT IT COST. Little, which is why nothing downstream jumped: the bolometric row sits
+  -0.075 to +0.096 in bar{T} from the old one (3-30 grid rows; later at every regime but
+  log10(C) = 0), and the spectrum it picks differs by 0.87-1.10 in nu_pk, 0.89-0.99 in
+  nu_bk and 0.97-1.06 in the half-maximum width.
+
+  WHAT IT BREAKS, and this is the part to keep in mind: sweep_gammacm's plot_spectra_pair
+  still selects on nu_0, so THIS MODULE'S peak spectrum is no longer the one that figure
+  draws. plot_spectra_and_ratios builds its own getter off this index rather than
+  borrowing swp._peak_getter, so the panels and the numbers here at least agree with each
+  other.
+  """
+  L = bolometric_lightcurve(r)
+  return int(np.nanargmax(L)) if np.isfinite(L).any() else None
 
 
 def spectra_of(r):
@@ -686,6 +720,10 @@ _NOTE = (
   'observer grids are RS-normalised, and every figure here is drawn against it). '
   '"log10(C) shell" is the emitting shell own gamma_c/gamma_m: on the FS it runs ~0.5 dex '
   'above the label, so the two shells at one x are NOT at the same cooling ratio.\n'
+  'The PEAK spectrum is the observer-time row at which the BOLOMETRIC flux int F_nu dnu '
+  'is maximal (bolometric_lightcurve), not the row where the lightcurve at one reference '
+  'frequency peaks. sweep_gammacm.plot_spectra_pair still uses the latter, so its peak '
+  'panel is a different row from this one.\n'
   'REFERENCE FREQUENCIES: nu_pk is the nuFnu maximum and nu_bk the measured low-energy '
   'break (nu_knee_lo alone -- blank below log10(C) = -2, where nu_c falls under nu_B, and '
   'at the merged regimes, where the single turn is the pair run together and is reported '
@@ -1268,18 +1306,16 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   three would put a redundant scale beside an axis already labelled with it.
   '''
   colors, sm = swp._sweep_colors(results)
-  dets = [swp.detect_rise_peak_tail(r['Tb'], r['nub'], r['nuFnu']) for r in results]
-  # THREE EQUAL PANELS, and the colour bar PLACED IN one of the gaps rather than given a
-  # column of its own. A column for the bar makes the spacing uniform, and the two gaps
-  # here do not want the same width: the one between the spectra has to hold panel 2's
-  # tick labels and its y label, while the one before the ratio panel holds only the bar,
-  # the ratio panel's own labels having been moved to its right. Uniform spacing therefore
-  # either crushes the y label onto panel 1's spine or leaves a hole around the bar --
-  # both of which it did. Explicit margins, no tight_layout: get_position() below has to
-  # read settled coordinates.
-  # ... and the gaps are set INDIVIDUALLY, which is the whole reason the axes are placed
-  # by hand rather than by a gridspec: gridspec spaces every column alike, and the two
-  # gaps here have different jobs and so different widths.
+  # this module's own peak row (bolometric, see _peak_index), not swp._peak_getter's nu_0
+  # one: borrowing that would draw a different spectrum from the one panel 3 measured.
+  ipk = {id(r): _peak_index(r) for r in results}
+  peak_getter = lambda r: r['nuFnu'][ipk[id(r)], :]
+  # THE AXES ARE PLACED BY HAND, and the two gaps set INDIVIDUALLY, because a gridspec
+  # spaces every column alike while these two gaps have different jobs: the one between
+  # the spectra holds panel 2's tick labels and its y label, the one before the ratio
+  # panel holds the colour bar and nothing else. Uniform spacing crushed the y label onto
+  # panel 1's spine and left a hole around the bar, at the same time. Explicit margins and
+  # no tight_layout, so the coordinates below stay the ones set here.
   fig = plt.figure(figsize=(14.2, 4.2))
   L, R, B, T = 0.050, 0.962, 0.135, 0.950
   GAP_SPEC = 0.062      # between the spectra: panel 2's tick labels and its y label
@@ -1290,7 +1326,7 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   ax_r = fig.add_axes([L + 2.*w + GAP_SPEC + GAP_CBAR, B, w, h])
   ok = False
   for ax, (lab, get_spec, sym) in zip(axs, (
-      ('peak', swp._peak_getter(results, dets), '\\nu F_\\nu'),
+      ('peak', peak_getter, '\\nu F_\\nu'),
       ('time-integrated', swp._fluence_getter, '\\nu \\mathcal{F}_\\nu'))):
     if swp._draw_spectra_all(ax, results, get_spec, mode,
                              f'spectrum_shape_spectra_ratios_{_shell_name(z)}.png',
