@@ -1123,6 +1123,15 @@ def plot_knee_ratios(rows, outdir, z):
   return f
 
 
+# Axis limits for the spectra panels of plot_spectra_and_ratios. They are context there,
+# not the subject, so they do not need the article pair's floor: that one runs deep enough
+# to reach nu_B, which is ~10 decades of y on the slow-cooling points and squashes every
+# shape into the top tenth of the panel. Six decades shows the peak, both breaks and the
+# cut-off on every regime of this sweep.
+SPEC_YLO = 1e-6        # y floor, as a fraction of the peak
+SPEC_XLO = 1e-7        # left x edge, in nu/nu_m,0 (the grid itself starts at 2e-7)
+
+
 SPEC_REGIMES = (-4., -2., 0., 2.)   # the four the spectra figures have always shown: deep
                                     # fast, fast, marginal, slow
 
@@ -1271,7 +1280,7 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='max'):
       ('time-integrated', swp._fluence_getter, '\\nu \\mathcal{F}_\\nu'))):
     if swp._draw_spectra_all(ax, results, get_spec, mode,
                              f'spectrum_shape_spectra_ratios_{_shell_name(z)}.png',
-                             sym=sym):
+                             sym=sym, ylo_min=SPEC_YLO, xlo=SPEC_XLO):
       ax.text(0.97, 0.97, lab, transform=ax.transAxes, ha='right', va='top', fontsize=11)
       ok = True
   if not ok:

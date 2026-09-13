@@ -2928,7 +2928,7 @@ def _plot_spectra_all(results, get_spec, mode, title, fname, outdir, yclip_dec=3
 
 
 def _draw_spectra_all(ax, results, get_spec, mode, fname, yclip_dec=3.5,
-    sym='\\nu F_\\nu'):
+    sym='\\nu F_\\nu', ylo_min=None, xlo=None):
   '''
   One panel of _plot_spectra_all: the curves, the y-floor, the axis limits and the two
   axis labels, on an axes supplied by the caller. Split out of it so the peak and the
@@ -2936,6 +2936,15 @@ def _draw_spectra_all(ax, results, get_spec, mode, fname, yclip_dec=3.5,
   under exactly the conventions the single-panel version uses -- there is no second
   copy of the normalisation or of the floor rule to drift. Returns False (having drawn
   nothing) when no curve survives, which is what the caller reports on.
+
+  ylo_min / xlo are CALLER OVERRIDES of the two automatic limits, both None by default so
+  the article pair is untouched. The floor rule below deliberately runs deep enough to
+  reach nu_B, which costs ~10 decades of y on the slow-cooling points; a panel that is
+  showing the spectra as context rather than as the subject can raise the floor
+  (ylo_min) and set its own left edge (xlo) without that rationale being rewritten for
+  everyone. ylo_min RAISES the floor only -- it can never push it below what the rule
+  chose -- and raising it also pulls the right-hand x limit in, since that is set by
+  where the curves last cross the floor.
   '''
   colors, _ = _sweep_colors(results)
   ylab = {'nu_m': f'${sym}/({sym})_{{\\nu_\\mathrm{{m}}}}$',
@@ -2983,6 +2992,8 @@ def _draw_spectra_all(ax, results, get_spec, mode, fname, yclip_dec=3.5,
   # rather than the span: a figure whose curves all reach nu_B early is unchanged.
   if ylo is not None:
     ylo = min(ylo, min(float(y[0]) for _, y, _ in curves)/2.)
+    if ylo_min is not None:
+      ylo = max(ylo, float(ylo_min))
   for x, y, c in _draw_order(curves):
     ax.loglog(x, y, color=c)
   # NO nu = nu_m guide. The x axis is already labelled in nu_m (NU_M_LABEL) and its 10^0
@@ -2995,7 +3006,8 @@ def _draw_spectra_all(ax, results, get_spec, mode, fname, yclip_dec=3.5,
   if ylo is not None:
     ax.set_ylim(ylo, ymax*3.)
     xhi = max(x[y > ylo].max() for x, y, _ in curves if np.any(y > ylo))
-    ax.set_xlim(min(x[0] for x, _, _ in curves), 2.*xhi)
+    ax.set_xlim(min(x[0] for x, _, _ in curves) if xlo is None else float(xlo),
+                2.*xhi)
   ax.set_xlabel(NU_M_LABEL)
   ax.set_ylabel(ylab)
   return True
