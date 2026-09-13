@@ -1269,14 +1269,19 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   '''
   colors, sm = swp._sweep_colors(results)
   dets = [swp.detect_rise_peak_tail(r['Tb'], r['nub'], r['nuFnu']) for r in results]
-  # EXPLICIT GRIDSPEC, with a column reserved for the colour bar. Letting
-  # fig.colorbar(ax=axs[:2]) steal the space instead puts the bar hard against panel 3,
-  # whose y label then runs straight through its tick labels.
+  # THREE EQUAL PANELS, and the colour bar PLACED IN one of the gaps rather than given a
+  # column of its own. A column for the bar makes the spacing uniform, and the two gaps
+  # here do not want the same width: the one between the spectra has to hold panel 2's
+  # tick labels and its y label, while the one before the ratio panel holds only the bar,
+  # the ratio panel's own labels having been moved to its right. Uniform spacing therefore
+  # either crushes the y label onto panel 1's spine or leaves a hole around the bar --
+  # both of which it did. Explicit margins, no tight_layout: get_position() below has to
+  # read settled coordinates.
   fig = plt.figure(figsize=(14.2, 4.2))
-  gs = fig.add_gridspec(1, 4, width_ratios=[1., 1., 0.04, 1.], wspace=0.26)
+  gs = fig.add_gridspec(1, 3, wspace=0.30,
+                        left=0.055, right=0.955, bottom=0.135, top=0.95)
   axs = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
-  cax = fig.add_subplot(gs[2])
-  ax_r = fig.add_subplot(gs[3])
+  ax_r = fig.add_subplot(gs[2])
   ok = False
   for ax, (lab, get_spec, sym) in zip(axs, (
       ('peak', swp._peak_getter(results, dets), '\\nu F_\\nu'),
@@ -1293,7 +1298,6 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   ax = ax_r
   _held_mid_band(ax, [m['logr'] for m in rows
                       if m['z'] == z and m['knee_from'] == 'merged'])
-  ax.axhline(1., color='0.6', lw=0.9, zorder=0)
   by = {}
   for m in rows:
     if m['z'] == z:
@@ -1315,11 +1319,11 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   ax.set_ylabel('peak / time-integrated')
   ax.grid(alpha=0.25)
   ax.legend(fontsize=8, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
-  _shell_tag(ax, z)
 
-  # the bar's label goes ABOVE it, not rotated beside it: rotated, it needs the same
-  # horizontal room as a panel gap, which is most of what was being spent between the
-  # spectra and the ratio panel
+  # the bar sits INSIDE the gap before the ratio panel, and its label goes ABOVE it:
+  # rotated beside it, the label needs a panel gap of its own.
+  b1, b2 = axs[1].get_position(), ax_r.get_position()
+  cax = fig.add_axes([b1.x1 + 0.28*(b2.x0 - b1.x1), b1.y0, 0.009, b1.height])
   cb = fig.colorbar(sm, cax=cax)
   cb.ax.set_title('log$_{10}\\mathcal{C}$', fontsize=9, pad=6)
   f = os.path.join(outdir, 'spectrum_shape_spectra_ratios_%s.png' % _shell_name(z))
