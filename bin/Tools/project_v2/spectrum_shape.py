@@ -13,6 +13,9 @@ compared at the same $\\mathcal{C}$ rather than by eye:
                   plus the self-anchored low-energy asymptote (fluence_low_slope)
     BREAKS        where the segments cross (the paper route, breaks_from_identified), and
                   the shape class each spectrum displays
+    TURNOVERS     where the spectrum actually breaks -- the half-slope point (primary) and
+                  the curvature maximum (comparison only; it disagrees by a median 0.207
+                  dex and fails outright on MC -- see turnovers_curvature)
     PEAK WIDTH    the ratio of the frequencies at half the peak nuFnu -- no fit anywhere
 
 Each row is one (shell, sweep point, spectrum kind); the ratio table pairs the two kinds of
@@ -202,6 +205,8 @@ def segments_and_breaks(x, sp, psyn, **kw):
              b_lo_free=np.nan, b_hi_free=np.nan, s1_def=np.nan, s2_def=np.nan,
              sag_lo=np.nan, sag_hi=np.nan, s_clean=False, s_stable=False,
              nu_knee_lo=np.nan, nu_knee_hi=np.nan,
+             nu_curv_lo=np.nan, nu_curv_hi=np.nan, dexc_lo=np.nan, dexc_hi=np.nan,
+             curv_off_lo=np.nan, curv_off_hi=np.nan,
              knee_off_lo=np.nan, knee_off_hi=np.nan,
              kneef_off_lo=np.nan, kneef_off_hi=np.nan, knee_from=None)
   b = sb.breaks_from_identified(x, sp, psyn, **kw)
@@ -236,6 +241,7 @@ def segments_and_breaks(x, sp, psyn, **kw):
     a_lo_k = f['a_lo'] if np.isfinite(f['a_lo']) else b['a_lo']
     a_hi_k = f['a_hi'] if np.isfinite(f['a_hi']) else b['a_hi']
     out.update(turnovers(x, sp, b['nuM'], b['sigma'], a_lo_k, a_mid_k, a_hi_k))
+    out.update(turnovers_curvature(x, sp, b['nuM'], b['sigma'], a_lo_k, a_mid_k, a_hi_k))
     # AGAINST BOTH CROSSINGS, and the second one is not optional -- see the section header.
     # b_* is the route's, whose low line is HELD at 4/3; b_*_free is the crossing of the
     # lines free_slopes actually measured. Where the spectrum's low index is not 4/3 the
@@ -245,6 +251,9 @@ def segments_and_breaks(x, sp, psyn, **kw):
       for pre, bb in (('knee_off_', out['b_' + tag]), ('kneef_off_', out['b_%s_free' % tag])):
         out[pre + tag] = (float(kn/bb) if np.isfinite(kn) and np.isfinite(bb) and bb > 0.
                           else np.nan)
+      cv = out['nu_curv_' + tag]      # the two estimators against each other
+      out['curv_off_' + tag] = (float(cv/kn) if np.isfinite(cv) and np.isfinite(kn)
+                                and kn > 0. else np.nan)
 
   # the low index that needs no break: bounded by min(nu_m, nu_c) where the route found it,
   # so the scan cannot lock onto the fast-cooling nu^(1/2) plateau instead of the asymptote
@@ -365,6 +374,97 @@ def turnovers(x, sp, nuM, sigma, a_lo, a_mid, a_hi, cutfac=sb.CUT_FAC,
     out['nu_knee_lo'] = _slope_at_level(lx, sl, 0.5*(a_lo + a_mid), hi=cap)
   if np.isfinite(a_mid) and np.isfinite(a_hi):
     out['nu_knee_hi'] = _slope_at_level(lx, sl, 0.5*(a_mid + a_hi), hi=cap)
+  return out
+
+
+CURV_SMOOTH = 9        # extra boxcar on the SECOND derivative. segment_slopes already
+                       # boxcars the first over SLOPE_SMOOTH = 5 samples; differentiating
+                       # that again re-injects the grid noise the first pass removed, and 9
+                       # is where the curvature maximum of these spectra stops moving.
+CURV_TOL = 0.02        # margin by which the bracket stands off each bounding slope
+CURV_MIN_PTS = 5
+CURV_MIN_DEX = 0.1
+
+
+def _curv_argmax(lx, c, idx):
+  '''Frequency of the largest |curvature| among samples `idx`, refined by a parabola.'''
+  i = idx[int(np.argmax(np.abs(c[idx])))]
+  if 0 < i < len(lx) - 1:
+    q = np.abs(c[i-1:i+2])
+    d = q[0] - 2.*q[1] + q[2]
+    if d != 0.:
+      return float(10.**(lx[i] - 0.5*(q[2] - q[0])/d*(lx[i] - lx[i-1])))
+  return float(10.**lx[i])
+
+
+def turnovers_curvature(x, sp, nuM, sigma, a_lo, a_mid, a_hi, cutfac=sb.CUT_FAC,
+    smooth=sb.SLOPE_SMOOTH, csmooth=CURV_SMOOTH, tol=CURV_TOL):
+  '''
+  THE SECOND KNEE ESTIMATOR: the frequency of maximum log-log curvature, i.e. where the
+  local index is changing fastest. Same null as the half-slope point, and derived the same
+  way: for granot_sari_syn the index is b2 + D/(1 + e^{sDu}) in u = ln y with D = b1 - b2,
+  so its derivative is -sD^2 sigma(1-sigma), maximal at sigma = 1/2, i.e. u = 0, i.e. AT
+  the crossing -- for every s. Recovered to 1e-5 on synthetics at s1 = 0.8, 1.3, 2.0, 4.0.
+
+  ITS ATTRACTION is that it needs no slope VALUE: an extremum is located by the curve
+  alone, where the half-slope point has to be told which level to look for and therefore
+  carries a_mid's error (0.12-0.18 dex per 0.05 of a_mid in slow cooling). That is the only
+  reason it is here.
+
+  THE BRACKET MUST BE ONE CONTIGUOUS RUN, and this is not a detail. Selecting every sample
+  whose slope lies between the two bounding asymptotes gives a mask that RE-ENTERS near the
+  cut-off, because flattening turns the curve back up past nuM and the slope climbs back
+  into the window with enormous curvature. The argmax then lands in the rolloff rather than
+  on the break: measured on this sweep the upper knee came back at nu_M/88 instead of the
+  break, a factor 7.3e4 in slow cooling. Taking the widest contiguous run instead removes
+  every such failure.
+
+  READ THE COMPARISON BEFORE USING IT, because the two do NOT agree on these spectra.
+  Measured over the whole sweep, both shells, both kinds (curv/knee in the table):
+    median disagreement 0.207 dex -- a factor 1.6 -- at BOTH breaks;
+    lower knee  curv/knee = 1.46-1.79 in SC, 0.68-1.08 in FC, i.e. biased HIGH and not
+                by a constant;
+    upper knee  0.29-2.33, straddling 1 without settling anywhere;
+    three outright failures out of 36, all MC: FS log10(C) = -1 returns 114x the
+                half-slope point on the peak spectrum and the BAND FLOOR (1.6e-16) on the
+                time-integrated one, and FS +0 fluence returns 0.002x.
+  Two causes, and neither is fixable by smoothing. (1) These transitions are 2.4-5.0 dex
+  wide and asymmetric; a second derivative weights that asymmetry, a level crossing does
+  not, so the curvature maximum drifts to the steep side. (2) In MC there is only ONE
+  transition -- the index runs 4/3 -> 1-p/2 with no mid plateau -- so the two brackets
+  cover parts of the same turn and the argmax returns essentially the SAME frequency for
+  both: curv_hi/curv_lo = 0.97 at RS log10(C) = 0 and 0.98 at FS +0, against true
+  separations of 18 and 98. The half-slope point survives MC because it asks for two
+  different LEVELS on one monotonic curve, which stay distinct however merged the breaks.
+
+  This is the same verdict spectral_breaks' header already records for curvature on these
+  spectra, reached from the other side: there it was curvature as a THRESHOLD for segment
+  detection, here as an EXTREMUM for break location, and the cause is the same coherent
+  in-segment curvature (lag-1 autocorrelation 0.998) that makes the knee no longer special.
+
+  `nu_knee_*` remains the primary. This is reported for comparison and nothing else.
+  '''
+  out = dict(nu_curv_lo=np.nan, nu_curv_hi=np.nan, dexc_lo=np.nan, dexc_hi=np.nan)
+  g = np.isfinite(sp) & (sp > 0.) & np.isfinite(x) & (x > 0.)
+  if g.sum() < 12 or not np.isfinite(nuM) or nuM <= 0.:
+    return out
+  yv = sb._flatten_cutoff(x[g], sp[g], nuM, sigma)
+  ok = np.isfinite(yv) & (yv > 0.)
+  if ok.sum() < 12:
+    return out
+  lx, ly, sl = sb.segment_slopes(x[g][ok], yv[ok], smooth)
+  cap = np.log10(nuM/cutfac)
+  c = sb._boxcar(np.gradient(sl, lx), csmooth)
+  for tag, a_bot, a_top in (('lo', a_mid, a_lo), ('hi', a_hi, a_mid)):
+    if not (np.isfinite(a_bot) and np.isfinite(a_top)):
+      continue
+    m = (sl > a_bot + tol) & (sl < a_top - tol) & (lx <= cap) & np.isfinite(c)
+    w = sb._widest_run(m, lx, min_pts=CURV_MIN_PTS, min_dex=CURV_MIN_DEX)
+    if w is None:
+      continue
+    idx = np.arange(w[0], w[1] + 1)
+    out['dexc_' + tag] = float(lx[w[1]] - lx[w[0]])
+    out['nu_curv_' + tag] = _curv_argmax(lx, c, idx)
   return out
 
 
@@ -490,6 +590,9 @@ _COLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
          ('knee/b lo', 'knee_off_lo', '{:.3f}'), ('knee/b hi', 'knee_off_hi', '{:.3f}'),
          ('knee/bf lo', 'kneef_off_lo', '{:.3f}'),
          ('knee/bf hi', 'kneef_off_hi', '{:.3f}'),
+         ('curv_lo', 'nu_curv_lo', '{:.4g}'), ('curv_hi', 'nu_curv_hi', '{:.4g}'),
+         ('curv/knee lo', 'curv_off_lo', '{:.3f}'),
+         ('curv/knee hi', 'curv_off_hi', '{:.3f}'),
          ('b_lo free', 'b_lo_free', '{:.4g}'), ('b_hi free', 'b_hi_free', '{:.4g}'),
          ('knee_from', 'knee_from', '{:s}'),
          ('sag_lo', 'sag_lo', '{:.3f}'), ('sag_hi', 'sag_hi', '{:.3f}'),
@@ -952,6 +1055,102 @@ def plot_knee_ratios(rows, outdir, z):
   return f
 
 
+SPEC_REGIMES = (-4., -2., 0., 2.)   # the four the spectra figures have always shown: deep
+                                    # fast, fast, marginal, slow
+
+
+def plot_knee_estimators(rows, results, outdir, z):
+  '''
+  THE TWO ESTIMATORS ON THE SPECTRA THEMSELVES, so the disagreement can be seen rather
+  than read off a ratio.
+
+  One column per regime, spectra on top and the local index below them -- the knees are
+  defined on the index curve, and a reader shown only the spectrum cannot see why the two
+  estimators land where they do. Peak dashed, time-integrated solid, as everywhere else.
+
+  Vertical lines: the half-slope point (solid) and the curvature maximum (dotted), purple
+  for the lower break and orange for the upper. The horizontal ticks on the lower panels
+  are the half-slope TARGETS, (a_lo+a_mid)/2 and (a_mid+a_hi)/2 -- where those levels cut
+  the index curve IS the solid line above them, which is the whole construction in one
+  picture.
+  '''
+  res = {float(r['log10ratio']): r for r in results}
+  regs = [g for g in SPEC_REGIMES if g in res]
+  fig, axes = plt.subplots(2, len(regs), figsize=(3.5*len(regs), 6.4), squeeze=False,
+                           sharex='col')
+  for j, g in enumerate(regs):
+    r = res[g]
+    xall = nu_over_num(r)
+    sps = spectra_of(r)
+    axS, axA = axes[0][j], axes[1][j]
+    for kind in KINDS:
+      m = next((q for q in rows if q['z'] == z and q['logr'] == g
+                and q['kind'] == kind), None)
+      if m is None:
+        continue
+      sp = sps[kind]
+      ok = np.isfinite(sp) & (sp > 0.) & (xall > 0.)
+      lx, ly, sl = sb.segment_slopes(xall[ok], sp[ok], sb.SLOPE_SMOOTH)
+      ls = _STY[kind]['ls']
+      axS.loglog(10.**lx, 10.**(ly - ly.max()), color='0.25', ls=ls, lw=1.1)
+      axA.semilogx(10.**lx, sl, color='0.25', ls=ls, lw=1.1)
+      for i, tag in enumerate(('lo', 'hi')):
+        for key, lsv in (('nu_knee_', '-'), ('nu_curv_', ':')):
+          v = m[key + tag]
+          if np.isfinite(v):
+            for ax in (axS, axA):
+              ax.axvline(v, color=_QCOL[i], ls=lsv, lw=1.2, alpha=0.85)
+      # the levels the half-slope point is looking for
+      am = m['a_mid'] if np.isfinite(m['a_mid']) else m['a_mid_route']
+      al = m['a_lo'] if np.isfinite(m['a_lo']) else m['a_lo_h']
+      ah = m['a_hi'] if np.isfinite(m['a_hi']) else m['a_hi_h']
+      for i, t in enumerate((0.5*(al + am), 0.5*(am + ah))):
+        if np.isfinite(t):
+          axA.axhline(t, color=_QCOL[i], lw=0.7, alpha=0.4, zorder=0)
+    axS.set_ylim(1e-4, 3.)
+    axS.annotate(f'$\\log_{{10}}\\mathcal{{C}} = {g:+.0f}$', (0.04, 0.06),
+                 xycoords='axes fraction', fontsize=8)
+    # THE RATIO HAS TO BE PRINTED. The x axis spans 12-18 decades here, so a factor 1.5
+    # between the two estimators is a hair's breadth on the page -- the lines look
+    # coincident at every regime while the table says they are not. The number is the
+    # measurement; the lines only show which feature each one picked.
+    txt = []
+    for kind in KINDS:
+      m = next((q for q in rows if q['z'] == z and q['logr'] == g
+                and q['kind'] == kind), None)
+      if m is None:
+        continue
+      lab = 'pk' if kind == 'peak' else 'ti'
+      cell = lambda k: ('--' if not np.isfinite(m[k]) else f'{m[k]:.2f}')
+      txt.append(f"{lab}  {cell('curv_off_lo')} / {cell('curv_off_hi')}")
+    axA.annotate('curv/half-slope, lo / hi\n' + '\n'.join(txt), (0.03, 0.05),
+                 xycoords='axes fraction', fontsize=6, color='0.3', va='bottom',
+                 family='monospace')
+    axA.set_xlabel(NU_M_LABEL)
+    axA.set_ylim(-0.6, 1.6)
+    for ax in (axS, axA):
+      ax.grid(alpha=0.2)
+    if j:
+      axS.set_yticklabels([]); axA.set_yticklabels([])
+  axes[0][0].set_ylabel('$\\nu F_\\nu$ / peak')
+  axes[1][0].set_ylabel('$\\mathrm{d}\\log\\nu F_\\nu/\\mathrm{d}\\log\\nu$')
+  _shell_tag(axes[0][0], z)
+  h = [plt.Line2D([], [], color='0.25', ls='--', lw=1.1),
+       plt.Line2D([], [], color='0.25', ls='-', lw=1.1),
+       plt.Line2D([], [], color=_QCOL[0], lw=1.2), plt.Line2D([], [], color=_QCOL[1], lw=1.2),
+       plt.Line2D([], [], color='0.35', ls='-', lw=1.2),
+       plt.Line2D([], [], color='0.35', ls=':', lw=1.2)]
+  fig.tight_layout()
+  # below the axes, not inside one: every panel here is full to the edges, and the corner
+  # the legend used covered the regime label of the last column
+  fig.legend(h, ['peak', 'time-integrated', 'lower break', 'upper break',
+                 'half-slope point', 'curvature maximum'], fontsize=7.5, ncol=6,
+             loc='upper center', bbox_to_anchor=(0.5, 0.035), frameon=False)
+  f = os.path.join(outdir, 'spectrum_shape_knee_estimators_%s.png' % _shell_name(z))
+  fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
+  return f
+
+
 # ---------------------------------------------------------------------------------------
 def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, shells=(Z_RS, Z_FS), nproc=None):
   '''
@@ -959,7 +1158,7 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, shells=(Z_RS, Z_FS), nproc=None
   Runs the sweep first if a cache is missing. Everything is written into the RS directory
   so the two shells land in one table.
   '''
-  rows = []
+  rows, by_shell = [], {}
   for z in shells:
     outdir = method_outdir(method, key, z)
     os.makedirs(outdir, exist_ok=True)
@@ -969,12 +1168,14 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, shells=(Z_RS, Z_FS), nproc=None
                           method=method)
     print(f'{_shell_name(z)}: {len(results)} sweep points from {outdir}')
     rows += measure_sweep(results, z)
+    by_shell[z] = results
   outdir = method_outdir(method, key, shells[0])
   _, _, pairs = build_tables(rows, outdir)
   for z in shells:                     # one figure per shell -- see the figures header
     plot_shape_vs_regime(rows, outdir, z)
     plot_fluence_vs_peak(pairs, outdir, z)
     plot_knee_ratios(rows, outdir, z)
+    plot_knee_estimators(rows, by_shell[z], outdir, z)
   trim_pngs(outdir)
   print(f'\nfigures -> {outdir}/spectrum_shape_*.png')
   return rows, pairs
