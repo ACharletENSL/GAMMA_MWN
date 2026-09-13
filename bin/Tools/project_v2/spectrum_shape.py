@@ -74,6 +74,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import spectral_breaks as sb
+import sweep_gammacm as swp
+                                   # for _draw_spectra_all and the two
+                                   # spectrum getters: the spectra panels must
+                                   # be the ones plot_spectra_pair already draws
 from sweep_gammacm import (DEFAULT_KEY, DEFAULT_METHOD, Z_SHELL, LOG10RATIO_ARR,
     load_sweep, method_outdir, run_sweep, nu_over_num, compute_fluence_spectrum,
     detect_rise_peak_tail, write_table_stamp, trim_pngs, NU_M_LABEL)
@@ -1230,6 +1234,78 @@ def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
   return f
 
 
+def plot_spectra_and_ratios(rows, results, outdir, z, mode='max'):
+  '''
+  The sweep's two spectra families and what this module measures off them, in one
+  figure: peak spectra, time-integrated spectra, and how far the two reference
+  frequencies move between them.
+
+  Panels 1 and 2 are drawn by sweep_gammacm._draw_spectra_all, the same function
+  plot_spectra_pair uses, so they keep every convention of the existing pair -- the
+  normalisation, the y-floor, the x-clip, and the panel label inside the axes. Nothing
+  about a spectrum is re-derived here.
+
+  Panel 3 is the peak/time-integrated ratio of nu_pk and nu_bk, i.e. the two references
+  read off exactly the curves in panels 1 and 2. Reading them together is the point: the
+  eye sees the fluence family sitting to the LEFT of the peak family, and the third panel
+  says by how much, separately for the SED peak and for the low-energy break -- which do
+  not move together.
+
+  THE COLOUR BAR IS ATTACHED TO THE SPECTRA PANELS ONLY. It is the sweep colour scale and
+  says nothing about panel 3, whose x axis is that same parameter; hanging it off all
+  three would put a redundant scale beside an axis already labelled with it.
+  '''
+  colors, sm = swp._sweep_colors(results)
+  dets = [swp.detect_rise_peak_tail(r['Tb'], r['nub'], r['nuFnu']) for r in results]
+  # EXPLICIT GRIDSPEC, with a column reserved for the colour bar. Letting
+  # fig.colorbar(ax=axs[:2]) steal the space instead puts the bar hard against panel 3,
+  # whose y label then runs straight through its tick labels.
+  fig = plt.figure(figsize=(16.4, 4.5))
+  gs = fig.add_gridspec(1, 4, width_ratios=[1., 1., 0.045, 1.], wspace=0.52)
+  axs = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
+  cax = fig.add_subplot(gs[2])
+  ax_r = fig.add_subplot(gs[3])
+  ok = False
+  for ax, (lab, get_spec, sym) in zip(axs, (
+      ('peak', swp._peak_getter(results, dets), '\\nu F_\\nu'),
+      ('time-integrated', swp._fluence_getter, '\\nu \\mathcal{F}_\\nu'))):
+    if swp._draw_spectra_all(ax, results, get_spec, mode,
+                             f'spectrum_shape_spectra_ratios_{_shell_name(z)}.png',
+                             sym=sym):
+      ax.text(0.97, 0.97, lab, transform=ax.transAxes, ha='right', va='top', fontsize=11)
+      ok = True
+  if not ok:
+    plt.close(fig)
+    return None
+
+  ax = ax_r
+  _held_mid_band(ax, [m['logr'] for m in rows
+                      if m['z'] == z and m['knee_from'] == 'merged'])
+  ax.axhline(1., color='0.6', lw=0.9, zorder=0)
+  by = {}
+  for m in rows:
+    if m['z'] == z:
+      by.setdefault(m['kind'], {})[m['logr']] = m
+  pk, fl = by.get('peak', {}), by.get('fluence', {})
+  lr = np.array(sorted(set(pk) & set(fl)), float)
+  for i, (key, lab) in enumerate((('nu_pk', '$\\nu_{\\rm pk}$'),
+                                  ('nu_bk', '$\\nu_{\\rm bk}$'))):
+    v = np.array([pk[q][key]/fl[q][key]
+                  if np.isfinite(pk[q][key]) and np.isfinite(fl[q][key])
+                  and fl[q][key] > 0. else np.nan for q in lr], float)
+    ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.3, marker=_QMK[i], ms=6, label=lab)
+  ax.set_xlabel(_CLABEL)
+  ax.set_ylabel('peak / time-integrated')
+  ax.grid(alpha=0.25)
+  ax.legend(fontsize=8, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
+  _shell_tag(ax, z)
+
+  fig.colorbar(sm, cax=cax, label='log$_{10}\\mathcal{C}$')
+  f = os.path.join(outdir, 'spectrum_shape_spectra_ratios_%s.png' % _shell_name(z))
+  fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
+  return f
+
+
 # ---------------------------------------------------------------------------------------
 def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, shells=(Z_RS, Z_FS), nproc=None):
   '''
@@ -1255,6 +1331,7 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, shells=(Z_RS, Z_FS), nproc=None
     plot_fluence_vs_peak(pairs, outdir, z)
     plot_knee_ratios(rows, outdir, z)
     plot_knee_estimators(rows, by_shell[z], outdir, z)
+    plot_spectra_and_ratios(rows, by_shell[z], outdir, z)
   trim_pngs(outdir)
   print(f'\nfigures -> {outdir}/spectrum_shape_*.png')
   return rows, pairs
