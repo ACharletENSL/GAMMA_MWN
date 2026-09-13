@@ -503,17 +503,20 @@ def measure_spectrum(x, sp, psyn, **kw):
                    if np.isfinite(m['nu_knee_hi']) and np.isfinite(m['nu_knee_lo'])
                    and m['nu_knee_lo'] > 0. else np.nan)
   # THE TWO REFERENCE FREQUENCIES THE FIGURES USE.
-  #   nu_bk  the low-energy break, as MEASURED: the half-slope knee. Where the breaks are
-  #          separated that is nu_knee_lo; where they are merged there is one knee and it
-  #          is that one, so the quantity stays defined across the merge instead of
-  #          vanishing at log10(C) = -1, 0. Undefined below -2, where nu_c falls under the
-  #          synchrotron floor nu_B and there is no low-energy break to measure at all.
+  #   nu_bk  the low-energy break, as MEASURED: nu_knee_lo, and ONLY nu_knee_lo. It is
+  #          left undefined wherever a separated lower break does not exist -- below
+  #          log10(C) = -2, where nu_c falls under the synchrotron floor nu_B, and at the
+  #          merged regimes, where the single turn is neither break but the pair of them
+  #          run together. The merged knee is still measured and still in the table as
+  #          nu_knee_1; it is simply not this quantity, and substituting it here would put
+  #          a different measurement into the middle of the series. nu_pk is what carries
+  #          those regimes on the figure.
   #   nu_pk  the high-energy reference: the nuFnu maximum, NOT nu_knee_hi. The maximum is
   #          fit-free (parabolic argmax, verified to 0.0031 dex against the estimator run
   #          at target slope 0) and defined at every regime, while nu_knee_hi is levered by
   #          a_mid -- 0.12-0.18 dex per 0.05 of it in slow cooling, the softest number in
   #          the table -- and undefined once the breaks merge.
-  m['nu_bk'] = (m['nu_knee_lo'] if np.isfinite(m['nu_knee_lo']) else m['nu_knee_1'])
+  m['nu_bk'] = m['nu_knee_lo']
   m['nu_pk'] = m['x_pk']
   m['pk_over_bk'] = (m['nu_pk']/m['nu_bk']
                      if np.isfinite(m['nu_bk']) and m['nu_bk'] > 0. else np.nan)
@@ -680,9 +683,9 @@ _NOTE = (
   '"log10(C) shell" is the emitting shell own gamma_c/gamma_m: on the FS it runs ~0.5 dex '
   'above the label, so the two shells at one x are NOT at the same cooling ratio.\n'
   'REFERENCE FREQUENCIES: nu_pk is the nuFnu maximum and nu_bk the measured low-energy '
-  'break (the half-slope knee -- nu_knee_lo where the breaks separate, the merged knee '
-  'where they do not, undefined below log10(C) = -2 where nu_c falls under nu_B). Those '
-  'two, not the knee pair, are what the ratio figure uses.\n'
+  'break (nu_knee_lo alone -- blank below log10(C) = -2, where nu_c falls under nu_B, and '
+  'at the merged regimes, where the single turn is the pair run together and is reported '
+  'separately as knee_1). Those two, not the knee pair, are what the ratio figure uses.\n'
   'WIDTH (no fit, no class): x_pk is the nuFnu maximum, W_1/2 = nu_hi/nu_lo the ratio of '
   'the frequencies at half of it, W_lo = x_pk/nu_lo and W_hi = nu_hi/x_pk its two halves, '
   'asym = log(W_hi)/log(W_lo) (1 = symmetric in the log). top_dex is the span within 1% of '
@@ -1045,19 +1048,22 @@ def plot_knee_ratios(rows, outdir, z):
   '''
   The two reference frequencies of this module, against the cooling regime, for ONE shell.
 
-    nu_bk   the low-energy break AS MEASURED -- the half-slope knee. nu_knee_lo where the
-            breaks are separated, the merged knee where they are not, so the quantity
-            survives the merge at log10(C) = -1, 0 instead of vanishing there. It does not
-            exist below -2: nu_c falls under the synchrotron floor nu_B (nu_c/nu_B = 0.048
-            at -4, 4.8e-4 at -5), so there is no low-energy break, at any resolution.
+    nu_bk   the low-energy break AS MEASURED -- nu_knee_lo, and only where a separated
+            lower break exists. It does not below log10(C) = -2, where nu_c falls under
+            the synchrotron floor nu_B (nu_c/nu_B = 0.048 at -4, 4.8e-4 at -5) so there is
+            no low-energy break at any resolution; nor at the merged regimes, where the
+            single turn is the two breaks run together rather than the lower one. Those
+            gaps are the honest answer and nu_pk is what spans them.
     nu_pk   the high-energy reference -- the nuFnu maximum, and deliberately NOT
             nu_knee_hi. The maximum needs no fit and is defined at every regime; the upper
             knee is levered by a_mid (0.12-0.18 dex per 0.05 of it in slow cooling) and is
             undefined once the breaks merge. Where both exist they differ by up to 2x, so
             this is a change of quantity, not a relabelling.
 
-  LEFT: nu_bk of the peak spectrum over nu_bk of the time-integrated one. >1 means the
-  break has moved DOWN in frequency under integration.
+  LEFT: both references as peak over time-integrated -- nu_pk across the whole sweep, and
+  nu_bk on the four regimes that have a separated lower break. >1 means the feature has
+  moved DOWN in frequency under integration. Two series and not one spliced curve: where
+  both exist they are a factor 2-5 apart, so a join would read as a jump in the physics.
 
   RIGHT: nu_pk/nu_bk, one curve per kind -- the span between the two references, which is
   the separation of the spectrum's two features measured without ever fitting the upper
@@ -1075,11 +1081,14 @@ def plot_knee_ratios(rows, outdir, z):
   ax.axhline(1., color='0.6', lw=0.9, zorder=0)
   pk, fl = by.get('peak', {}), by.get('fluence', {})
   lr = np.array(sorted(set(pk) & set(fl)), float)
-  v = np.array([pk[q]['nu_bk']/fl[q]['nu_bk']
-                if np.isfinite(pk[q]['nu_bk']) and np.isfinite(fl[q]['nu_bk'])
-                and fl[q]['nu_bk'] > 0. else np.nan for q in lr], float)
-  ax.plot(lr, v, color=_QCOL[0], ls='-', lw=1.3, marker=_QMK[0], ms=6)
-  ax.set_ylabel('$\\nu_{\\rm bk}$,  peak / time-integrated')
+  for i, (key, lab) in enumerate((('nu_pk', '$\\nu_{\\rm pk}$'),
+                                  ('nu_bk', '$\\nu_{\\rm bk}$'))):
+    v = np.array([pk[q][key]/fl[q][key]
+                  if np.isfinite(pk[q][key]) and np.isfinite(fl[q][key])
+                  and fl[q][key] > 0. else np.nan for q in lr], float)
+    ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.3, marker=_QMK[i], ms=6, label=lab)
+  ax.set_ylabel('peak / time-integrated')
+  ax.legend(fontsize=8, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
 
   ax = axes[1]
   _held_mid_band(ax, held)
