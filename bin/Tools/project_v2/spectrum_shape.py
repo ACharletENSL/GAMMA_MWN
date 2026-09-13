@@ -1277,11 +1277,17 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   # either crushes the y label onto panel 1's spine or leaves a hole around the bar --
   # both of which it did. Explicit margins, no tight_layout: get_position() below has to
   # read settled coordinates.
+  # ... and the gaps are set INDIVIDUALLY, which is the whole reason the axes are placed
+  # by hand rather than by a gridspec: gridspec spaces every column alike, and the two
+  # gaps here have different jobs and so different widths.
   fig = plt.figure(figsize=(14.2, 4.2))
-  gs = fig.add_gridspec(1, 3, wspace=0.30,
-                        left=0.055, right=0.955, bottom=0.135, top=0.95)
-  axs = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
-  ax_r = fig.add_subplot(gs[2])
+  L, R, B, T = 0.050, 0.962, 0.135, 0.950
+  GAP_SPEC = 0.062      # between the spectra: panel 2's tick labels and its y label
+  GAP_CBAR = 0.050      # before the ratio panel: the bar and its tick labels, and nothing
+                        # else -- the ratio panel's own labels are on its far side
+  w, h = (R - L - GAP_SPEC - GAP_CBAR)/3., T - B
+  axs = [fig.add_axes([L, B, w, h]), fig.add_axes([L + w + GAP_SPEC, B, w, h])]
+  ax_r = fig.add_axes([L + 2.*w + GAP_SPEC + GAP_CBAR, B, w, h])
   ok = False
   for ax, (lab, get_spec, sym) in zip(axs, (
       ('peak', swp._peak_getter(results, dets), '\\nu F_\\nu'),
@@ -1322,8 +1328,7 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
 
   # the bar sits INSIDE the gap before the ratio panel, and its label goes ABOVE it:
   # rotated beside it, the label needs a panel gap of its own.
-  b1, b2 = axs[1].get_position(), ax_r.get_position()
-  cax = fig.add_axes([b1.x1 + 0.28*(b2.x0 - b1.x1), b1.y0, 0.009, b1.height])
+  cax = fig.add_axes([L + 2.*w + GAP_SPEC + 0.011, B, 0.009, h])
   cb = fig.colorbar(sm, cax=cax)
   cb.ax.set_title('log$_{10}\\mathcal{C}$', fontsize=9, pad=6)
   f = os.path.join(outdir, 'spectrum_shape_spectra_ratios_%s.png' % _shell_name(z))
