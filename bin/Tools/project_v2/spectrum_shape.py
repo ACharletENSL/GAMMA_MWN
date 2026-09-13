@@ -1043,13 +1043,12 @@ def plot_knee_ratios(rows, outdir, z):
   ax.set_ylabel('$\\nu_{\\rm knee,hi}/\\nu_{\\rm knee,lo}$')
   _kind_legend(ax, loc='best', bbox_to_anchor=(0., 0., 1., 0.92))
 
+  # no shell tag and no band caption here, by request: the shell is in the filename and
+  # the band is documented in this docstring and in the table note
   for ax in axes:
     ax.set_xlabel(_CLABEL)
     ax.grid(alpha=0.25)
-    _shell_tag(ax, z)
   fig.tight_layout()
-  fig.text(0.5, -0.01, 'grey band = no mid plateau, knee target used a held mid slope',
-           fontsize=7.5, color='0.3', ha='center')
   f = os.path.join(outdir, 'spectrum_shape_knee_ratios_%s.png' % _shell_name(z))
   fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
   return f
@@ -1059,14 +1058,19 @@ SPEC_REGIMES = (-4., -2., 0., 2.)   # the four the spectra figures have always s
                                     # fast, fast, marginal, slow
 
 
-def plot_knee_estimators(rows, results, outdir, z):
+def plot_knee_estimators(rows, results, outdir, z, kind='peak'):
   '''
   THE TWO ESTIMATORS ON THE SPECTRA THEMSELVES, so the disagreement can be seen rather
   than read off a ratio.
 
   One column per regime, spectra on top and the local index below them -- the knees are
   defined on the index curve, and a reader shown only the spectrum cannot see why the two
-  estimators land where they do. Peak dashed, time-integrated solid, as everywhere else.
+  estimators land where they do.
+
+  ONE SPECTRUM KIND per figure (`kind`, default the peak one). Both at once put two curves
+  and eight vertical lines in every panel, and the point of this figure is which FEATURE
+  each estimator picks, not how the two kinds differ -- that is what the ratio figures are
+  for. The kind is named in the panel and in the file name.
 
   Vertical lines: the half-slope point (solid) and the curvature maximum (dotted), purple
   for the lower break and orange for the upper. The horizontal ticks on the lower panels
@@ -1083,23 +1087,20 @@ def plot_knee_estimators(rows, results, outdir, z):
     xall = nu_over_num(r)
     sps = spectra_of(r)
     axS, axA = axes[0][j], axes[1][j]
-    for kind in KINDS:
-      m = next((q for q in rows if q['z'] == z and q['logr'] == g
-                and q['kind'] == kind), None)
-      if m is None:
-        continue
+    m = next((q for q in rows if q['z'] == z and q['logr'] == g
+              and q['kind'] == kind), None)
+    if m is not None:
       sp = sps[kind]
       ok = np.isfinite(sp) & (sp > 0.) & (xall > 0.)
       lx, ly, sl = sb.segment_slopes(xall[ok], sp[ok], sb.SLOPE_SMOOTH)
-      ls = _STY[kind]['ls']
-      axS.loglog(10.**lx, 10.**(ly - ly.max()), color='0.25', ls=ls, lw=1.1)
-      axA.semilogx(10.**lx, sl, color='0.25', ls=ls, lw=1.1)
+      axS.loglog(10.**lx, 10.**(ly - ly.max()), color='0.25', lw=1.2)
+      axA.semilogx(10.**lx, sl, color='0.25', lw=1.2)
       for i, tag in enumerate(('lo', 'hi')):
         for key, lsv in (('nu_knee_', '-'), ('nu_curv_', ':')):
           v = m[key + tag]
           if np.isfinite(v):
             for ax in (axS, axA):
-              ax.axvline(v, color=_QCOL[i], ls=lsv, lw=1.2, alpha=0.85)
+              ax.axvline(v, color=_QCOL[i], ls=lsv, lw=1.3, alpha=0.85)
       # the levels the half-slope point is looking for
       am = m['a_mid'] if np.isfinite(m['a_mid']) else m['a_mid_route']
       al = m['a_lo'] if np.isfinite(m['a_lo']) else m['a_lo_h']
@@ -1114,18 +1115,11 @@ def plot_knee_estimators(rows, results, outdir, z):
     # between the two estimators is a hair's breadth on the page -- the lines look
     # coincident at every regime while the table says they are not. The number is the
     # measurement; the lines only show which feature each one picked.
-    txt = []
-    for kind in KINDS:
-      m = next((q for q in rows if q['z'] == z and q['logr'] == g
-                and q['kind'] == kind), None)
-      if m is None:
-        continue
-      lab = 'pk' if kind == 'peak' else 'ti'
+    if m is not None:
       cell = lambda k: ('--' if not np.isfinite(m[k]) else f'{m[k]:.2f}')
-      txt.append(f"{lab}  {cell('curv_off_lo')} / {cell('curv_off_hi')}")
-    axA.annotate('curv/half-slope, lo / hi\n' + '\n'.join(txt), (0.03, 0.05),
-                 xycoords='axes fraction', fontsize=6, color='0.3', va='bottom',
-                 family='monospace')
+      axA.annotate(f"curv/half-slope\nlo {cell('curv_off_lo')}   hi {cell('curv_off_hi')}",
+                   (0.03, 0.05), xycoords='axes fraction', fontsize=6.5, color='0.3',
+                   va='bottom', family='monospace')
     axA.set_xlabel(NU_M_LABEL)
     axA.set_ylim(-0.6, 1.6)
     for ax in (axS, axA):
@@ -1135,18 +1129,20 @@ def plot_knee_estimators(rows, results, outdir, z):
   axes[0][0].set_ylabel('$\\nu F_\\nu$ / peak')
   axes[1][0].set_ylabel('$\\mathrm{d}\\log\\nu F_\\nu/\\mathrm{d}\\log\\nu$')
   _shell_tag(axes[0][0], z)
-  h = [plt.Line2D([], [], color='0.25', ls='--', lw=1.1),
-       plt.Line2D([], [], color='0.25', ls='-', lw=1.1),
-       plt.Line2D([], [], color=_QCOL[0], lw=1.2), plt.Line2D([], [], color=_QCOL[1], lw=1.2),
-       plt.Line2D([], [], color='0.35', ls='-', lw=1.2),
-       plt.Line2D([], [], color='0.35', ls=':', lw=1.2)]
+  axes[0][0].annotate({'peak': 'peak spectrum',
+                       'fluence': 'time-integrated spectrum'}[kind],
+                      (0.04, 0.14), xycoords='axes fraction', fontsize=8, color='0.3')
+  h = [plt.Line2D([], [], color=_QCOL[0], lw=1.3), plt.Line2D([], [], color=_QCOL[1], lw=1.3),
+       plt.Line2D([], [], color='0.35', ls='-', lw=1.3),
+       plt.Line2D([], [], color='0.35', ls=':', lw=1.3)]
   fig.tight_layout()
   # below the axes, not inside one: every panel here is full to the edges, and the corner
   # the legend used covered the regime label of the last column
-  fig.legend(h, ['peak', 'time-integrated', 'lower break', 'upper break',
-                 'half-slope point', 'curvature maximum'], fontsize=7.5, ncol=6,
+  fig.legend(h, ['lower break', 'upper break', 'half-slope point',
+                 'curvature maximum'], fontsize=7.5, ncol=4,
              loc='upper center', bbox_to_anchor=(0.5, 0.035), frameon=False)
-  f = os.path.join(outdir, 'spectrum_shape_knee_estimators_%s.png' % _shell_name(z))
+  f = os.path.join(outdir,
+                   'spectrum_shape_knee_estimators_%s_%s.png' % (_shell_name(z), kind))
   fig.savefig(f, dpi=200, bbox_inches='tight'); plt.close(fig)
   return f
 
