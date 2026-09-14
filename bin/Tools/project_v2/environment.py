@@ -19,9 +19,16 @@ from phys_functions_shells import shells_complete_setup, shells_add_analytics, s
 
 default_path = str(Path().absolute().parents[1] / 'phys_input.ini')
 Initial_path = str(Path().absolute().parents[1] / 'src/Initial/')
-cwd = os.getcwd().split('/')
-iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
-GAMMA_dir = '/'.join(cwd[:iG+1])
+# The project root. GAMMA_DIR, when set, wins: a post-processing job staged onto a
+# compute node's local disk (hpc/stage.sh) runs out of a COPY of this tree, and the cwd
+# rule below cannot name that copy -- it takes the FIRST path element containing 'GAMMA',
+# so any directory above the copy whose name happens to contain GAMMA captures it and
+# every results/ path silently resolves to the wrong tree. Unset, the rule is unchanged.
+GAMMA_dir = os.environ.get('GAMMA_DIR', '').rstrip('/')
+if not GAMMA_dir:
+  cwd = os.getcwd().split('/')
+  iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
+  GAMMA_dir = '/'.join(cwd[:iG+1])
 
 
 ##### The measured field correction on gamma_c

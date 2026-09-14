@@ -15,10 +15,16 @@ import more_itertools as mit
 from environment import MyEnv
 from variables import var2func
 
-# get local GAMMA directory
-cwd = os.getcwd().split('/')
-iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
-GAMMA_dir = '/'.join(cwd[:iG+1])
+# The project root. GAMMA_DIR, when set, wins: a post-processing job staged onto a
+# compute node's local disk (hpc/stage.sh) runs out of a COPY of this tree, and the cwd
+# rule below cannot name that copy -- it takes the FIRST path element containing 'GAMMA',
+# so any directory above the copy whose name happens to contain GAMMA captures it and
+# every results/ path silently resolves to the wrong tree. Unset, the rule is unchanged.
+GAMMA_dir = os.environ.get('GAMMA_DIR', '').rstrip('/')
+if not GAMMA_dir:
+  cwd = os.getcwd().split('/')
+  iG = [i for i, s in enumerate(cwd) if 'GAMMA' in s][0]
+  GAMMA_dir = '/'.join(cwd[:iG+1])
 
 def get_dirpath(key):
   return GAMMA_dir + '/results/%s/' % (key)
