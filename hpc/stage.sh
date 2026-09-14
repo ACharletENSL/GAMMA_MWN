@@ -257,6 +257,36 @@ stage_drain(){
   rm -f "$list"
 }
 
+# WHAT THE JOB ACTUALLY WROTE. The cost that matters on this file server is the NUMBER of
+# operations, not the bytes, and a plain rsync back is O(everything staged): the receiver
+# stats every file in the source list on the work side, so a read-only sweep would spend
+# 20 000 NFS stats reporting that nothing changed. Marking the tree when staging ends and
+# listing what is newer makes the return trip O(files written) -- a handful for a sweep.
+# find -type f also means a symlinked input can never be copied back over itself.
+stage_mark(){
+  [ "$STAGE_ACTIVE" = 1 ] || return 0
+  : > "$STAGE_DIR/.stage_mark"
+}
+
+stage_out_changed(){
+  [ "$STAGE_ACTIVE" = 1 ] || return 0
+  local rel="${1%/}"; shift
+  local src="$STAGE_DIR/$rel" list n
+  [ -d "$src" ] && [ ! -L "$src" ] || return 0
+  [ -f "$STAGE_DIR/.stage_mark" ] || { stage_out "$rel" "$@"; return $?; }
+  list="$(mktemp)"
+  ( cd "$src" && find . -type f -newer "$STAGE_DIR/.stage_mark" -print ) > "$list"
+  n=$(wc -l < "$list")
+  if [ "$n" -gt 0 ]; then
+    stage_log "out    $rel: $n new or changed files -> work"
+    mkdir -p "$STAGE_WORK/$rel"
+    rsync -a "$@" --files-from="$list" "$src/" "$STAGE_WORK/$rel/"
+  else
+    stage_log "out    $rel: nothing written, nothing sent"
+  fi
+  rm -f "$list"
+}
+
 stage_close(){
   [ "$STAGE_ACTIVE" = 1 ] || return 0
   if [ "${GAMMA_STAGE_KEEP:-0}" = "1" ]; then
@@ -320,18 +350,30 @@ stage_analysis_in(){
     link) stage_link "results/$key/cells" ;;
     *)    stage_log "unknown STAGE_CELLS='$cells'"; return 2 ;;
   esac
+
+  # LAST, once every copy is done: everything newer than this is the job's own output,
+  # which is what stage_out_changed sends back.
+  stage_mark
   return 0
 }
 
-# figures/ holds the sweep point caches, so a job that cannot see them recomputes every
-# point instead of reloading it -- but 93% of the tree is the OTHER runs' folders
-# (fiducial 769 MB, hires 347 MB locally), and a run never reads another run's cache:
-# method_outdir is under figdir(key) precisely so two runs cannot share one. Copy this
-# run's, symlink the rest -- anything that does read them still can, over NFS.
+# figures/ holds the sweep point caches. It is SYMLINKED by default, and that is the
+# op-count answer rather than the byte-count one: a sweep reads a handful of cache files
+# out of thousands, so copying the tree in would cost thousands of opens to save a dozen.
+# Its writes then land on ~/work directly, exactly as they did before any of this existed
+# -- no worse, and nothing staged that nobody reads.
+# STAGE_FIGS=copy restores the copy for a job that really does re-read the tree; it still
+# skips the other runs' folders, which are 93% of it (fiducial 769 MB, hires 347 MB) and
+# which a run never reads -- method_outdir lives under figdir(key) so two runs cannot
+# share a cache.
 stage_figs_in(){
   [ "$STAGE_ACTIVE" = 1 ] || return 0
   local key="$1" others d
   local args=()
+  if [ "${STAGE_FIGS:-link}" != "copy" ]; then
+    stage_link "bin/Tools/figures"
+    return 0
+  fi
   others="$(stage_other_run_folders "$key")"
   if [ -z "$others" ]; then
     stage_in "bin/Tools/figures" || stage_link "bin/Tools/figures"
@@ -443,7 +485,7 @@ stage_analysis_cd(){
 stage_analysis_out(){
   local key="$1"
   cd "$STAGE_WORK" || return 1
-  stage_out "results/$key" --exclude='phys[0-9]*.out' --no-links
-  stage_out "bin/Tools/figures" --no-links
-  stage_out "extracted_data" --no-links
+  stage_out_changed "results/$key"
+  stage_out_changed "bin/Tools/figures"
+  stage_out_changed "extracted_data"
 }

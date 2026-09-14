@@ -4,6 +4,19 @@
 write large numbers of files. Such jobs must now copy what they need to the compute
 node's local temp directory, run there, and copy the outputs back to `~/work` at the end.
 
+**What the server is limited by is the NUMBER of operations, not the bytes.** That single
+fact decides every choice below, and it is sharper than "copy things locally":
+
+> Copying a directory in is itself one pass over it. Staging therefore pays only when the
+> staged copy is read **more than once**. A job that reads each cell once and is then
+> staged has simply moved its opens from the analysis to rsync.
+
+So: the sweep points of one shell run in **one** job on **one** staged copy (nine reads,
+one pass) rather than as eight array tasks (eight passes, staged or not); `figures/` is
+**symlinked**, because a sweep reads a dozen of its thousands of files; and the copy back
+sends only what the job actually wrote, instead of stat-ing every staged file to discover
+that nothing changed.
+
 Our post-processing is exactly that job. One hi-res cell history is 18 MB and a shell
 pass opens 20 000 of them, once per sweep point; the file **open** alone costs ~2.3 s per
 cell over NFS, so a sweep is latency against the file server rather than computation. The
@@ -55,19 +68,20 @@ cells are read from `~/work` instead.
 
 ## The sweep launchers
 
-`hpc/sweep_prep.sh` and `hpc/sweep_point.sh` are the staged versions of the `*_k.sh`
-scripts, driven exactly as before:
+`hpc/sweep_point.sh` computes all nine points of one (run, shell) on one staged copy:
 
 ```bash
-P=$(sbatch --parsable --export=ALL,RUNKEY=$KEY,ZSH=$Z,METHOD=data+rarcut hpc/sweep_prep.sh)
-sbatch --dependency=afterok:$P --export=ALL,RUNKEY=$KEY,ZSH=$Z,METHOD=data+rarcut \
-       --array=0-7 hpc/sweep_point.sh
+sbatch --export=ALL,RUNKEY=$KEY,ZSH=$Z,METHOD=data+rarcut hpc/sweep_point.sh
 ```
 
-That array is the job the file server went down under: eight tasks, each opening every
-cell of the run. Each task now stages its own shell onto its own node. Two tasks landing
-on the same node will not both fit (165 GiB against ~208 GiB); the second notices and
-reads from work, which is what the old behaviour was anyway.
+The eight-task array it replaces is the shape of job the file server went down under, and
+staging would not have saved it: each task reads every cell exactly once, so copying the
+shell in is one pass and the task is another -- eight tasks, eight passes, staged or not.
+Nine points on one copy is **one** pass, at nine times the wall clock.
+
+`POINTS_PER_TASK=n` splits it again when the wall clock matters more than the server does;
+the cost is then one pass per *task*. In that mode `hpc/sweep_prep.sh` runs first, because
+the prologue (cellscan, rarefaction head) must exist before the tasks race for it.
 
 `hpc/regen.sh` is the staged figure regeneration and `hpc/submit_rerun.sh` chains the
 whole thing (prep -> array -> regen, for both runs), so the usual recompute is just
@@ -101,6 +115,8 @@ stage_analysis_cd || exit 1
 | `STAGE_CELLS` | `in` | `in` copy the cells in (reading jobs) / `out` start empty and drain back (extraction) / `link` read over NFS |
 | `STAGE_DUMPS` | `0` | `1` copies `phys*.out` in as well -- 502 GiB at hi-res, so it usually falls back to symlinks |
 | `STAGE_SHELL` | unset | stage only shell 4 or 1's cells, the range read from the run's grid |
+| `STAGE_FIGS` | `link` | `copy` copies this run's figure folder in instead of symlinking the tree |
+| `POINTS_PER_TASK` | all | sweep points per array task; fewer tasks = fewer passes over the cells |
 | `CELLS_FILTER` | empty | raw rsync filters for the cells copy, when `STAGE_SHELL` will not do |
 | `DRAIN_SECS` | `600` | how often written cells are pushed back (`STAGE_CELLS=out`) |
 | `GAMMA_STAGE` | `1` | `0` runs straight out of `~/work`, as before |
@@ -121,13 +137,18 @@ each copy runs, which is what stops `/tmp` filling under a wrong estimate.
 
 ## What gets staged
 
-The analysis code (7 MB, which also pins the job to one commit), `phys_input.ini`, the
-run's own directory, `extracted_data`, and the figures tree -- minus the other runs'
-figure folders, which are 93% of it (`fiducial` 769 MB, `hires` 347 MB) and which a run
-never reads, since `method_outdir` lives under `figdir(key)` precisely so two runs cannot
-share a cache. Those are symlinked, so anything that does read them still can.
+Copied: the analysis code (7 MB, which also pins the job to one commit), `phys_input.ini`,
+the run directory's small files, `extracted_data`, and the cells per `STAGE_CELLS`.
 
-The snapshots and the cells follow `STAGE_DUMPS` / `STAGE_CELLS` above.
+Symlinked: `bin/Tools/figures`, because a job reads a handful of its files and copying the
+tree would cost thousands of opens to save a dozen -- its writes go to `~/work` directly,
+exactly as they did before any of this existed. And the snapshots, unless `STAGE_DUMPS=1`
+and they fit.
+
+Copied back: **only what the job wrote.** The tree is marked when staging ends and the
+return trip carries what is newer, so a read-only sweep sends nothing and spends nothing
+finding that out. A plain `rsync -a` back would have stat-ed all 20 000 staged cells on
+the work side to conclude the same.
 
 ## The node's local disk (measured 2026-09-14, cn01)
 
