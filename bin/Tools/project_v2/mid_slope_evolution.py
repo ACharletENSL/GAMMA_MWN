@@ -26,8 +26,25 @@ inside the identified window) and a_win (a free line across all of it) -- so the
 estimator can be read off the same rows. Both inherit the identified window's asymmetry and
 return +0.036 (fc) / -0.035 (sc) on synthetics whose mid slope IS the asymptote; a_mid does
 not, and what remains of its own bias is calibrated in segment_route.mid_bias_calibration.
-  SOLID   the window re-centred successfully -- the value the fit stands on.
-  HOLLOW  it did not, and the fit fell back to the line over the identified window.
+WHAT THE LINE STYLE SAYS is whether the spectrum DISPLAYS the segment a_mid describes.
+identify_segments admits a mid segment on SEG_MIN_MID_DEX = 1.45 decades of identified
+window, which asserts that the two breaks are resolved -- NOT that the asymptote is
+reached. The width over which the slope actually settles is reported separately as `core`,
+and it is 0 for 278 of the 3404 fc/sc bins here. Those bins are not worse fits: their rms
+is the LOWEST in the sweep (0.0079 dex, against 0.0108-0.0127 where core > 0), and freeing
+the held slope instead moves it by only 0.008, so neither the residual nor the fit can tell
+them apart. Only `core` can, which is why it, and not the fit, sets the style:
+
+  SOLID LINE     core > 0: the spectrum displays a settled segment and a_mid is its index.
+  DASHED LINE    core > 0, but the measurement window did not re-centre, so the value
+                 carries the identified window's asymmetry (about +0.02 fc / -0.02 sc).
+  OPEN CIRCLES   core = 0: no settled segment. a_mid is a real local slope -- the value the
+                 knee passes through over that window -- but it is a SHAPE PARAMETER of the
+                 fit, not a cooling index, and must not be read as a departure from one.
+
+This replaces the earlier convention, which split on the re-centring alone. That split was
+close to orthogonal to this one and read backwards: every one of the 1004 fell-back bins
+has core > 0, so the old hollow markers flagged the bins whose segment is real.
 
 The MARGINAL class is measured (under both the shape and the physical bounds on a_mid) and
 written to the csv, but is NOT drawn. Bounded to what a fused fast- or slow-cooling knee can
@@ -267,7 +284,9 @@ def _vfc_bias_interp():
     return None
   pts, val = [], []
   for r in csv.DictReader(open(path)):
-    if r['bias'] in ('', 'nan') or r['regime'] not in ('VFC', 'FC*'):
+    # VFC nodes ONLY. The grid never contained an FC* node -- synth_vfc cannot build one --
+    # so admitting the label here only ever meant "correct FC* with VFC's answer".
+    if r['bias'] in ('', 'nan') or r['regime'] != 'VFC':
       continue
     b = float(r['bias'])
     if abs(b) > BIAS_MAX:
@@ -303,15 +322,51 @@ def _bias_interp(branch):
   return LinearNDInterpolator(np.array(pts), np.array(val))
 
 
-def _ylim(vals, pad=0.06, top=0.0):
-  '''Limits from the data being drawn, with `top` extra headroom in units of its range --
-  the panel carrying the legend needs a band above the tracks, the other does not.'''
+def _ylim(vals, pad=0.06, top=0.0, bot=0.0):
+  '''Limits from the data being drawn, with `top`/`bot` extra headroom in units of its
+  range -- each panel carries a legend and needs a clear band for it, the colour key above
+  the slow-cooling tracks and the style key below the fast-cooling ones.'''
   v = np.asarray([q for q in vals if np.isfinite(q)], float)
   if not v.size:
     return None
   lo, hi = float(v.min()), float(v.max())
   r = max(hi - lo, 1e-3)
-  return lo - pad*r, hi + (pad + top)*r
+  return lo - (pad + bot)*r, hi + (pad + top)*r
+
+
+SEG, SEG_FB, NOSEG, UNC = 'seg', 'seg_fallback', 'noseg', 'unc'
+RUN_GAP = 3.0             # a line is broken across a gap wider than this in x ratio: the
+                          # sampling is geometric, so neighbouring bins sit within a few
+                          # percent and anything wider means bins of another style (or no
+                          # measurement at all) were skipped over
+
+
+def _runs(rows, gap=RUN_GAP):
+  '''Contiguous runs of a style group, so a line is never drawn across bins of a
+  different style. Rows arrive sorted in x.'''
+  out, cur = [], []
+  for r in rows:
+    if cur and r['x'] > cur[-1]['x']*gap:
+      out.append(cur); cur = []
+    cur.append(r)
+  if cur:
+    out.append(cur)
+  return [q for q in out if q]
+
+
+def _style_group(r, corrected):
+  '''
+  Which visual class a row belongs to. The PRIMARY split is `core`: whether the spectrum
+  displays a settled mid segment at all, because that is what decides whether a_mid is an
+  index or a shape parameter of the fit. The re-centring split is secondary and only
+  separates the two kinds of genuine segment. See the module docstring.
+  '''
+  if corrected and not np.isfinite(r.get('a_corr', np.nan)) and np.isfinite(r['a_mid']):
+    return UNC
+  c = r.get('core', np.nan)
+  if not np.isfinite(c) or c <= 0.:
+    return NOSEG
+  return SEG if r['mid_from'] == 'plateau_recentred' else SEG_FB
 
 
 def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
@@ -348,9 +403,18 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       if itp is not None and np.isfinite(r.get('sep', np.nan)) \
          and np.isfinite(r.get('s1', np.nan)):
         b = float(itp(r['sep'], r['s1']))
-      elif itp1 is not None and np.isfinite(r.get('depth', np.nan)) \
-           and np.isfinite(r.get('s2', np.nan)):
+      elif itp1 is not None and r.get('regime') == 'VFC' \
+           and np.isfinite(r.get('depth', np.nan)) and np.isfinite(r.get('s2', np.nan)):
         b = float(itp1(r['depth'], r['s2']))   # single break: no lower break to index by
+      # FC* IS NOT CORRECTED OFF THAT GRID, though it used to be (378 bins). vfc_bias_grid's
+      # geometry is synth_vfc's -- no lower break at all -- and segment_route.fcstar_bias_grid
+      # measures what that costs: the VFC grid returns -0.003 to -0.011, the WRONG SIGN, so
+      # subtracting it made the FC* departure larger, while the right shape gives +0.014 to
+      # +0.053 (median over s1 and the break offset), i.e. about the whole raw departure at
+      # every depth. The FC* grid cannot be applied either: its third axis is s1, which the
+      # single-break shape does not fit, and the bias moves 5x across the plausible s1 range.
+      # So these bins are reported uncorrected until FC* is given a measurable geometry --
+      # see fcstar_bias_grid's docstring for the one-line route to that.
       r['bias'] = b
       r['a_corr'] = r['a_mid'] - b if np.isfinite(b) else np.nan
       n_un += int(not np.isfinite(b))
@@ -368,26 +432,24 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     for lr in sorted({r['logr'] for r in sub}):
       d = sorted([r for r in sub if r['logr'] == lr], key=lambda r: r['x'])
       c = col(lr)
-      # SOLID where the measurement window was re-centred on its own slope -- the value
-      # the spectral fit holds. HOLLOW where that re-centring found no window and the fit
-      # fell back to the line over the identified (asymmetric) window, which carries a
-      # known offset of about +0.02 fast / -0.02 slow.
-      # the split is by HOW the slope was measured, not by whether a correction existed:
-      # re-centred windows draw as a line, the fell-back ones (VFC/FC*, which have no 4/3
-      # window to re-centre against) as open circles. In the raw figure every bin has a
-      # value, so nothing is faint there.
-      rec = [r for r in d if r['mid_from'] == 'plateau_recentred' and np.isfinite(val(r))]
-      fell = [r for r in d if r['mid_from'] != 'plateau_recentred' and np.isfinite(val(r))]
-      unc = ([r for r in d if not np.isfinite(r['a_corr']) and np.isfinite(r['a_mid'])]
-             if corrected else [])
-      if rec:
-        ax.plot([r['x'] for r in rec], [val(r) for r in rec], '-', color=c,
-                lw=1.8, solid_capstyle='round', zorder=3)
-      if fell:
-        ax.plot([r['x'] for r in fell], [val(r) for r in fell], 'o', mfc='none',
-                mec=c, ms=3.6, mew=1.0, ls='none', zorder=2)
-      if unc:   # corrected figure only: no correction available, so plotted raw
-        ax.plot([r['x'] for r in unc], [r['a_mid'] for r in unc], '.', color=c,
+      # Style says whether the segment EXISTS (core), not how well the shape fitted --
+      # the rms cannot tell the two apart. See _style_group and the module docstring.
+      grp = {}
+      for r in d:
+        g_ = _style_group(r, corrected)
+        if np.isfinite(r['a_mid'] if g_ == UNC else val(r)):
+          grp.setdefault(g_, []).append(r)
+      # a track is broken wherever its style changes, so a run of core=0 bins is not
+      # joined across by the line either side of it
+      for g_, ls, lw, z in ((SEG, '-', 1.8, 3), (SEG_FB, '--', 1.5, 3)):
+        for run in _runs(grp.get(g_, [])):
+          ax.plot([r['x'] for r in run], [val(r) for r in run], ls, color=c,
+                  lw=lw, solid_capstyle='round', zorder=z)
+      if grp.get(NOSEG):      # no settled segment: a_mid is a shape parameter
+        ax.plot([r['x'] for r in grp[NOSEG]], [val(r) for r in grp[NOSEG]], 'o',
+                mfc='none', mec=c, ms=3.6, mew=1.0, ls='none', zorder=2)
+      if grp.get(UNC):        # corrected figure only: no correction available, plotted raw
+        ax.plot([r['x'] for r in grp[UNC]], [r['a_mid'] for r in grp[UNC]], '.', color=c,
                 ms=3.0, alpha=0.7, ls='none', zorder=2)
     ax.set_xscale('log')
     # limits from what is actually drawn, so a correction that shifts the distribution
@@ -396,7 +458,8 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     # the drawn range, which is what makes it a constant slice of the panel whatever range
     # the data happens to span. 0.30 leaves the legend room without the empty strip a larger
     # value opened up on the raw figure, whose sc tracks span twice the corrected ones.
-    lim = _ylim(drawn, top=(0.30 if br == 'sc' else 0.0))
+    lim = _ylim(drawn, top=(0.30 if br == 'sc' else 0.0),
+                bot=(0.0 if br == 'sc' else 0.26))
     ax.set_ylim(*(lim if lim else ylim))
     ax.grid(True, which='major', color=GRID, lw=0.6, alpha=0.9)
     ax.set_axisbelow(True)
@@ -423,6 +486,24 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
                        borderaxespad=0.4)
   leg.get_title().set_color(MUTED)
   for t in leg.get_texts():
+    t.set_color(INK)
+  # SECOND key, on the fast-cooling panel: what the style asserts about the segment. It is
+  # the distinction the figure exists to make, so it is spelled out rather than left to the
+  # caption -- a reader who takes every drawn point for a measured index reads the early
+  # tracks exactly wrong.
+  sh = [Line2D([], [], color=MUTED, lw=1.8),
+        Line2D([], [], color=MUTED, lw=1.5, ls='--'),
+        Line2D([], [], color=MUTED, lw=0, marker='o', mfc='none', mec=MUTED, ms=3.6)]
+  sl = ['settled segment', 'settled, window not re-centred',
+        'no settled segment: shape parameter']
+  if corrected:   # the fourth state exists only here -- see the `unc` branch above
+    sh.append(Line2D([], [], color=MUTED, lw=0, marker='.', ms=4.5))
+    sl.append('outside the bias grid: raw')
+  leg2 = axes[1].legend(sh, sl, fontsize=8.0, loc='lower center', ncol=len(sh),
+                        frameon=True,
+                        framealpha=0.92, edgecolor=GRID, columnspacing=1.0,
+                        handlelength=1.6, handletextpad=0.4, borderaxespad=0.4)
+  for t in leg2.get_texts():
     t.set_color(INK)
   fig.tight_layout()
   path = os.path.join(outdir, fname)
