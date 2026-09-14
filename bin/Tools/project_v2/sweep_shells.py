@@ -10,13 +10,20 @@ accelerated behind the reverse shock (Z_SHELL = 4). This one adds the SLOW shell
 (forward-shocked, z = 1) and shows the two side by side with their sum, one
 figure per cooling regime (3 curves per panel, hence the split by regime).
 
-Computation: the reference data-driven pipeline (method 'data', i.e.
-get_shell_nuFnu_fromData with rar_cut=None -- the rarefaction wave as the
-simulation resolves it, every cell followed to its last snapshot) on the fiducial
-run cooling_g100 -- the same numbers sweep_rarcut uses as its side B, so the RS
-side here IS that cached sweep, reused unchanged. Pass method='data_rarcut' for
-the same figures under the modelled sharp cut-off instead; they land in their own
-directory.
+Computation: METHOD, which is sweep_gammacm.DEFAULT_METHOD and so has been
+'data_rarcut' since 2026-09-07 -- get_shell_nuFnu_fromData with rar_cut='model',
+the modelled sharp cut-off at R_rar, on the fiducial run cooling_g100. It is the
+article's own prescription and the same numbers sweep_rarcut uses as its side A,
+so the RS side here IS that cached sweep, reused unchanged.
+
+WHICH DIRECTORY HOLDS WHICH METHOD moved when that default did, and the old
+answer is still on disk. `figures/<run>/shells_split` is whatever METHOD is
+TODAY, i.e. the RARCUT set; any other method gets a '_{method}' suffix, so the
+uncut reference is `shells_split_data` (method='data', rar_cut=None, every cell
+followed to its last snapshot). A `shells_split_data_rarcut` directory predates
+the switch -- back then METHOD was 'data', so the rarcut set was the suffixed
+one. Its name means the opposite of what it says now: it is the same physics as
+`shells_split`, four weeks staler. Read the mtimes, not the name.
 
 Two facts make the sum well defined:
 
@@ -39,8 +46,8 @@ fixed offset above the RS (+0.50 dex here). Figures are indexed by the RS value
 -- the sweep parameter -- with the FS value annotated.
 
 Example use in command line:
-  python -c "import sweep_shells as S; S.main(nproc=7)"
-  python -c "import sweep_shells as S; S.main(method='data_rarcut', nproc=7)"
+  python -c "import sweep_shells as S; S.main(nproc=7)"                    # rarcut
+  python -c "import sweep_shells as S; S.main(method='data', nproc=7)"     # uncut
 '''
 
 import os
@@ -699,8 +706,11 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, method=METHOD, outdir=None,
   Ensure both shells' sweeps exist (the RS one is normally already cached from
   sweep_rarcut -- same key, same method, same z, so it is reused bit for bit),
   then build the per-regime series and the cross-regime summary.
-  method: the reference METHOD ('data') writes to OUTDIR; any other computation
-  gets its own '_{method}' directory so the two sets coexist.
+  method: METHOD -- 'data_rarcut', the article's prescription -- writes to OUTDIR
+  (`shells_split`); any other computation gets its own '_{method}' directory so the
+  two sets coexist, which puts the uncut reference in `shells_split_data`. See the
+  module docstring: the naming is relative to today's METHOD, not to a fixed method,
+  so a directory written before the default moved can carry a misleading name.
   '''
   outdir = (figdir(OUTDIR_NAME if method == METHOD else f'{OUTDIR_NAME}_{method}', key)
             if outdir is None else outdir)
