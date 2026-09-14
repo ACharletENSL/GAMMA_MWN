@@ -508,9 +508,10 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY
   departure is a low-frequency one in fast cooling and nearly nothing in slow cooling,
   where the two shells' peaks have run together.
 
-  The half-maximum crossings of the RS and of the sum are drawn as bars at their own
-  half-peak level, so the two widths quoted in each panel can be read off the curves rather
-  than taken on trust.
+  The half-maximum crossings of the RS and of the sum are ticked on their own curves, at
+  their own half-peak level, so the two widths quoted in each panel can be read off the
+  curves rather than taken on trust. The ticks alone, not a bar spanning them: see the
+  drawing block.
   '''
   os.makedirs(outdir, exist_ok=True)
   e0 = MyEnv(key)
@@ -536,11 +537,16 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY
       y = sp[tag]/norm
       ax_s.loglog(x, np.where(y > 0., y, np.nan), **STY[tag])
     m = {tag: peak_and_width(x, sp[tag]) for tag in ('RS', 'tot')}
-    for tag in ('RS', 'tot'):     # the half-maximum span, on the curve it was measured on
+    for tag in ('RS', 'tot'):     # the two crossings, ON the curve they were measured on
       lo, hi = m[tag][f'nu_lo_{level}'], m[tag][f'nu_hi_{level}']
       if np.isfinite(lo) and np.isfinite(hi):
+        # the crossings only, not the span between them: a bar joining them runs along
+        # half-peak across most of the panel and reads as a spectral feature of its own,
+        # which at this line density is exactly what the figure does not need. Each tick
+        # sits on its curve by construction -- that is where the curve passes half its
+        # maximum -- so the width is still the distance between two things you can see.
         ax_s.plot([lo, hi], [0.5*m[tag]['F_pk']/norm]*2, color=STY[tag]['color'],
-                  lw=.9, marker='|', ms=5, alpha=.85, zorder=5)
+                  ls='none', marker='|', ms=7, mew=1.3, alpha=.9, zorder=5)
     with np.errstate(divide='ignore', invalid='ignore'):
       ratio = np.where(sp['RS'] > 0., sp['tot']/sp['RS'], np.nan)
     ax_r.plot(x, ratio, color=COL_TOT, lw=1.2)
@@ -553,7 +559,7 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY
     vis = np.any(np.array([sp[t] for t, _ in _curves(p)])/norm > ylo, axis=0)
     if vis.any():
       ax_s.set_xlim(x[vis].min()/3., x[vis].max()*3.)
-    # 1.5 decades of headroom above the total's peak, so the half-maximum bars (which sit
+    # 1.5 decades of headroom above the total's peak, so the half-maximum ticks (which sit
     # at half of it) clear the corner annotations below
     ax_s.set_ylim(ylo, 10.**1.5)
     # regime upper LEFT, widths upper RIGHT: the rising 4/3 end is at the bottom of the
