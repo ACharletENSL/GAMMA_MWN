@@ -12,7 +12,9 @@ fact decides every choice below, and it is sharper than "copy things locally":
 > staged has simply moved its opens from the analysis to rsync.
 
 So: the sweep points of one shell run in **one** job on **one** staged copy (nine reads,
-one pass) rather than as eight array tasks (eight passes, staged or not); `figures/` is
+one pass) rather than as eight array tasks (eight passes, staged or not) -- and that is
+not nine times the wall clock either, because most of a cold point IS the reading (~2.3 s
+per cell open, 20 000 cells), which now happens once; `figures/` is
 **symlinked**, because a sweep reads a dozen of its thousands of files; and the copy back
 sends only what the job actually wrote, instead of stat-ing every staged file to discover
 that nothing changed.
@@ -77,7 +79,14 @@ sbatch --export=ALL,RUNKEY=$KEY,ZSH=$Z,METHOD=data+rarcut hpc/sweep_point.sh
 The eight-task array it replaces is the shape of job the file server went down under, and
 staging would not have saved it: each task reads every cell exactly once, so copying the
 shell in is one pass and the task is another -- eight tasks, eight passes, staged or not.
-Nine points on one copy is **one** pass, at nine times the wall clock.
+Nine points on one copy is **one** pass, and cheaper in wall clock than it sounds: the
+cold cost of a point is dominated by the ~2.3 s cell open, so points two to nine read
+local disk instead.
+
+The remaining factor is in the analysis, not here: `run_sweep` loops points outside cells,
+so nine points means nine passes over the cell histories. Accumulating all nine spectra in
+one pass over each cell would make the staging unnecessary for this job and drop the wall
+clock with it -- a real change to the emission kernel, not to a launcher.
 
 `POINTS_PER_TASK=n` splits it again when the wall clock matters more than the server does;
 the cost is then one pass per *task*. In that mode `hpc/sweep_prep.sh` runs first, because

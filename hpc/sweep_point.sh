@@ -15,10 +15,11 @@
 # a shell in is itself one pass, so a task that reads it once only moves the opens from
 # the analysis to rsync. Staging only pays when the copy is read more than once.
 #
-# Hence the default here: ONE task, all nine points, one staged copy read nine times.
-# 1/9 of the passes, at nine times the wall clock. Split it with POINTS_PER_TASK (and a
-# matching --array) when the wall clock matters more than the server does -- each task is
-# then its own pass, so the cost is one pass per TASK, not per point.
+# Hence the default here: ONE task, all nine points, one staged copy read nine times --
+# 1/9 of the passes, and not 9x the wall clock either, since the cold cost of a point is
+# dominated by the ~2.3 s cell open and only the first pass pays it. Split it with
+# POINTS_PER_TASK (and a matching --array) when the clock matters more than the server
+# does: each task is then its own pass, so the cost is one pass per TASK, not per point.
 set -u
 export MPLBACKEND=Agg
 export GAMMACM_NPROC=${SLURM_CPUS_PER_TASK:-1}
