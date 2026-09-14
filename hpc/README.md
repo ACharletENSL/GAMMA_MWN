@@ -42,10 +42,40 @@ sbatch --cpus-per-task=32 --mem=120G hpc/submit_analysis.sh \
 ```
 
 Both shells' hi-res cells are 331 GiB and do not fit; one shell (10 000 x 18 MB = 165 GiB)
-does, so a single-shell sweep stages properly if you say which cells you want:
+does, so say which shell the job is for and only that one is staged:
 
 ```bash
-CELLS_FILTER="--include=1[0-9][0-9][0-9][0-9].* --include=20[0-3][0-9][0-9].* --exclude=*"
+STAGE_SHELL=4      # or 1 -- the index range comes from the run's own grid
+```
+
+`CELLS_FILTER` takes raw rsync filters if you ever need something `STAGE_SHELL` cannot
+express. A partial cell copy is never kept either way: it would be silently wrong, summing
+emission over whichever cells happened to arrive, so a failed copy is thrown away and the
+cells are read from `~/work` instead.
+
+## The sweep launchers
+
+`hpc/sweep_prep.sh` and `hpc/sweep_point.sh` are the staged versions of the `*_k.sh`
+scripts, driven exactly as before:
+
+```bash
+P=$(sbatch --parsable --export=ALL,RUNKEY=$KEY,ZSH=$Z,METHOD=data+rarcut hpc/sweep_prep.sh)
+sbatch --dependency=afterok:$P --export=ALL,RUNKEY=$KEY,ZSH=$Z,METHOD=data+rarcut \
+       --array=0-7 hpc/sweep_point.sh
+```
+
+That array is the job the file server went down under: eight tasks, each opening every
+cell of the run. Each task now stages its own shell onto its own node. Two tasks landing
+on the same node will not both fit (165 GiB against ~208 GiB); the second notices and
+reads from work, which is what the old behaviour was anyway.
+
+Any other job script adopts the same thing in four lines:
+
+```bash
+STAGE_WORK="${SLURM_SUBMIT_DIR:-$PWD}"; . "$STAGE_WORK/hpc/stage.sh"
+stage_open "name.$RUNKEY"; stage_analysis_in "$RUNKEY" || exit 2
+stage_analysis_cd || exit 1
+...work...; stage_analysis_out "$RUNKEY"
 ```
 
 ## Knobs
@@ -55,7 +85,8 @@ CELLS_FILTER="--include=1[0-9][0-9][0-9][0-9].* --include=20[0-3][0-9][0-9].* --
 | `KEY` | *required* | which run to stage |
 | `STAGE_CELLS` | `in` | `in` copy the cells in (reading jobs) / `out` start empty and drain back (extraction) / `link` read over NFS |
 | `STAGE_DUMPS` | `0` | `1` copies `phys*.out` in as well -- 502 GiB at hi-res, so it usually falls back to symlinks |
-| `CELLS_FILTER` | empty | extra rsync filters for the cells copy |
+| `STAGE_SHELL` | unset | stage only shell 4 or 1's cells, the range read from the run's grid |
+| `CELLS_FILTER` | empty | raw rsync filters for the cells copy, when `STAGE_SHELL` will not do |
 | `DRAIN_SECS` | `600` | how often written cells are pushed back (`STAGE_CELLS=out`) |
 | `GAMMA_STAGE` | `1` | `0` runs straight out of `~/work`, as before |
 | `GAMMA_STAGE_ROOT` | auto | node-local root, if `/tmp` is ever not the right answer |
@@ -72,6 +103,16 @@ benefit.
 Two guards decide: an up-front size estimate (one `readdir` plus a sample, never a full
 `du` -- that walk is itself the load we are avoiding), and the free space watched while
 each copy runs, which is what stops `/tmp` filling under a wrong estimate.
+
+## What gets staged
+
+The analysis code (7 MB, which also pins the job to one commit), `phys_input.ini`, the
+run's own directory, `extracted_data`, and the figures tree -- minus the other runs'
+figure folders, which are 93% of it (`fiducial` 769 MB, `hires` 347 MB) and which a run
+never reads, since `method_outdir` lives under `figdir(key)` precisely so two runs cannot
+share a cache. Those are symlinked, so anything that does read them still can.
+
+The snapshots and the cells follow `STAGE_DUMPS` / `STAGE_CELLS` above.
 
 ## The node's local disk (measured 2026-09-14, cn01)
 

@@ -287,8 +287,7 @@ stage_analysis_in(){
   stage_in "bin/Tools/project_v2" --exclude='__pycache__' --exclude='results' \
     || stage_link "bin/Tools/project_v2"
   stage_in "phys_input.ini"
-  stage_in "bin/Tools/figures"     # the sweep point caches live here: without them a
-                                   # sweep recomputes every point instead of reloading it
+  stage_figs_in "$key"
   stage_in "extracted_data"
 
   [ "$STAGE_ACTIVE" = 1 ] && mkdir -p "$STAGE_DIR/results/$key"
@@ -322,6 +321,48 @@ stage_analysis_in(){
     *)    stage_log "unknown STAGE_CELLS='$cells'"; return 2 ;;
   esac
   return 0
+}
+
+# figures/ holds the sweep point caches, so a job that cannot see them recomputes every
+# point instead of reloading it -- but 93% of the tree is the OTHER runs' folders
+# (fiducial 769 MB, hires 347 MB locally), and a run never reads another run's cache:
+# method_outdir is under figdir(key) precisely so two runs cannot share one. Copy this
+# run's, symlink the rest -- anything that does read them still can, over NFS.
+stage_figs_in(){
+  [ "$STAGE_ACTIVE" = 1 ] || return 0
+  local key="$1" others d
+  local args=()
+  others="$(stage_other_run_folders "$key")"
+  if [ -z "$others" ]; then
+    stage_in "bin/Tools/figures" || stage_link "bin/Tools/figures"
+    return 0
+  fi
+  for d in $others; do args+=(--exclude="/$d/"); done
+  stage_log "figures: copying all but $(echo $others | tr '\n' ' ')"
+  stage_in "bin/Tools/figures" "${args[@]}" || { stage_link "bin/Tools/figures"; return 0; }
+  for d in $others; do stage_link "bin/Tools/figures/$d"; done
+}
+
+# The figure folders of every run that is NOT this one. environment.run_folder is the
+# authority on the name ('fiducial' / 'hires' / the key itself), so this does not have to
+# know the aliases.
+stage_other_run_folders(){
+  local key="$1"
+  ( cd "$STAGE_WORK/bin/Tools/project_v2" 2>/dev/null || exit 1
+    GAMMA_DIR="$STAGE_WORK" STAGE_WORK="$STAGE_WORK" "$STAGE_PY" -c '
+import os, sys
+from environment import run_folder
+root = os.environ["STAGE_WORK"]
+keep = run_folder(sys.argv[1])
+figs = os.path.join(root, "bin", "Tools", "figures")
+try:
+    runs = {run_folder(k) for k in os.listdir(os.path.join(root, "results"))}
+except OSError:
+    sys.exit(0)
+for d in sorted(runs - {keep}):
+    if os.path.isdir(os.path.join(figs, d)):
+        print(d)
+' "$key" ) 2>/dev/null
 }
 
 # The cells, which are the whole point. A PARTIAL copy would be silently wrong -- the
