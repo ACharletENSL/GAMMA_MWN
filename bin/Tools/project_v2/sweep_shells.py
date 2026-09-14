@@ -16,14 +16,16 @@ the modelled sharp cut-off at R_rar, on the fiducial run cooling_g100. It is the
 article's own prescription and the same numbers sweep_rarcut uses as its side A,
 so the RS side here IS that cached sweep, reused unchanged.
 
-WHICH DIRECTORY HOLDS WHICH METHOD moved when that default did, and the old
-answer is still on disk. `figures/<run>/shells_split` is whatever METHOD is
-TODAY, i.e. the RARCUT set; any other method gets a '_{method}' suffix, so the
-uncut reference is `shells_split_data` (method='data', rar_cut=None, every cell
-followed to its last snapshot). A `shells_split_data_rarcut` directory predates
-the switch -- back then METHOD was 'data', so the rarcut set was the suffixed
-one. Its name means the opposite of what it says now: it is the same physics as
-`shells_split`, four weeks staler. Read the mtimes, not the name.
+WHICH DIRECTORY HOLDS WHICH METHOD moved when that default did.
+`figures/<run>/shells_split` is whatever METHOD is TODAY, i.e. the RARCUT set;
+any other method gets a '_{method}' suffix, so the uncut reference is
+`shells_split_data` (method='data', rar_cut=None, every cell followed to its
+last snapshot). The suffix is therefore relative to the CURRENT default, not to
+a fixed method: a directory written before 2026-09-07 carries the opposite
+mapping, because back then METHOD was 'data' and the rarcut set was the suffixed
+one. One such leftover, `shells_split_data_rarcut` (11 August, the same physics
+as `shells_split`), was deleted on 2026-09-14. If another appears, read the
+mtimes and not the name, and regenerate rather than trust it.
 
 Two facts make the sum well defined:
 
