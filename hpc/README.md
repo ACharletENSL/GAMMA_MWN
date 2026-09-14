@@ -103,9 +103,15 @@ whole thing (prep -> array -> regen, for both runs), so the usual recompute is j
 shells at once. The fiducial's cells fit; the hi-res run's 331 GiB do not, so there they
 stay on NFS -- staging cannot help a job that needs every cell at the same time.
 
-The originals (`sweep_prep_k.sh`, `sweep_point_k.sh`, `regen.sh`, `regen_two.sh`,
-`submit_rerun.sh`) live untracked in the HPC checkout and are left alone. They are also
-one `force_git.sh` away from being deleted, since that cleans untracked files.
+The originals are kept verbatim in `hpc/unstaged/` (`sweep_prep_k.sh`,
+`sweep_point_k.sh`, `regen.sh`, `regen_two.sh`, `submit_rerun.sh`). They still sit
+untracked at the root of the HPC checkout, where they are one `force_git.sh` away from
+being deleted -- that cleans untracked files -- which is why there is a copy here. They
+run straight out of `~/work` with no staging at all, so they are both the record of how
+the `_fc2` sweeps were actually computed (jobs 987739, 989279-989283) and the fallback if
+staging is ever the thing that is broken. `regen_two.sh` has no staged counterpart: it is
+a one-off that re-ran the two steps which died with a `NameError` in job 987740, and its
+`REGEN_SKIP` is a snapshot of that job, not a setting to reuse.
 
 Any other job script adopts the same thing in four lines:
 
