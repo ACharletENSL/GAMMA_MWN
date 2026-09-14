@@ -96,6 +96,7 @@ fi
 
 # --- run -------------------------------------------------------------------------------
 stage_analysis_cd || exit 1
+echo "=== staged in at $(date '+%F %T')"
 echo "[stage] python=$(command -v python || echo MISSING)"
 echo "=== command: $CMD"
 eval "$CMD"
