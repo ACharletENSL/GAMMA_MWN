@@ -332,11 +332,11 @@ stage_analysis_in(){
   # to apply to THEM and not to the directory that now holds the files just staged.
   # 502 GiB at hi-res against ~200 GiB of /tmp, so the symlink branch is the usual one.
   if [ "$STAGE_ACTIVE" = 1 ]; then
-    if [ "$dumps" = "1" ] && [ "$(stage_estimate_kb "$src")" -lt "$(stage_free_kb)" ]; then
-      stage_log "copying the snapshots in"
-      rsync -a --include='phys[0-9]*.out' --exclude='*' "$src/" "$STAGE_DIR/results/$key/"
+    if [ "$dumps" = "1" ]; then
+      # as many as fit, symlinks for the rest: 502 GiB of hi-res snapshots against ~190
+      # GiB usable, and an extraction passes over all of them once per cell block
+      stage_partial "results/$key" 'phys[0-9]*.out'
     else
-      [ "$dumps" = "1" ] && stage_log "snapshots do not fit -- symlinking them"
       # one find with a batched exec, NOT a shell loop: there are 153 224 snapshots in a
       # hi-res run and a loop would fork ln that many times
       find "$src" -maxdepth 1 -name 'phys[0-9]*.out' \
@@ -407,6 +407,42 @@ for d in sorted(runs - {keep}):
 ' "$key" ) 2>/dev/null
 }
 
+# stage_partial REL -- copy as much of a directory as fits, symlink the remainder.
+# All-or-nothing is the wrong answer for an input that is read repeatedly and ALMOST
+# fits: the hi-res snapshots are 502 GiB against ~190 GiB usable, and an extraction makes
+# one pass over them per cell block, so caching 38% of them locally removes 38% of the
+# opens from every pass after the first. Completeness is by construction -- every entry is
+# either a real file or a symlink to the work copy -- so this is never the "partial copy"
+# that would be silently wrong.
+stage_partial(){
+  [ "$STAGE_ACTIVE" = 1 ] || return 0
+  local rel="${1%/}" pat="${2:-*}"
+  local src="$STAGE_WORK/$rel" all fit rest n nfit mean free
+  [ -d "$src" ] || { stage_log "partial: $rel does not exist, skipped"; return 0; }
+
+  all="$(mktemp)"; fit="$(mktemp)"; rest="$(mktemp)"
+  ( cd "$src" && ls -U1 . ) | grep -- "$(printf '%s' "$pat" | sed 's/[*]/.*/g')" | sort > "$all"
+  n=$(wc -l < "$all")
+  [ "$n" -gt 0 ] || { rm -f "$all" "$fit" "$rest"; return 0; }
+
+  mean=$(head -20 "$all" | (cd "$src" && xargs -d '\n' -r du -sk 2>/dev/null) \
+         | awk '{s+=$1; k++} END{print (k ? s/k : 0)}')
+  free="$(stage_free_kb)"
+  nfit=$(awk -v f="$free" -v m="$mean" 'BEGIN{print (m > 0 ? int(f/m) : 0)}')
+  [ "$nfit" -gt "$n" ] && nfit=$n
+
+  head -n "$nfit" "$all" > "$fit"
+  tail -n +$(( nfit + 1 )) "$all" > "$rest"
+  stage_log "partial $rel: copying $nfit of $n, symlinking the other $(( n - nfit ))"
+
+  mkdir -p "$STAGE_DIR/$rel"
+  [ -s "$fit" ] && rsync -a --files-from="$fit" "$src/" "$STAGE_DIR/$rel/"
+  # one xargs, not a shell loop: there are 153 224 snapshots in a hi-res run
+  [ -s "$rest" ] && awk -v d="$src/" '{print d $0}' "$rest" \
+                    | xargs -d '\n' -r ln -sf -t "$STAGE_DIR/$rel/"
+  rm -f "$all" "$fit" "$rest"
+}
+
 # The cells, which are the whole point. A PARTIAL copy would be silently wrong -- the
 # emission would be summed over whichever cells happened to arrive -- so any failure here
 # throws the copy away and reads the work tree instead.
@@ -422,8 +458,13 @@ stage_cells_in(){
     rm -f "$list"
   elif [ -n "${CELLS_FILTER:-}" ]; then
     stage_in "$rel" ${CELLS_FILTER} && ok=1
+  elif [ "$(stage_estimate_kb "$STAGE_WORK/$rel")" -ge "$(stage_free_kb)" ]; then
+    # does not fit whole (hi-res, both shells: 331 GiB). Cache what does rather than
+    # nothing: a regen reads every cell several times over.
+    stage_partial "$rel"
+    return 0
   else
-    stage_in "$rel" && ok=1        # unfiltered: stage_in links it itself if it will not fit
+    stage_in "$rel" && ok=1
     return 0
   fi
   [ "$ok" = 1 ] && return 0

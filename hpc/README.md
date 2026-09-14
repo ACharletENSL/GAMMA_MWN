@@ -113,7 +113,7 @@ stage_analysis_cd || exit 1
 |---|---|---|
 | `KEY` | *required* | which run to stage |
 | `STAGE_CELLS` | `in` | `in` copy the cells in (reading jobs) / `out` start empty and drain back (extraction) / `link` read over NFS |
-| `STAGE_DUMPS` | `0` | `1` copies `phys*.out` in as well -- 502 GiB at hi-res, so it usually falls back to symlinks |
+| `STAGE_DUMPS` | `0` | `1` caches as many `phys*.out` as fit and symlinks the rest (502 GiB at hi-res against ~190 usable) |
 | `STAGE_SHELL` | unset | stage only shell 4 or 1's cells, the range read from the run's grid |
 | `STAGE_FIGS` | `link` | `copy` copies this run's figure folder in instead of symlinking the tree |
 | `POINTS_PER_TASK` | all | sweep points per array task; fewer tasks = fewer passes over the cells |
@@ -125,9 +125,12 @@ stage_analysis_cd || exit 1
 
 ## What it does when things do not fit
 
-Nothing here fails the job. A path that will not fit in the local disk is **symlinked**
-to the work copy instead and read over NFS, exactly as before staging existed; the job is
-slower and still correct. The `[stage]` lines in `slurm-<id>.out` say which paths were
+Nothing here fails the job. What fits is cached and **the remainder is symlinked** to the
+work copy and read over NFS, so the directory is always complete -- every entry is either
+a real file or a link, and a job cannot tell the difference. An input that is read several
+times therefore still gets the local benefit for the fraction that fits: an extraction
+passes over the 502 GiB of snapshots once per cell block, and caching 38% of them takes
+38% of the opens out of every pass after the first. The `[stage]` lines in `slurm-<id>.out` say which paths were
 copied and which were linked, so the log tells you whether the job actually got the
 benefit.
 
