@@ -603,6 +603,8 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST, outdir=
   figure is drawn whenever more than one is present -- including models cached by an
   earlier call, since it reads them back off disk rather than only from this run.
   '''
+  # the run's own folder, from the key THIS call was given -- not the module's
+  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
   os.makedirs(outdir, exist_ok=True)
   # run_sweep is itself incremental: it computes only the (method, z, target) points
   # missing from the cache, so this is both the first run and the resume path
