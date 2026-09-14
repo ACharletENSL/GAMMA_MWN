@@ -47,6 +47,7 @@ STAGE_WORK="${STAGE_WORK:-${SLURM_SUBMIT_DIR:-$PWD}}"   # the GAMMA root the job
 STAGE_PARENT=""
 
 stage_log(){ printf '[stage] %s\n' "$*" >&2; }
+STAGE_PY="$(command -v python || command -v python3 || echo python)"
 
 stage_fstype(){ stat -f -c %T "$1" 2>/dev/null || echo unknown; }
 stage_avail_kb(){ df -Pk "$1" 2>/dev/null | awk 'NR==2{print $4+0}'; }
@@ -268,4 +269,140 @@ stage_close(){
     */stage.*) stage_log "removing $STAGE_PARENT"; rm -rf "$STAGE_PARENT" ;;
     *) stage_log "refusing to remove '$STAGE_PARENT' (not a staging directory)" ;;
   esac
+}
+
+# ---------------------------------------------------------------------------------------
+# The analysis tree: what every post-processing job stages, in one place, so a job script
+# is four lines rather than a copy of this. Honours STAGE_CELLS / STAGE_DUMPS /
+# CELLS_FILTER exactly as hpc/README.md documents them.
+# ---------------------------------------------------------------------------------------
+
+stage_analysis_in(){
+  local key="$1"
+  local cells="${STAGE_CELLS:-in}" dumps="${STAGE_DUMPS:-0}" src="$STAGE_WORK/results/$1"
+
+  # The code travels with the job: 7 MB, and it pins the analysis to one commit for the
+  # job's lifetime. A filtered stage_in never falls back to a symlink on its own (that
+  # would mask what it had already copied), so these two calls say what they want.
+  stage_in "bin/Tools/project_v2" --exclude='__pycache__' --exclude='results' \
+    || stage_link "bin/Tools/project_v2"
+  stage_in "phys_input.ini"
+  stage_in "bin/Tools/figures"     # the sweep point caches live here: without them a
+                                   # sweep recomputes every point instead of reloading it
+  stage_in "extracted_data"
+
+  [ "$STAGE_ACTIVE" = 1 ] && mkdir -p "$STAGE_DIR/results/$key"
+  # phys_input.ini and field_correction.json decide what the physics IS: if they are
+  # missing from the staged run directory the analysis silently falls back to the repo
+  # root's .ini and reports a different run. Link them rather than lose them.
+  stage_in "results/$key" --exclude='cells/' --exclude='phys[0-9]*.out' \
+    || find "$src" -maxdepth 1 -mindepth 1 ! -name 'phys[0-9]*.out' ! -name cells \
+            -exec ln -sf -t "$STAGE_DIR/results/$key/" {} +
+
+  # The snapshots are handled here rather than through stage_in, because the fallback has
+  # to apply to THEM and not to the directory that now holds the files just staged.
+  # 502 GiB at hi-res against ~200 GiB of /tmp, so the symlink branch is the usual one.
+  if [ "$STAGE_ACTIVE" = 1 ]; then
+    if [ "$dumps" = "1" ] && [ "$(stage_estimate_kb "$src")" -lt "$(stage_free_kb)" ]; then
+      stage_log "copying the snapshots in"
+      rsync -a --include='phys[0-9]*.out' --exclude='*' "$src/" "$STAGE_DIR/results/$key/"
+    else
+      [ "$dumps" = "1" ] && stage_log "snapshots do not fit -- symlinking them"
+      # one find with a batched exec, NOT a shell loop: there are 153 224 snapshots in a
+      # hi-res run and a loop would fork ln that many times
+      find "$src" -maxdepth 1 -name 'phys[0-9]*.out' \
+           -exec ln -sf -t "$STAGE_DIR/results/$key/" {} +
+    fi
+  fi
+
+  case "$cells" in
+    in)   stage_cells_in "$key" ;;
+    out)  [ "$STAGE_ACTIVE" = 1 ] && mkdir -p "$STAGE_DIR/results/$key/cells" ;;
+    link) stage_link "results/$key/cells" ;;
+    *)    stage_log "unknown STAGE_CELLS='$cells'"; return 2 ;;
+  esac
+  return 0
+}
+
+# The cells, which are the whole point. A PARTIAL copy would be silently wrong -- the
+# emission would be summed over whichever cells happened to arrive -- so any failure here
+# throws the copy away and reads the work tree instead.
+stage_cells_in(){
+  [ "$STAGE_ACTIVE" = 1 ] || return 0
+  local key="$1" rel="results/$1/cells" list="" ok=0
+  if [ -n "${STAGE_SHELL:-}" ]; then
+    list="$(stage_cells_list "$key" "$STAGE_SHELL")" || list=""
+  fi
+  if [ -n "$list" ]; then
+    stage_log "cells: shell $STAGE_SHELL only, $(wc -l < "$list") files"
+    stage_in "$rel" --files-from="$list" && ok=1
+    rm -f "$list"
+  elif [ -n "${CELLS_FILTER:-}" ]; then
+    stage_in "$rel" ${CELLS_FILTER} && ok=1
+  else
+    stage_in "$rel" && ok=1        # unfiltered: stage_in links it itself if it will not fit
+    return 0
+  fi
+  [ "$ok" = 1 ] && return 0
+  stage_log "       partial cell copy discarded -- reading them from work"
+  rm -rf "${STAGE_DIR:?}/$rel"
+  stage_link "$rel"
+}
+
+# The cell files of one shell, as an rsync --files-from list. The index range comes from
+# the RUN's own grid (shell_cells.shell_cell_range reads its phys_input.ini), not from a
+# hand-written glob, and it is intersected with what is actually in the directory -- one
+# readdir, and no missing entries for rsync to fail on. This is what makes a hi-res sweep
+# stageable at all: both shells are 331 GiB and do not fit, one shell is 165 GiB and does.
+stage_cells_list(){
+  local key="$1" z="$2" cells="$STAGE_WORK/results/$1/cells" out
+  [ -d "$cells" ] || return 1
+  out="$(mktemp)"
+  ls -U "$cells" 2>/dev/null | ( cd "$STAGE_WORK/bin/Tools/project_v2" 2>/dev/null || exit 1
+    GAMMA_DIR="$STAGE_WORK" "$STAGE_PY" -c '
+import sys, re
+from shell_cells import shell_cell_range
+k0, k1, _ = shell_cell_range(sys.argv[1], int(sys.argv[2]))
+for name in sys.stdin.read().split():
+    m = re.match(r"0*(\d+)", name)
+    if m and k0 <= int(m.group(1)) <= k1:
+        print(name)
+' "$key" "$z" ) > "$out" 2>/dev/null
+  if [ -s "$out" ]; then printf '%s\n' "$out"; else rm -f "$out"; return 1; fi
+}
+
+# Name the staged tree explicitly and check it took. Without GAMMA_DIR the analysis stack
+# infers its root from the cwd by the first path element containing 'GAMMA', which is
+# right here but is not something to rely on for a job that writes 300 GiB into it. If
+# the stack resolves anywhere else, drop back to ~/work rather than analysing the wrong
+# directory: slow is a nuisance, wrong is a lost job.
+stage_analysis_cd(){
+  local seen
+  export GAMMA_DIR="$STAGE_DIR"
+  cd "$STAGE_DIR/bin/Tools/project_v2" || return 1
+  seen="$("$STAGE_PY" -c 'import IO; print(IO.GAMMA_dir)' 2>/dev/null)"
+  if [ "$STAGE_ACTIVE" = 1 ] && [ "$seen" != "$STAGE_DIR" ]; then
+    stage_log "ERROR: the analysis stack resolves to '$seen', not '$STAGE_DIR'"
+    stage_log "       falling back to $STAGE_WORK (no staging)"
+    stage_close
+    STAGE_ACTIVE=0
+    STAGE_DIR="$STAGE_WORK"
+    export GAMMA_DIR="$STAGE_WORK"
+    cd "$STAGE_WORK/bin/Tools/project_v2" || return 1
+  fi
+  stage_log "cwd=$PWD"
+  stage_log "root=$GAMMA_DIR"
+  return 0
+}
+
+# Copy back what the job produced. Call it even when the job failed: a run that died after
+# twenty hours of extraction still wrote cells worth keeping. No --delete anywhere -- the
+# work copy holds results this job never produced. --no-links skips the symlinked inputs,
+# which are already in ~/work and must never be copied back over themselves.
+stage_analysis_out(){
+  local key="$1"
+  cd "$STAGE_WORK" || return 1
+  stage_out "results/$key" --exclude='phys[0-9]*.out' --no-links
+  stage_out "bin/Tools/figures" --no-links
+  stage_out "extracted_data" --no-links
 }

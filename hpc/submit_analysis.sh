@@ -77,66 +77,15 @@ echo "=== $(date '+%F %T')  job ${SLURM_JOB_ID:-none} on $(hostname -s) ==="
 echo "key=$KEY  cells=$STAGE_CELLS  dumps=$STAGE_DUMPS  cpus=${SLURM_CPUS_PER_TASK:-?}"
 
 stage_open "post.$KEY"
-
-# --- stage in -------------------------------------------------------------------------
-# The code travels with the job: it is 7 MB, it pins the analysis to one commit for the
-# job's lifetime, and the cwd is what makes IO.py resolve to the staged tree at all.
-# A filtered stage_in never falls back to a symlink on its own (it would mask what it
-# had already copied), so the two filtered calls say what they want instead. The code
-# must exist in the staged tree one way or the other -- an empty project_v2 is a job
-# that cannot even import.
-stage_in "bin/Tools/project_v2" --exclude='__pycache__' --exclude='results' \
-  || stage_link "bin/Tools/project_v2"
-stage_in "phys_input.ini"
-stage_in "bin/Tools/figures"        # sweep point caches live here: without them a sweep
-                                    # recomputes every point instead of reloading it
-stage_in "extracted_data"
-
-mkdir -p "$STAGE_DIR/results/$KEY"
-
-# The run directory's small files -- phys_input.ini, field_correction.json, the fit and
-# cellscan caches -- are read constantly and always worth having locally.
-# phys_input.ini and field_correction.json decide what the physics IS: if they are
-# missing from the staged run directory the analysis silently falls back to the repo
-# root's .ini and reports a different run. Link them rather than lose them.
-stage_in "results/$KEY" --exclude='cells/' --exclude='phys[0-9]*.out' \
-  || find "$STAGE_WORK/results/$KEY" -maxdepth 1 -mindepth 1 \
-          ! -name 'phys[0-9]*.out' ! -name cells \
-          -exec ln -sf -t "$STAGE_DIR/results/$KEY/" {} +
-
-# The snapshots are handled by hand rather than through stage_in, because the fallback
-# has to apply to THEM and not to the directory that now holds the files just staged.
-# 502 GiB at hi-res against ~200 GiB of /tmp, so the symlink branch is the usual one.
-# Guarded on STAGE_ACTIVE: these are raw commands, not stage_* calls, so with staging
-# off they would otherwise link every snapshot onto itself.
-DUMP_SRC="$STAGE_WORK/results/$KEY"
-if [ "$STAGE_ACTIVE" = 1 ]; then
-  if [ "$STAGE_DUMPS" = "1" ] && \
-     [ "$(stage_estimate_kb "$DUMP_SRC")" -lt "$(stage_free_kb)" ]; then
-    echo "[stage] copying the snapshots in"
-    rsync -a --include='phys[0-9]*.out' --exclude='*' "$DUMP_SRC/" "$STAGE_DIR/results/$KEY/"
-  else
-    [ "$STAGE_DUMPS" = "1" ] && echo "[stage] snapshots do not fit -- symlinking them"
-    # one find with a batched exec, NOT a shell loop: there are 153 224 snapshots in a
-    # hi-res run and a loop would fork ln that many times
-    find "$DUMP_SRC" -maxdepth 1 -name 'phys[0-9]*.out' \
-         -exec ln -sf -t "$STAGE_DIR/results/$KEY/" {} +
-  fi
-fi
-
-case "$STAGE_CELLS" in
-  in)   stage_in "results/$KEY/cells" ${CELLS_FILTER} ;;
-  out)  mkdir -p "$STAGE_DIR/results/$KEY/cells" ;;
-  link) stage_link "results/$KEY/cells" ;;
-  *)    echo "unknown STAGE_CELLS='$STAGE_CELLS'" >&2; exit 2 ;;
-esac
+stage_analysis_in "$KEY" || exit 2
 
 # --- drain (STAGE_CELLS=out) -----------------------------------------------------------
 # An extraction writes more than /tmp holds, so finished cells go back as the job runs.
-# Only files untouched for 2 minutes move, so a cell still being written is left alone.
+# Only files untouched for DRAIN_QUIET_MIN minutes move, so a cell still being written is
+# left alone. The subshell clears the EXIT trap: the drainer must never run stage_close.
 DRAIN_PID=""
 if [ "$STAGE_CELLS" = "out" ] && [ "$STAGE_ACTIVE" = 1 ]; then
-  ( trap - EXIT        # never let the drainer's exit run stage_close on the live tree
+  ( trap - EXIT
     while true; do
       sleep "$DRAIN_SECS"
       stage_drain "results/$KEY/cells" "$DRAIN_QUIET_MIN"
@@ -146,28 +95,7 @@ if [ "$STAGE_CELLS" = "out" ] && [ "$STAGE_ACTIVE" = 1 ]; then
 fi
 
 # --- run -------------------------------------------------------------------------------
-# Name the staged tree explicitly. Without this the analysis stack infers its root from
-# the cwd by the first path element containing 'GAMMA', which is right here but is not
-# something to rely on for a job that writes 300 GiB into it.
-export GAMMA_DIR="$STAGE_DIR"
-cd "$STAGE_DIR/bin/Tools/project_v2" || exit 1
-
-# Verify it before spending a day on it: if the stack resolves anywhere but the staged
-# tree, drop back to ~/work rather than analysing the wrong directory. Slow is a nuisance,
-# wrong is a lost job.
-ROOT_SEEN="$(python -c 'import IO; print(IO.GAMMA_dir)' 2>/dev/null)"
-if [ "$STAGE_ACTIVE" = 1 ] && [ "$ROOT_SEEN" != "$STAGE_DIR" ]; then
-  echo "[stage] ERROR: the analysis stack resolves to '$ROOT_SEEN', not '$STAGE_DIR'." >&2
-  echo "[stage]        falling back to running in $STAGE_WORK (no staging)." >&2
-  stage_close
-  STAGE_ACTIVE=0
-  STAGE_DIR="$STAGE_WORK"
-  export GAMMA_DIR="$STAGE_WORK"
-  cd "$STAGE_WORK/bin/Tools/project_v2" || exit 1
-fi
-
-echo "[stage] cwd=$PWD"
-echo "[stage] root=$GAMMA_DIR"
+stage_analysis_cd || exit 1
 echo "[stage] python=$(command -v python || echo MISSING)"
 echo "=== command: $CMD"
 eval "$CMD"
@@ -182,14 +110,7 @@ if [ -n "$DRAIN_PID" ]; then
   wait "$DRAIN_PID" 2>/dev/null
 fi
 
-# --- stage out -------------------------------------------------------------------------
-# Unconditionally, even on failure: a job that died after twenty hours of extraction
-# still wrote cells worth keeping. No --delete anywhere -- the work copy holds results
-# this job never produced.
-cd "$STAGE_WORK" || exit 1
-stage_out "results/$KEY" --exclude='phys[0-9]*.out' --no-links
-stage_out "bin/Tools/figures"
-stage_out "extracted_data"
+stage_analysis_out "$KEY"
 echo "=== staged out at $(date '+%F %T')"
 
 exit "$rc"
