@@ -369,24 +369,41 @@ SMEAR_SIGMAS = np.arange(0., 0.2001, 0.01)
 # recomputing would have returned.
 # ---------------------------------------------------------------------------
 _SMEAR_TAB_CACHE = {}
-# Measured on the fiducial sweep: a 2000-bin point needs 225-391 distinct grids and very
-# nearly as many RUNS of consecutive bins (391 grids / 399 runs at logr=0), i.e. a grid
-# serves ~5 neighbouring bins and then never recurs. So the cache only has to hold the
-# CURRENT run -- a large one would pin memory in every worker and buy nothing.
-_SMEAR_TAB_MAX = 4
+# ONE table serves every bin. The log-u range a bin asks for depends on a single number --
+# the width in dex of its fit window -- and C_sigma(log u, sigma) is a fixed function, so
+# sizing the table to each bin was never anything but bookkeeping. It cost dearly: measured
+# over 1180 fiducial bins the width takes 320 DISTINCT values, so a cache keyed on the exact
+# range missed ~73% of the time and rebuilt ~10 M kernel evaluations to serve ~5 neighbouring
+# bins. (The previous comment here recorded exactly that -- "a grid serves ~5 neighbouring
+# bins and then never recurs" -- and concluded the cache should be small, rather than that
+# the key was wrong.)
+# The span below covers every window the sweeps produce (w <= 9.65 dex, and the range a bin
+# needs is [-(w+4), w+2]) at the DENSEST node density the per-bin sizing ever used, so no bin
+# is interpolated more coarsely than before. A request outside it rebuilds wider rather than
+# extrapolating. Measured: 136 -> 63 ms a bin on the scan, and nu_M and sigma come back
+# IDENTICAL -- both are picked off discrete grids (400 xM trials x 21 sigmas), so a change of
+# interpolation node cannot move the argmin. Same reason SMEAR_NODES 121 -> 61 was free.
+_SMEAR_LU_LO, _SMEAR_LU_HI = -14., 12.
+_SMEAR_DENS = 410.        # nodes per dex
 
 
 def _smear_tables(lu_lo, lu_hi, n, sigmas):
-  '''(lu, tabs): the log-u grid and log10 C_sigma on it, one row per sigma. Memoised.'''
-  key = (float(lu_lo), float(lu_hi), int(n), tuple(np.asarray(sigmas, float).tolist()))
+  '''
+  (lu, tabs): the log-u grid and log10 C_sigma on it, one row per sigma.
+
+  `lu_lo`/`lu_hi` are the range the CALLER needs; the table returned may be wider. `n` is
+  accepted for call compatibility and ignored -- the node count follows _SMEAR_DENS, so a
+  wider table is not a coarser one.
+  '''
+  key = tuple(np.asarray(sigmas, float).tolist())
+  lo, hi = min(_SMEAR_LU_LO, float(lu_lo)), max(_SMEAR_LU_HI, float(lu_hi))
   hit = _SMEAR_TAB_CACHE.get(key)
-  if hit is not None:
+  if hit is not None and hit[0][0] <= lo and hit[0][-1] >= hi:
     return hit
-  lu = np.linspace(lu_lo, lu_hi, n)
+  lu = np.linspace(lo, hi, int(round((hi - lo)*_SMEAR_DENS)))
   with np.errstate(divide='ignore', invalid='ignore'):
     tabs = np.array([np.log10(syn_cutoff_R_smeared(10**lu, float(s))) for s in sigmas])
-  if len(_SMEAR_TAB_CACHE) >= _SMEAR_TAB_MAX:
-    _SMEAR_TAB_CACHE.clear()
+  _SMEAR_TAB_CACHE.clear()
   _SMEAR_TAB_CACHE[key] = (lu, tabs)
   return lu, tabs
 
@@ -464,9 +481,22 @@ def measure_cutoff_nuM(x, sp, psyn, smooth=SLOPE_SMOOTH, flatten=True, smear=Fal
   if smear:
     lu, tabs = _smear_tables(lxm.min() - lgrid.max() - 1.,
                              lxm.max() - lgrid.min() + 1., 4000, sig_grid)
+    # The interpolation INDICES do not depend on sigma -- the query points are the same
+    # (xM, nu) matrix for every one of them -- so np.interp was repeating the same 21 binary
+    # searches over a 10k-node table. _smear_tables returns a UNIFORM grid, so the index is
+    # arithmetic and is computed once; each sigma is then two gathers and a lerp.
+    q = lxm[None, :] - lgrid[:, None]
+    _t = (q - lu[0])/(lu[1] - lu[0])
+    _i0 = np.clip(np.floor(_t).astype(np.intp), 0, lu.size - 2)
+    _f = _t - _i0
+    _under, _over = q < lu[0], q > lu[-1]
   for j, sig in enumerate(sig_grid):
     if smear:
-      corr = np.interp(lxm[None, :] - lgrid[:, None], lu, tabs[j], left=0., right=np.nan)
+      # same convention as the np.interp it replaces: 1 (log 0) below the table, unusable
+      # above, which the isfinite guard below rejects
+      corr = tabs[j][_i0]*(1. - _f) + tabs[j][_i0 + 1]*_f
+      corr = np.where(_under, 0., corr)
+      corr = np.where(_over, np.nan, corr)
     else:
       with np.errstate(divide='ignore', invalid='ignore'):
         corr = np.log10(syn_cutoff_R(10**lxm[None, :]/grid[:, None]))
