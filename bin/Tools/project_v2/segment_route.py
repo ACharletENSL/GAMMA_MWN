@@ -859,7 +859,13 @@ def mid_bias_calibration(cases=CAL_CASES, sigmas=CAL_SIGMAS, mgap=VAL_MGAP, verb
 # +0.057 at 0.87, same separations), and s1 varies continuously along a track. Correcting by
 # epoch would therefore step the curve at the crossing for a reason that is not physical.
 # out to 9 dex because that is where the data goes: the slow-cooling tracks reach 8.9
-BIAS_SEPS = (2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.5, 9.0)
+# 2.3 and 10.0 were added 2026-09-14 to reach the real bins the hull was missing. The
+# LOWER edge is set by the estimator, not by sampling: SEG_MIN_MID_DEX = 1.45 admits
+# separations >= 2.29 dex, so every node at sep = 2.0 returns n = 0 in BOTH branches and
+# always will. Measured separations bottom out at 2.331 (fc) / 2.287 (sc), so 2.3 is the
+# lowest node that can carry a value and it covers them. 10.0 covers the 74 slow-cooling
+# bins that ran past 9.0 (max 9.75).
+BIAS_SEPS = (2.0, 2.3, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.5, 9.0, 10.0)
 BIAS_S1 = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7)
 BIAS_S2 = (1.5, 2.0)
 BIAS_SIGMA = 0.07
@@ -938,6 +944,103 @@ def synth_vfc(depth, s2, sigma=BIAS_SIGMA, mgap=VAL_MGAP, psyn=VAL_P, npd=VAL_NP
     sp = sb.granot_sari_syn(nu, nu_b, None, psyn, s2=s2, nuM=nuM, nuFnu=True,
                             beta_lo_single=-0.5)
   return nu, sp, dict(nu_b=nu_b, nuM=nuM, s2=s2, depth=depth, psyn=psyn)
+
+
+# ---------------------------------------------------------------------------
+# FC*: the single-break grid above is the WRONG shape for it, and this measures by how much.
+# synth_vfc has no lower break at all (the VFC limit); FC* means the cooling break sits AT the
+# band edge, still bleeding into the mid window from below. The two are not interchangeable.
+FCSTAR_DEPTH = (3.0, 4.0, 5.0, 6.0, 6.5, 7.0)   # decades of band below the UPPER break
+FCSTAR_OFF = (-0.25, 0., 0.25, 0.5, 1.0)        # decades of the lower break ABOVE the band
+                                                # bottom; below -0.25 the classifier returns
+                                                # VFC, above ~1.0 it finds a 4/3 window and
+                                                # returns FC, so this IS the FC* range
+FCSTAR_S1 = (0.6, 0.8, 1.0, 1.2, 1.4)           # NOT averaged over: it moves the bias by 5x
+FCSTAR_S2 = (1.8, 2.6, 4.0)                     # averaged over: it moves it by <= 0.003
+
+
+def synth_fcstar(depth, s1, s2, off, sigma=BIAS_SIGMA, mgap=VAL_MGAP, psyn=VAL_P,
+    npd=VAL_NPD):
+  '''
+  One superposed FC* spectrum: the fast two-break form (4/3 -> 1/2 -> 1-p/2) with the LOWER
+  break placed `off` decades above the band bottom and `depth` decades of band below the
+  upper one. off < 0 puts it below the band; off -> -inf is synth_vfc's geometry.
+  '''
+  b_hi, nu_lo = 1., 10.**(-depth)
+  b_lo = nu_lo*10.**off
+  nuM = b_hi*10**mgap
+  nu = 10**np.arange(-depth, np.log10(nuM) + 0.5, 1./npd)
+  if sigma > 0:
+    sg = np.linspace(-4*sigma, 4*sigma, VAL_SMEAR_NODES)
+    w = np.exp(-0.5*(sg/sigma)**2); w /= w.sum()
+    sp = sum(wk*sb.granot_sari_syn(nu, b_hi, b_lo, psyn, s1=s1, s2=s2, nuM=nuM*10**sk,
+                                   nuFnu=True) for sk, wk in zip(sg, w))
+  else:
+    sp = sb.granot_sari_syn(nu, b_hi, b_lo, psyn, s1=s1, s2=s2, nuM=nuM, nuFnu=True)
+  return nu, sp, dict(b_lo=b_lo, b_hi=b_hi, nuM=nuM, psyn=psyn, depth=depth, off=off,
+                      s1=s1, s2=s2)
+
+
+def fcstar_bias_grid(depths=FCSTAR_DEPTH, s1s=FCSTAR_S1, s2s=FCSTAR_S2, offs=FCSTAR_OFF,
+    sigma=BIAS_SIGMA, verbose=True, outdir=OUTDIR):
+  '''
+  The mid-slope tilt on FC* spectra, over (band depth, lower-break offset, s1), averaged
+  over s2. `a_edge` (spectral_breaks.edge_slope, the quantity identify_segments already uses
+  to separate FC* from VFC) is recorded alongside, because it is the ONLY one of the three
+  axes that is measurable on a real FC* bin.
+
+  WHAT IT SHOWS, and why FC* still cannot be corrected:
+    - a_edge maps one-to-one onto `off`, independently of depth and s2, so it does index the
+      lower break's position -- but it also moves with s1, so it does not pin the pair.
+    - the bias runs +0.014 to +0.068 at depth 4 over s1 = 1.4 to 0.6 at fixed off, a factor
+      of five, and s1 is NOT measured for an FC* bin (the single-break shape fits s2 only).
+    - the VFC grid, whose geometry is off -> -inf, returns ~0 there. Correcting an FC* bin
+      off it therefore under-corrects by about the whole FC* departure.
+  The fix is not a better grid but a measurable geometry: fit FC* as a two-break shape with
+  b_lo FREE and bounded at the band bottom (smoothing_from_identified already has the
+  free_blo path, it is just not routed to the 1brk_vfc shape). That returns sep and s1, and
+  the ordinary bias_grid then covers these bins with nothing new at all.
+  '''
+  rows = []
+  for depth in depths:
+    for s1 in s1s:
+      for off in offs:
+        b, ae, regs = [], [], []
+        for s2 in s2s:
+          nu, sp, t = synth_fcstar(depth, s1, s2, off, sigma=sigma)
+          br = sb.breaks_from_identified(nu, sp, t['psyn'])
+          det = br.get('det') or {}
+          regs.append(str(br['regime']))
+          if np.isfinite(br['a_mid']):
+            b.append(br['a_mid'] - 0.5); ae.append(det.get('a_edge', np.nan))
+        rows.append(dict(depth=depth, s1=s1, off=off,
+                         a_edge=(float(np.nanmean(ae)) if ae else np.nan),
+                         bias=(float(np.mean(b)) if b else np.nan), n=len(b),
+                         bias_spread=(float(np.max(b) - np.min(b)) if b else np.nan),
+                         regime=max(set(regs), key=regs.count)))
+  df = pd.DataFrame(rows)
+  if verbose and len(df):
+    print(f"\n{'=== FC* MID-SLOPE BIAS: a_mid - 1/2, by band depth and lower-break offset ':=<82}")
+    for depth in depths:
+      d = df[(df.depth == depth) & (df.regime == 'FC*')]
+      if not len(d):
+        continue
+      print(f'  depth={depth:.1f}   ' + '  '.join(f'{v:>6.1f}' for v in s1s) + '   <- s1')
+      for off in offs:
+        r = d[d.off == off]
+        cells = '  '.join(
+            f"{r[r.s1 == v].bias.iloc[0]:+6.3f}" if len(r[r.s1 == v])
+            and np.isfinite(r[r.s1 == v].bias.iloc[0]) else '    --' for v in s1s)
+        print(f'    off={off:+.2f}  {cells}')
+    fs = df[df.regime == 'FC*']
+    if len(fs):
+      print(f'  FC* nodes: {len(fs)}/{len(df)};  bias {fs.bias.min():+.3f} .. {fs.bias.max():+.3f}'
+            f';  s2 spread within a node <= {fs.bias_spread.max():.3f}')
+  if outdir:
+    _ensure_outdir(outdir)
+    df.to_csv(os.path.join(outdir, 'fcstar_bias_grid.csv'), index=False)
+    print(f"  wrote {os.path.join(outdir, 'fcstar_bias_grid.csv')}")
+  return df
 
 
 def vfc_bias_grid(depths=VFC_DEPTH, s2s=VFC_S2, sigma=BIAS_SIGMA, verbose=True,
