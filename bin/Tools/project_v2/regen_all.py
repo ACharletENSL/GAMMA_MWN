@@ -6,15 +6,19 @@ import os, time, traceback
 
 def main():
   # REGEN_KEY selects the run (default the fiducial); REGEN_SKIP is a comma-separated list
-  # of substrings, so a step whose name contains one is skipped. sweep_efficiency is the
-  # one worth skipping on a hi-res key: it computes its OWN points at 10 per decade rather
-  # than replotting the sweep's, which is cheap at 500 cells and is not at 10000.
+  # of substrings, so a step whose name contains one is skipped.
   K = os.environ.get('REGEN_KEY', 'cooling_g100')
   NP = int(os.environ.get('REGEN_NPROC', '7'))
-  # sweep_efficiency is skipped BY DEFAULT: it computes its own points (101 for the
-  # reference plus 51 per model, both shells) rather than replotting the sweep's, so it is
-  # run separately, on the cluster. Set REGEN_SKIP='' to include it.
-  skip = [t for t in os.environ.get('REGEN_SKIP', 'sweep_efficiency').split(',') if t]
+  # Two steps are skipped BY DEFAULT; set REGEN_SKIP='' to include them both.
+  #   sweep_efficiency  - computes its own points (101 for the reference plus 51 per model,
+  #     both shells) rather than replotting the sweep's, so it is run separately, on the
+  #     cluster. Cheap at 500 cells, not at 10000: it is the one most worth skipping on a
+  #     hi-res key.
+  #   nuc_validation    - PARKED 2026-09-14: the effective-nu_c estimator is out of the
+  #     paper, and its harvest is both the slowest serial step here (~20 min at 500 cells,
+  #     hours at hi-res) and currently INCONSISTENT with the spectra it validates against --
+  #     see the PARKED banner at the top of nuc_validation.py before re-enabling it.
+  skip = [t for t in os.environ.get('REGEN_SKIP', 'sweep_efficiency,nuc_validation').split(',') if t]
   print(f'regenerating for key={K!r}, nproc={NP}, skipping={skip}', flush=True)
   import sweep_gammacm as swp
   import lightcurve_shape as lcs
@@ -36,6 +40,9 @@ def main():
     ('sweep_shells',                   lambda: sweep_shells.main(key=K, nproc=NP)),
     ('sweep_rarcut',                   lambda: sweep_rarcut.main(key=K, nproc=NP)),
     ('sweep_compare',                  lambda: sweep_compare.main(key=K, nproc=NP)),
+    # PARKED (in REGEN_SKIP by default) -- estimator dropped from the paper, and its
+    # harvest no longer matches the sweep it is compared against. Kept wired up so
+    # REGEN_SKIP='' still runs it if the question is picked up again.
     ('nuc_validation',                 lambda: nuc_validation.main(key=K)),
     ('slope_validation',               lambda: slope_validation.main(key=K)),
     ('segment_route',                  lambda: segment_route.main(key=K)),

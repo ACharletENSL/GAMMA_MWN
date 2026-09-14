@@ -31,7 +31,7 @@ Two consequences worth keeping in mind:
   (1-bsyn)/gmax is the effective fluence handed to distrib_plaw_cooled, and in the
   gmax0 -> infinity limit 1/cooled_tt_eff is exactly the gamma_c above. So a single cell
   emits ONE cooled power law with a cutoff at gamma_c, not a broken spectrum. This is
-  checked directly (nuc_validation.check_against_cooled_cutoff).
+  checked directly (nuc_validation.check_identity, which is PARKED -- see its banner).
 
   The shell's cooling BREAK is a superposition effect. Cells shocked at different t_s
   carry different gamma_c, and the break in the summed spectrum sits where the
@@ -246,9 +246,14 @@ def iter_shell_cells(key, z=4, u_scale=1., alpha=1., zeta=1., klist=None, r_ref=
   get_nuFnu. Cost is the cell construction only, so a whole shell is seconds rather than
   the minutes an emission pass takes.
 
-  The defaults MUST track sweep_gammacm's (EARLY_ANA, SUBCELL_DLOGT, SUBCELL_MAX, R_REF,
-  TB_MIN, TB_LIN, TMAX, NT) or the harvested population no longer corresponds to the
-  cached spectra it is compared against.
+  THE DEFAULTS BELOW NO LONGER TRACK sweep_gammacm's (EARLY_ANA, SUBCELL_DLOGT,
+  SUBCELL_MAX, R_REF, TB_MIN, TB_LIN, TMAX, NT) -- seven of the nine have drifted apart
+  (the table is in nuc_validation's PARKED banner, which is what the drift was found
+  through). A caller that takes them is NOT harvesting the shell the cached spectra were
+  computed from. They are left as they are rather than re-pinned because they are also
+  the signature every historical harvest was taken with; the contract is that a caller
+  comparing against a sweep passes the sweep's constants explicitly, as
+  radiative_length._harvest_kwargs does by importing them.
   '''
   nub, T, env = obs_arrays(key, normed=True, Tmax=Tmax, NT=NT, Tb_min=Tb_min, Tb_lin=Tb_lin)
   env_rs = rescale_proper_velocities(u_scale, env) if u_scale != 1. else env

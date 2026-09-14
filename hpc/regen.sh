@@ -16,7 +16,11 @@ set -u
 export MPLBACKEND=Agg
 export GAMMACM_NPROC=${SLURM_CPUS_PER_TASK:-1}
 export REGEN_NPROC=${SLURM_CPUS_PER_TASK:-1}
-export REGEN_SKIP="${REGEN_SKIP:-sweep_efficiency,segment_route}"
+# nuc_validation is PARKED (see the banner in nuc_validation.py): the estimator is out
+# of the paper, and its harvest is hours at hi-res AND inconsistent with the spectra it
+# validates against. This default must stay in step with regen_all.py's, since setting
+# REGEN_SKIP here overrides it entirely.
+export REGEN_SKIP="${REGEN_SKIP:-sweep_efficiency,segment_route,nuc_validation}"
 export REGEN_KEY="${REGEN_KEY:?set REGEN_KEY}"
 
 STAGE_WORK="${SLURM_SUBMIT_DIR:-$PWD}"

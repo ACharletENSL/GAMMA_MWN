@@ -2,6 +2,57 @@
 # @Author: acharlet
 
 '''
+PARKED 2026-09-14 -- NOT RUN, AND NOT TO BE QUOTED AS IT STANDS.
+
+The effective-nu_c estimator is out of the paper, so this module is skipped by default in
+regen_all (REGEN_SKIP) and nothing downstream consumes its tables. It is kept whole rather
+than deleted because the question it asks is a real one; the two things found on the way
+out are recorded here so it is picked up from the right place.
+
+  (1) IT IS MEASURING TWO DIFFERENT SHELLS. load_side calls harvest_shell_cooling with no
+      kwargs, so the population is built on cooling_frequency.iter_shell_cells' OWN
+      defaults, while the break tracks come from spectra that sweep_gammacm computed with
+      its constants. Seven of the nine parameters have drifted apart:
+
+          param            iter_shell_cells      sweep _compute_point
+          early_ana        shockfit              measured
+          early_frac       0.1                   0.0
+          Tmax             100                   1000
+          NT               250                   1800
+          Tb_lin           (0.5, 9.0, 200)       (0.5, 2.5, 267)
+          subcell_dlogT    0.02                  0.008
+          subcell_max      32                    400
+          Tb_min, r_ref    1e-4, 1.1             1e-4, 1.1        (the only two that match)
+
+      Measured on cooling_g100 z=4 that is 1045 emitters against the sweep's 1320 (26%),
+      a 10x shorter history window, and the pre-`measured` onset convention that the
+      injection-event work replaced. So C is a ratio between a population and a set of
+      break tracks that were not built from the same shell, and every number in the
+      WHERE THIS STANDS block below is void independently of the retired-key caveat.
+
+      The fix is already written one file over: radiative_length._harvest_kwargs IMPORTS
+      R_REF/TMAX/TB_MIN/TB_LIN/EARLY_ANA from sweep_gammacm and pins early_frac=0., with
+      a comment saying cooling_frequency's 0.1 would prepend a different injection row.
+      Whatever revives this module should do the same rather than restate the constants.
+
+  (2) THE HARVEST SHOULD BE A BY-PRODUCT OF THE EMISSION PASS, NOT A SECOND WALK.
+      iter_shell_cells is a hand-copy of get_shell_nuFnu_fromData's cell construction that
+      stops short of get_nuFnu -- which is exactly why (1) could happen. But
+      working_cooling_data._emit already holds (cell, cell_env) at the moment it calls
+      get_nuFnu, and _accum_energy is the precedent for an opt-in per-cell by-product
+      reduced in chunk order by _merge_acc. Measured on one cell of cooling_g100:
+      cell_cooling_table costs 0.0034 s against get_nuFnu's 1.517 s on a (2000, 650) grid,
+      i.e. 0.22% -- and it would inherit ncell_proc, which this module has no parallelism
+      of its own to match. Cost today is ~21 s of harvest + ~46 s of re-fitting both break
+      trackers per point, x 9 points x 2 shells ~ 20 min serial at 500 cells, and the
+      harvest scales with the cell count (~20x at hi-res).
+      Sizing to settle first: ~1320 emitters x ~49 kB ~ 65 MB per point per shell, so
+      ~1.3 GB/point at hi-res. Write the worker's chunk to a sidecar beside the point
+      cache rather than pickling frames back; do NOT reduce to a single estimator in the
+      worker, since estimator_scan sweeps eight of them.
+
+Original description follows.
+
 Validation of the per-cell cooling frequency (cooling_frequency.py) against the cooling
 break actually fitted to the full-shell spectra, on the cached gamma_c/gamma_m sweeps.
 
@@ -41,9 +92,10 @@ _sweep_colors helper, but on a perceptually uniform ramp rather than the default
 these panels are read for WHERE curves fall on a magnitude scale, which a rainbow
 misrepresents.
 
-WHERE THIS STANDS (last full run: both shells of the RETIRED cooling_fid_raref_ext, with
-METHOD='data_rarcut'. KEY/METHOD below now point at cooling_g100 / 'data', so every number
-in this block is pending a re-run before it can be quoted again.)
+WHERE THIS STANDS (last full run: both shells of the RETIRED cooling_fid_raref_ext. KEY
+below now points at cooling_g100, and METHOD follows sweep_gammacm.DEFAULT_METHOD, which
+is 'data_rarcut' again -- but see (1) above: these numbers are void for the harder reason,
+not merely stale.)
 
   The model is cooling_frequency: per-cell gamma_c from the closed-form cumsum, nu_c,i from
   it, and the shell value taken as the emission-weighted 5th percentile of {nu_c,i} over the
