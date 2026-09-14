@@ -69,6 +69,21 @@ cell of the run. Each task now stages its own shell onto its own node. Two tasks
 on the same node will not both fit (165 GiB against ~208 GiB); the second notices and
 reads from work, which is what the old behaviour was anyway.
 
+`hpc/regen.sh` is the staged figure regeneration and `hpc/submit_rerun.sh` chains the
+whole thing (prep -> array -> regen, for both runs), so the usual recompute is just
+
+```bash
+./hpc/submit_rerun.sh
+```
+
+`regen.sh` sets no `STAGE_SHELL`: `regen_all` runs `sweep_shells`, which needs both
+shells at once. The fiducial's cells fit; the hi-res run's 331 GiB do not, so there they
+stay on NFS -- staging cannot help a job that needs every cell at the same time.
+
+The originals (`sweep_prep_k.sh`, `sweep_point_k.sh`, `regen.sh`, `regen_two.sh`,
+`submit_rerun.sh`) live untracked in the HPC checkout and are left alone. They are also
+one `force_git.sh` away from being deleted, since that cleans untracked files.
+
 Any other job script adopts the same thing in four lines:
 
 ```bash
