@@ -225,7 +225,7 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
   # across the columns: what the discarded material is worth ACROSS THE BAND, which three
   # separately scaled files cannot show
   cmp.plot_lightcurve_panels(pairs, barT_f, barT_off=barT_off, outdir=outdir,
-      labels=labels, barT_end=barT_end, norm_side=norm_side)
+      labels=labels, norm_side=norm_side)
   s = cmp.plot_summary_ratios(pairs, outdir=outdir, labels=labels)
   fs = cmp.fluence_split(pairs, barT_off[1] if barT_off else None, outdir=outdir,
       labels=labels, cut_label='R_rar cut-off', cut_math='$R_{\\rm rar}$ cut-off')

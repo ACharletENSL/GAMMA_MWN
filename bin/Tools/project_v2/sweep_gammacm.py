@@ -3379,10 +3379,13 @@ ARTICLE_NAME = 'article_choice'   # the picked figures live beside the sweep tha
                                  # the destination is derived rather than tabulated
 ARTICLE_DIR = figdir(ARTICLE_NAME)            # the fiducial's, for defaults
 ARTICLE_SERIES = {   # {source figure dir (run folder stripped): globs of the series}
-  # The article figures all come from ONE sweep: the rarefaction-cut method on the reverse
-  # shock (sweep_rarcut's METHOD_A, z=4), so every figure in the folder describes the same
-  # prescription on the same shell. The A/B comparison figures of rarcut_compare are the
-  # evidence for choosing it, not the article's own figures, and are no longer mirrored.
+  # Every figure here describes the SAME prescription on the SAME run: the rarefaction-cut
+  # method (sweep_rarcut's METHOD_A) on cooling_g100. What varies between the three entries
+  # is the question, not the computation -- the reverse shock alone, the two shells summed,
+  # and what the cut itself costs.
+  # The third entry is new (2026-09-14). Most of rarcut_compare is still what it always
+  # was, the EVIDENCE for choosing the prescription rather than the article's own figures,
+  # and is not mirrored; two composites are now picked out of it, listed at their key.
   'gammacm_sweep_data_rarcut': (
       'lightcurve_shape_nu=*.png',     # the three NU_TARGETS; the '_plain' series and the
                                        # 'vs_nu' ones below break this glob by construction
@@ -3403,6 +3406,27 @@ ARTICLE_SERIES = {   # {source figure dir (run folder stripped): globs of the se
                                        # normalisation (plot_break_evolution). The glob is
                                        # exact, so the _table.png and break_ratio_* of the
                                        # same family stay out
+  ),
+  # The two shells (sweep_shells, same method and same run -- `shells_split` IS the
+  # data_rarcut set; the uncut `shells_split_data` does not match this key and mirrors
+  # nothing). The RS-only sweep above cannot say what an observer sees, because the FS
+  # arrives on the same lightcurve.
+  'shells_split': (
+      'shell_spectra_panels_*.png',    # RS / FS / sum at three regimes, with (RS+FS)/RS
+                                       # underneath; one file per kind (peak, fluence)
+      'shell_peak_width_*.png',        # and the half-maximum width of the RS against the
+                                       # sum, over the whole sweep, per kind
+  ),
+  # The rarefaction cut-off, which IS an article figure now (2026-09-14) and was not
+  # before: the note above -- that rarcut_compare is the evidence for choosing the
+  # prescription rather than the article's own figures -- still holds for the rest of that
+  # folder, and only these two composites are picked out of it.
+  'rarcut_compare': (
+      'lightcurve_panels_lin.png',     # the three NU_TARGETS, cut vs full, with the ratio
+                                       # underneath: what the post-rarefaction material is
+                                       # worth across the band
+      'fluence_spectra_slope_norm-eff.png',   # and what it does to the time-integrated
+                                       # shape, spectra beside their local index
   ),
 }
 

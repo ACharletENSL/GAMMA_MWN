@@ -60,7 +60,7 @@ from functools import lru_cache
 from environment import MyEnv, GAMMA_dir, figdir
 from IO import get_dirpath
 from peak_modeling import offset_gcgm_from_au
-from plotting_functions import nF_label, transy, COL_RS, COL_FS, COL_TOT
+from plotting_functions import nF_label, COL_RS, COL_FS, COL_TOT
 from spectrum_shape import peak_and_width
                                   # the suite's ONE half-maximum width construction;
                                   # see shell_widths for why the sum needs a width and
@@ -68,7 +68,8 @@ from spectrum_shape import peak_and_width
 from sweep_compare import _regrid_onto
 from sweep_gammacm import (run_sweep, load_sweep, method_outdir, compute_alpha_sweep,
     exit_onset_barT, rarefaction_off_barT, nu_over_num, bolometric_peak_index,
-    compute_fluence_spectrum, _plot_spectra_all, trim_pngs, LOG10RATIO_ARR,
+    compute_fluence_spectrum, _plot_spectra_all, trim_pngs, copy_article_figures,
+    LOG10RATIO_ARR,
     NU_TARGETS, NU_REF, NU_M_LABEL, SPEC_YSPAN, XLIM_LIN, DEFAULT_METHOD)
 
 KEY = 'cooling_g100'
@@ -410,6 +411,15 @@ WIDTH_LEVEL = 'half'          # which of spectrum_shape.WIDTH_LEVELS the width i
                               # Quoted POSITIVE, hi/lo: a width is a span, and the suite's
                               # other half-maximum widths (spectrum_shape's logW_half, the
                               # pulse width in lightcurve_shape) are all hi/lo too.
+NU_M_RS_LABEL = '$\\nu/\\nu_{\\mathrm{m},\\!0,\\!\\mathrm{RS}}$'
+                              # sweep_gammacm.NU_M_LABEL with the shell IN the subscript:
+                              # every grid here is RS-normalised whatever z is (see the
+                              # module docstring), so the axis is the REVERSE shock's
+                              # nu_m,0 and saying so in the label beats a trailing '(RS)'.
+                              # BOTH commas need the negative thin space -- matplotlib's
+                              # mathtext adds none of its own after a comma, so without
+                              # the two `\\!` the subscript renders with two visible gaps
+                              # (see [[article-figure-conventions]]).
 KIND_SYM = {'peak': '\\nu F_\\nu', 'fluence': '\\nu \\mathcal{F}_\\nu'}
 KIND_NAME = {'peak': 'spectra at the peak of the total lightcurve',
              'fluence': 'time-integrated spectra'}
@@ -481,18 +491,7 @@ def shell_widths(pairs, kind='peak', level=WIDTH_LEVEL, verbose=True):
   return rows
 
 
-def _nu_m_lines(ax, e0, labels=False):
-  '''The two shells' injection frequencies on a nu/nu_m,0 axis: the RS's is 1 by
-  construction (the axis IS its nu_m), the FS's sits at nu0FS/nu0 below it.'''
-  for nu_m, tag in ((1., 'RS'), (e0.nu0FS/e0.nu0, 'FS')):
-    ax.axvline(nu_m, color=STY[tag]['color'], ls='-.', lw=.8, alpha=.6)
-    if labels:
-      ax.annotate(f'$\\nu_{{\\mathrm{{m}},\\!\\mathrm{{{tag}}}}}$', (nu_m, 1.01),
-                  xycoords=transy(ax),
-                  color=STY[tag]['color'], fontsize=8, ha='center', va='bottom')
-
-
-def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY,
+def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
     outdir=OUTDIR, yspan=PANEL_YSPAN, level=WIDTH_LEVEL):
   '''
   One column per regime: the two shells and their sum on top, and the sum's departure from
@@ -504,7 +503,7 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY
 
   The ratio panel is what the figure is for. It is 1 wherever the RS owns the band and
   lifts where the FS does, and where it lifts is set by nu_m,FS sitting a decade below
-  nu_m,RS (both marked) rather than by the FS being the brighter shell -- which is why the
+  nu_m,RS rather than by the FS being the brighter shell -- which is why the
   departure is a low-frequency one in fast cooling and nearly nothing in slow cooling,
   where the two shells' peaks have run together.
 
@@ -514,7 +513,6 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY
   drawing block.
   '''
   os.makedirs(outdir, exist_ok=True)
-  e0 = MyEnv(key)
   by_logr = {round(p['log10ratio'], 6): p for p in pairs}
   sel = [by_logr[round(lr, 6)] for lr in logr_list if round(lr, 6) in by_logr]
   missing = [lr for lr in logr_list if round(lr, 6) not in by_logr]
@@ -554,8 +552,6 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY
     ax_r.axhline(1., color='grey', ls=':', lw=.9)
     rmax = max(rmax, float(np.nanmax(ratio[np.isfinite(ratio)])) if np.isfinite(ratio).any()
                else 1.)
-    for ax in (ax_s, ax_r):
-      _nu_m_lines(ax, e0, labels=(ax is ax_s))
     vis = np.any(np.array([sp[t] for t, _ in _curves(p)])/norm > ylo, axis=0)
     if vis.any():
       ax_s.set_xlim(x[vis].min()/3., x[vis].max()*3.)
@@ -571,7 +567,7 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY
       ax_s.text(.97, .97 - .085*i, f'$W_{{\\rm pk,{lab}}} = {m[tag][f"logW_{level}"]:.2f}$',
                 transform=ax_s.transAxes, ha='right', va='top', fontsize=9,
                 color=STY[tag]['color'])
-    ax_r.set_xlabel(NU_M_LABEL + '   (RS)')
+    ax_r.set_xlabel(NU_M_RS_LABEL)
   axs[1, 0].set_ylim(1. - 0.03*(rmax - 1.), rmax + 0.08*(rmax - 1.))
   sym = KIND_SYM[kind]
   axs[0, 0].set_ylabel(f'${sym}/({sym})_{{\\rm max,tot}}$')
@@ -745,10 +741,13 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, method=METHOD, outdir=None,
   # the sum's departure from the RS underneath, and that departure as one number -- the
   # width of the peak -- for every regime. Both kinds, peak and time-integrated.
   for kind in KIND_SYM:
-    plot_shell_spectra_panels(pairs, kind=kind, key=key, outdir=outdir)
+    plot_shell_spectra_panels(pairs, kind=kind, outdir=outdir)
     plot_shell_width_vs_regime(pairs, kind=kind, key=key, outdir=outdir)
   s = plot_shell_shares(pairs, outdir=outdir)
   trim_pngs(outdir)
+  # only `shells_split` itself is keyed in ARTICLE_SERIES, so the uncut companion
+  # (`shells_split_data`) and any other method variant mirror nothing
+  copy_article_figures(outdir)
   print(f'Both-shell figures saved to {outdir}')
   return pairs, s
 

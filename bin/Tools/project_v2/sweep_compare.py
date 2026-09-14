@@ -935,7 +935,7 @@ def plot_fluence_slopes_vs_regime(tables, outdir=OUTDIR, labels=LABELS, kind='as
 # SHAPE (the spectra and the local slope that measures them, on one axis pair).
 
 def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
-    outdir=OUTDIR, labels=LABELS, barT_end=None, xlim_lin=XLIM_LIN, norm_side='A',
+    outdir=OUTDIR, labels=LABELS, xlim_lin=XLIM_LIN, norm_side='A',
     fname='lightcurve_panels_lin.png'):
   '''
   The three observing frequencies as ONE figure: lin-lin lightcurves, one column per nu_t,
@@ -953,9 +953,17 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   one to read when the question is what the prescription does to the DECAY rather than
   what it costs.
 
+  Annotated to the same rules as the suite's other pulse figures
+  (sweep_gammacm.plot_lightcurve_shape), so these read against those without a second
+  legend to learn: the two grey guides at the crossing (x=1) and at the normalising side's
+  peak (y=1), the frequency INSIDE the panel at y=0.92 -- just under that y=1 line without
+  touching it -- and the rarefaction band shaded. What it does NOT carry, and
+  plot_lightcurve_compare does, is the crimson end-of-data marker per side: on a linear
+  clock the full run's cells outlive the window by two decades, so the only line that ever
+  landed was the cut's, sitting on the band edge it already has.
+
   barT_off: the rarefaction cut-off band, a hydro/geometry property of the simulation, so
-  the same band annotates both sides. barT_end: ((first,last)_A, (first,last)_B), one
-  vertical marker per side at that side's LAST cell (dashed A / solid B).
+  the same band annotates both sides.
   '''
   os.makedirs(outdir, exist_ok=True)
   la, lb = labels
@@ -964,7 +972,6 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     raise ValueError(f'non-positive crossing time bar_T_f={barT_f}')
   colors, sm = _sweep_colors([rf for rf, _ in pairs])
   xoff = tuple(b/barT_f for b in barT_off) if barT_off else None
-  xend = [(b[1]/barT_f if b else None) for b in barT_end] if barT_end else None
 
   fig, axs = plt.subplots(2, len(nu_targets), figsize=(4.4*len(nu_targets), 5.7),
       sharex=True, sharey='row', squeeze=False, gridspec_kw={'height_ratios': [2.2, 1]})
@@ -989,20 +996,19 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
         rr = np.where(lf > 1e-6*pk_b, ld/lf, np.nan)   # only where side A has flux
       ratios.append(rr)
       ax_r.plot(x, rr, color=c, lw=.9)
+    # y=1 on the flux panel: the normalising side peaks there, exactly as on the
+    # single-method pulse figures. Unity on the ratio panel is the two sides agreeing.
+    ax_f.axhline(1., color='grey', ls=':', lw=.7)
     ax_r.axhline(1., color='grey', ls=':', lw=.9)
     for ax in (ax_f, ax_r):
       ax.axvline(1., color='grey', ls=':', lw=.7)
       if xoff is not None:
         ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
-      if xend is not None:
-        for xe, ls in zip(xend, ('--', '-')):
-          if xe is not None:
-            ax.axvline(xe, color='crimson', ls=ls, lw=.9, alpha=.8)
     ax_f.set_xlim(*xlim_lin)
-    # the article convention: the frequency goes INSIDE the panel, at y = 0.87 -- the
-    # curves are peak-normalised, so 1 sits at ~0.95 of the axes height (see
-    # sweep_gammacm._nu_0_label and the figure conventions it records)
-    ax_f.text(0.97, 0.87, _nu_0_label(nu_t), transform=ax_f.transAxes, ha='right',
+    # the frequency goes INSIDE the panel, top right, at y=0.92 with va='top' -- the value
+    # plot_lightcurve_shape settled on, which puts the label's top just under the y=1 line
+    # without touching it (0.97 sits ON it, 0.87 reads as detached)
+    ax_f.text(0.97, 0.92, _nu_0_label(nu_t), transform=ax_f.transAxes, ha='right',
               va='top', fontsize=12)
     ax_r.set_xlabel('$\\bar{T}/\\bar{T}_f$')
   axs[0, 0].set_ylim(0., (ymax or 1.)*1.05)
@@ -1013,7 +1019,9 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   axs[1, 0].set_ylabel(f'{lb} / {la}')
   axs[1, 0].plot([], [], 'k--', label=la); axs[1, 0].plot([], [], 'k-', label=lb)
   axs[1, 0].legend(loc='upper left', fontsize=9, framealpha=.9)
-  fig.colorbar(sm, ax=axs, label='log$_{10}\\mathcal{C}$')
+  # pad/fraction are fractions of the COMBINED width of the columns, so the defaults
+  # (0.05/0.15) leave a gap and a bar sized for a single-panel figure
+  fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035, label='log$_{10}\\mathcal{C}$')
   fig.savefig(os.path.join(outdir, fname), dpi=300)
   plt.close(fig)
   print(f'lin-lin lightcurve composite ({len(nu_targets)} frequencies) saved to {outdir}')
@@ -1065,7 +1073,13 @@ def plot_fluence_with_slope(pairs, series=None, outdir=OUTDIR, labels=LABELS,
   # no key here: the slope panel's legend carries the same two linestyles plus the break
   # marker, and one key serves both panels of a single figure
   _draw_slope_profile(ax_p, series, colors, labels)
-  fig.colorbar(sm, ax=(ax_s, ax_p), label='log$_{10}\\mathcal{C}$')
+  # the slope label belongs to the RIGHT panel: at the default pad it floats in the gap
+  # between the two, nearer the left panel's frame than its own tick labels. Set here and
+  # not in _draw_slope_profile, whose standalone figure has no neighbour to be confused
+  # with and keeps the default.
+  ax_p.yaxis.labelpad = 1.
+  fig.colorbar(sm, ax=(ax_s, ax_p), pad=0.012, fraction=0.035,
+               label='log$_{10}\\mathcal{C}$')
   fig.savefig(os.path.join(outdir, fname or f'fluence_spectra_slope_norm-{mode}.png'),
               dpi=300)
   plt.close(fig)
