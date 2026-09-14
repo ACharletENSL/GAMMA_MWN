@@ -221,6 +221,11 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
   # two more files per frequency for a divergence the ratio panel already carries
   cmp.plot_lightcurve_compare(pairs, barT_f, barT_off=barT_off, outdir=outdir,
       labels=labels, barT_end=barT_end, scale='lin', norm_side=norm_side)
+  # the same three frequencies on ONE figure, flux over ratio, both rows sharing their y
+  # across the columns: what the discarded material is worth ACROSS THE BAND, which three
+  # separately scaled files cannot show
+  cmp.plot_lightcurve_panels(pairs, barT_f, barT_off=barT_off, outdir=outdir,
+      labels=labels, barT_end=barT_end, norm_side=norm_side)
   s = cmp.plot_summary_ratios(pairs, outdir=outdir, labels=labels)
   fs = cmp.fluence_split(pairs, barT_off[1] if barT_off else None, outdir=outdir,
       labels=labels, cut_label='R_rar cut-off', cut_math='$R_{\\rm rar}$ cut-off')
@@ -232,6 +237,10 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
   tab.to_csv(os.path.join(outdir, 'fluence_low_slopes.csv'), index=False)
   cmp.plot_fluence_slope_profile(series, outdir=outdir, labels=labels,
                                  title_extra=f'  ({SHELL_NAME.get(z, f"z={z}")})')
+  # and the two of them as one figure: the spectra beside the index that measures them, so
+  # the shape the cut leaves behind is read off a single pair of axes
+  cmp.plot_fluence_with_slope(pairs, series, outdir=outdir, labels=labels,
+                              norm_side=norm_side)
 
   if profile:
     plot_cut_energy_profile(key=key, outdir=outdir, z=z)

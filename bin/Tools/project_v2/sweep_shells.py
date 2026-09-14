@@ -51,7 +51,11 @@ from functools import lru_cache
 from environment import MyEnv, GAMMA_dir, figdir
 from IO import get_dirpath
 from peak_modeling import offset_gcgm_from_au
-from plotting_functions import nF_label, COL_RS, COL_FS, COL_TOT
+from plotting_functions import nF_label, transy, COL_RS, COL_FS, COL_TOT
+from spectrum_shape import peak_and_width
+                                  # the suite's ONE half-maximum width construction;
+                                  # see shell_widths for why the sum needs a width and
+                                  # not a pair of breaks
 from sweep_compare import _regrid_onto
 from sweep_gammacm import (run_sweep, load_sweep, method_outdir, compute_alpha_sweep,
     exit_onset_barT, rarefaction_off_barT, nu_over_num, bolometric_peak_index,
@@ -374,6 +378,243 @@ def plot_peak_spectra_per_regime(pairs, key=KEY, nu_ref=NU_REF, outdir=OUTDIR):
   print(f'{len(pairs)} per-regime peak-spectrum figures saved to {outdir}')
 
 
+# --- the composite figures: what adding the slow shell does to the observed spectrum ----
+# The per-regime figures above draw one regime per file, all nine of them. These two draw
+# the cooling SEQUENCE: three regimes side by side with the sum's departure from the RS
+# alone on its own axis, and then that departure reduced to one number -- the width of the
+# peak it leaves behind -- for every regime of the sweep.
+
+LOGR_PANELS = (-2., 0., 2.)   # one column per regime: deep fast cooling, marginal, deep
+                              # slow cooling. The three points of LOG10RATIO_ARR that
+                              # bracket the sequence, so the composite says what the nine
+                              # per-regime files say without being nine files.
+PANEL_YSPAN = 5.              # decades of flux shown on a composite's spectral panel, below
+                              # the TOTAL's peak. Wider than SPEC_YSPAN (3.55, the per-regime
+                              # figures' span) on purpose: the sum's half-maximum width alone
+                              # reaches 3.3 dex in fast cooling, and the point of these
+                              # panels is the low-frequency end, where the FS peaks a decade
+                              # below the RS and the two curves separate.
+WIDTH_LEVEL = 'half'          # which of spectrum_shape.WIDTH_LEVELS the width is quoted at.
+                              # 'half' is nu_-1/2 and nu_+1/2, the frequencies at half the
+                              # maximum nu F_nu either side of the peak, so
+                              # W_pk = log10(nu_+1/2/nu_-1/2) is the peak's width in decades.
+                              # Quoted POSITIVE, hi/lo: a width is a span, and the suite's
+                              # other half-maximum widths (spectrum_shape's logW_half, the
+                              # pulse width in lightcurve_shape) are all hi/lo too.
+KIND_SYM = {'peak': '\\nu F_\\nu', 'fluence': '\\nu \\mathcal{F}_\\nu'}
+KIND_NAME = {'peak': 'spectra at the peak of the total lightcurve',
+             'fluence': 'time-integrated spectra'}
+
+
+def shell_spectra(p, kind):
+  '''
+  {tag: spectrum} for the three curves of one regime, and the observer time it was taken at
+  (None for the time-integrated kind).
+
+  kind 'peak'    -- all three at the SAME instant, the bolometric peak of the TOTAL, as
+                    plot_peak_spectra_per_regime takes them: taking each shell at its own
+                    peak would compare different instants and the black curve would no
+                    longer be the sum of the two below it.
+       'fluence' -- integrated over the shared RS clock (compute_fluence_spectrum).
+  '''
+  if kind not in KIND_SYM:
+    raise ValueError(f'kind must be one of {tuple(KIND_SYM)}, got {kind!r}')
+  if kind == 'fluence':
+    return {tag: compute_fluence_spectrum(p['Tb'], nF) for tag, nF in _curves(p)}, None
+  ipk = bolometric_peak_index(p['nuFnu_tot'], p['nub'])
+  if ipk is None:
+    return None, None
+  return {tag: nF[ipk, :] for tag, nF in _curves(p)}, float(p['Tb'][ipk] - 1.)
+
+
+def shell_widths(pairs, kind='peak', level=WIDTH_LEVEL, verbose=True):
+  '''
+  How wide the SED peak of each of the three curves is, per regime:
+  W_pk = log10(nu_+1/2/nu_-1/2), the frequencies at half the maximum nu F_nu either side of
+  it. spectrum_shape.peak_and_width does the measuring -- the suite's ONE width
+  construction, shared with the peak-vs-time-integrated comparison and, through
+  lightcurve_shape._level_cross, with the pulse width, so a width in frequency and a width
+  in time are the same construction and cannot drift into two versions of it.
+
+  No fit and no break, which is what makes this the quantity to quote for the SUM: two
+  shells whose nu_m sit a decade apart do not add up to a Granot & Sari shape, so there is
+  no pair of breaks to report, but there is always a maximum and two half-maximum
+  crossings.
+
+  edge_lo/edge_hi flag a crossing found on the grid edge -- the width is then the observing
+  WINDOW's and not the spectrum's. None of the fiducial's 9 regimes trips one on either
+  kind; the flag is carried, and printed, so that a narrower band cannot pass one off as a
+  measurement.
+
+  Returns one row per regime: dict(logr, barT_pk, RS=, FS=, tot=) with each shell's entry
+  the full peak_and_width dict.
+  '''
+  rows = []
+  for p in pairs:
+    sp, barT_pk = shell_spectra(p, kind)
+    if sp is None:
+      print(f'log10ratio={p["log10ratio"]:+.1f}: no peak found, skipped')
+      continue
+    row = dict(logr=float(p['log10ratio']), barT_pk=barT_pk)
+    row.update({tag: peak_and_width(p['x'], sp[tag]) for tag in sp})
+    rows.append(row)
+  if verbose:
+    w = lambda r, t: r[t][f'logW_{level}']
+    print(f'\n{KIND_NAME[kind]}: peak width W_pk = log10(nu_+1/2/nu_-1/2) [dex]')
+    print(f"{'log10(C)':>9} {'W RS':>8} {'W FS':>8} {'W RS+FS':>9} {'tot-RS':>8} "
+          f"{'nu_pk RS':>10} {'nu_pk tot':>10}  edge")
+    for r in rows:
+      edge = ','.join(t for t in ('RS', 'FS', 'tot')
+                      if r[t]['edge_lo'] or r[t]['edge_hi']) or '-'
+      print(f"{r['logr']:+9.0f} {w(r,'RS'):8.3f} {w(r,'FS'):8.3f} {w(r,'tot'):9.3f} "
+            f"{w(r,'tot')-w(r,'RS'):+8.3f} {r['RS']['x_pk']:10.3e} "
+            f"{r['tot']['x_pk']:10.3e}  {edge}")
+  return rows
+
+
+def _nu_m_lines(ax, e0, labels=False):
+  '''The two shells' injection frequencies on a nu/nu_m,0 axis: the RS's is 1 by
+  construction (the axis IS its nu_m), the FS's sits at nu0FS/nu0 below it.'''
+  for nu_m, tag in ((1., 'RS'), (e0.nu0FS/e0.nu0, 'FS')):
+    ax.axvline(nu_m, color=STY[tag]['color'], ls='-.', lw=.8, alpha=.6)
+    if labels:
+      ax.annotate(f'$\\nu_{{\\mathrm{{m}},\\!\\mathrm{{{tag}}}}}$', (nu_m, 1.01),
+                  xycoords=transy(ax),
+                  color=STY[tag]['color'], fontsize=8, ha='center', va='bottom')
+
+
+def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS, key=KEY,
+    outdir=OUTDIR, yspan=PANEL_YSPAN, level=WIDTH_LEVEL):
+  '''
+  One column per regime: the two shells and their sum on top, and the sum's departure from
+  the RS alone -- (RS+FS)/RS -- underneath.
+
+  Each column is normalised by its OWN total's peak, so the black curve tops out at 1 in
+  all three and the columns are read as SHAPES; how much each regime actually radiates is
+  the separate cross-regime figure (plot_shell_shares).
+
+  The ratio panel is what the figure is for. It is 1 wherever the RS owns the band and
+  lifts where the FS does, and where it lifts is set by nu_m,FS sitting a decade below
+  nu_m,RS (both marked) rather than by the FS being the brighter shell -- which is why the
+  departure is a low-frequency one in fast cooling and nearly nothing in slow cooling,
+  where the two shells' peaks have run together.
+
+  The half-maximum crossings of the RS and of the sum are drawn as bars at their own
+  half-peak level, so the two widths quoted in each panel can be read off the curves rather
+  than taken on trust.
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  e0 = MyEnv(key)
+  by_logr = {round(p['log10ratio'], 6): p for p in pairs}
+  sel = [by_logr[round(lr, 6)] for lr in logr_list if round(lr, 6) in by_logr]
+  missing = [lr for lr in logr_list if round(lr, 6) not in by_logr]
+  if missing:
+    print(f'no sweep point at log10ratio = {missing}; dropped from the composite')
+  if not sel:
+    print(f'{kind} spectra composite: nothing to plot')
+    return
+  ylo, rmax = 10.**(-yspan), 1.
+
+  fig, axs = plt.subplots(2, len(sel), figsize=(4.3*len(sel), 5.9), sharex='col',
+      sharey='row', squeeze=False, gridspec_kw={'height_ratios': [2.4, 1]})
+  for j, p in enumerate(sel):
+    ax_s, ax_r = axs[0, j], axs[1, j]
+    sp, barT_pk = shell_spectra(p, kind)
+    if sp is None:
+      continue
+    x, norm = p['x'], float(np.nanmax(sp['tot']))
+    for tag, _ in _curves(p):
+      y = sp[tag]/norm
+      ax_s.loglog(x, np.where(y > 0., y, np.nan), **STY[tag])
+    m = {tag: peak_and_width(x, sp[tag]) for tag in ('RS', 'tot')}
+    for tag in ('RS', 'tot'):     # the half-maximum span, on the curve it was measured on
+      lo, hi = m[tag][f'nu_lo_{level}'], m[tag][f'nu_hi_{level}']
+      if np.isfinite(lo) and np.isfinite(hi):
+        ax_s.plot([lo, hi], [0.5*m[tag]['F_pk']/norm]*2, color=STY[tag]['color'],
+                  lw=.9, marker='|', ms=5, alpha=.85, zorder=5)
+    with np.errstate(divide='ignore', invalid='ignore'):
+      ratio = np.where(sp['RS'] > 0., sp['tot']/sp['RS'], np.nan)
+    ax_r.plot(x, ratio, color=COL_TOT, lw=1.2)
+    ax_r.set_xscale('log')
+    ax_r.axhline(1., color='grey', ls=':', lw=.9)
+    rmax = max(rmax, float(np.nanmax(ratio[np.isfinite(ratio)])) if np.isfinite(ratio).any()
+               else 1.)
+    for ax in (ax_s, ax_r):
+      _nu_m_lines(ax, e0, labels=(ax is ax_s))
+    vis = np.any(np.array([sp[t] for t, _ in _curves(p)])/norm > ylo, axis=0)
+    if vis.any():
+      ax_s.set_xlim(x[vis].min()/3., x[vis].max()*3.)
+    # 1.5 decades of headroom above the total's peak, so the half-maximum bars (which sit
+    # at half of it) clear the corner annotations below
+    ax_s.set_ylim(ylo, 10.**1.5)
+    # regime upper LEFT, widths upper RIGHT: the rising 4/3 end is at the bottom of the
+    # panel and the cut-off has taken every curve down by the right edge, so both corners
+    # are free on all three columns whatever the regime does to the peak's position
+    ax_s.text(.03, .97, f'$\\log_{{10}}\\mathcal{{C}} = {p["log10ratio"]:+.0f}$',
+              transform=ax_s.transAxes, ha='left', va='top', fontsize=11)
+    for i, (tag, lab) in enumerate((('RS', 'RS'), ('tot', 'RS+FS'))):
+      ax_s.text(.97, .97 - .085*i, f'$W_{{\\rm pk,{lab}}} = {m[tag][f"logW_{level}"]:.2f}$',
+                transform=ax_s.transAxes, ha='right', va='top', fontsize=9,
+                color=STY[tag]['color'])
+    ax_r.set_xlabel(NU_M_LABEL + '   (RS)')
+  axs[1, 0].set_ylim(1. - 0.03*(rmax - 1.), rmax + 0.08*(rmax - 1.))
+  sym = KIND_SYM[kind]
+  axs[0, 0].set_ylabel(f'${sym}/({sym})_{{\\rm max,tot}}$')
+  axs[1, 0].set_ylabel('(RS+FS) / RS')
+  h = [plt.Line2D([], [], **{k: v for k, v in STY[t].items() if k != 'label'})
+       for t, _ in _curves(sel[0])]
+  fig.legend(h, [STY[t]['label'] for t, _ in _curves(sel[0])], loc='lower center',
+             ncol=3, fontsize=9, frameon=False)
+  fig.tight_layout(rect=(0., 0.045, 1., 1.))
+  f = os.path.join(outdir, f'shell_spectra_panels_{kind}.png')
+  fig.savefig(f, dpi=300)
+  plt.close(fig)
+  print(f'{kind} spectra composite ({len(sel)} regimes) saved to {f}')
+
+
+def plot_shell_width_vs_regime(pairs, kind='peak', key=KEY, outdir=OUTDIR,
+    level=WIDTH_LEVEL, rows=None):
+  '''
+  The composite's two widths, for the whole sweep: W_pk of the RS alone and of the sum
+  against the cooling regime. Both are log10 of a frequency RATIO, i.e. decades, so the
+  vertical gap between the curves IS the broadening the slow shell adds and needs no second
+  panel to carry it.
+
+  The x axis is the RS's cooling regime -- the sweep parameter; the FS shares the rescale,
+  not the regime, and sits a fixed offset above it (_regime_offset, annotated).
+  A point whose crossing landed on the grid edge is drawn hollow: there the width is the
+  observing window's, not the spectrum's (see shell_widths).
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  rows = shell_widths(pairs, kind=kind, level=level) if rows is None else rows
+  if not rows:
+    print(f'{kind} width figure: nothing to plot')
+    return
+  lr = np.array([r['logr'] for r in rows], float)
+  fig, ax = plt.subplots(figsize=(6.4, 4.4))
+  for tag, lab, mk in (('RS', 'RS', 'o'), ('tot', 'RS+FS', 's')):
+    v = np.array([r[tag][f'logW_{level}'] for r in rows], float)
+    ok = np.array([not (r[tag]['edge_lo'] or r[tag]['edge_hi']) for r in rows], bool)
+    ax.plot(np.where(ok, lr, np.nan), np.where(ok, v, np.nan), mk + '-',
+            color=STY[tag]['color'], lw=1.4, ms=5, label=lab)
+    ax.plot(lr[~ok], v[~ok], marker=mk, color=STY[tag]['color'], ls='none', ms=5,
+            mfc='none', alpha=.6)
+  ax.set_xlabel('$\\log_{10}\\mathcal{C}$   (RS)')
+  ax.set_ylabel('$W_{\\rm pk} = \\log_{10}(\\nu_{+1/2}/\\nu_{-1/2})$   [dex]')
+  ax.text(.03, .97, KIND_NAME[kind].capitalize(), transform=ax.transAxes,
+          ha='left', va='top', fontsize=10)
+  ax.text(.03, .90, f'FS regime offset ${_regime_offset(key, verbose=False):+.2f}$ dex',
+          transform=ax.transAxes, ha='left', va='top', fontsize=8, color='0.4')
+  ax.grid(alpha=.25)
+  ax.legend(fontsize=9, loc='lower right')
+  fig.tight_layout()
+  f = os.path.join(outdir, f'shell_peak_width_{kind}.png')
+  fig.savefig(f, dpi=300)
+  plt.close(fig)
+  print(f'{kind} peak-width figure saved to {f}')
+  return rows
+
+
 def shell_shares(pairs, nu_ref=NU_REF):
   '''
   The whole series condensed: the FS share of the emission, three ways, per regime.
@@ -482,6 +723,12 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, method=METHOD, outdir=None,
   for mode in ('nu_m', 'max'):
     plot_total_fluence_all(pairs, mode, outdir=outdir)
   plot_peak_spectra_per_regime(pairs, key=key, outdir=outdir)
+  # the cooling SEQUENCE rather than one regime per file: three regimes side by side with
+  # the sum's departure from the RS underneath, and that departure as one number -- the
+  # width of the peak -- for every regime. Both kinds, peak and time-integrated.
+  for kind in KIND_SYM:
+    plot_shell_spectra_panels(pairs, kind=kind, key=key, outdir=outdir)
+    plot_shell_width_vs_regime(pairs, kind=kind, key=key, outdir=outdir)
   s = plot_shell_shares(pairs, outdir=outdir)
   trim_pngs(outdir)
   print(f'Both-shell figures saved to {outdir}')

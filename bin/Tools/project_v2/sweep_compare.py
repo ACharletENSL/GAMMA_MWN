@@ -32,7 +32,7 @@ from plotting_functions import slope_label, transx
 from sweep_gammacm import (load_sweep, method_outdir, _sweep_colors, _draw_order, nu_over_num,
     compute_fluence_spectrum, detect_rise_peak_tail, bolometric_peak_index,
     compute_efficiency,
-    exit_onset_barT, rarefaction_off_barT, data_end_barT, run_sweep, trim_pngs,
+    exit_onset_barT, rarefaction_off_barT, data_end_barT, run_sweep, trim_pngs, _nu_0_label,
     local_index, _hle_index, _index_panel, _spectra_series, _series_colors,
     LOG10RATIO_ARR, NU_TARGETS, NU_M_LABEL, NU_REF, Z_SHELL, DEFAULT_KEY,
     SPEC_LOGT, SPEC_SERIES_YSPAN, XLIM_LIN, XLIM_LOG, SPEC_MODES, _MODE_TITLE)
@@ -214,6 +214,61 @@ def plot_efficiency_compare(pairs, outdir=OUTDIR, labels=LABELS):
   plt.close(fig)
 
 
+def _spectra_curves(pairs, get_spec, mode, norm_side, colors):
+  """
+  The A/B spectra of every sweep point, put on one flux normalisation, in DRAW ORDER.
+
+  Both sides of a point are divided by the SAME number -- taken from norm_side's curve
+  (see LABELS) -- so their vertical offset IS the B/A ratio whichever side is picked, and
+  norm_side only sets which curve passes through 1. Points whose normalisation is
+  unusable (a non-positive value, or, under 'eff', a cache with no energy budget) are
+  dropped rather than drawn on a different scale from the rest.
+
+  Returns (curves, ypks, ratios): curves as (x, y_A, y_B, colour) tuples, each point's
+  peak, and its B/A ratio, all in the same order so a caller can zip them.
+  """
+  curves, ypks, ratios = [], [], []
+  for (rf, rd), c in _draw_order(zip(pairs, colors)):
+    x = nu_over_num(rf)
+    sf, sd = get_spec(rf), get_spec(rd)
+    sn = sf if norm_side == 'A' else sd
+    norm = sn[int(np.argmin(np.abs(x - 1.)))] if mode == 'nu_m' else sn.max()
+    if mode == 'eff':
+      # scaled by the NORMALISING side's eps_rad, the side the norm itself comes from:
+      # the two differ by a few percent at most, and taking one from each would fold
+      # that difference into the stacking on top of the offset it already sets
+      eff = compute_efficiency(rf if norm_side == 'A' else rd)
+      if not np.isfinite(eff) or eff <= 0.:
+        continue              # no energy budget in this point's cache: cannot scale it
+      norm /= eff
+    if norm <= 0.:
+      continue
+    yf, yd = sf/norm, sd/norm
+    curves.append((x, yf, yd, c))
+    ypks.append(max(np.nanmax(yf), np.nanmax(yd)))
+    with np.errstate(divide='ignore', invalid='ignore'):
+      ratios.append(np.where(sf > 0., sd/sf, np.nan))
+  return curves, ypks, ratios
+
+
+def _spectra_limits(ax, curves, ypks, mode):
+  """
+  The flux floor and frequency clip of an A/B spectral panel. Under 'eff' the floor hangs
+  off the FAINTEST point rather than the brightest, so every point keeps YCLIP_DEC decades
+  of its OWN shape however far the efficiency scaling has pushed it down (as
+  sweep_gammacm._plot_spectra_all does); x is then clipped to where anything is still above
+  that floor. Only a little headroom above the peak: the legend sits upper-LEFT, over the
+  low-frequency end where every curve is near the floor.
+  """
+  ymax = max(ypks) if ypks else 0.
+  if not ymax > 0.:
+    return
+  ylo = (min(ypks) if mode == 'eff' else ymax)/10.**YCLIP_DEC
+  ax.set_ylim(ylo, ymax*1.5)
+  xhi = max(x[np.nanmax([yf, yd], axis=0) > ylo].max() for x, yf, yd, _ in curves)
+  ax.set_xlim(min(x[0] for x, _, _, _ in curves), 2.*xhi)
+
+
 def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=LABELS,
     ratio=True, norm_side='B'):
   '''
@@ -251,48 +306,19 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
   else:
     fig, ax_s = plt.subplots(figsize=(7.5, 5.))
     ax_r, cb_ax = None, ax_s
-  ymax, ypks, ratios, curves = 0., [], [], []
-  for (rf, rd), c in _draw_order(zip(pairs, colors)):
-    x = nu_over_num(rf)
-    sf, sd = get_spec(rf), get_spec(rd)
-    sn = sf if norm_side == 'A' else sd
-    norm = sn[int(np.argmin(np.abs(x - 1.)))] if mode == 'nu_m' else sn.max()
-    if mode == 'eff':
-      # scaled by the NORMALISING side's eps_rad, the side the norm itself comes from:
-      # the two differ by a few percent at most, and taking one from each would fold
-      # that difference into the stacking on top of the offset it already sets
-      eff = compute_efficiency(rf if norm_side == 'A' else rd)
-      if not np.isfinite(eff) or eff <= 0.:
-        continue              # no energy budget in this point's cache: cannot scale it
-      norm /= eff
-    if norm <= 0.:
-      continue
-    yf, yd = sf/norm, sd/norm
-    curves.append((x, yf, yd, c))
-    ypks.append(max(np.nanmax(yf), np.nanmax(yd)))
-    ymax = max(ymax, ypks[-1])
-    if ax_r is not None:
-      with np.errstate(divide='ignore', invalid='ignore'):
-        ratios.append(np.where(sf > 0., sd/sf, np.nan))
-      ax_r.plot(x, ratios[-1], color=c, lw=.9)
-  for x, yf, yd, c in curves:
+  curves, ypks, ratios = _spectra_curves(pairs, get_spec, mode, norm_side, colors)
+  for (x, yf, yd, c), rr in zip(curves, ratios):
     ax_s.loglog(x, yf, color=c, lw=1.1, ls='--')
     ax_s.loglog(x, yd, color=c, lw=1.1)
+    if ax_r is not None:
+      ax_r.plot(x, rr, color=c, lw=.9)
   if not curves:
     print(f'{kind}_spectra_cmp_norm-{mode}: nothing to plot'
           + (' (energies absent from the caches; re-run the sweeps with use_cache=False)'
              if mode == 'eff' else ''))
     plt.close(fig)
     return
-  # 'eff' hangs the floor off the FAINTEST point, so each keeps YCLIP_DEC of its own shape
-  # however far the efficiency scaling has pushed it down (as _plot_spectra_all does)
-  ylo = (min(ypks) if mode == 'eff' else ymax)/10.**YCLIP_DEC if ymax > 0. else None
-  if ylo is not None:
-    # only a little headroom above the peak: the legend sits upper-LEFT, over the
-    # low-frequency end where every curve is near the floor, so it needs no room here
-    ax_s.set_ylim(ylo, ymax*1.5)
-    xhi = max(x[np.nanmax([yf, yd], axis=0) > ylo].max() for x, yf, yd, _ in curves)
-    ax_s.set_xlim(min(x[0] for x, _, _, _ in curves), 2.*xhi)
+  _spectra_limits(ax_s, curves, ypks, mode)
   sym = '\\nu F_\\nu' if kind == 'peak' else '\\nu \\mathcal{F}_\\nu'
   sub = f'({sym})_{{\\nu_\\mathrm{{m}}}}' if mode == 'nu_m' else f'({sym})_{{\\rm max}}'
   pre = '\\varepsilon_{\\rm rad}\\,' if mode == 'eff' else ''
@@ -785,6 +811,38 @@ def fluence_slope_table(series, labels=LABELS, band_ref=3., verbose=True):
   return tab
 
 
+def _draw_slope_profile(ax, series, colors, labels):
+  """
+  The local log-log slope of the time-integrated spectrum vs nu/nu_m on one axis, one curve
+  per regime, both sides overlaid (dashed A / solid B), with the asymptote guides and each
+  point's lower break marked. The x axis stops at nu/nu_m = 2: above the peak the curve is
+  the falling side, and this panel exists to be read to the LEFT of the break markers.
+  """
+  la, lb = labels
+  xlo, xhi = min(10.**e['fb']['prof_lx'][0] for e in series), 2.
+  for e, c in _draw_order(zip(series, colors)):
+    for f, ls in ((e['fa'], '--'), (e['fb'], '-')):
+      ax.plot(10.**f['prof_lx'], f['prof_slope'], color=c, lw=1.1, ls=ls)
+    # only the breaks that are ON this axis. clip_on=False keeps a marker sitting exactly
+    # at the edge whole, but it also DRAWS the out-of-band ones -- deep fast cooling puts
+    # min(nu_m,nu_c) = C^2 several decades below the grid floor -- outside the panel, where
+    # they carry no information and, in a multi-panel figure, land on a neighbour
+    if xlo <= e['nu_break'] <= xhi:
+      ax.plot([e['nu_break']], [A_LO_ASYMP], marker='v', color=c, ms=4, clip_on=False)
+  for y, lab in ((A_LO_ASYMP, '4/3'), (1., '1'), (.5, '1/2')):
+    ax.axhline(y, color='grey', ls=':', lw=.8)
+    ax.annotate(lab, xy=(0.997, y), xycoords=transx(ax), fontsize=8, color='grey',
+                ha='right', va='bottom')
+  ax.set_xscale('log')
+  ax.set_xlim(xlo, xhi)
+  ax.set_ylim(-0.2, 1.6)
+  ax.set_xlabel(NU_M_LABEL)
+  ax.set_ylabel(slope_label('$\\nu \\mathcal{F}_\\nu$'))
+  ax.plot([], [], 'k--', label=la); ax.plot([], [], 'k-', label=lb)
+  ax.plot([], [], 'kv', ms=4, ls='none', label='$\\min(\\nu_\\mathrm{m},\\nu_\\mathrm{c})$')
+  ax.legend(loc='lower left', fontsize=9)
+
+
 def plot_fluence_slope_profile(series, outdir=OUTDIR, labels=LABELS, fname=None,
     title_extra=''):
   '''
@@ -797,22 +855,7 @@ def plot_fluence_slope_profile(series, outdir=OUTDIR, labels=LABELS, fname=None,
   la, lb = labels
   colors, sm = _sweep_colors([{'log10ratio': e['logr']} for e in series])
   fig, ax = plt.subplots(figsize=(7.5, 5.))
-  for e, c in _draw_order(zip(series, colors)):
-    for f, ls in ((e['fa'], '--'), (e['fb'], '-')):
-      ax.plot(10.**f['prof_lx'], f['prof_slope'], color=c, lw=1.1, ls=ls)
-    ax.plot([e['nu_break']], [A_LO_ASYMP], marker='v', color=c, ms=4, clip_on=False)
-  for y, lab in ((A_LO_ASYMP, '4/3'), (1., '1'), (.5, '1/2')):
-    ax.axhline(y, color='grey', ls=':', lw=.8)
-    ax.annotate(lab, xy=(0.997, y), xycoords=transx(ax), fontsize=8, color='grey',
-                ha='right', va='bottom')
-  ax.set_xscale('log')
-  ax.set_xlim(min(10.**e['fb']['prof_lx'][0] for e in series), 2.)
-  ax.set_ylim(-0.2, 1.6)
-  ax.set_xlabel(NU_M_LABEL)
-  ax.set_ylabel(slope_label('$\\nu \\mathcal{F}_\\nu$'))
-  ax.plot([], [], 'k--', label=la); ax.plot([], [], 'k-', label=lb)
-  ax.plot([], [], 'kv', ms=4, ls='none', label='$\\min(\\nu_\\mathrm{m},\\nu_\\mathrm{c})$')
-  ax.legend(loc='lower left', fontsize=9)
+  _draw_slope_profile(ax, series, colors, labels)
   ax.set_title(f'Low-energy slope of the time-integrated spectra, {la} vs {lb}{title_extra}')
   fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
   fig.savefig(os.path.join(outdir, fname or 'fluence_slope_profile.png'), dpi=300)
@@ -882,6 +925,151 @@ def plot_fluence_slopes_vs_regime(tables, outdir=OUTDIR, labels=LABELS, kind='as
   fig.savefig(os.path.join(outdir, fname or f'fluence_slopes_{kind}_vs_regime.png'),
               dpi=300, bbox_inches='tight')
   plt.close(fig)
+
+
+# --- the two composites: one figure per question, rather than one file per frequency -----
+# plot_lightcurve_compare and plot_fluence_slope_profile above each answer their question
+# one panel at a time, across three files and two figures. These two put each question on a
+# single figure: what the post-rarefaction material is worth across the band (the pulse and
+# its ratio, three frequencies side by side), and what it does to the time-integrated
+# SHAPE (the spectra and the local slope that measures them, on one axis pair).
+
+def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
+    outdir=OUTDIR, labels=LABELS, barT_end=None, xlim_lin=XLIM_LIN, norm_side='A',
+    fname='lightcurve_panels_lin.png'):
+  '''
+  The three observing frequencies as ONE figure: lin-lin lightcurves, one column per nu_t,
+  both sides overlaid (dashed A / solid B), the B/A ratio underneath each.
+
+  Both rows share their y axis ACROSS the columns, which is the point of the figure. The
+  flux row can: every pair is divided by its own norm_side peak, so all three columns top
+  out at 1 and the pulse shapes are directly comparable. The ratio row must: how much the
+  discarded material is worth is a strong function of frequency, and three separately
+  scaled ratio panels would hide exactly that.
+
+  Linear in flux, so the late divergence -- which sits at 1e-2..1e-5 of the peak -- is flat
+  against zero on the top row by construction. It is the bottom row that carries it. The
+  per-frequency files (plot_lightcurve_compare) keep the local-index panel, which is the
+  one to read when the question is what the prescription does to the DECAY rather than
+  what it costs.
+
+  barT_off: the rarefaction cut-off band, a hydro/geometry property of the simulation, so
+  the same band annotates both sides. barT_end: ((first,last)_A, (first,last)_B), one
+  vertical marker per side at that side's LAST cell (dashed A / solid B).
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  la, lb = labels
+  ln = _norm_label(labels, norm_side)
+  if not barT_f > 0.:
+    raise ValueError(f'non-positive crossing time bar_T_f={barT_f}')
+  colors, sm = _sweep_colors([rf for rf, _ in pairs])
+  xoff = tuple(b/barT_f for b in barT_off) if barT_off else None
+  xend = [(b[1]/barT_f if b else None) for b in barT_end] if barT_end else None
+
+  fig, axs = plt.subplots(2, len(nu_targets), figsize=(4.4*len(nu_targets), 5.7),
+      sharex=True, sharey='row', squeeze=False, gridspec_kw={'height_ratios': [2.2, 1]})
+  ymax, ratios = 0., []
+  for j, nu_t in enumerate(nu_targets):
+    ax_f, ax_r = axs[0, j], axs[1, j]
+    for (rf, rd), c in _draw_order(zip(pairs, colors)):
+      x = (rf['Tb'] - 1.)/barT_f
+      lf, ld = _lc_at(rf, nu_t), _lc_at(rd, nu_t)
+      pk_b = ld.max()          # B's peak: the scale the ratio mask stands on, so the ratio
+                               # row does not move when norm_side does
+      pk = lf.max() if norm_side == 'A' else pk_b
+      if pk <= 0. or pk_b <= 0.:
+        continue
+      ax_f.plot(x, lf/pk, color=c, lw=1.1, ls='--')
+      ax_f.plot(x, ld/pk, color=c, lw=1.1)
+      win = (x >= xlim_lin[0]) & (x <= xlim_lin[1])
+      if win.any():            # the peak INSIDE the window: the normalising side peaks at 1
+                               # on the full grid, but its peak can fall outside this one
+        ymax = max(ymax, float(np.max(lf[win]/pk)), float(np.max(ld[win]/pk)))
+      with np.errstate(divide='ignore', invalid='ignore'):
+        rr = np.where(lf > 1e-6*pk_b, ld/lf, np.nan)   # only where side A has flux
+      ratios.append(rr)
+      ax_r.plot(x, rr, color=c, lw=.9)
+    ax_r.axhline(1., color='grey', ls=':', lw=.9)
+    for ax in (ax_f, ax_r):
+      ax.axvline(1., color='grey', ls=':', lw=.7)
+      if xoff is not None:
+        ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
+      if xend is not None:
+        for xe, ls in zip(xend, ('--', '-')):
+          if xe is not None:
+            ax.axvline(xe, color='crimson', ls=ls, lw=.9, alpha=.8)
+    ax_f.set_xlim(*xlim_lin)
+    # the article convention: the frequency goes INSIDE the panel, at y = 0.87 -- the
+    # curves are peak-normalised, so 1 sits at ~0.95 of the axes height (see
+    # sweep_gammacm._nu_0_label and the figure conventions it records)
+    ax_f.text(0.97, 0.87, _nu_0_label(nu_t), transform=ax_f.transAxes, ha='right',
+              va='top', fontsize=12)
+    ax_r.set_xlabel('$\\bar{T}/\\bar{T}_f$')
+  axs[0, 0].set_ylim(0., (ymax or 1.)*1.05)
+  rmax = max([np.nanmax(r[np.isfinite(r)]) for r in ratios if np.isfinite(r).any()]
+             + [1.001])
+  axs[1, 0].set_ylim(1. - .05*(rmax - 1.), rmax + .1*(rmax - 1.))
+  axs[0, 0].set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm max}}$ ({ln} norm.)')
+  axs[1, 0].set_ylabel(f'{lb} / {la}')
+  axs[1, 0].plot([], [], 'k--', label=la); axs[1, 0].plot([], [], 'k-', label=lb)
+  axs[1, 0].legend(loc='upper left', fontsize=9, framealpha=.9)
+  fig.colorbar(sm, ax=axs, label='log$_{10}\\mathcal{C}$')
+  fig.savefig(os.path.join(outdir, fname), dpi=300)
+  plt.close(fig)
+  print(f'lin-lin lightcurve composite ({len(nu_targets)} frequencies) saved to {outdir}')
+
+
+def plot_fluence_with_slope(pairs, series=None, outdir=OUTDIR, labels=LABELS,
+    norm_side='B', mode='eff', fname=None):
+  '''
+  The time-integrated spectra of both sides and, beside them, the local log-log slope that
+  measures what the difference between them IS.
+
+  The two panels are the same curves differentiated: the left one shows the cut side
+  peeling away from the full one toward low frequency, the right one turns that into an
+  index and puts it against the asymptote it is heading for. Neither carries a ratio panel
+  -- both sides of a point are on ONE normalisation, so their vertical offset already IS
+  the ratio, and at this separation it is readable without a second axis (see
+  plot_spectra_compare's `ratio`).
+
+  The slope panel stops at nu/nu_m = 2 and the spectral panel does not: the index is only
+  meaningful below the peak, while the spectra are worth showing whole.
+
+  `series` defaults to fluence_series(pairs); pass one already built to avoid measuring
+  the low-energy slopes twice.
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  ln = _norm_label(labels, norm_side)
+  series = fluence_series(pairs) if series is None else series
+  colors, sm = _sweep_colors([rf for rf, _ in pairs])
+  get_spec = lambda r: compute_fluence_spectrum(r['Tb'], r['nuFnu'])
+
+  fig, (ax_s, ax_p) = plt.subplots(1, 2, figsize=(12.4, 4.8),
+                                   gridspec_kw={'width_ratios': [1.15, 1]})
+  curves, ypks, _ = _spectra_curves(pairs, get_spec, mode, norm_side, colors)
+  if not curves:
+    print('fluence + slope composite: nothing to plot'
+          + (' (energies absent from the caches; re-run the sweeps with use_cache=False)'
+             if mode == 'eff' else ''))
+    plt.close(fig)
+    return
+  for x, yf, yd, c in curves:
+    ax_s.loglog(x, yf, color=c, lw=1.1, ls='--')
+    ax_s.loglog(x, yd, color=c, lw=1.1)
+  _spectra_limits(ax_s, curves, ypks, mode)
+  sym = '\\nu \\mathcal{F}_\\nu'
+  pre = '\\varepsilon_{\\rm rad}\\,' if mode == 'eff' else ''
+  sub = f'({sym})_{{\\nu_\\mathrm{{m}}}}' if mode == 'nu_m' else f'({sym})_{{\\rm max}}'
+  ax_s.set_ylabel(f'${pre}{sym}/{sub}$  ({ln} norm.)')
+  ax_s.set_xlabel(NU_M_LABEL)
+  # no key here: the slope panel's legend carries the same two linestyles plus the break
+  # marker, and one key serves both panels of a single figure
+  _draw_slope_profile(ax_p, series, colors, labels)
+  fig.colorbar(sm, ax=(ax_s, ax_p), label='log$_{10}\\mathcal{C}$')
+  fig.savefig(os.path.join(outdir, fname or f'fluence_spectra_slope_norm-{mode}.png'),
+              dpi=300)
+  plt.close(fig)
+  print(f'fluence + slope composite saved to {outdir}')
 
 
 def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None,
