@@ -381,11 +381,15 @@ def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False):
   x = swp.nu_over_num(r)
   sp, p, sig = r['nuFnu'][i, :], r['env'].psyn, tk['sigma'][i]
   shape = '1brk_mc' if merged else tk['shape'][i]
-  if shape in ('2brk', '2brk_tangent', '2brk_free'):
+  if shape in ('2brk', '2brk_tangent', '2brk_free', '2brk_flo'):
     # the mid slope stays as free as it was in the bin's own fit, so the residual difference
-    # is the frozen SMOOTHING and nothing else; freezing a_mid too would price two changes
+    # is the frozen SMOOTHING and nothing else; freezing a_mid too would price two changes.
+    # '2brk_flo' (FC*) must ALSO keep b_lo free here: its stored b_lo is the band-bottom seed,
+    # so holding it would price a change of geometry on top of the frozen s.
     return sb.fit_smoothing_held(x, sp, p, tk['b_lo'][i], tk['b_hi'][i], tk['nuM'][i],
                                  tk['a_mid'][i] - 1., s_hold=s_hold, sigma=sig,
+                                 free_blo=(shape == '2brk_flo'),
+                                 free_bhi=(shape != '2brk_flo'),
                                  free_bmid=bool(tk['mid_fitted'][i]))['rms']
   if shape == '1brk_vfc':
     return sb.fit_smoothing_held(x, sp, p, tk['b_hi'][i], np.nan, tk['nuM'][i], np.nan,
@@ -951,11 +955,19 @@ def synth_vfc(depth, s2, sigma=BIAS_SIGMA, mgap=VAL_MGAP, psyn=VAL_P, npd=VAL_NP
 # synth_vfc has no lower break at all (the VFC limit); FC* means the cooling break sits AT the
 # band edge, still bleeding into the mid window from below. The two are not interchangeable.
 FCSTAR_DEPTH = (3.0, 4.0, 5.0, 6.0, 6.5, 7.0)   # decades of band below the UPPER break
-FCSTAR_OFF = (-0.25, 0., 0.25, 0.5, 1.0)        # decades of the lower break ABOVE the band
-                                                # bottom; below -0.25 the classifier returns
-                                                # VFC, above ~1.0 it finds a 4/3 window and
-                                                # returns FC, so this IS the FC* range
-FCSTAR_S1 = (0.6, 0.8, 1.0, 1.2, 1.4)           # NOT averaged over: it moves the bias by 5x
+FCSTAR_OFF = (-0.25, 0., 0.25, 0.5, 0.75, 1.0, 1.35)   # decades of the lower break ABOVE
+                                                # the band bottom; below -0.25 the classifier
+                                                # returns VFC. Both ranges were set from the
+                                                # MEASURED geometry once '2brk_flo' made it
+                                                # measurable: off = depth - sep runs
+                                                # -0.17..1.30 (median 0.35) and s1 runs
+                                                # 1.07..10 (median 1.42, q84 1.94) over the
+                                                # 360 FC* bins of the fiducial sweep.
+FCSTAR_S1 = (0.6, 0.8, 1.0, 1.2, 1.4, 1.7, 2.0, 2.5)   # NOT averaged over: it moves the bias
+                                                # by 5x. The grid must reach 2.5 because the
+                                                # fitted s1 does -- stopping at 1.4, where it
+                                                # was first drawn, left 194 of 360 bins above
+                                                # the hull.
 FCSTAR_S2 = (1.8, 2.6, 4.0)                     # averaged over: it moves it by <= 0.003
 
 

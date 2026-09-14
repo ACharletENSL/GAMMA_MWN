@@ -1992,10 +1992,28 @@ def breaks_from_identified(x, sp, psyn, det=None, cut=None, smear=True, flatten=
     hb = _cross(lines[mid_name], lines['hi'])
     if np.isfinite(lb) and np.isfinite(hb) and lb < hb:
       out.update(b_lo=float(10**lb), b_hi=float(10**hb), n_breaks=2, shape=fb)
-  elif rg in ('VFC', 'FC*') and mid_name is not None and {mid_name, 'hi'} <= set(lines):
+  elif rg == 'VFC' and mid_name is not None and {mid_name, 'hi'} <= set(lines):
     hb = _cross(lines[mid_name], lines['hi'])
     if np.isfinite(hb):
       out.update(b_hi=float(10**hb), shape='1brk_vfc', n_breaks=1)
+  elif rg == 'FC*' and mid_name is not None and {mid_name, 'hi'} <= set(lines):
+    # FC* HAS a lower break -- its band bottom turning up toward 4/3 is what separates it
+    # from VFC -- but no nu^(4/3) window to cross the mid line with, so the break cannot be
+    # located geometrically the way every other class's is. It is therefore SEEDED at the
+    # band bottom, which is the classifier's own statement about where it sits, and FREED in
+    # the fit (smoothing_from_identified's '2brk_flo' branch).
+    # WHY IT MATTERS: mapped onto the single break VFC carries, FC* has no lower break at
+    # all, so nothing indexes the tilt that break puts on the mid window -- which is why
+    # these bins had no usable bias correction. segment_route.fcstar_bias_grid measures that
+    # tilt at +0.014 to +0.053, about the whole raw FC* departure, against the -0.003 to
+    # -0.011 of the WRONG SIGN that the VFC grid returned.
+    # seeded ONE SAMPLE in, not exactly at lx.min(): the in-band test below compares
+    # np.log10(10**v) against v, and that round trip lands 1 ulp LOW for 1.75% of values,
+    # which would set ok=False and drop the bin with no other symptom. A sample's width is
+    # ~0.03 dex here and the fit frees b_lo anyway, so the seed's exact value costs nothing.
+    hb = _cross(lines[mid_name], lines['hi'])
+    if np.isfinite(hb) and lx.size > 1:
+      out.update(b_lo=float(10**lx[1]), b_hi=float(10**hb), shape='2brk_flo', n_breaks=2)
   elif rg == 'VSC' and mid_name is not None and {'lo', mid_name} <= set(lines):
     lb = _cross(lines['lo'], lines[mid_name])
     if np.isfinite(lb):
@@ -2024,7 +2042,12 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
   The shape follows the class, so each spectrum is fitted with the model it actually shows:
 
       FC, SC     two-break form, s1 and s2, beta_mid at its MEASURED value
-      VFC, FC*   single break, -1/2 to -p/2: s2 only (granot_sari_syn's nuc=None branch)
+      VFC        single break, -1/2 to -p/2: s2 only (granot_sari_syn's nuc=None branch)
+      FC*        two-break form with b_lo FREE, seeded at the band bottom ('2brk_flo'). Its
+                 lower break is real but unlocatable by crossing -- there is no nu^(4/3)
+                 window -- so the fit is the only thing that can place it, and placing it is
+                 what makes the bin correctable: sep and s1 come back measured and the
+                 ordinary bias_grid covers it.
       MC         single BROAD break, 4/3 to -p/2, no mid slope: fit_single_break -- and,
                  where the tangent fallback anchored a mid line, ALSO the two-break form on
                  that geometry, so the two descriptions can be compared on the same bin
@@ -2089,8 +2112,12 @@ def smoothing_from_identified(x, sp, psyn, det=None, br=None, free_bhi=True, s_h
   anc = anchor
   if anchor == 'auto':
     anc = 'hi' if br['regime'] == 'FC' else 'lo'
-  free_lo = (anc == 'hi') and br['shape'] in ('2brk', '2brk_tangent', '2brk_free')
-  if br['shape'] in ('2brk', '2brk_tangent', '2brk_free'):
+  # '2brk_flo' ALWAYS frees b_lo, whatever the anchor: its b_lo is a seed at the band bottom,
+  # not a crossing, so holding it would be holding a placeholder. b_hi is held in exchange --
+  # freeing both is the degeneracy fit_gs02_spectrum(free_s=True) already fails on.
+  free_lo = ((anc == 'hi') and br['shape'] in ('2brk', '2brk_tangent', '2brk_free')) \
+            or br['shape'] == '2brk_flo'
+  if br['shape'] in ('2brk', '2brk_tangent', '2brk_free', '2brk_flo'):
     f = fit_smoothing_held(x, sp, psyn, br['b_lo'], br['b_hi'], br['nuM'],
                            br['a_mid'] - 1., free_bhi=(free_bhi and not free_lo),
                            free_blo=free_lo, s_hold=s_hold, sigma=sig,

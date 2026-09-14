@@ -224,7 +224,11 @@ def segments_and_breaks(x, sp, psyn, **kw):
   if np.isfinite(b['b_lo']) and np.isfinite(b['b_hi']) and b['b_lo'] > 0.:
     out['sep'] = float(b['b_hi']/b['b_lo'])
 
-  vfc = b['shape'] == '1brk_vfc'
+  # '2brk_flo' is FC*, refitted with b_lo free so the bias grid can reach it -- but its
+  # stored b_lo is the band-bottom SEED, not a crossing, so the free-slope windows are still
+  # placed the single-break way here, exactly as when FC* carried '1brk_vfc'. Unchanged
+  # behaviour for this module by construction.
+  vfc = b['shape'] in ('1brk_vfc', '2brk_flo')
   b_lo = b['b_hi'] if vfc else b['b_lo']
   if b['n_breaks'] and np.isfinite(b['b_hi']) and np.isfinite(b_lo):
     f = sb.free_slopes(x, sp, psyn, b_lo, b['b_hi'], b['nuM'], vfc=vfc)

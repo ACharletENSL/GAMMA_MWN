@@ -181,9 +181,15 @@ def _measure_point(args):
       # break bleeds further into the mid window), and s1 varies along a track, so a
       # correction by epoch would step the curve where the physics does not.
       gf = sb.smoothing_from_identified(nub, nuFnu[i], p, br=br_)
-      sep = (np.log10(br_['b_hi']/br_['b_lo'])
-             if np.isfinite(br_['b_hi']) and np.isfinite(br_['b_lo'])
-             and br_['b_lo'] > 0 else nan)
+      # FC* ('2brk_flo') has no lower CROSSING -- its b_lo is a seed at the band bottom and
+      # the fit is what places it -- so its separation has to come from the fitted breaks.
+      # Every other shape keeps the crossings, which is what the bias grid was built on and
+      # what the fitted pair agrees with to 3% anyway (see smoothing_from_identified).
+      b_lo_, b_hi_ = ((gf['b_lo_fit'], gf['b_hi_fit']) if br_['shape'] == '2brk_flo'
+                      else (br_['b_lo'], br_['b_hi']))
+      sep = (np.log10(b_hi_/b_lo_)
+             if np.isfinite(b_hi_) and np.isfinite(b_lo_)
+             and b_lo_ > 0 else nan)
       # for a SINGLE-break spectrum (VFC, FC*) there is no separation to index a bias by;
       # what sets the tilt there is the upper break's smoothing and how many decades of the
       # 1/2 segment sit in band beneath it -- see segment_route.vfc_bias_grid
@@ -297,6 +303,38 @@ def _vfc_bias_interp():
   return LinearNDInterpolator(np.array(pts), np.array(val))
 
 
+FCSTAR_BIAS_CSV = 'fcstar_bias_grid.csv'   # ... and the FC* one (segment_route.fcstar_bias_grid)
+
+
+def _fcstar_bias_interp():
+  '''
+  bias(depth, off, s1) for FC*, from segment_route's FC* grid. Three axes because all three
+  move it and, since FC* is fitted as '2brk_flo', all three are now MEASURED:
+    depth  decades of band below the upper break          (the row's own `depth`)
+    off    decades of the lower break above the band bottom = depth - sep, the fitted b_lo
+    s1     the lower break's smoothing, which the free-b_lo fit returns
+  Neither of the other grids is the right geometry here. vfc_bias_grid has NO lower break
+  (it returns the wrong SIGN, -0.003 to -0.011); bias_grid has a full nu^(4/3) window in
+  band, which is exactly what an FC* spectrum does not have.
+  '''
+  from scipy.interpolate import LinearNDInterpolator
+  from segment_route import OUTDIR as SR_OUT
+  path = os.path.join(SR_OUT, FCSTAR_BIAS_CSV)
+  if not os.path.isfile(path):
+    return None
+  pts, val = [], []
+  for r in csv.DictReader(open(path)):
+    if r['bias'] in ('', 'nan') or r.get('regime') != 'FC*':
+      continue
+    b = float(r['bias'])
+    if abs(b) > BIAS_MAX:
+      continue
+    pts.append((float(r['depth']), float(r['off']), float(r['s1']))); val.append(b)
+  if len(pts) < 5:
+    return None
+  return LinearNDInterpolator(np.array(pts), np.array(val))
+
+
 def _bias_interp(branch):
   '''
   bias(sep, s1) for one branch, from segment_route's grid: what the estimator returns on a
@@ -397,24 +435,28 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     # break. corrected=False leaves every track raw, for the companion figure.
     itp = _bias_interp(br) if corrected else None
     itp1 = _vfc_bias_interp() if corrected else None
+    itp2 = _fcstar_bias_interp() if corrected else None
     n_un = 0
     for r in sub:
       b = np.nan
-      if itp is not None and np.isfinite(r.get('sep', np.nan)) \
+      if itp2 is not None and r.get('regime') == 'FC*' \
+         and all(np.isfinite(r.get(k, np.nan)) for k in ('depth', 'sep', 's1')):
+        # off = depth - sep: both are measured on the SAME upper break (free_bhi is off for
+        # '2brk_flo'), so the difference is exactly the fitted b_lo above the band bottom
+        b = float(itp2(r['depth'], r['depth'] - r['sep'], r['s1']))
+      elif itp is not None and np.isfinite(r.get('sep', np.nan)) \
          and np.isfinite(r.get('s1', np.nan)):
         b = float(itp(r['sep'], r['s1']))
       elif itp1 is not None and r.get('regime') == 'VFC' \
            and np.isfinite(r.get('depth', np.nan)) and np.isfinite(r.get('s2', np.nan)):
         b = float(itp1(r['depth'], r['s2']))   # single break: no lower break to index by
-      # FC* IS NOT CORRECTED OFF THAT GRID, though it used to be (378 bins). vfc_bias_grid's
-      # geometry is synth_vfc's -- no lower break at all -- and segment_route.fcstar_bias_grid
-      # measures what that costs: the VFC grid returns -0.003 to -0.011, the WRONG SIGN, so
-      # subtracting it made the FC* departure larger, while the right shape gives +0.014 to
-      # +0.053 (median over s1 and the break offset), i.e. about the whole raw departure at
-      # every depth. The FC* grid cannot be applied either: its third axis is s1, which the
-      # single-break shape does not fit, and the bias moves 5x across the plausible s1 range.
-      # So these bins are reported uncorrected until FC* is given a measurable geometry --
-      # see fcstar_bias_grid's docstring for the one-line route to that.
+      # FC* NO LONGER LANDS HERE. It used to be corrected off the VFC grid, which has the
+      # wrong geometry (synth_vfc carries no lower break) and returned -0.003 to -0.011,
+      # the WRONG SIGN, so subtracting it made the departure larger. It is now fitted as
+      # '2brk_flo' -- two breaks with b_lo free, seeded at the band bottom -- which returns
+      # a measured sep and s1, so it is corrected by the ORDINARY grid above like any other
+      # two-break spectrum. segment_route.fcstar_bias_grid is the measurement that forced
+      # the change and remains the check on it.
       r['bias'] = b
       r['a_corr'] = r['a_mid'] - b if np.isfinite(b) else np.nan
       n_un += int(not np.isfinite(b))

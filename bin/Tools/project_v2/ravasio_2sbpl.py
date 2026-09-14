@@ -428,6 +428,9 @@ def fit_2sbpl_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True, cutfac
 # band, or a merged knee with no mid segment) are counted and reported, not fitted: neither
 # shape has anything to say there that the other does not, and the 2SBPL's own reason to
 # exist -- the third segment -- is not in the data.
+# NB '2brk_flo' (FC*) is deliberately NOT here even though it now carries two breaks: the
+# lower one is fitted, not identified, and the nu^(4/3) segment it implies is below the band.
+# The exclusion is the same one the paragraph above states, on the same grounds.
 TWO_BRK = ('2brk', '2brk_tangent', '2brk_free')
 
 
@@ -459,6 +462,9 @@ DEFAULT_CONFIGS = ('anchored', 'freemid', 'freemid_phys', 'presc', 'free')
 # band, or a merged knee with no mid segment) are counted and reported, not fitted: neither
 # shape has anything to say there that the other does not, and the 2SBPL's own reason to
 # exist -- the third segment -- is not in the data.
+# NB '2brk_flo' (FC*) is deliberately NOT here even though it now carries two breaks: the
+# lower one is fitted, not identified, and the nu^(4/3) segment it implies is below the band.
+# The exclusion is the same one the paragraph above states, on the same grounds.
 TWO_BRK = ('2brk', '2brk_tangent', '2brk_free')
 
 PUBLISHED_S = {'gs02': S_GS02, '2sbpl': S_2SBPL}
