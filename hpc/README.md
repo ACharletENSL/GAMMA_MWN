@@ -113,6 +113,15 @@ staging is ever the thing that is broken. `regen_two.sh` has no staged counterpa
 a one-off that re-ran the two steps which died with a `NameError` in job 987740, and its
 `REGEN_SKIP` is a snapshot of that job, not a setting to reuse.
 
+Two more joined them on 2026-09-15, both `mid_slope_evolution` one-offs and both equally
+unstaged. `midslope_force.sh` re-measures `mid_slopes.csv` with `use_cache=False`, which is
+the only way past `table_is_current`: that stamp ties the table to the POINT CACHE, so a
+change to the measuring CODE leaves a stale table looking current. `midslope_plot.sh` is a
+pure replot of both runs, written when the bias grids still lived under
+`bin/Tools/figures/` and were git-ignored, so they never reached the cluster and every
+a_mid figure drawn there came out uncorrected -- its comment says so, and is now history:
+the grids have been tracked since `25c3603`. Kept for the record either way.
+
 Any other job script adopts the same thing in four lines:
 
 ```bash
