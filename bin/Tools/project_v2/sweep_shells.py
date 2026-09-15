@@ -57,6 +57,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from functools import lru_cache
 
+import spectral_breaks as sb
+                                  # for segment_slopes, the suite's local d log(nuFnu)/
+                                  # d log(nu) on a spectrum grid, with its documented
+                                  # smoothing -- so a slope measured here is the same
+                                  # quantity the break machinery measures
+
 from environment import MyEnv, GAMMA_dir, figdir
 from IO import get_dirpath
 from peak_modeling import offset_gcgm_from_au
@@ -491,21 +497,55 @@ def shell_widths(pairs, kind='peak', level=WIDTH_LEVEL, verbose=True):
   return rows
 
 
+def slope_difference(x, sp_ref, sp):
+  """
+  a(sp) - a(sp_ref) at every frequency, with a = d log(nuFnu)/d log(nu): how much the
+  local spectral INDEX moves when the second shell is added. Returns (nu, da) on the
+  samples where both spectra are usable.
+
+  Both slopes come from spectral_breaks.segment_slopes, which is np.gradient over a
+  boxcar of SLOPE_SMOOTH samples. It is called on ALREADY MASKED arrays -- the samples
+  finite and positive in BOTH spectra -- so its own good-sample filter is a no-op and the
+  two slope arrays come back on one grid, alignable by index. Filtering each separately
+  and interpolating would let the two ends disagree by a sample exactly where the
+  difference is largest.
+
+  This is the log-log derivative of the (RS+FS)/RS ratio, and that is the point of
+  preferring it: a ratio of 3 that is FLAT means the slow shell trebles the flux and
+  changes nothing about the shape, which the ratio draws as a big number and this draws
+  as zero. The panel therefore separates what the FS does to the normalisation from what
+  it does to the spectrum.
+  """
+  x = np.asarray(x, float)
+  g = np.isfinite(x) & (x > 0.)
+  for y in (sp_ref, sp):
+    y = np.asarray(y, float)
+    g &= np.isfinite(y) & (y > 0.)
+  if g.sum() < 4:
+    return np.array([]), np.array([])
+  lx, _, a_ref = sb.segment_slopes(x[g], np.asarray(sp_ref, float)[g])
+  _, _, a_new = sb.segment_slopes(x[g], np.asarray(sp, float)[g])
+  return 10.**lx, a_new - a_ref
+
+
 def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
     outdir=OUTDIR, yspan=PANEL_YSPAN, level=WIDTH_LEVEL):
   '''
-  One column per regime: the two shells and their sum on top, and the sum's departure from
-  the RS alone -- (RS+FS)/RS -- underneath.
+  One column per regime: the two shells and their sum on top, and what the sum does to the
+  local spectral INDEX -- a(RS+FS) - a(RS), with a = d log(nuFnu)/d log(nu) -- underneath.
 
   Each column is normalised by its OWN total's peak, so the black curve tops out at 1 in
   all three and the columns are read as SHAPES; how much each regime actually radiates is
   the separate cross-regime figure (plot_shell_shares).
 
-  The ratio panel is what the figure is for. It is 1 wherever the RS owns the band and
-  lifts where the FS does, and where it lifts is set by nu_m,FS sitting a decade below
-  nu_m,RS rather than by the FS being the brighter shell -- which is why the
-  departure is a low-frequency one in fast cooling and nearly nothing in slow cooling,
-  where the two shells' peaks have run together.
+  The index panel is what the figure is for, and it asks a narrower question than the
+  (RS+FS)/RS ratio it replaced: not how much flux the slow shell adds, but where it bends
+  the spectrum. It is ZERO wherever the FS merely scales the RS -- however large that
+  scaling is -- and departs only where the FS is entering or leaving the band, which is
+  set by nu_m,FS sitting a decade below nu_m,RS rather than by either shell's brightness.
+  Being a log-log derivative of that ratio it is necessarily negative here: the FS drops
+  out toward high frequency, so the sum is the softer of the two everywhere the two
+  separate. See slope_difference.
 
   The half-maximum crossings of the RS and of the sum are ticked on their own curves, at
   their own half-peak level, so the two widths quoted in each panel can be read off the
@@ -521,7 +561,7 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
   if not sel:
     print(f'{kind} spectra composite: nothing to plot')
     return
-  ylo, rmax = 10.**(-yspan), 1.
+  ylo, dlo, dhi = 10.**(-yspan), 0., 0.
 
   fig, axs = plt.subplots(2, len(sel), figsize=(4.3*len(sel), 5.9), sharex='col',
       sharey='row', squeeze=False, gridspec_kw={'height_ratios': [2.4, 1]})
@@ -545,13 +585,12 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
         # maximum -- so the width is still the distance between two things you can see.
         ax_s.plot([lo, hi], [0.5*m[tag]['F_pk']/norm]*2, color=STY[tag]['color'],
                   ls='none', marker='|', ms=7, mew=1.3, alpha=.9, zorder=5)
-    with np.errstate(divide='ignore', invalid='ignore'):
-      ratio = np.where(sp['RS'] > 0., sp['tot']/sp['RS'], np.nan)
-    ax_r.plot(x, ratio, color=COL_TOT, lw=1.2)
+    xd, da = slope_difference(x, sp['RS'], sp['tot'])
+    ax_r.plot(xd, da, color=COL_TOT, lw=1.2)
     ax_r.set_xscale('log')
-    ax_r.axhline(1., color='grey', ls=':', lw=.9)
-    rmax = max(rmax, float(np.nanmax(ratio[np.isfinite(ratio)])) if np.isfinite(ratio).any()
-               else 1.)
+    ax_r.axhline(0., color='grey', ls=':', lw=.9)   # the FS reshapes nothing here
+    if np.isfinite(da).any():
+      dlo = min(dlo, float(np.nanmin(da))); dhi = max(dhi, float(np.nanmax(da)))
     vis = np.any(np.array([sp[t] for t, _ in _curves(p)])/norm > ylo, axis=0)
     if vis.any():
       ax_s.set_xlim(x[vis].min()/3., x[vis].max()*3.)
@@ -568,10 +607,13 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
                 transform=ax_s.transAxes, ha='right', va='top', fontsize=9,
                 color=STY[tag]['color'])
     ax_r.set_xlabel(NU_M_RS_LABEL)
-  axs[1, 0].set_ylim(1. - 0.03*(rmax - 1.), rmax + 0.08*(rmax - 1.))
+  pad = 0.08*max(dhi - dlo, 1e-3)
+  axs[1, 0].set_ylim(dlo - pad, dhi + pad)
   sym = KIND_SYM[kind]
   axs[0, 0].set_ylabel(f'${sym}/({sym})_{{\\rm max,tot}}$')
-  axs[1, 0].set_ylabel('(RS+FS) / RS')
+  # `a` is the suite's symbol for a spectral index (a_lo/a_mid/a_hi in spectral_breaks,
+  # the a columns of sweep_compare.fluence_slope_table), so it needs no gloss here
+  axs[1, 0].set_ylabel('$a_{\\rm RS+FS} - a_{\\rm RS}$')
   h = [plt.Line2D([], [], **{k: v for k, v in STY[t].items() if k != 'label'})
        for t, _ in _curves(sel[0])]
   fig.legend(h, [STY[t]['label'] for t, _ in _curves(sel[0])], loc='lower center',
