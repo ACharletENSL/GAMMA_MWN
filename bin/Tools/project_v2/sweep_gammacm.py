@@ -414,6 +414,36 @@ R_REF = 1.1                                   # cooling-step ratio (gma_max drop
                                              # at its geometric-mean gamma, so the budget is
                                              # second-order in R_REF (the old left-edge sum
                                              # overshot by ~3.5% at 1.1, ~5% at 1.2)
+                                             # It is NOT what sets the lightcurve's TIME
+                                             # resolution any more -- DLOGT_MAX below is.
+DLOGT_MAX = 0.01                             # cap on one cooling step's span in
+                                             # log10(bar{T}) (working_cooling_data.DLOGT_MAX
+                                             # and _refine_tt_on_logTon). A step is emitted as
+                                             # an instantaneous flash, so the gamma_max ladder
+                                             # alone put the switch-ons log10(R_REF) = 0.0414
+                                             # dex apart -- visible as ringing in the temporal
+                                             # index over bar{T}/bar{T}_f < 2e-3 at
+                                             # log10(gma_c/gma_m) = +3 (peak-to-peak 0.6) and a
+                                             # ~19% high early rise there, because deep in slow
+                                             # cooling that ladder is the only time structure a
+                                             # cell's emission has.
+                                             # 0.01 is ~4x below the ladder it refines and
+                                             # ~2.6x above the observer grid (7/(NT-1) = 0.0039
+                                             # dex). It takes the index-residual rms over
+                                             # bar{T}/bar{T}_f = 2e-4..2e-3 from 0.1123 to
+                                             # 0.0044, which BEATS r_ref=1.02 (0.0105) because
+                                             # it refines the axis that is actually coarse.
+                                             # Lowering R_REF instead would cost 4.7x on the
+                                             # fast-cooling points, where the flux is already
+                                             # converged to 0.07% and the ripple does not move.
+                                             # It fires at EVERY sweep point (the 0.0414
+                                             # asymptote exceeds it in every regime), so it is
+                                             # not a knob that can be turned on for the
+                                             # slow-cooling points alone, and every point cache
+                                             # predating it is stale. Cost 5.12x on the early
+                                             # shell (nearly all sub-cells) and 1.3-2.4x on
+                                             # parent cells; see working_cooling_data.DLOGT_MAX
+                                             # for the cap scan and why 0.015 is the fallback.
 NU_M_LABEL = '$\\nu/\\nu_{\\mathrm{m},\\!0}$'
 
 
@@ -593,7 +623,7 @@ def _compute_point(key, z, logr, alpha, Tmax, NT, lognu_min, lognu_above, outdir
   kw = dict(alpha=alpha, Tmax=Tmax, NT=NT, Nnu=Nnu, lognu_min=lo, lognu_max=hi,
             Tb_min=TB_MIN, Tb_lin=TB_LIN, subcell_dlogT=SUBCELL_DLOGT,
             subcell_max=SUBCELL_MAX, r_ref=R_REF, return_energies=True,
-            ncell_proc=ncell_proc)
+            ncell_proc=ncell_proc, dlogT_max=DLOGT_MAX)
   if method == 'data+rarcut':
     nuobs, Tobs, env, res = get_shell_nuFnu_fromData(
         key, z, early_ana=EARLY_ANA, rar_cut='both', **kw)
@@ -622,9 +652,13 @@ def _compute_point(key, z, logr, alpha, Tmax, NT, lognu_min, lognu_above, outdir
     variants = [(method, outdir, nuFnu, E_rad, E_int, E_inj)]
   elif method == 'fit':
     # the fit path reconstructs the hydro from per-cell fits and has no cell loop to
-    # spread, so it never takes ncell_proc
+    # spread, so it never takes ncell_proc; nor does it have the data path's step-grid
+    # criteria (dlogT_max refines a ladder built in working_cooling_data). Both are
+    # dropped rather than forwarded -- get_shell_nuFnu ends in **kwargs, so an unknown
+    # key would ride silently down into the emission kernel instead of erroring here.
     nuobs, Tobs, env, nuFnu, E_rad, E_int, E_inj = get_shell_nuFnu(
-        key, z, **{k: v for k, v in kw.items() if k != 'ncell_proc'})
+        key, z, **{k: v for k, v in kw.items()
+                   if k not in ('ncell_proc', 'dlogT_max')})
     variants = [(method, outdir, nuFnu, E_rad, E_int, E_inj)]
   else:
     raise ValueError(f"unknown method {method!r}")

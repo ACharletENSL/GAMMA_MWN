@@ -50,6 +50,58 @@ import cell_pool
 DLNSYN_MAX = 1e-3
 NSUB_MAX = 256           # max sub-intervals per snapshot interval
 
+# cap on the span of ONE cooling step in log10(bar{T}) -- the OBSERVER-time analogue of
+# DLNRHO_MAX, and the third criterion the gamma_max ladder is refined against.
+# WHY IT EXISTS. get_Fnu_step treats a step as an instantaneous flash at its (midpoint)
+# radius plus the tT^-2 high-latitude tail, with a hard switch-on at tT = 1, so a cell's
+# lightcurve is a sum of sharp switch-ons -- one per step. generate_timebins puts those on
+# a gamma_max-geometric ladder, tt_j ~ r_ref^j - 1, whose log-time spacing asymptotes to
+# log10(r_ref) = 0.0414 dex at r_ref = 1.1. Wherever that ladder is the ONLY time
+# structure a cell's emission has, the lightcurve is a staircase at 0.0414 dex.
+# It shows deep in SLOW cooling and at EARLY times: there t_cool >> t_dyn so the ladder
+# spreads out in observer time (cooling_g100 z=4, cell 519: 60 steps, onsets 0.064 ->
+# 0.047 dex apart), while in fast cooling a cell's first steps are DEGENERATE in Ton (the
+# electrons cool at fixed radius -- the same cell at alpha=1 has its first 25 steps all at
+# bar{T} = 0.000899, spacing 0.0000 dex) and carry no observer-time structure at all.
+# Below bar{T}/bar{T}_f ~ 2e-3 one or two cells carry the flux, and their sub-cells reuse
+# the parent's history shape -- hence its step ladder verbatim -- so nothing decoheres the
+# comb: the log10(gma_c/gma_m) = +3 lightcurve rings with a peak-to-peak 0.6 in the
+# temporal index, and the early rise sits ~19% high against a converged ladder.
+# WHY NOT JUST LOWER r_ref. N ~ 1/log10(r_ref) in EVERY regime, so r_ref = 1.02 costs 4.7x
+# on the fast-cooling points -- where the flux is already converged to 0.07% and the ripple
+# does not move at all (measured flat at 0.017 rms over r_ref = 1.02..1.10). This criterion
+# buys the same resolution where the ladder is actually coarse in observer time and skips
+# the steps that are degenerate there.
+# NB it does NOT partition the sweep: the asymptotic 0.0414 dex exceeds this cap in every
+# regime, so it fires at every point and every cached point computed before it existed is
+# stale. Only the deepest fast-cooling mid-shell cells come out untouched.
+# WHERE 0.01 COMES FROM (first 6 RS cells, logr=+3, r_ref held at 1.1; index-residual rms
+# over bar{T}/bar{T}_f = 2e-4..2e-3, and flux relative to the 0.005 run):
+#     cap    0.005   0.01    0.015   0.02    0.03    none
+#     rms    0.0026  0.0044  0.0044  0.0072  0.0109  0.1123
+#     cost   9.81x   5.12x   3.65x   2.84x   2.04x   1.00x
+#     early  (ref)   1.0121  1.0236  1.0346  1.0557  1.2325
+# 0.015 ties 0.01 on the ripple for 1.4x less work and is the value to fall back on if the
+# cost ever bites; 0.01 is kept because the FLUX is still converging. It does so at FIRST
+# order in the cap -- ~1.15% per 0.005, linear across all five points -- so extrapolating
+# to cap -> 0 puts the uncapped ladder ~25% high on the early rise and ~2% low near the
+# peak, and leaves ~2.4% of that residual at 0.01. Do not read 0.005 as converged either.
+# COST IS DOMINATED BY SUB-CELLS, NOT BY PARENT CELLS. The 5.12x above is the early shell,
+# which is almost all anchored sub-cells: a sub-cell sitting at bar{T} ~ 1e-4 has its first
+# step span ~0.38 dex and splits ~39 ways, where a parent cell at its own onset splits 1.3
+# -2.4x. A whole-shell factor is therefore between the two and much nearer the parent
+# figure, since the 494 later cells carry two sub-cells each.
+DLOGT_MAX = 0.01
+NSUB_LOGT_MAX = 64       # max sub-steps one cooling step may be split into. A step whose
+                         # left edge sits at bar{T} -> 0 spans unboundedly many decades;
+                         # this bounds the work there instead of letting one step blow up.
+                         # MEASURED HEADROOM: over the whole early shell the clip never
+                         # binds -- 0 of 16320 intervals at logr=+3 and 0 of 37037 at -5,
+                         # worst demand 39 and 5 sub-steps. So the cap above is honoured
+                         # exactly, and this is a guard rather than a second knob. Raise it
+                         # with dlogT_max: the demand scales as 1/dlogT_max, so 0.005 would
+                         # ask for ~78 and this would start truncating.
+
 # --- counterfactual histories: the shocked layer WITHOUT the rarefaction crash --------
 # The data method follows every cell to its last snapshot, so the rarefaction is IN the
 # reference. To measure what the wave costs, the worldline EXTENT must be held fixed and
@@ -361,8 +413,52 @@ def _refine_tt_on_rho_data(tt_edges, tt_nodes, lnrho_nodes, dlnrho_max):
   out = np.asarray(out)
   return out[np.insert(np.diff(out) > 0., 0, True)]   # strictly increasing
 
+def _refine_tt_on_logTon(tt_edges, tt_nodes, barT_nodes, dlogT_max,
+    nsub_max=NSUB_LOGT_MAX):
+  '''
+  Insert extra tt edges so no cooling step spans more than dlogT_max in log10(bar{T}):
+  the OBSERVER-time analogue of _refine_tt_on_rho_data, and the reason is the same --
+  a step is evaluated as one state, so whatever it spans is unresolved. What differs is
+  which axis goes unresolved: the rho criterion resolves the cell's own adiabatic
+  evolution, this one resolves WHEN the step's light arrives. See DLOGT_MAX.
+
+  bar{T}_nodes is the cells' own onset time on the nodes, (Ton - Ts)/T0. It is MONOTONIC
+  (Ton is, which is what lets the Tmax cap above assume a single crossing), so unlike
+  _refine_tt_on_rho_data this needs no total-variation detour: plain interpolation both
+  ways is single-valued. Sub-edges are placed at equal log10(bar{T}) increments, i.e.
+  GEOMETRICALLY in bar{T} -- the criterion's own measure, exactly as the rho version
+  places its sub-edges at equal ln(rho) increments rather than uniformly in tt.
+
+  An interval whose left edge sits at bar{T} <= 0 spans unboundedly many decades and is
+  left alone: it cannot be split on a log measure, and it does not arise in the sweep --
+  every emitter enters with bar{T} > 0 (an anchored sub-cell is shifted to its own onset
+  onset_c >= the grid floor, and an unsplit cell keeps its measured injection row). The
+  guard is what makes the function safe if one ever does.
+
+  Refining tt only adds resolution -- the synchrotron law and the adiabatic product
+  telescope across a subdivided step -- so results converge as the grid is refined, and
+  dlogT_max=None leaves the ladder exactly as the two other criteria left it.
+  '''
+  bt_edges = np.interp(tt_edges, tt_nodes, barT_nodes)
+  out = [tt_edges[0]]
+  for j in range(len(tt_edges) - 1):
+    a, b = tt_edges[j], tt_edges[j+1]
+    lo, hi = bt_edges[j], bt_edges[j+1]
+    n = 1
+    if lo > 0. and hi > lo:
+      n = int(np.clip(np.ceil(np.log10(hi/lo)/dlogT_max), 1, nsub_max))
+    if n > 1:
+      # geometric in bar{T}, mapped back to tt through the nodes; clip into the
+      # interval, duplicates are dropped below
+      bt_sub = np.geomspace(lo, hi, n + 1)[1:-1]
+      out.extend(np.clip(np.interp(bt_sub, barT_nodes, tt_nodes), a, b))
+    out.append(b)
+  out = np.asarray(out)
+  return out[np.insert(np.diff(out) > 0., 0, True)]   # strictly increasing
+
 def generate_cell_fromData(cell_data, env_in, u_scale=1., alpha=1., zeta=1.,
     r_ref=1.2, Tmax=None, dlnrho_max=DLNRHO_MAX, dlnsyn_max=DLNSYN_MAX,
+    dlogT_max=DLOGT_MAX,
     n_settle=1, sh_row=None, early_frac=0., rar_ratio=None, r_cap=None, norar=None,
     norar_fit=None, norar_ppd=NORAR_PTS_PER_DEC, norar_z=NORAR_Z):
   '''
@@ -392,13 +488,14 @@ def generate_cell_fromData(cell_data, env_in, u_scale=1., alpha=1., zeta=1.,
     shocked = _prepend_shocked_row(shocked, sh_row, env_in, early_frac)
   return generate_cell_fromHistory(shocked, cell_data.attrs, env_in,
       u_scale=u_scale, alpha=alpha, zeta=zeta, r_ref=r_ref, Tmax=Tmax,
-      dlnrho_max=dlnrho_max, dlnsyn_max=dlnsyn_max, rar_ratio=rar_ratio,
+      dlnrho_max=dlnrho_max, dlnsyn_max=dlnsyn_max, dlogT_max=dlogT_max,
+      rar_ratio=rar_ratio,
       r_cap=r_cap, norar=norar, norar_fit=norar_fit, norar_ppd=norar_ppd,
       norar_z=norar_z)
 
 def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
     zeta=1., r_ref=1.2, Tmax=None, dlnrho_max=DLNRHO_MAX, dlnsyn_max=DLNSYN_MAX,
-    rar_ratio=None, r_cap=None, norar=None, norar_fit=None,
+    dlogT_max=DLOGT_MAX, rar_ratio=None, r_cap=None, norar=None, norar_fit=None,
     norar_ppd=NORAR_PTS_PER_DEC, norar_z=NORAR_Z):
   '''
   Core of generate_cell_fromData, on an already-selected post-shock history
@@ -426,6 +523,11 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
     tt/tp quadrature (_densify_nodes). Keeps the fluence dtt consistent with the
     local cooling rate the emission kernel uses; without it the energy is
     over-counted in fast cooling (eps_rad > 1). None reproduces that behaviour.
+  dlogT_max: cap on the span of one cooling step in log10(bar{T})
+    (_refine_tt_on_logTon); resolves WHEN each step's light arrives, which the
+    gamma_max ladder leaves at log10(r_ref) wherever cooling is slow enough for
+    the steps to spread out in observer time. None reproduces the pre-2026-09-15
+    ladder. See DLOGT_MAX.
   rar_ratio: opt-in SHARP rarefaction cut-off, R_rar/R_injection for this cell
     (the dimensionless per-cell ratio load_shell_rarefaction returns, consumed
     the way the fit path does at generate_cell_withDistrib:
@@ -526,11 +628,14 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
   # global gamma_max-geometric grid, shared logic with the fit path
   tt_geo = generate_timebins(inj, env, None, 1., end_cond='gmax', r_ref=r_ref)
 
+  # on-axis arrival time at the nodes. Hoisted out of the Tmax block below because the
+  # log-Ton refinement needs it whether or not an observer window was given.
+  Ton_nodes = (1. + env.z)*(t + env.t0 - x)       # x in light-seconds (c=1 code units)
+
   # termination: end of data / gmax -> 1 / (optional) observer window, on nodes
   tt_end = min(tt_nodes[-1], tt_geo[-1])
   if Tmax is not None:
     Tobs_max = env.Ts + Tmax*env.T0
-    Ton_nodes = (1. + env.z)*(t + env.t0 - x)     # x in light-seconds (c=1 code units)
     if Ton_nodes[0] >= Tobs_max:
       return False, env_in                        # whole history past the window
     if Ton_nodes[-1] > Tobs_max:                  # Ton monotonic: single crossing
@@ -542,6 +647,16 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
   # refine on the ln(rho) total variation (adiabatic resolution + rarefaction crash)
   if dlnrho_max is not None:
     tt_edges = _refine_tt_on_rho_data(tt_edges, tt_nodes, np.log(rho), dlnrho_max)
+
+  # refine on the observer-time span, so no step is a flash covering a resolvable
+  # stretch of log10(bar{T}). LAST of the three criteria: it can only subdivide what the
+  # other two left, so the ladder it sees is the final one and no criterion can undo
+  # another's refinement. See DLOGT_MAX for what this fixes and why r_ref does not.
+  n_geo = len(tt_edges)
+  if dlogT_max is not None:
+    tt_edges = _refine_tt_on_logTon(tt_edges, tt_nodes,
+                                    (Ton_nodes - env.Ts)/env.T0, dlogT_max)
+  n_split = len(tt_edges) - n_geo
 
   # tt -> t: exact inverse of the trapezoid model (tt piecewise-linear in t with
   # breakpoints at the nodes); drop plateau duplicates (syn ~ 0 stretches)
@@ -578,6 +693,11 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
   out = pd.DataFrame.from_dict(dic)
   for key in attrs:
     out.attrs[key] = attrs[key]
+  # how much the observer-time criterion added to THIS cell's ladder, for the shell-level
+  # report (get_shell_nuFnu_fromData). Counted on tt_edges before the t_edges de-duplication
+  # below, so it is the criterion's own demand rather than what survived the plateau drop.
+  out.attrs['n_split_logT'] = int(n_split)
+  out.attrs['n_steps_geo'] = int(n_geo - 1)
   return out, env
 
 def cell_crossing_time(u_up, u_dn, w, fastshell):
@@ -1319,7 +1439,8 @@ def _new_acc(ctx):
   return SimpleNamespace(
       nuFnu=[None]*nv if ctx.energies_only
             else [np.zeros((len(ctx.Tobs), len(ctx.nuobs))) for _ in range(nv)],
-      E_rad=[0.]*nv, E_int=[0.]*nv, E_inj=[0.]*nv, skipped=[])
+      E_rad=[0.]*nv, E_int=[0.]*nv, E_inj=[0.]*nv, skipped=[],
+      n_split_logT=0, n_steps_geo=0)
 
 
 def _merge_acc(dst, src):
@@ -1332,6 +1453,8 @@ def _merge_acc(dst, src):
     dst.E_int[iv] += src.E_int[iv]
     dst.E_inj[iv] += src.E_inj[iv]
   dst.skipped.extend(src.skipped)
+  dst.n_split_logT += src.n_split_logT
+  dst.n_steps_geo += src.n_steps_geo
 
 
 def _accum_energy(ctx, acc, iv, cell, cell_env):
@@ -1348,6 +1471,7 @@ def _make_cell(ctx, hist, attrs, kk):
     c, ce = generate_cell_fromHistory(hist, attrs, ctx.env,
         u_scale=ctx.u_scale, alpha=ctx.alpha, zeta=ctx.zeta, r_ref=ctx.r_ref,
         Tmax=ctx.Tmax, dlnrho_max=ctx.dlnrho_max, dlnsyn_max=ctx.dlnsyn_max,
+        dlogT_max=ctx.dlogT_max,
         rar_ratio=(rar_map_lookup(rmap, kk) if rmap is not None else None), **kw)
     out.append((c, ce))
   return out
@@ -1357,6 +1481,14 @@ def _emit(ctx, acc, cells):
   '''Accumulate one cell's flux (+ energies) into every variant. With two variants
   the pair evaluator computes their shared leading steps ONCE -- the whole point of
   rar_cut='both' -- and is bit-identical to evaluating them separately.'''
+  # log-Ton ladder report, from the FIRST usable variant only: the variants differ in
+  # where the history is truncated (rar_ratio), so their step counts legitimately differ
+  # and summing them all would double-count one emitter's ladder.
+  for cell, _ in cells:
+    if cell is not False:
+      acc.n_split_logT += cell.attrs.get('n_split_logT', 0)
+      acc.n_steps_geo += cell.attrs.get('n_steps_geo', 0)
+      break
   if ctx.energies_only:
     ok = False
     for iv, (cell, cell_env) in enumerate(cells):
@@ -1510,7 +1642,8 @@ def _run_cell_loop(ctx, weights, ncell_proc):
 
 def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     VFC=False, r_ref=1.2, Tmax=5, NT=500, lognu_min=-2.5, lognu_max=2.5, Nnu=400,
-    dlnrho_max=DLNRHO_MAX, dlnsyn_max=DLNSYN_MAX, Tb_min=None, Tb_lin=None, n_settle=1,
+    dlnrho_max=DLNRHO_MAX, dlnsyn_max=DLNSYN_MAX, dlogT_max=DLOGT_MAX,
+    Tb_min=None, Tb_lin=None, n_settle=1,
     subcell_dlogT=None, subcell_max=32, early_ana=None, early_frac=0.,
     rar_cut=None, norar=None, r_cap=None, ncell_proc=None,
     return_energies=False, energies_only=False, **kwargs):
@@ -1705,7 +1838,8 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
       key=key, klist=np.asarray(klist), env=env, nuobs=nuobs, Tobs=Tobs,
       variants=variants, paired=paired, func_Fnu=func_Fnu,
       u_scale=u_scale, alpha=alpha, zeta=zeta, r_ref=r_ref, Tmax=Tmax,
-      dlnrho_max=dlnrho_max, dlnsyn_max=dlnsyn_max, n_settle=n_settle,
+      dlnrho_max=dlnrho_max, dlnsyn_max=dlnsyn_max, dlogT_max=dlogT_max,
+      n_settle=n_settle,
       early_frac=early_frac, sh_data=sh_data, energies_only=energies_only,
       return_energies=return_energies, kwargs=kwargs, sub_edges=sub_edges,
       inj=scan['inj'], emitters=emitters)
@@ -1724,6 +1858,13 @@ def get_shell_nuFnu_fromData(key, z, u_scale=1., alpha=1., zeta=1., klist=None,
     n_refined = sum(len(s[2]) - 2 for s in sub_edges if s is not None)
     print(f'get_shell_nuFnu_fromData subcell refinement: +{n_refined} sub-cells over '
           f'{len(kr)} cells' + (f' (k={min(kr)}..{max(kr)})' if kr else ''))
+  if dlogT_max is not None:
+    # ZERO here is the licence to reuse a cache computed before this criterion existed:
+    # the refinement only ever ADDS edges, so adding none leaves the ladder -- and hence
+    # the flux -- bit-identical. Any non-zero count means the point must be recomputed.
+    print(f'get_shell_nuFnu_fromData log-Ton refinement (dlogT_max={dlogT_max:g}): '
+          f'+{acc.n_split_logT} sub-steps over {acc.n_steps_geo} steps '
+          f'({1. + acc.n_split_logT/max(acc.n_steps_geo, 1):.2f}x)')
 
   if paired:
     # {method name: nuFnu} or {method name: (nuFnu, E_rad, E_int, E_inj)} -- the caller
