@@ -813,7 +813,7 @@ CAL_SIGMAS = (0.05, 0.09)     # the nu_M spread the sweep shows on the rise and 
 
 
 def mid_bias_calibration(cases=CAL_CASES, sigmas=CAL_SIGMAS, mgap=VAL_MGAP, verbose=True,
-    outdir=OUTDIR):
+    outdir=None):
   '''
   What the re-centred mid-slope estimator returns on spectra whose mid slope IS the asymptote
   by construction, at the smoothing and break separation each class actually shows.
@@ -850,10 +850,14 @@ def mid_bias_calibration(cases=CAL_CASES, sigmas=CAL_SIGMAS, mgap=VAL_MGAP, verb
       cl = '/'.join(sorted({str(q) for q in d.regime}))
       print(f"  {lab:>17} {len(d):>3} {cl:>10} | {np.median(b):+8.4f} "
             f"[{np.min(b):+.4f},{np.max(b):+.4f}] | {np.median(d.a_mid):7.4f}")
-  if outdir:
-    _ensure_outdir(outdir)
-    df.to_csv(os.path.join(outdir, 'mid_bias_calibration.csv'), index=False)
-    print(f"  wrote {os.path.join(outdir, 'mid_bias_calibration.csv')}")
+  # outdir=None (the default) writes the TRACKED copy; pass a path to put a trial
+  # grid somewhere else without clobbering it
+  path = calib_path('mid_bias_calibration.csv') if outdir is None else os.path.join(outdir, 'mid_bias_calibration.csv')
+  if outdir is not False:
+    if outdir:
+      _ensure_outdir(outdir)
+    df.to_csv(path, index=False)
+    print(f'  wrote {path}')
   return df
 
 
@@ -863,6 +867,26 @@ def mid_bias_calibration(cases=CAL_CASES, sigmas=CAL_SIGMAS, mgap=VAL_MGAP, verb
 # +0.057 at 0.87, same separations), and s1 varies continuously along a track. Correcting by
 # epoch would therefore step the curve at the crossing for a reason that is not physical.
 # out to 9 dex because that is where the data goes: the slow-cooling tracks reach 8.9
+# ---------------------------------------------------------------------------
+# WHERE THE CALIBRATION GRIDS LIVE. They are deterministic functions of the CODE -- the
+# estimator's tilt measured on synthetic spectra of known slope -- not of any run, so they
+# belong beside the code and are TRACKED. They used to be written into the figure directory,
+# which .gitignore excludes wholesale (bin/Tools/figures/*), so they existed only on the
+# machine that built them: the HPC had none, and mid_slope_evolution's loaders return None
+# for a missing file rather than raising, so every a_mid figure drawn there came out FULLY
+# uncorrected and said so only in a line nobody reads ("sc: 2145/2145 bins outside the bias
+# grid", against 372/2135 once the grids are present). Found 2026-09-15.
+# Rebuild with bias_grid() / vfc_bias_grid() / fcstar_bias_grid() / mid_bias_calibration()
+# and COMMIT THE RESULT -- they are inputs to every corrected figure.
+CALIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'calibration')
+
+
+def calib_path(name):
+  '''Path of a tracked calibration table, creating the directory on first write.'''
+  os.makedirs(CALIB_DIR, exist_ok=True)
+  return os.path.join(CALIB_DIR, name)
+
+
 # 2.3 and 10.0 were added 2026-09-14 to reach the real bins the hull was missing. The
 # LOWER edge is set by the estimator, not by sampling: SEG_MIN_MID_DEX = 1.45 admits
 # separations >= 2.29 dex, so every node at sep = 2.0 returns n = 0 in BOTH branches and
@@ -876,7 +900,7 @@ BIAS_SIGMA = 0.07
 
 
 def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, sigma=BIAS_SIGMA, verbose=True,
-    outdir=OUTDIR):
+    outdir=None):
   '''
   The re-centred estimator's bias over (break separation, s1), per branch, on synthetics whose
   mid slope IS the asymptote. Averaged over s2, which barely moves it.
@@ -912,10 +936,14 @@ def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, sigma=BIAS_SIGMA, verbos
             f"{r[r.s1 == s1].bias.iloc[0]:+6.3f}" if len(r[r.s1 == s1])
             and np.isfinite(r[r.s1 == s1].bias.iloc[0]) else '    --' for s1 in s1s)
         print(f'    sep={sep:.1f}  {cells}')
-  if outdir:
-    _ensure_outdir(outdir)
-    df.to_csv(os.path.join(outdir, 'bias_grid.csv'), index=False)
-    print(f"  wrote {os.path.join(outdir, 'bias_grid.csv')}")
+  # outdir=None (the default) writes the TRACKED copy; pass a path to put a trial
+  # grid somewhere else without clobbering it
+  path = calib_path('bias_grid.csv') if outdir is None else os.path.join(outdir, 'bias_grid.csv')
+  if outdir is not False:
+    if outdir:
+      _ensure_outdir(outdir)
+    df.to_csv(path, index=False)
+    print(f'  wrote {path}')
   return df
 
 
@@ -994,7 +1022,7 @@ def synth_fcstar(depth, s1, s2, off, sigma=BIAS_SIGMA, mgap=VAL_MGAP, psyn=VAL_P
 
 
 def fcstar_bias_grid(depths=FCSTAR_DEPTH, s1s=FCSTAR_S1, s2s=FCSTAR_S2, offs=FCSTAR_OFF,
-    sigma=BIAS_SIGMA, verbose=True, outdir=OUTDIR):
+    sigma=BIAS_SIGMA, verbose=True, outdir=None):
   '''
   The mid-slope tilt on FC* spectra, over (band depth, lower-break offset, s1), averaged
   over s2. `a_edge` (spectral_breaks.edge_slope, the quantity identify_segments already uses
@@ -1048,15 +1076,19 @@ def fcstar_bias_grid(depths=FCSTAR_DEPTH, s1s=FCSTAR_S1, s2s=FCSTAR_S2, offs=FCS
     if len(fs):
       print(f'  FC* nodes: {len(fs)}/{len(df)};  bias {fs.bias.min():+.3f} .. {fs.bias.max():+.3f}'
             f';  s2 spread within a node <= {fs.bias_spread.max():.3f}')
-  if outdir:
-    _ensure_outdir(outdir)
-    df.to_csv(os.path.join(outdir, 'fcstar_bias_grid.csv'), index=False)
-    print(f"  wrote {os.path.join(outdir, 'fcstar_bias_grid.csv')}")
+  # outdir=None (the default) writes the TRACKED copy; pass a path to put a trial
+  # grid somewhere else without clobbering it
+  path = calib_path('fcstar_bias_grid.csv') if outdir is None else os.path.join(outdir, 'fcstar_bias_grid.csv')
+  if outdir is not False:
+    if outdir:
+      _ensure_outdir(outdir)
+    df.to_csv(path, index=False)
+    print(f'  wrote {path}')
   return df
 
 
 def vfc_bias_grid(depths=VFC_DEPTH, s2s=VFC_S2, sigma=BIAS_SIGMA, verbose=True,
-    outdir=OUTDIR):
+    outdir=None):
   '''
   The mid-slope tilt on SINGLE-BREAK spectra, over (band depth below the break, s2), so the
   VFC and FC* bins can be corrected on the same footing as the two-break ones.
@@ -1086,10 +1118,14 @@ def vfc_bias_grid(depths=VFC_DEPTH, s2s=VFC_S2, sigma=BIAS_SIGMA, verbose=True,
       print(f'   {depth:4.1f}   {cells}')
     cl = sorted({str(q) for q in df.regime})
     print(f'  classes returned: {cl}')
-  if outdir:
-    _ensure_outdir(outdir)
-    df.to_csv(os.path.join(outdir, 'vfc_bias_grid.csv'), index=False)
-    print(f"  wrote {os.path.join(outdir, 'vfc_bias_grid.csv')}")
+  # outdir=None (the default) writes the TRACKED copy; pass a path to put a trial
+  # grid somewhere else without clobbering it
+  path = calib_path('vfc_bias_grid.csv') if outdir is None else os.path.join(outdir, 'vfc_bias_grid.csv')
+  if outdir is not False:
+    if outdir:
+      _ensure_outdir(outdir)
+    df.to_csv(path, index=False)
+    print(f'  wrote {path}')
   return df
 
 

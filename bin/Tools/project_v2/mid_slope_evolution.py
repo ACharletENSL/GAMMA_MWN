@@ -266,7 +266,11 @@ def read_rows(outdir, fname=CSV_NAME):
   return rows
 
 
-BIAS_CSV = 'bias_grid.csv'      # written by segment_route.bias_grid, in ITS outdir
+# The three grids are TRACKED, in segment_route.CALIB_DIR -- they are functions of the code,
+# not of a run. They used to be read from the figure directory, which is git-ignored, so on
+# any machine but the one that built them these loaders returned None and every track was
+# drawn raw with only a count to say so. See segment_route.CALIB_DIR.
+BIAS_CSV = 'bias_grid.csv'      # written by segment_route.bias_grid
 VFC_BIAS_CSV = 'vfc_bias_grid.csv'   # ... and its single-break counterpart
 BIAS_MAX = 0.15               # grid cells beyond this are estimator breakdown, not a
                               # correction: the sc column at s1 = 0.4 flips sign and reaches
@@ -284,7 +288,7 @@ def _vfc_bias_interp():
   below, only the upper break curving down into the window acts on the fitted line.
   '''
   from scipy.interpolate import LinearNDInterpolator
-  from segment_route import OUTDIR as SR_OUT
+  from segment_route import CALIB_DIR as SR_OUT
   path = os.path.join(SR_OUT, VFC_BIAS_CSV)
   if not os.path.isfile(path):
     return None
@@ -318,7 +322,7 @@ def _fcstar_bias_interp():
   band, which is exactly what an FC* spectrum does not have.
   '''
   from scipy.interpolate import LinearNDInterpolator
-  from segment_route import OUTDIR as SR_OUT
+  from segment_route import CALIB_DIR as SR_OUT
   path = os.path.join(SR_OUT, FCSTAR_BIAS_CSV)
   if not os.path.isfile(path):
     return None
@@ -343,7 +347,7 @@ def _bias_interp(branch):
   reported uncorrected rather than extrapolated.
   '''
   from scipy.interpolate import LinearNDInterpolator
-  from segment_route import OUTDIR as SR_OUT
+  from segment_route import CALIB_DIR as SR_OUT
   path = os.path.join(SR_OUT, BIAS_CSV)
   if not os.path.isfile(path):
     return None
