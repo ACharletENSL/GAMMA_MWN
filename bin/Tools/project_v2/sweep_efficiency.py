@@ -477,6 +477,105 @@ def plot_efficiency_models(res_by_method, outdir=OUTDIR, ref=METHOD,
           for m in res_by_method if res_by_method.get(m)}
 
 
+def _erad_series(res_by_z, which):
+  '''(target logr, E_rad) of one series, on the sweep's control axis. The TOTAL is the
+  sum of the two shells' comoving budgets at the same alpha -- additive, unlike their
+  fluxes. Returns (None, None) when a needed shell has no cache.'''
+  if which == 'TOT':
+    if not (res_by_z.get(4) and res_by_z.get(1)):
+      return None, None
+    fs = {round(r['log10ratio'], 4): r for r in res_by_z[1]}
+    pairs = [(r['log10ratio'], r['E_rad'] + fs[round(r['log10ratio'], 4)]['E_rad'])
+             for r in res_by_z[4] if round(r['log10ratio'], 4) in fs]
+    if not pairs:
+      return None, None
+    return np.array([p[0] for p in pairs]), np.array([p[1] for p in pairs])
+  res = res_by_z.get(4 if which == 'RS' else 1)
+  if not res:
+    return None, None
+  return (np.array([r['log10ratio'] for r in res], float),
+          np.array([r['E_rad'] for r in res], float))
+
+
+def post_rarefaction_share(res_by_method, which='RS', ref=METHOD, cut='data_rarcut'):
+  '''
+  The share of a shell's radiated energy that is emitted AFTER the rarefaction wave has
+  reached the emitting material:
+
+      f_after = 1 - E_rad(cut)/E_rad(reference)
+
+  The cut model stops each cell at its R_rar (the shared shell head, per cell and per
+  sub-cell), so its E_rad is precisely the part radiated BEFORE the wave arrives, while
+  the reference follows every cell to its last snapshot and gives before + after. The
+  two models are the same computation up to the cut -- rar_cut='both' even runs them in
+  one pass -- so the difference is the post-wave emission alone and nothing else.
+
+  Comoving energies, so this is a clean split of the budget: it is NOT the same as the
+  post-cut share of the observed FLUENCE, which is far larger (~1/3) because the sharp
+  cut stops the on-axis emission but every step already emitted still delivers its
+  high-latitude tail.
+
+  Taken at SHARED TARGETS only (the models' grids are nested by construction), so it is
+  a point-by-point comparison at the same alpha, never an interpolation. Returns
+  (logr, f_after), or (None, None) when either model lacks that series.
+  '''
+  xr, yr = _erad_series(res_by_method.get(ref) or {}, which)
+  xc, yc = _erad_series(res_by_method.get(cut) or {}, which)
+  if xr is None or xc is None:
+    return None, None
+  ref_at = {round(float(a), 4): b for a, b in zip(xr, yr)}
+  keys = [round(float(a), 4) for a in xc]
+  x = np.array([k for k in keys if k in ref_at], float)
+  if not len(x):
+    return None, None
+  f = np.array([1. - yc[i]/ref_at[k] for i, k in enumerate(keys) if k in ref_at], float)
+  return x, f
+
+
+def plot_post_rarefaction_share(res_by_method, outdir=OUTDIR, ref=METHOD,
+    cut='data_rarcut', series=(('RS', COL_RS, 'RS'), ('FS', COL_FS, 'FS'),
+                               ('TOT', COL_TOT, 'RS + FS'))):
+  '''
+  What fraction of the radiated energy comes from material the rarefaction wave has
+  already crossed, across the cooling regime (post_rarefaction_share above). This is
+  the complement of the lower panel of plot_efficiency_models -- the same two cached
+  models, read as a physical share rather than as a model-to-model ratio.
+
+  Log y: the share runs from 2e-5 deep in fast cooling to a few percent in slow
+  cooling, four decades that a linear axis collapses onto zero. The rise is the whole
+  result -- when cooling is fast a cell has radiated everything it was given long
+  before the wave arrives, so the post-wave material is worth nothing; when it is slow
+  the cell is still carrying most of its energy when the wave hits, and the emission it
+  goes on to produce is what the cut throws away. It saturates by log10(C) ~ +1 at
+  ~3% (RS) / ~4% (FS), the FS always the larger because its own regime sits +0.5 dex
+  above the RS's at the same alpha.
+  '''
+  fig, ax = plt.subplots(figsize=(7., 4.8))
+  drawn = False
+  for which, col, lab in series:
+    x, f = post_rarefaction_share(res_by_method, which, ref=ref, cut=cut)
+    if x is None:
+      continue
+    ax.plot(x, 100.*f, '-', color=col, lw=1.4 + (0.9 if which == 'TOT' else 0.),
+            zorder=1 if which == 'TOT' else 2, label=lab)
+    drawn = True
+  if not drawn:
+    plt.close(fig)
+    print('post-rarefaction share: need both the reference and the cut model cached')
+    return None
+  ax.set_yscale('log')
+  ax.grid(alpha=.25, lw=.5)
+  ax.set_xlabel('$\\log_{10}\\mathcal{C}$')
+  ax.set_ylabel('$E_{\\rm rad}$ after the rarefaction / total  [%]')
+  ax.legend(fontsize=9)
+  ax.set_title('Share of the radiated energy emitted after the rarefaction wave')
+  fig.tight_layout()
+  fig.savefig(os.path.join(outdir, 'post_rarefaction_share.png'), dpi=300)
+  plt.close(fig)
+  return {w: post_rarefaction_share(res_by_method, w, ref=ref, cut=cut)
+          for w, _, _ in series}
+
+
 def build_efficiency_table(res_by_method, outdir=OUTDIR, fname='efficiency_table.csv'):
   '''
   One row per (model, shell, sweep point): the alpha, the shell's own regime, the three
@@ -575,6 +674,7 @@ def _figures(res_by_method, outdir=OUTDIR):
       plot_efficiency_own_regime(rbz[4], rbz[1], outdir=outdir, method=m)
   if len(res_by_method) > 1:
     plot_efficiency_models(res_by_method, outdir=outdir)
+    plot_post_rarefaction_share(res_by_method, outdir=outdir)
   build_efficiency_table(res_by_method, outdir=outdir)
   trim_pngs(outdir)
   print(f'Figures saved to {outdir}')
