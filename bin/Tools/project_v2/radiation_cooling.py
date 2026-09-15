@@ -17,6 +17,7 @@ Contains:
   - get_cell_nuFnu_analytic (wrapper for analytic case)
 '''
 
+import os
 import numpy as np
 from numba import njit
 from scipy.integrate import simpson
@@ -165,6 +166,20 @@ def step_view(cols, j):
   return _StepView(**kw)
 
 
+# CALIBRATION-ONLY ESCAPE HATCH for the tnu < 1 truncation below. Read from the ENVIRONMENT
+# at import, deliberately: the sweep pool is forkserver, so a module global flipped at runtime
+# never reaches the workers, while the environment is inherited. Default keeps the cut, so
+# production is untouched and bit-identical.
+#   SYN_NO_LOWCUT=1  ->  emit below nu'_B as well
+# WHY IT EXISTS: the cut makes nu_B a hard floor, so FC*/VFC spectra have no nu^(4/3) window
+# and breaks_from_identified cannot re-centre their mid window -- which is the whole reason
+# those classes need a separate bias treatment. With it lifted, the same spectrum can be
+# measured BOTH ways and the offset read off directly, on the real spectra instead of on
+# synthetics. NEVER set it for a production sweep: it changes every spectrum and every
+# energy budget (the analytic frequency integral in step_radiated_energy assumes the cut).
+SYN_LOWCUT = os.environ.get('SYN_NO_LOWCUT', '0') != '1'
+
+
 def syn_emiss_exact(gma, tnu):
   '''
   "exact" synchrotron emission function from Crusius & Schlikeiser (1986)
@@ -186,7 +201,9 @@ def syn_emiss_exact(gma, tnu):
   # underflows in np.exp will be treated as 0.
   with np.errstate(under='ignore'):
     x = (2.*tnu)/(3.*gma**2)
-    out = np.where(tnu < 1., 0., func_R(x))
+    # R(x) -> R_LOW_COEF x^(1/3) as x -> 0 and func_R is tabulated to x = 1e-6 (ratio to the
+    # asymptote 1.000000 there), so the tail below nu'_B is exact, not an extrapolation.
+    out = func_R(x) if not SYN_LOWCUT else np.where(tnu < 1., 0., func_R(x))
   return out if out.ndim else float(out)
 
 # R(x), its tabulated fast path and the cut-off shape it defines now live in
