@@ -458,8 +458,8 @@ def plot_lightcurve_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   (dashed A / solid B) at that side's LAST cell.
   scale: which axes the top panel uses, each written to its own file so the
   variants coexist.
-    'log'    log-log (default, the wide view: XLIM_LOG = 1e-3..1e3 in bar{T}/bar{T}_f,
-             i.e. out to where the runs themselves end)
+    'log'    log-log (default, the wide view: XLIM_LOG in bar{T}/bar{T}_f, which is the
+             WHOLE observer grid, from the first cell switching on to where the runs end)
     'linlog' linear time, log flux -- a linear clock on the decay, where the whole
              cut-vs-full difference lives; the readable one for these comparisons
     'lin'    both axes linear -- the pulse shape (rise/peak/early decay). The late

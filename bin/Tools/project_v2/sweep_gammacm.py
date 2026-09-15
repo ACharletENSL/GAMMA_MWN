@@ -241,13 +241,31 @@ XLIM_LIN = (0., 4.)                          # bar{T}/bar{T}_f range of every LI
                                              # still creeping up at the right edge (it tops
                                              # out near x~5-6), which is the price of the
                                              # shared scale.
-XLIM_LOG = (1e-3, 1e3)                       # and the LOG-time window, likewise shared. The
-                                             # top is where the runs end: the observer grid
-                                             # stops at bar{T} = Tmax = 1000 (x = 764) and the
-                                             # cells themselves run out of snapshots at
-                                             # bar{T} = 646..650 (x = 493..497, data_end_barT),
-                                             # so nothing is drawn past 1e3 and letting the
-                                             # axis autoscale only added empty decades.
+XLIM_LOG = (7e-5, 1e3)                       # and the LOG-time window, likewise shared. It is
+                                             # the WHOLE computed grid, bar{T} = TB_MIN..TMAX,
+                                             # read on the bar{T}/bar{T}_f axis. bar{T}_f runs
+                                             # 1.047..1.309 over the two runs and the two
+                                             # shells, so the grid starts at x = 7.64e-5
+                                             # (fiducial RS -- the LARGEST bar{T}_f, hence the
+                                             # smallest x) and at 9.55e-5 (hi-res FS), and ends
+                                             # at x = 764..955. 7e-5 clears the earliest of
+                                             # those by 0.04 dex out of 7.2, and 1e3 the latest
+                                             # by 0.02: no crop, and no visible padding either.
+                                             # WIDENED 1e-3 -> 7e-5 on 2026-09-15. The old left
+                                             # edge cut 1.1 decades off the RISE, which entered
+                                             # the panel already at 1e-6..1e-2 of the peak --
+                                             # the curves began at the axis rather than at the
+                                             # start of the data. The top is unchanged and is
+                                             # where the runs end: the observer grid stops at
+                                             # bar{T} = Tmax = 1000 and the cells themselves
+                                             # run out of snapshots at bar{T} = 646..650
+                                             # (x = 493..497, data_end_barT), so nothing is
+                                             # drawn past 1e3 and letting the axis autoscale
+                                             # only added empty decades.
+                                             # A run whose bar{T}_f is far from 1.3 needs the
+                                             # left edge re-checked: it is TB_MIN/bar{T}_f, and
+                                             # the flux floor under it is MEASURED, not fixed
+                                             # (_log_panel_floor), so that half follows along.
 SPEC_YSPAN = 3.55                            # decades of flux shown on a spectral plot below its
                                              # own peak (same fixed range on all, for comparison).
                                              # Nothing in THIS module draws with it any more --
@@ -2206,6 +2224,43 @@ def _index_panel(ax, a_hle=None, ylim=SLOPE_YLIM):
   ax.set_ylabel('$d\\ln(\\nu F_\\nu)/d\\ln\\bar{T}$')
 
 
+YPAD_LOG = 2.                      # clear space left under the faintest point drawn on the
+                                   # log-time flux panel, as a factor. That floor is MEASURED
+                                   # (_log_panel_floor) rather than fixed, so it follows both
+                                   # the eps_rad spread and XLIM_LOG: the 1e-8 x min(eps_rad)
+                                   # it replaced was sized for a window starting at x = 1e-3
+                                   # and, once the window reached back to TB_MIN, left the
+                                   # rise running off the bottom edge well inside the panel
+                                   # (the curves reach ~7e-12 of their peak at x = 7e-5, some
+                                   # 2.4 decades below what that expression allowed).
+
+
+def _log_panel_floor(results, effs, barT_f, nu_targets=NU_TARGETS, xlim=XLIM_LOG,
+    pad=YPAD_LOG):
+  '''
+  Bottom of plot_lightcurve_shape's log-time flux panel: the faintest eps_rad-scaled,
+  peak-normalised point actually drawn anywhere inside xlim, over EVERY nu_target -- one
+  floor for the whole figure set, so the three frequencies keep a common flux scale and
+  can be read against each other -- with pad of clear space under it.
+  Points with no usable eps_rad are skipped here exactly as they are skipped in the panel
+  itself; if that leaves nothing, the historical 1e-8 is returned rather than an empty min.
+  '''
+  lo = []
+  if barT_f > 0.:
+    for r, eff in zip(results, effs):
+      if not (np.isfinite(eff) and eff > 0.):
+        continue
+      x = (r['Tb'] - 1.)/barT_f
+      inwin = (x >= xlim[0]) & (x <= xlim[1])
+      for nu_t in nu_targets:
+        inu = min(np.searchsorted(r['nub'], nu_t), len(r['nub']) - 1)
+        lc = r['nuFnu'][:, inu]
+        m = inwin & (lc > 0.)
+        if m.any() and lc.max() > 0.:
+          lo.append(eff*lc[m].min()/lc.max())
+  return min(lo)/pad if lo else 1e-8
+
+
 def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
     outdir=OUTDIR, annotate=True):
   '''
@@ -2256,12 +2311,12 @@ def plot_lightcurve_shape(results, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   xoff = tuple(b/barT_f for b in barT_off) if (annotate and barT_off and barT_f > 0.) else None
   a_hle = _hle_index(results)
   # eps_rad is a property of the sweep point, not of nu_t, so it is read once for the
-  # whole figure set. The log panel's floor then hangs off the FAINTEST curve (as the
-  # 'eff' spectra do): keeping the bare 1e-8 would have cut the low-efficiency curves
-  # short by the ~1.6 decades the eps_rad spread pushes them down.
+  # whole figure set. The log panel's floor then hangs off the FAINTEST point drawn (as
+  # the 'eff' spectra do): a fixed floor would cut the low-efficiency curves short by the
+  # ~1.6 decades the eps_rad spread pushes them down, and cut every curve short again by
+  # the ~2.2 the widened XLIM_LOG adds to the rise.
   effs = [compute_efficiency(r) for r in results]
-  eff_ok = [e for e in effs if np.isfinite(e) and e > 0.]
-  ylo_log = 1e-8*min(eff_ok) if eff_ok else 1e-8
+  ylo_log = _log_panel_floor(results, effs, barT_f, nu_targets)
   for nu_t in nu_targets:
     # three panels side by side: the same curves on a linear and a log time axis, then
     # their local index on the log axis (the last two share XLIM_LOG)
