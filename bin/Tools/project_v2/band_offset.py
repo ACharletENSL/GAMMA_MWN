@@ -42,7 +42,37 @@ PROD_BOTTOM = S.LOGNU_MIN          # -6.7: where the production band stops
 FIELDS = ('logr', 'z', 'step', 'barT', 'x',
           'cls_deep', 'cls_prod', 'mid_deep', 'mid_prod',
           'a_deep', 'a_prod', 'da', 'bhi_deep', 'bhi_prod', 'dlog_bhi',
-          'nuM_deep', 'nuM_prod', 'sep', 's1', 'off', 'depth', 's2')
+          'nuM_deep', 'nuM_prod',
+          # geometry ON THE EXTENDED BAND, where the bin is re-centred: this is what the
+          # synthetic grid must be evaluated at, because after `da` the bin sits on the
+          # re-centred footing and would classify FC there.
+          'sep_deep', 's1_deep', 'off_deep', 'depth_deep', 'bias_deep',
+          # total = da - bias_deep: production a_mid + total lands on the asymptote. `da`
+          # is estimator-to-estimator (measured on the real spectra), `bias_deep` is
+          # estimator-to-truth (measured on synthetics of known slope). Each dataset is
+          # used for the only thing it can measure.
+          'total')
+
+
+_GRID = {}
+
+
+def _grid_bias(br, sep, s1, off):
+  '''
+  The synthetic grid's bias for the EXTENDED-band measurement, at that bin's own class --
+  interpolated within class, because the surface steps where the classifier flips (see
+  mid_slope_evolution._bias_interp).
+  '''
+  import mid_slope_evolution as M
+  d = (br.get('det') or {})
+  rg, branch = d.get('regime'), ('fc' if 'fc' in (d.get('segs') or {}) else 'sc')
+  k = (branch, rg)
+  if k not in _GRID:
+    _GRID[k] = M._bias_interp(branch, rg)
+  f = _GRID[k]
+  if f is None or not all(np.isfinite(v) for v in (sep, s1, off)):
+    return np.nan
+  return float(f(sep, s1, off))
 
 
 def one_point(r, z, step=14, verbose=True):
@@ -70,11 +100,24 @@ def one_point(r, z, step=14, verbose=True):
     dd, dp = (bd.get('det') or {}), (bp.get('det') or {})
     if not np.isfinite(bd['a_mid']) or not np.isfinite(bp['a_mid']):
       continue
-    sep = (np.log10(bp['b_hi']/bp['b_lo'])
-           if np.isfinite(bp['b_hi']) and np.isfinite(bp['b_lo']) and bp['b_lo'] > 0 else np.nan)
     lo = float(np.log10(nub[prod].min()))   # = PROD_BOTTOM - shift, the real production edge
-    depth = np.log10(bp['b_hi']) - lo if np.isfinite(bp['b_hi']) else np.nan
     gs = sb.smoothing_from_identified(nub[prod], sp[prod], p, br=bp)
+    gd = sb.smoothing_from_identified(nub, sp, p, br=bd)
+    # geometry EXACTLY as mid_slope_evolution._measure_point derives it: '2brk_flo' has no
+    # lower CROSSING, its b_lo is a band-bottom seed and the fit is what places it, so its
+    # separation must come from the fitted breaks. Getting this wrong pinned off at 0.030
+    # for every FC* row in the first pass.
+    def _geom(br, g_, lo_):
+      blo = g_['b_lo_fit'] if br['shape'] == '2brk_flo' else br['b_lo']
+      bhi = g_['b_hi_fit'] if br['shape'] == '2brk_flo' else br['b_hi']
+      if not (np.isfinite(bhi) and np.isfinite(blo) and blo > 0):
+        return np.nan, np.nan, np.nan
+      sp_ = np.log10(bhi/blo); dp_ = np.log10(bhi) - lo_
+      return sp_, dp_, dp_ - sp_
+    sep, depth, _o = _geom(bp, gs, lo)
+    lo_d = float(np.log10(nub.min()))
+    sep_d, depth_d, off_d = _geom(bd, gd, lo_d)
+    bias_d = _grid_bias(bd, sep_d, gd['s1'], off_d)
     out.append(dict(logr=r['log10ratio'], z=z, step=i, barT=barT[i], x=barT[i]/bf,
         cls_deep=str(dd.get('regime')), cls_prod=str(dp.get('regime')),
         mid_deep=str(bd['mid_from']), mid_prod=str(bp['mid_from']),
@@ -83,8 +126,9 @@ def one_point(r, z, step=14, verbose=True):
         dlog_bhi=(np.log10(bd['b_hi']/bp['b_hi'])
                   if np.isfinite(bd['b_hi']) and np.isfinite(bp['b_hi']) else np.nan),
         nuM_deep=bd['nuM'], nuM_prod=bp['nuM'],
-        sep=sep, s1=gs['s1'], off=depth-sep if np.isfinite(sep) else np.nan,
-        depth=depth, s2=gs['s2']))
+        sep_deep=sep_d, s1_deep=gd['s1'], off_deep=off_d, depth_deep=depth_d,
+        bias_deep=bias_d,
+        total=(bd['a_mid']-bp['a_mid']) - bias_d if np.isfinite(bias_d) else np.nan))
   if verbose:
     print(f'  logr={r["log10ratio"]:+.0f} z={z}: {len(out)} bins', flush=True)
   return out

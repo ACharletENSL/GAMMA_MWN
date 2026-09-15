@@ -313,6 +313,47 @@ def _vfc_bias_interp():
 # `off` axis runs negative and so covers FC* as its band-edge end.
 
 
+BAND_OFFSET_CSV = 'band_offsets_{key}.csv'   # band_offset.main(), per run
+
+
+def _band_total(key=DEFAULT_KEY):
+  '''
+  The TOTAL correction for the classes that cannot be re-centred, measured on the real
+  spectra: {(z, logr, class): (x, total)}, to be interpolated along each track in x.
+
+  FC* and VFC have no nu^(4/3) window, so `_recentred_mid` cannot run and the synthetic
+  grids have to stand in for an estimator they were not built on -- and they disagree about
+  even the SIGN (measured: FC* -0.0084, VFC +0.0094). band_offset measures the same spectrum
+  on a band taken below nu_B, where the window exists and the bin re-centres, so `total` =
+  (re-centred - fell-back) - (synthetic bias at the re-centred geometry): the first term from
+  the spectra, the second from synthetics of known slope, each doing only what it can.
+
+  Indexed on x ALONG A TRACK rather than on geometry: `total` varies by 0.0003-0.0009
+  between adjacent bins against values of 0.002-0.021, so it is smooth in time, while the
+  geometry columns are unusable here -- VFC has no fitted lower break at all.
+  '''
+  import csv as _csv
+  from segment_route import CALIB_DIR
+  path = os.path.join(CALIB_DIR, BAND_OFFSET_CSV.format(key=key))
+  if not os.path.isfile(path):
+    return None
+  acc = {}
+  for r in _csv.DictReader(open(path)):
+    try:
+      t = float(r['total'])
+    except (ValueError, KeyError):
+      continue
+    if not np.isfinite(t):
+      continue
+    acc.setdefault((int(float(r['z'])), round(float(r['logr']), 6), r['cls_prod']),
+                   []).append((float(r['x']), t))
+  out = {}
+  for k, v in acc.items():
+    v.sort()
+    out[k] = (np.array([q[0] for q in v]), np.array([q[1] for q in v]))
+  return out or None
+
+
 def _bias_interp(branch, regime=None):
   '''
   bias(sep, s1, off) for one branch, from segment_route's grid: what the estimator returns
@@ -426,6 +467,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     # subtract the estimator's own tilt, bin by bin, at that bin's own parameters -- the
     # (separation, s1) grid for a two-break spectrum, the (band depth, s2) one for a single
     # break. corrected=False leaves every track raw, for the companion figure.
+    band = _band_total() if corrected else None
     _ic = {}
     def itp_for(rg):
       if rg not in _ic:
@@ -441,7 +483,13 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       # what left a step between a track's solid and dashed halves that no correction could
       # remove: on the same spectrum the two grids disagreed by -0.025 to -0.049, against a
       # step of 0.0123. One grid, one generator, one single-valued function of the geometry.
-      _f = itp(r.get('regime')) if itp is not None else None
+      # FC*/VFC: the measured band offset REPLACES the synthetic stand-in entirely
+      if band is not None and r.get('regime') in ('FC*', 'VFC'):
+        tr = band.get((int(Z_SHELL), round(float(r['logr']), 6), r['regime']))
+        if tr is not None and tr[0].size >= 2:
+          # along-track interpolation, clamped at the ends rather than extrapolated
+          b = -float(np.interp(r['x'], tr[0], tr[1]))
+      _f = itp(r.get('regime')) if (itp is not None and not np.isfinite(b)) else None
       if _f is not None and all(np.isfinite(r.get(k, np.nan))
                                 for k in ('sep', 's1', 'depth')):
         # off = depth - sep. Both are measured on the SAME upper break (free_bhi is off for
