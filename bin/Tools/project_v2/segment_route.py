@@ -713,7 +713,7 @@ VAL_SMEAR_NODES = 61
 
 
 def synth_spectrum(sep, s1, s2, fast, sigma=VAL_SIGMA, mgap=VAL_MGAP, psyn=VAL_P,
-    npd=VAL_NPD):
+    npd=VAL_NPD, off=3.):
     '''
     One superposed spectrum of known everything: two breaks a factor 10**sep apart, known
     smoothing at each, a cut-off 10**mgap above the upper break, smeared over a lognormal
@@ -725,7 +725,13 @@ def synth_spectrum(sep, s1, s2, fast, sigma=VAL_SIGMA, mgap=VAL_MGAP, psyn=VAL_P
     b_lo, b_hi = 1., 10**sep
     nuM = b_hi*10**mgap
     num, nuc = (b_hi, b_lo) if fast else (b_lo, b_hi)
-    nu = 10**np.arange(-3., np.log10(nuM) + 0.5, 1./npd)
+    # `off` = decades of nu^(4/3) in band BELOW b_lo. It was hard-wired at 3, which is not
+    # what the spectra have: measured over the fiducial sweep it runs 1.13-4.47 in FC
+    # (median 2.83) and 3.29-6.84 in SC (median 6.79), and it collapses to ~1.2 right where
+    # a track crosses from FC to FC*. That is where the corrected tracks still showed a step
+    # of 0.0123 against a 0.0006 bin-to-bin wobble -- the grid was correcting the FC side
+    # with 2-2.5x more 4/3 window than it actually had. See bias_grid.
+    nu = 10**np.arange(-off, np.log10(nuM) + 0.5, 1./npd)
     if sigma > 0:
       s = np.linspace(-4*sigma, 4*sigma, VAL_SMEAR_NODES)
       w = np.exp(-0.5*(s/sigma)**2); w /= w.sum()
@@ -894,13 +900,18 @@ def calib_path(name):
 # lowest node that can carry a value and it covers them. 10.0 covers the 74 slow-cooling
 # bins that ran past 9.0 (max 9.75).
 BIAS_SEPS = (2.0, 2.3, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.5, 9.0, 10.0)
-BIAS_S1 = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7)
+BIAS_S1 = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2)
+# Decades of nu^(4/3) below b_lo. Spans what the sweep shows (FC 1.13-4.47, SC 3.29-6.84);
+# denser at the low end, where the FC/FC* boundary lives and where the bias actually moves.
+# This axis is the same quantity as FCSTAR_OFF, continued to the other side of the band
+# bottom: FC* has the break AT or below it (off <= ~0), FC and SC above it.
+BIAS_OFFS = (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0)
 BIAS_S2 = (1.5, 2.0)
 BIAS_SIGMA = 0.07
 
 
-def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, sigma=BIAS_SIGMA, verbose=True,
-    outdir=None):
+def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, offs=BIAS_OFFS, sigma=BIAS_SIGMA,
+    verbose=True, outdir=None):
   '''
   The re-centred estimator's bias over (break separation, s1), per branch, on synthetics whose
   mid slope IS the asymptote. Averaged over s2, which barely moves it.
@@ -916,26 +927,31 @@ def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, sigma=BIAS_SIGMA, verbos
     a_th = 0.5 if fast else (3. - VAL_P)/2.
     for sep in seps:
       for s1 in s1s:
-        b = []
-        for s2 in s2s:
-          nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sigma, mgap=VAL_MGAP)
-          br = sb.breaks_from_identified(nu, sp, t['psyn'])
-          if np.isfinite(br['a_mid']) and br['regime'] in ('FC', 'SC'):
-            b.append(br['a_mid'] - a_th)
-        rows.append(dict(branch=('fc' if fast else 'sc'), sep=sep, s1=s1,
-                         bias=(float(np.mean(b)) if b else np.nan), n=len(b)))
+        for off in offs:
+          b = []
+          for s2 in s2s:
+            nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sigma, mgap=VAL_MGAP,
+                                       off=off)
+            br = sb.breaks_from_identified(nu, sp, t['psyn'])
+            if np.isfinite(br['a_mid']) and br['regime'] in ('FC', 'SC'):
+              b.append(br['a_mid'] - a_th)
+          rows.append(dict(branch=('fc' if fast else 'sc'), sep=sep, s1=s1, off=off,
+                           bias=(float(np.mean(b)) if b else np.nan), n=len(b)))
   df = pd.DataFrame(rows)
   if verbose and len(df):
     print(f"\n{'=== BIAS GRID: a_mid - a_th on synthetics, by separation and s1 ':=<78}")
     for brn in ('sc', 'fc'):
-      d = df[df.branch == brn]
-      print(f'  {brn}:   ' + '  '.join(f'{s1:>6.1f}' for s1 in s1s) + '   <- s1')
-      for sep in seps:
-        r = d[d.sep == sep]
-        cells = '  '.join(
-            f"{r[r.s1 == s1].bias.iloc[0]:+6.3f}" if len(r[r.s1 == s1])
-            and np.isfinite(r[r.s1 == s1].bias.iloc[0]) else '    --' for s1 in s1s)
-        print(f'    sep={sep:.1f}  {cells}')
+      for off in offs:
+        d = df[(df.branch == brn) & (df.off == off)]
+        if not len(d) or not np.isfinite(d.bias).any():
+          continue
+        print(f'  {brn}, off={off:.1f}:   ' + '  '.join(f'{s1:>6.1f}' for s1 in s1s) + '   <- s1')
+        for sep in seps:
+          r = d[d.sep == sep]
+          cells = '  '.join(
+              f"{r[r.s1 == s1].bias.iloc[0]:+6.3f}" if len(r[r.s1 == s1])
+              and np.isfinite(r[r.s1 == s1].bias.iloc[0]) else '    --' for s1 in s1s)
+          print(f'    sep={sep:.1f}  {cells}')
   # outdir=None (the default) writes the TRACKED copy; pass a path to put a trial
   # grid somewhere else without clobbering it
   path = calib_path('bias_grid.csv') if outdir is None else os.path.join(outdir, 'bias_grid.csv')

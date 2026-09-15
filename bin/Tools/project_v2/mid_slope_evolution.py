@@ -341,10 +341,17 @@ def _fcstar_bias_interp():
 
 def _bias_interp(branch):
   '''
-  bias(sep, s1) for one branch, from segment_route's grid: what the estimator returns on a
-  synthetic whose mid slope IS the asymptote, at that break separation and lower-break
-  smoothing. Linear inside the sampled hull, None outside -- a bin the grid does not cover is
-  reported uncorrected rather than extrapolated.
+  bias(sep, s1, off) for one branch, from segment_route's grid: what the estimator returns
+  on a synthetic whose mid slope IS the asymptote, at that break separation, lower-break
+  smoothing, and depth of nu^(4/3) segment in band. Linear inside the sampled hull, None
+  outside -- a bin the grid does not cover is reported uncorrected rather than extrapolated.
+
+  `off` was added 2026-09-15 and is the same quantity FC*'s grid carries, continued to the
+  other side of the band bottom. It used to be fixed at the 3 decades synth_spectrum happened
+  to build, which is not what the spectra have -- FC runs 1.13-4.47 and SC 3.29-6.84 -- and
+  it collapses to ~1.2 exactly where a track crosses into FC*. Correcting that boundary with
+  the wrong geometry left a step of 0.0123 between a track's solid and dashed halves, twenty
+  times the 0.0006 bin-to-bin wobble, which the correction did not remove.
   '''
   from scipy.interpolate import LinearNDInterpolator
   from segment_route import CALIB_DIR as SR_OUT
@@ -358,7 +365,7 @@ def _bias_interp(branch):
     b = float(r['bias'])
     if abs(b) > BIAS_MAX:
       continue
-    pts.append((float(r['sep']), float(r['s1']))); val.append(b)
+    pts.append((float(r['sep']), float(r['s1']), float(r['off']))); val.append(b)
   if len(pts) < 4:
     return None
   return LinearNDInterpolator(np.array(pts), np.array(val))
@@ -448,9 +455,10 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
         # off = depth - sep: both are measured on the SAME upper break (free_bhi is off for
         # '2brk_flo'), so the difference is exactly the fitted b_lo above the band bottom
         b = float(itp2(r['depth'], r['depth'] - r['sep'], r['s1']))
-      elif itp is not None and np.isfinite(r.get('sep', np.nan)) \
-         and np.isfinite(r.get('s1', np.nan)):
-        b = float(itp(r['sep'], r['s1']))
+      elif itp is not None and all(np.isfinite(r.get(k, np.nan))
+                                   for k in ('sep', 's1', 'depth')):
+        # off = depth - sep, the decades of 4/3 below b_lo, exactly as the FC* branch above
+        b = float(itp(r['sep'], r['s1'], r['depth'] - r['sep']))
       elif itp1 is not None and r.get('regime') == 'VFC' \
            and np.isfinite(r.get('depth', np.nan)) and np.isfinite(r.get('s2', np.nan)):
         b = float(itp1(r['depth'], r['s2']))   # single break: no lower break to index by
