@@ -901,11 +901,17 @@ def calib_path(name):
 # bins that ran past 9.0 (max 9.75).
 BIAS_SEPS = (2.0, 2.3, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.5, 9.0, 10.0)
 BIAS_S1 = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2)
-# Decades of nu^(4/3) below b_lo. Spans what the sweep shows (FC 1.13-4.47, SC 3.29-6.84);
-# denser at the low end, where the FC/FC* boundary lives and where the bias actually moves.
-# This axis is the same quantity as FCSTAR_OFF, continued to the other side of the band
-# bottom: FC* has the break AT or below it (off <= ~0), FC and SC above it.
-BIAS_OFFS = (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0)
+# Decades of nu^(4/3) below b_lo -- NEGATIVE means the lower break sits at or below the band
+# bottom, which is what makes a spectrum FC* rather than FC. ONE axis therefore spans both
+# classes, and one generator builds both: synth_spectrum already puts the band bottom `off`
+# decades below b_lo, so off <= 0 IS synth_fcstar's geometry. That is the point of the merge
+# (2026-09-15): the correction has to be a single-valued function of the geometry, because
+# the geometry is what decides the class and the class is what decides the estimator. Two
+# separate grids could not do that -- measured on the same spectrum they disagreed by -0.025
+# to -0.049, two to four times the FC/FC* step they were supposed to explain.
+# Range covers what the sweep shows (FC 1.13-4.47, SC 3.29-6.84, FC* below ~1.3), dense
+# around 0-1.5 where the class boundary lives and where the bias actually moves.
+BIAS_OFFS = (-0.25, 0., 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0)
 BIAS_S2 = (1.5, 2.0)
 BIAS_SIGMA = 0.07
 
@@ -928,15 +934,20 @@ def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, offs=BIAS_OFFS, sigma=BI
     for sep in seps:
       for s1 in s1s:
         for off in offs:
-          b = []
+          b, regs = [], []
           for s2 in s2s:
             nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sigma, mgap=VAL_MGAP,
                                        off=off)
             br = sb.breaks_from_identified(nu, sp, t['psyn'])
-            if np.isfinite(br['a_mid']) and br['regime'] in ('FC', 'SC'):
-              b.append(br['a_mid'] - a_th)
+            # FC* is KEPT, not filtered out: it is the same spectrum family with the lower
+            # break at the band edge, and excluding it is what left the grid with a hole
+            # exactly where a track crosses the class boundary. The class is recorded so the
+            # merge can be audited, but it does NOT select -- the geometry does.
+            if np.isfinite(br['a_mid']) and br['regime'] in ('FC', 'SC', 'FC*'):
+              b.append(br['a_mid'] - a_th); regs.append(str(br['regime']))
           rows.append(dict(branch=('fc' if fast else 'sc'), sep=sep, s1=s1, off=off,
-                           bias=(float(np.mean(b)) if b else np.nan), n=len(b)))
+                           bias=(float(np.mean(b)) if b else np.nan), n=len(b),
+                           regime=(max(set(regs), key=regs.count) if regs else '')))
   df = pd.DataFrame(rows)
   if verbose and len(df):
     print(f"\n{'=== BIAS GRID: a_mid - a_th on synthetics, by separation and s1 ':=<78}")

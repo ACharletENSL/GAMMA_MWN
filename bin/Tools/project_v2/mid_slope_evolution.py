@@ -307,39 +307,13 @@ def _vfc_bias_interp():
   return LinearNDInterpolator(np.array(pts), np.array(val))
 
 
-FCSTAR_BIAS_CSV = 'fcstar_bias_grid.csv'   # ... and the FC* one (segment_route.fcstar_bias_grid)
+# FC* has NO separate grid any more (2026-09-15). segment_route.fcstar_bias_grid and its
+# csv are kept as the INDEPENDENT construction that diagnosed the FC/FC* step -- they are a
+# cross-check, not an input. The correction comes from the one merged grid below, whose
+# `off` axis runs negative and so covers FC* as its band-edge end.
 
 
-def _fcstar_bias_interp():
-  '''
-  bias(depth, off, s1) for FC*, from segment_route's FC* grid. Three axes because all three
-  move it and, since FC* is fitted as '2brk_flo', all three are now MEASURED:
-    depth  decades of band below the upper break          (the row's own `depth`)
-    off    decades of the lower break above the band bottom = depth - sep, the fitted b_lo
-    s1     the lower break's smoothing, which the free-b_lo fit returns
-  Neither of the other grids is the right geometry here. vfc_bias_grid has NO lower break
-  (it returns the wrong SIGN, -0.003 to -0.011); bias_grid has a full nu^(4/3) window in
-  band, which is exactly what an FC* spectrum does not have.
-  '''
-  from scipy.interpolate import LinearNDInterpolator
-  from segment_route import CALIB_DIR as SR_OUT
-  path = os.path.join(SR_OUT, FCSTAR_BIAS_CSV)
-  if not os.path.isfile(path):
-    return None
-  pts, val = [], []
-  for r in csv.DictReader(open(path)):
-    if r['bias'] in ('', 'nan') or r.get('regime') != 'FC*':
-      continue
-    b = float(r['bias'])
-    if abs(b) > BIAS_MAX:
-      continue
-    pts.append((float(r['depth']), float(r['off']), float(r['s1']))); val.append(b)
-  if len(pts) < 5:
-    return None
-  return LinearNDInterpolator(np.array(pts), np.array(val))
-
-
-def _bias_interp(branch):
+def _bias_interp(branch, regime=None):
   '''
   bias(sep, s1, off) for one branch, from segment_route's grid: what the estimator returns
   on a synthetic whose mid slope IS the asymptote, at that break separation, lower-break
@@ -361,6 +335,14 @@ def _bias_interp(branch):
   pts, val = [], []
   for r in csv.DictReader(open(path)):
     if r['branch'] != branch or r['bias'] in ('', 'nan'):
+      continue
+    # INTERPOLATE WITHIN CLASS. The bias surface is flat in `off` inside a class and STEPS
+    # by 0.008-0.018 where the class flips -- which is the estimator changing from the
+    # re-centred window to the free line, and is exactly the 0.0123 jump seen between a
+    # track's solid and dashed halves. One table, but a discontinuous function on it: linear
+    # interpolation across that edge hands boundary bins a blend of two estimators, correct
+    # for neither, which is why merging the tables alone only moved the jump to 0.0105.
+    if regime is not None and r.get('regime') != regime:
       continue
     b = float(r['bias'])
     if abs(b) > BIAS_MAX:
@@ -444,21 +426,27 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     # subtract the estimator's own tilt, bin by bin, at that bin's own parameters -- the
     # (separation, s1) grid for a two-break spectrum, the (band depth, s2) one for a single
     # break. corrected=False leaves every track raw, for the companion figure.
-    itp = _bias_interp(br) if corrected else None
+    _ic = {}
+    def itp_for(rg):
+      if rg not in _ic:
+        _ic[rg] = _bias_interp(br, rg)
+      return _ic[rg]
+    itp = itp_for if corrected else None
     itp1 = _vfc_bias_interp() if corrected else None
-    itp2 = _fcstar_bias_interp() if corrected else None
     n_un = 0
     for r in sub:
       b = np.nan
-      if itp2 is not None and r.get('regime') == 'FC*' \
-         and all(np.isfinite(r.get(k, np.nan)) for k in ('depth', 'sep', 's1')):
-        # off = depth - sep: both are measured on the SAME upper break (free_bhi is off for
-        # '2brk_flo'), so the difference is exactly the fitted b_lo above the band bottom
-        b = float(itp2(r['depth'], r['depth'] - r['sep'], r['s1']))
-      elif itp is not None and all(np.isfinite(r.get(k, np.nan))
-                                   for k in ('sep', 's1', 'depth')):
-        # off = depth - sep, the decades of 4/3 below b_lo, exactly as the FC* branch above
-        b = float(itp(r['sep'], r['s1'], r['depth'] - r['sep']))
+      # FC* NO LONGER HAS ITS OWN GRID. It is the same spectrum family with the lower break
+      # at the band edge, i.e. the off <= ~1 end of the one below, and splitting it out was
+      # what left a step between a track's solid and dashed halves that no correction could
+      # remove: on the same spectrum the two grids disagreed by -0.025 to -0.049, against a
+      # step of 0.0123. One grid, one generator, one single-valued function of the geometry.
+      _f = itp(r.get('regime')) if itp is not None else None
+      if _f is not None and all(np.isfinite(r.get(k, np.nan))
+                                for k in ('sep', 's1', 'depth')):
+        # off = depth - sep. Both are measured on the SAME upper break (free_bhi is off for
+        # '2brk_flo'), so the difference is exactly the fitted b_lo above the band bottom.
+        b = float(_f(r['sep'], r['s1'], r['depth'] - r['sep']))
       elif itp1 is not None and r.get('regime') == 'VFC' \
            and np.isfinite(r.get('depth', np.nan)) and np.isfinite(r.get('s2', np.nan)):
         b = float(itp1(r['depth'], r['s2']))   # single break: no lower break to index by
