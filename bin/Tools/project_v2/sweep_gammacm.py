@@ -2855,7 +2855,28 @@ def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None):
     v = tr['valid']
     if not v.any():
       continue
-    ax.loglog(tr['barT']/barT_f, _gap(tr['ratio'], v), color=c, lw=1.4)
+    x = tr['barT']/barT_f
+    ax.loglog(x, _gap(tr['ratio'], v), color=c, lw=1.4)
+    # THE CROSSING, dashed. Both breaks are measured there -- b_lo and b_hi are fitted
+    # parameters of the same least-squares fit, kept whatever the regime -- and only their
+    # IDENTIFICATION is withheld (track_breaks_gs02 NaNs the NAMES, not the branches). So
+    # nu_c/nu_m is one of sep and 1/sep and the fit cannot say which: draw BOTH. The curve
+    # forks at the last named slow-cooling bin and rejoins at the first named fast-cooling
+    # one, each branch running continuously into the solid curve on its side, which is
+    # what "measured but not nameable" actually looks like. Two lines, not one, because a
+    # single line would have to pick a side and that is exactly the undetermined thing.
+    amb = tr.get('ambig')
+    if amb is None or not np.any(amb):
+      continue
+    m = amb & ~tr['off']
+    m[1:] |= (amb & ~tr['off'])[:-1]      # grow one bin each way so the dashes touch the
+    m[:-1] |= (amb & ~tr['off'])[1:]      # solid curve instead of leaving a sample's gap
+    with np.errstate(divide='ignore', invalid='ignore'):
+      sep = tr['nu_hi']/tr['nu_lo']
+    m &= np.isfinite(sep) & (sep > 0.)
+    if m.any():
+      ax.loglog(x, _gap(sep, m), color=c, lw=1.1, ls='--')
+      ax.loglog(x, _gap(1./sep, m), color=c, lw=1.1, ls='--')
   _mark_hydro_times(ax, barT_f, barT_off, tnorm=barT_f)
   ax.set_ylabel('$\\nu_{\\rm c}/\\nu_{\\rm m}$')
   return sm
@@ -2936,11 +2957,10 @@ def plot_break_ratio(results, tracks, barT_f, barT_off=None, outdir=OUTDIR):
     VFC        nu_c fell BELOW the observed band, so it is an upper bound and not a
                measurement. 1498 / 1234 / 526 / 76 bins at log10(C) = -5 / -4 / -3 / -2.
                THIS is what ends the deep fast-cooling curves -- not the crossing.
-    MC         the crossing itself: both breaks measured, the fitted mid slope between the
-               two asymptotes, so neither is cleanly nu_c or nu_m and the ratio is
-               withheld. Only 10 / 54 / 86 / 105 bins at log10(C) = -4 / -3 / -2 / -1, in
-               four DISJOINT, narrow time windows (bar{T}/bar{T}_f 8.4e-5, 1.5-2.5e-4,
-               9.5e-4-2e-3, 0.0125-0.032) -- earlier the deeper the cooling.
+    MC         the crossing itself -- DRAWN, dashed, see below. Only 10 / 54 / 86 / 105
+               bins at log10(C) = -4 / -3 / -2 / -1, in four DISJOINT, narrow time windows
+               (bar{T}/bar{T}_f 8.4e-5, 1.5-2.5e-4, 9.5e-4-2e-3, 0.0125-0.032) -- earlier
+               the deeper the cooling.
     off-window a break within EDGE_FAC of a frequency-window edge. 1-197 bins, growing
                with C (197 at log10(C)=+3, where nu_c runs off the TOP).
     not bright the earliest bins, nothing shocked yet. 2-3 bins per regime.
@@ -2955,6 +2975,25 @@ def plot_break_ratio(results, tracks, barT_f, barT_off=None, outdir=OUTDIR):
     1235 of log10(C)=0's 2059 drawn bins inside a band it never belonged in -- that point
     has no MC bin at all, its ratio just sits at ~10 throughout.
   The MC region is a set of (time, regime) events, not a region of the ratio axis.
+
+  WHAT "BOTH BREAKS MEASURED, NEITHER NAMEABLE" MEANS, and what the DASHED branches are.
+  fit_gs02_spectrum fits the Granot & Sari shape to the whole spectrum with the breaks
+  parameterised as (b_lo, b_hi = b_lo*delta), delta >= 1, so BOTH are free parameters of
+  one least-squares fit and their ordering is guaranteed by construction. They are
+  measured in every bin, MC included, and track_breaks_gs02 keeps them as nu_lo/nu_hi.
+  What identifies them is a THIRD fitted parameter, the mid-segment slope beta_mid: the
+  segment between the two breaks goes as -(p-1)/2 in slow cooling and -1/2 in fast, so
+  whichever asymptote beta_mid pins to says which break is nu_c. It does pin, in 23 of 24
+  rise/peak/tail spectra. It lands BETWEEN the two only while nu_c(t) is crossing nu_m(t),
+  and there the assignment is not supported by the data -- so the NAMES are dropped
+  (nu_c, nu_m -> NaN) while the BRANCHES are kept.
+  nu_c/nu_m is therefore one of sep = b_hi/b_lo and its reciprocal, with the fit unable to
+  say which, and both are drawn dashed. They are mirror images about 1 and each runs
+  continuously into the solid curve on its side -- the curve forks and rejoins. Drawing a
+  single dashed line instead would have to pick a branch, which is the one thing the fit
+  does not determine.
+  NB dashed means nu_m in the UPPER panel of plot_break_panels and the fork here; they are
+  different quantities on different axes, so no curve carries both meanings.
   Kept as a standalone DIAGNOSTIC: the article's version of this panel is the bottom half
   of plot_break_panels.
   '''
