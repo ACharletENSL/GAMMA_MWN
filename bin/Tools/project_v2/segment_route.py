@@ -899,8 +899,13 @@ def calib_path(name):
 # always will. Measured separations bottom out at 2.331 (fc) / 2.287 (sc), so 2.3 is the
 # lowest node that can carry a value and it covers them. 10.0 covers the 74 slow-cooling
 # bins that ran past 9.0 (max 9.75).
-BIAS_SEPS = (2.0, 2.3, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.5, 9.0, 10.0)
-BIAS_S1 = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2)
+BIAS_SEPS = (2.0, 2.2, 2.3, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.5, 9.0, 10.0)
+# The nodes are the GENERATOR's s1; the grid is indexed by the s1 the route FITS on that
+# same node (s1_fit below), which is what a real spectrum supplies. The two differ, and by
+# more the shallower the band -- so the sampling has to be fine enough that the fitted axis
+# stays resolved after the map compresses it: at off = 1.25, s1 = 0.8 and 1.0 fit back as
+# 1.129 and 1.153, so the old 0.3-wide step there was 0.024 of fitted axis.
+BIAS_S1 = (0.4, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.45, 1.7, 2.0, 2.2)
 # Decades of nu^(4/3) below b_lo -- NEGATIVE means the lower break sits at or below the band
 # bottom, which is what makes a spectrum FC* rather than FC. ONE axis therefore spans both
 # classes, and one generator builds both: synth_spectrum already puts the band bottom `off`
@@ -911,43 +916,81 @@ BIAS_S1 = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2)
 # to -0.049, two to four times the FC/FC* step they were supposed to explain.
 # Range covers what the sweep shows (FC 1.13-4.47, SC 3.29-6.84, FC* below ~1.3), dense
 # around 0-1.5 where the class boundary lives and where the bias actually moves.
-BIAS_OFFS = (-0.25, 0., 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0)
+BIAS_OFFS = (-0.25, 0., 0.25, 0.5, 0.75, 1.0, 1.1, 1.15, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0,
+             5.0, 6.0, 7.0)
 BIAS_S2 = (1.5, 2.0)
 BIAS_SIGMA = 0.07
 
 
+def _bias_node(arg):
+  """
+  One node of bias_grid: the estimator's bias on a synthetic of known mid slope, AND the
+  geometry the route FITS BACK on that same synthetic.
+
+  The fitted pair is what makes the table usable. The node is BUILT at a generator s1, but
+  a real spectrum never hands one over -- it hands over the s1 `smoothing_from_identified`
+  returns, and that is not the same number. The fit reads a smooth break as sharper the less
+  of the lower segment it can see: at off = 1.25 a generator s1 of 1.0 comes back as 1.153,
+  at off = 4.4 as 1.059, for a bias that is the same 0.013 either way. Indexing the table by
+  the generator value therefore made the SAME spectrum correct to two different numbers
+  depending on how much band it was measured over -- which is exactly the FC/FC* step, the
+  two sides being read on two different bands. Indexing by s1_fit instead removes the band
+  from the lookup: both readings land on the node that fits back the way they do.
+  """
+  fast, sep, s1, off, s2s, sigma = arg
+  a_th = 0.5 if fast else (3. - VAL_P)/2.
+  b, regs, sf, pf = [], [], [], []
+  for s2 in s2s:
+    nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sigma, mgap=VAL_MGAP, off=off)
+    br = sb.breaks_from_identified(nu, sp, t['psyn'])
+    # FC* is KEPT, not filtered out: it is the same spectrum family with the lower break at
+    # the band edge, and excluding it is what left the grid with a hole exactly where a track
+    # crosses the class boundary. The class is recorded so the merge can be audited, but it
+    # does NOT select -- the geometry does.
+    if not (np.isfinite(br['a_mid']) and br['regime'] in ('FC', 'SC', 'FC*')):
+      continue
+    b.append(br['a_mid'] - a_th); regs.append(str(br['regime']))
+    try:
+      g = sb.smoothing_from_identified(nu, sp, t['psyn'], br=br)
+    except Exception:
+      continue
+    # the same convention mid_slope_evolution._measure_point reads them under: '2brk_flo'
+    # has no lower CROSSING, so its separation can only come from the fitted breaks
+    b_lo = g['b_lo_fit'] if br['shape'] == '2brk_flo' else br['b_lo']
+    b_hi = g['b_hi_fit'] if br['shape'] == '2brk_flo' else br['b_hi']
+    sf.append(g['s1'])
+    pf.append(np.log10(b_hi/b_lo) if np.isfinite(b_hi) and np.isfinite(b_lo)
+              and b_lo > 0 else np.nan)
+  return dict(branch=('fc' if fast else 'sc'), sep=sep, s1=s1, off=off,
+              bias=(float(np.mean(b)) if b else np.nan), n=len(b),
+              regime=(max(set(regs), key=regs.count) if regs else ''),
+              s1_fit=(float(np.nanmean(sf)) if np.any(np.isfinite(sf)) else np.nan),
+              sep_fit=(float(np.nanmean(pf)) if np.any(np.isfinite(pf)) else np.nan))
+
+
 def bias_grid(seps=BIAS_SEPS, s1s=BIAS_S1, s2s=BIAS_S2, offs=BIAS_OFFS, sigma=BIAS_SIGMA,
-    verbose=True, outdir=None):
+    verbose=True, outdir=None, nproc=None):
   '''
   The re-centred estimator's bias over (break separation, s1), per branch, on synthetics whose
   mid slope IS the asymptote. Averaged over s2, which barely moves it.
 
   This is the table a figure needs: interpolated at each bin's own measured separation and s1
   it gives a correction that varies along the track the way the bias actually does, instead of
-  stepping at an epoch boundary. It is still a first iteration -- the s1 it is indexed by is
-  itself an output of the biased chain, and granot_sari_syn's knees are symmetric while the
-  computed ones are not.
+  stepping at an epoch boundary.
+
+  INDEXED BY THE FITTED GEOMETRY, NOT THE GENERATOR'S (see _bias_node): the nodes are built
+  at (sep, s1) but carry sep_fit and s1_fit, what the route reads back off that node, which
+  is the only form a real spectrum can be matched to. granot_sari_syn's knees are still
+  symmetric while the computed ones are not.
   '''
-  rows = []
-  for fast in (True, False):
-    a_th = 0.5 if fast else (3. - VAL_P)/2.
-    for sep in seps:
-      for s1 in s1s:
-        for off in offs:
-          b, regs = [], []
-          for s2 in s2s:
-            nu, sp, t = synth_spectrum(sep, s1, s2, fast, sigma=sigma, mgap=VAL_MGAP,
-                                       off=off)
-            br = sb.breaks_from_identified(nu, sp, t['psyn'])
-            # FC* is KEPT, not filtered out: it is the same spectrum family with the lower
-            # break at the band edge, and excluding it is what left the grid with a hole
-            # exactly where a track crosses the class boundary. The class is recorded so the
-            # merge can be audited, but it does NOT select -- the geometry does.
-            if np.isfinite(br['a_mid']) and br['regime'] in ('FC', 'SC', 'FC*'):
-              b.append(br['a_mid'] - a_th); regs.append(str(br['regime']))
-          rows.append(dict(branch=('fc' if fast else 'sc'), sep=sep, s1=s1, off=off,
-                           bias=(float(np.mean(b)) if b else np.nan), n=len(b),
-                           regime=(max(set(regs), key=regs.count) if regs else '')))
+  jobs = [(fast, sep, s1, off, tuple(s2s), sigma)
+          for fast in (True, False) for sep in seps for s1 in s1s for off in offs]
+  np_ = cell_pool.resolve_nproc(nproc, cap=len(jobs)) if nproc else 1
+  if np_ > 1:
+    with cell_pool.pool_context().Pool(np_) as pool:
+      rows = pool.map(_bias_node, jobs)
+  else:
+    rows = [_bias_node(j) for j in jobs]
   df = pd.DataFrame(rows)
   if verbose and len(df):
     print(f"\n{'=== BIAS GRID: a_mid - a_th on synthetics, by separation and s1 ':=<78}")

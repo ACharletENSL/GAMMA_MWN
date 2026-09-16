@@ -378,6 +378,43 @@ def _band_total(key=DEFAULT_KEY):
   return out or None
 
 
+BIAS_FIT_INDEX = False
+"""
+Read the grid on the FITTED axes (sep_fit, s1_fit) instead of the generator's (sep, s1)?
+
+The case for True is that the lookup should compare like with like. A real spectrum can only
+ever supply a fitted s1, and the fit reads a break as sharper the less of the lower segment
+it can see: a generator s1 of 1.0 comes back as 1.15 over 1.25 decades of nu^(4/3) and as
+1.06 over 4.4, for the same 0.013 of bias either way (segment_route._bias_node). Indexing on
+the generator value therefore lets ONE spectrum be corrected by two different numbers
+according to the band it was measured over -- which is the shape of the FC/FC* residual,
+whose two sides are read on two different bands.
+
+MEASURED, on the densified grid so that neither side is a sampling artefact:
+
+                         generator axes   fitted axes
+  FC -> FC* step, C=-2       0.0091          0.0070
+  corrected FC median        0.5111          0.5078
+  corrected SC median        0.2434          0.2435
+  bins with no correction       0              9
+
+It is kept False because it does not buy what it was tried for. The step does not close, and
+the 9 bins it loses include the LAST FC bin before that very boundary -- (sep, s1, off) =
+(3.62, 1.11, 1.18), which no synthetic reaches, because a GS02 break that smooth stops
+showing a 4/3 window before off gets that low while the computed one still shows it. It then
+draws as a bare raw marker 0.02 above its neighbours, right where the figure is at its most
+delicate.
+
+WHAT ACTUALLY SETS THE FLOOR, and why neither choice closes it: the computed lower break is
+not a break of one smoothing. Its fitted s1 moves with the band about TWICE as far as any
+node of the synthetic family does (1.10 -> 0.95 over the same two bands where the synthetics
+move 1.15 -> 1.06), so no single node can match both readings and the two bands' lookups
+stay ~0.007 apart. Closing that means indexing the bias on something band-invariant that
+measures the window the estimator actually had -- `core`, say -- and rebuilding the grid on
+it. That is a redesign, not a re-index.
+"""
+
+
 def _bias_interp(branch, regime=None):
   '''
   bias(sep, s1, off) for one branch, from segment_route's grid: what the estimator returns
@@ -391,6 +428,9 @@ def _bias_interp(branch, regime=None):
   it collapses to ~1.2 exactly where a track crosses into FC*. Correcting that boundary with
   the wrong geometry left a step of 0.0123 between a track's solid and dashed halves, twenty
   times the 0.0006 bin-to-bin wobble, which the correction did not remove.
+
+  ON WHICH AXES: see BIAS_FIT_INDEX. The grid carries both the generator's (sep, s1) and the
+  pair the route fits back on that same node (sep_fit, s1_fit); the lookup uses the former.
   '''
   from scipy.interpolate import LinearNDInterpolator
   from segment_route import CALIB_DIR as SR_OUT
@@ -412,7 +452,15 @@ def _bias_interp(branch, regime=None):
     b = float(r['bias'])
     if abs(b) > BIAS_MAX:
       continue
-    pts.append((float(r['sep']), float(r['s1']), float(r['off']))); val.append(b)
+    sep, s1 = np.nan, np.nan
+    if BIAS_FIT_INDEX:
+      try:
+        sep, s1 = float(r.get('sep_fit', '')), float(r.get('s1_fit', ''))
+      except ValueError:
+        pass
+    if not (np.isfinite(sep) and np.isfinite(s1)):   # generator axes, a grid without the
+      sep, s1 = float(r['sep']), float(r['s1'])      # fitted columns, or a declined fit
+    pts.append((sep, s1, float(r['off']))); val.append(b)
   if len(pts) < 4:
     return None
   return LinearNDInterpolator(np.array(pts), np.array(val))
@@ -714,7 +762,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
   sh = [Line2D([], [], color=MUTED, lw=1.8),
         Line2D([], [], color=MUTED, lw=1.5, ls='--'),
         Line2D([], [], color=MUTED, lw=0, marker='o', mfc='none', mec=MUTED, ms=3.6)]
-  sl = ['settled segment', 'settled, window not re-centred',
+  sl = ['settled segment', 'settled, FC*/VFC/VSC',
         'no settled segment']
   # the fourth state is listed only if it OCCURRED: with FC*/VFC now corrected from the
   # band-offset table and VSC corrected by a measured zero, a run can leave nothing raw,

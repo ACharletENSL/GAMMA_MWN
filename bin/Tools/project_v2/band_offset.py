@@ -134,6 +134,45 @@ def one_point(r, z, step=14, verbose=True):
   return out
 
 
+def reindex(key=None, path=None):
+  """
+  Re-evaluate bias_deep (and so total) from the geometry ALREADY IN THE TABLE, against the
+  current bias grid. The spectra do not change when the grid is re-indexed -- da, the
+  classes and the deep geometry are all measurements -- so re-running the deep sweep to pick
+  up a new grid would be an hour of recomputing numbers that cannot move. Only the two
+  columns that are grid READS are rewritten.
+  """
+  import segment_route as R
+  key = key or S.DEFAULT_KEY
+  path = path or R.calib_path(f'band_offsets_{key}.csv')
+  rows = list(csv.DictReader(open(path)))
+  _GRID.clear()
+  import mid_slope_evolution as M
+  itp = {}
+  def f_(cls):
+    if cls not in itp:
+      br = 'sc' if cls in ('SC', 'VSC') else 'fc'
+      itp[cls] = M._bias_interp(br, cls)
+    return itp[cls]
+  n = 0
+  for r in rows:
+    g = f_(r['cls_deep'])
+    try:
+      q = [float(r[k]) for k in ('sep_deep', 's1_deep', 'off_deep', 'da')]
+    except ValueError:
+      q = [np.nan]*4
+    b = float(g(*q[:3])) if (g is not None and all(np.isfinite(q[:3]))) else np.nan
+    old = r['bias_deep']
+    r['bias_deep'] = b
+    r['total'] = (q[3] - b) if np.isfinite(b) and np.isfinite(q[3]) else np.nan
+    n += int(np.isfinite(b) != (old not in ('', 'nan')))
+  with open(path, 'w', newline='') as fh:
+    w = csv.DictWriter(fh, fieldnames=list(FIELDS)); w.writeheader(); w.writerows(rows)
+  fin = sum(1 for r in rows if np.isfinite(float(r['total'])))
+  print(f'{len(rows)} rows re-indexed -> {path}  ({fin} with a total, {n} changed coverage)')
+  return rows
+
+
 def main(step=14):
   rows = []
   for z, suf in ((4, '_deepband'), (1, '_z=1_deepband')):
