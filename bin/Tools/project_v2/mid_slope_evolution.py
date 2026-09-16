@@ -94,8 +94,15 @@ FLUX_FLOOR = 1e-10                 # skip steps whose peak flux is this far belo
 # the marginal point), red = slow. One global map, so logr=-3 is the same colour in both
 # panels -- colour follows the entity, not its rank within a panel. NB this is NOT the jet
 # colorbar the sweep figures use; there is no colorbar here, the curves are labelled.
-COL = {-5: '#08306b', -4: '#1f6cb0', -3: '#4393c3', -2: '#7fb8d8',
-       -1: '#a8cfe3', 0: '#737373', 1: '#ef6548', 2: '#a50f15', 3: '#67000d'}
+# The FAST-COOLING panel carries only -5..-2, i.e. four neighbours out of the cool half, so
+# the ramp has to do its separating over that stretch: the lightness range is widened and a
+# little hue rotation (navy -> blue -> cyan-blue) added, which separates -4 from -3 where
+# pure lightness did not. -1 stays pale because it appears in the SLOW panel only, beside
+# the grey and the reds. Colour still follows the ENTITY, not its rank in a panel, so -3 is
+# the same colour in both; the end-of-track labels below are what actually makes a track
+# identifiable, and they are why the ramp does not have to carry the whole burden.
+COL = {-5: '#08306b', -4: '#2171b5', -3: '#41b6c4', -2: '#a6bddb',
+       -1: '#d0d1e6', 0: '#737373', 1: '#ef6548', 2: '#a50f15', 3: '#67000d'}
 
 
 def col(lr):
@@ -452,7 +459,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
   own edge IS bar{T}_rf -- see sweep_gammacm.plot_lightcurve_shape).
   '''
   xoff = tuple(b/barT_f for b in barT_off) if (barT_off and barT_f > 0.) else None
-  fig, axes = plt.subplots(2, 1, figsize=(8.4, 7.6), sharex=True)
+  fig, axes = plt.subplots(2, 1, figsize=(8.8, 7.6), sharex=True)
   # SC on top, FC below, the order the spectrum passes through them as gamma_c falls. The
   # MARGINAL class is measured (both bounds, see _measure_point) and written to the csv, but
   # NOT drawn: bounded to what a fused fc or sc knee can produce, its fitted mid slope pins
@@ -489,6 +496,13 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
         if tr is not None and tr[0].size >= 2:
           # along-track interpolation, clamped at the ends rather than extrapolated
           b = -float(np.interp(r['x'], tr[0], tr[1]))
+      # VSC IS CORRECTED WITH ZERO, not left raw. It has no upper break in band, so no shape
+      # is fitted and there is nothing to index a grid by -- but its raw departure is
+      # +0.0013 [-0.0016, +0.0025] over 371 bins, i.e. already at the asymptote to better
+      # than any correction's own uncertainty. Drawing it as "outside the grid" implied a
+      # missing correction; drawing it corrected-by-zero states the measurement.
+      if corrected and r.get('regime') == 'VSC' and not np.isfinite(b):
+        b = 0.
       _f = itp(r.get('regime')) if (itp is not None and not np.isfinite(b)) else None
       if _f is not None and all(np.isfinite(r.get(k, np.nan))
                                 for k in ('sep', 's1', 'depth')):
@@ -541,6 +555,39 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       if grp.get(UNC):        # corrected figure only: no correction available, plotted raw
         ax.plot([r['x'] for r in grp[UNC]], [r['a_mid'] for r in grp[UNC]], '.', color=c,
                 ms=3.0, alpha=0.7, ls='none', zorder=2)
+    # END-OF-TRACK LABELS. Four neighbouring blues in the fast panel cannot be told apart by
+    # colour alone once the tracks overlap, and no ramp fixes that while the map stays global
+    # (it must: -4, -3 and -2 appear in BOTH panels). A label at the right end of each track
+    # names it outright, which is the only channel that does not degrade as tracks converge.
+    labs = []
+    for lr in sorted({r['logr'] for r in sub}):
+      d = sorted([r for r in sub if r['logr'] == lr and np.isfinite(val(r))],
+                 key=lambda r: r['x'])
+      if d:
+        labs.append([d[-1]['x'], val(d[-1]), int(lr)])
+    # tracks that END at nearly the same place collide (-4 and -3 finish within 0.006 of
+    # each other on the slow branch), so the labels are pushed apart in the y they are
+    # DRAWN at while the anchor stays put. Sorted by y and swept upward once: enough for
+    # a handful of labels, and it never moves one that is already clear.
+    if labs:
+      lo_, hi_ = (_ylim([q[1] for q in labs]) or (0., 1.))
+      gap = 0.030*max(hi_ - lo_, 1e-9)
+      labs.sort(key=lambda q: q[1])
+      ypos = [q[1] for q in labs]
+      for i in range(1, len(ypos)):
+        if ypos[i] - ypos[i-1] < gap:
+          ypos[i] = ypos[i-1] + gap
+      for (xx, yy, lr), yd in zip(labs, ypos):
+        kw = dict(color=col(lr), fontsize=8, fontweight='bold', va='center', ha='left',
+                  annotation_clip=False, zorder=6)
+        if yd == yy:
+          ax.annotate(f'{lr:+d}', xy=(xx, yy), xytext=(5, 0),
+                      textcoords='offset points', **kw)
+        else:
+          # moved off its anchor, so a hairline says which track it belongs to
+          ax.annotate(f'{lr:+d}', xy=(xx, yy), xytext=(xx, yd), textcoords='data',
+                      arrowprops=dict(arrowstyle='-', color=col(lr), lw=0.6, alpha=0.6),
+                      **kw)
     ax.set_xscale('log')
     # limits from what is actually drawn, so a correction that shifts the distribution
     # cannot push points off the panel; the sc axes carry the legend and keep headroom
@@ -585,8 +632,12 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
         Line2D([], [], color=MUTED, lw=1.5, ls='--'),
         Line2D([], [], color=MUTED, lw=0, marker='o', mfc='none', mec=MUTED, ms=3.6)]
   sl = ['settled segment', 'settled, window not re-centred',
-        'no settled segment: shape parameter']
-  if corrected:   # the fourth state exists only here -- see the `unc` branch above
+        'no settled segment']
+  # the fourth state is listed only if it OCCURRED: with FC*/VFC now corrected from the
+  # band-offset table and VSC corrected by a measured zero, a run can leave nothing raw,
+  # and a key for an absent state invites the reader to look for it
+  if corrected and any(not np.isfinite(r.get('a_corr', np.nan))
+                       and np.isfinite(r['a_mid']) for r in rows if r['branch'] != 'mc'):
     sh.append(Line2D([], [], color=MUTED, lw=0, marker='.', ms=4.5))
     sl.append('outside the bias grid: raw')
   leg2 = axes[1].legend(sh, sl, fontsize=8.0, loc='lower center', ncol=len(sh),
