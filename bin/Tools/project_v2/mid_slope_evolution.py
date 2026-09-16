@@ -393,9 +393,9 @@ whose two sides are read on two different bands.
 MEASURED, on the densified grid so that neither side is a sampling artefact:
 
                          generator axes   fitted axes
-  FC -> FC* step, C=-2       0.0091          0.0070
-  corrected FC median        0.5111          0.5078
-  corrected SC median        0.2434          0.2435
+  FC -> FC* step, C=-2       0.0086          0.0070
+  corrected FC median        0.5112          0.5078
+  corrected SC median        0.2433          0.2435
   bins with no correction       0              9
 
 It is kept False because it does not buy what it was tried for. The step does not close, and
