@@ -352,6 +352,15 @@ def _band_total(key=DEFAULT_KEY):
       continue
     if not np.isfinite(t):
       continue
+    # THE DEEP MEASUREMENT MUST ACTUALLY HAVE RE-CENTRED. For 2% of rows -- all of them
+    # production-VFC, at the latest times of the fastest-cooling points -- even a band to
+    # 10^-10 leaves the spectrum FC*, so its mid window is still the fell-back one. `da` is
+    # then fell-back to fell-back, which is not the quantity this table is for, and
+    # `bias_deep` is looked up in the FC* class rather than FC, so it steps by 0.011 exactly
+    # where the deep class flips. Dropping those rows lets the track interpolate across them
+    # from the neighbours that did re-centre, instead of stepping.
+    if r.get('cls_prod') in ('FC*', 'VFC') and r.get('mid_deep') != 'plateau_recentred':
+      continue
     # FC* AND VFC SHARE A TRACK. They are the same estimator -- both fall back to the free
     # line, neither can re-centre -- and the same physical continuum, nu_c descending past
     # nu_B; only the edge-slope gate separates them. Keying them apart left the VFC table
@@ -499,8 +508,27 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       # remove: on the same spectrum the two grids disagreed by -0.025 to -0.049, against a
       # step of 0.0123. One grid, one generator, one single-valued function of the geometry.
       # FC*/VFC: the measured band offset REPLACES the synthetic stand-in entirely
-      if band is not None and r.get('regime') in ('FC*', 'VFC'):
-        tr = band.get((int(Z_SHELL), round(float(r['logr']), 6), 'FCx'))
+      # ONE ROUTE FOR EVERY CLASS. The band table covers FC and SC as well (their `da` is
+      # exactly 0, so their total is just -bias_deep), and using the synthetic grid for them
+      # while FC*/VFC used the table left a step at the FC/FC* boundary that is an artefact
+      # of the two routes, not of the spectra: a_deep runs straight through it (0.5301 ->
+      # 0.5306 at logr=-2), and correcting both sides from the table gives 0.5148 -> 0.5150.
+      # WHY THE TWO ROUTES DISAGREE: the grid is indexed on `off` and s1, and BOTH are
+      # band-dependent -- the same logr=-2 bin has off 1.26 and s1 1.10 measured on the
+      # production band against 4.45 and 0.95 on the extended one. The table settles it by
+      # evaluating the grid where the re-centred measurement actually lives.
+      # VSC rides the SC track (np.interp clamps at its end), which is the limit of the SC
+      # correction as the upper break leaves the band -- a measured ~-0.002 rather than the
+      # hard zero that used to put a step of that size at every VSC/SC passage.
+      # FC*/VFC ONLY. Putting FC and SC on this route as well was tried and REVERTED: for
+      # them da is 0, so total is just -bias_deep, i.e. the grid read at the EXTENDED band's
+      # geometry -- and s1 is a fit output that differs between the two bands (1.10 against
+      # 0.95 on the same logr=-2 bin), so the slow tracks came out starting at 0.294 instead
+      # of 0.253. A class that can be measured on its own band must be corrected on its own
+      # band; the table is for the classes that cannot.
+      _cls = 'FCx' if r.get('regime') in ('FC*', 'VFC') else None
+      if band is not None and _cls:
+        tr = band.get((int(Z_SHELL), round(float(r['logr']), 6), _cls))
         if tr is not None and tr[0].size >= 2:
           # along-track interpolation, clamped at the ends rather than extrapolated
           b = -float(np.interp(r['x'], tr[0], tr[1]))
@@ -509,8 +537,8 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       # +0.0013 [-0.0016, +0.0025] over 371 bins, i.e. already at the asymptote to better
       # than any correction's own uncertainty. Drawing it as "outside the grid" implied a
       # missing correction; drawing it corrected-by-zero states the measurement.
-      if corrected and r.get('regime') == 'VSC' and not np.isfinite(b):
-        b = 0.
+      # VSC is deliberately left unset here: the second pass after this loop gives it the
+      # SC track's own correction, which is the limit it belongs to.
       # EVERY branch below is gated on b still being unset. It was an if/elif chain, and
       # when the band supplied b the first test failed on _f is None and control FELL INTO
       # the VFC branch, which overwrote the measured offset with the synthetic stand-in --
@@ -538,6 +566,22 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       r['bias'] = b
       r['a_corr'] = r['a_mid'] - b if np.isfinite(b) else np.nan
       n_un += int(not np.isfinite(b))
+    # SECOND PASS for VSC. It has no upper break in band, so no shape is fitted and nothing
+    # indexes a grid -- but it is the SC track continued past the point where nu_c leaves the
+    # band, so the SC correction's limit is the right value, not the hard 0 that used to put
+    # a step of exactly the SC bias (+0.0017..+0.0027) at every VSC/SC passage.
+    if corrected:
+      for lr in {q['logr'] for q in sub if q['regime'] == 'VSC'}:
+        trk = sorted([q for q in sub if q['logr'] == lr], key=lambda q: q['x'])
+        don = [q for q in trk if q['regime'] == 'SC' and np.isfinite(q.get('bias', np.nan))]
+        if not don:
+          continue
+        xs = np.array([q['x'] for q in don]); bs = np.array([q['bias'] for q in don])
+        for q in trk:
+          if q['regime'] == 'VSC' and not np.isfinite(q.get('bias', np.nan)):
+            q['bias'] = float(np.interp(q['x'], xs, bs))
+            q['a_corr'] = q['a_mid'] - q['bias']
+            n_un -= 1
     if corrected and n_un:
       print(f'  {br}: {n_un}/{len(sub)} bins outside the bias grid, left uncorrected')
     if xoff is not None:
