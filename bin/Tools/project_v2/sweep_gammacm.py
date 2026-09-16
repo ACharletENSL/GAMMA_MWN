@@ -1285,6 +1285,44 @@ GS02_S1, GS02_S2 = 1.3, 2.0
 GS02_CUTOFF = 'R'
 GS02_FIT_DEC = 5.0        # fit the top this many decades of the spectrum: below that the
                           # flux is off the plotted range and dominated by the far tail
+GS02_NUB_FAC = 1.5        # low end of the GS02 fit, in units of nu_B = nu_m/gamma_m^2: bins
+                          # below this are DROPPED from the fit (see fit_gs02_spectrum).
+                          # WHY. nu_B is the synchrotron frequency of a gamma=1 electron, so
+                          # there is no emission below it -- only the hard cutoff of the
+                          # lowest-energy electron -- and granot_sari_syn has no such cutoff
+                          # by construction. LOGNU_MIN = -6.7 puts the band bottom at 0.95
+                          # nu_B deliberately, to bring the 4/3 segment and the lower break
+                          # INSIDE the array; the two or three bins that land in the cutoff
+                          # came along with it and are not spectrum. Ungated they produce the
+                          # bar{T} ~ 0.04 artifact in break_evolution / break_ratio_evolution:
+                          # GS02_FIT_DEC is anchored on the PEAK, so as the burst brightens
+                          # those bins climb out of the far tail (1e-280 early on) and cross
+                          # into the fit ONE AT A TIME while still a decade below the 4/3
+                          # segment. Measured at log10(gc/gm) = -4: they enter at bar{T} =
+                          # 0.04010 and 0.04046 mis-fit by +0.81 and +0.74 dex, taking the rms
+                          # 0.0163 -> 0.0544 and dragging b_lo (= nu_c) up 14% before it
+                          # resumes falling. At -5 they instead move xg.min() under the VFC
+                          # trigger (min(b_lo,b_hi) < xg.min()), whose b_lo was pinned at
+                          # 1.0028 xg.min(): the class chatters FC/VFC bin-to-bin, sticks at
+                          # VFC (nu_c -> NaN, the curve stops), then flips back at bar{T} =
+                          # 0.043 with nu_c a factor 2 higher -- the detached hook.
+                          # WHERE 1.5 COMES FROM. The R(x) kernel puts an electron's break at
+                          # 1.5 nu'_B gamma^2 while nu_B here, like env.nu0/nuc, is defined
+                          # WITHOUT that factor (see NU_RX), so the gamma=1 cutoff sits at
+                          # ~1.5 nu_B on this axis: the gate is the cutoff itself, not a
+                          # margin on it. Consistent with the data, which joins the 4/3
+                          # segment by 1.09 nu_B at the times that matter. Costs 7 of ~440
+                          # fitted points, all at the band bottom.
+                          # COST, measured over 60 times x 9 sweep points against the ungated
+                          # fit: it drops 0-7 bins (0 only at logr=+3, whose band bottom never
+                          # comes within GS02_FIT_DEC of its peak -- so this is NOT the no-op
+                          # elsewhere it might look like), median rms change 0.0000 at EVERY
+                          # point, worst increase anywhere +0.016, and NO bin that passed
+                          # GS02_TRACK_RMSMAX before fails it after. One bin is rescued:
+                          # logr=+1 at bar{T}=1000 goes rms 0.40 -> 0.029, i.e. the cutoff
+                          # bins alone were breaking that fit. Away from the two deepest
+                          # fast-cooling points the breaks barely move: |dlog10 b_lo| <= 0.08,
+                          # |dlog10 b_hi| <= 0.014.
 GS02_BOUND_TOL = 1e-3     # a fitted break this close (in dex) to its bound is not measured
 GS02_BODY_FAC = 10.       # rms is also reported over the spectral BODY alone, nu < nu_M/this.
                           # The split matters: the GS02 broken-power-law part fits the body to
@@ -1302,7 +1340,7 @@ GS02_S_VFC = 2.0          # smoothing of the VERY-fast-cooling single break (gri
 
 
 def fit_gs02_spectrum(x, sp, psyn, nuM, s=(GS02_S1, GS02_S2), free_s=False,
-    free_nuM=True, fit_dec=GS02_FIT_DEC, cutoff=GS02_CUTOFF, free_bmid=False):
+    free_nuM=True, fit_dec=GS02_FIT_DEC, cutoff=GS02_CUTOFF, free_bmid=False, nu_B=None):
   '''
   SUPERSEDED AS A MEASUREMENT -- the paper takes its breaks and its smoothing from the
   segment route (spectral_breaks.breaks_from_identified / smoothing_from_identified), which
@@ -1334,6 +1372,11 @@ def fit_gs02_spectrum(x, sp, psyn, nuM, s=(GS02_S1, GS02_S2), free_s=False,
   The fitted nuM/nominal ratio is therefore a measurement of the Doppler slide.
   Pass free_nuM=False to hold it.
 
+  nu_B (= nu_m/gamma_m^2 on the same x axis) gates the LOW end: bins below
+  GS02_NUB_FAC*nu_B are in the gamma=1 cutoff, which this shape does not model, and are
+  dropped. Pass it whenever the caller has an env -- without it the fitted window's bottom
+  moves with the burst's brightness and steps the fitted breaks; see GS02_NUB_FAC.
+
   Returns a dict: rms (in log10 flux), rms_alt (the rms of the REJECTED ordering, so a
   caller can tell a real preference from a tie), num, nuc, b_lo, b_hi, regime, F_ext,
   s1, s2, nuM, npts, and at_bound (a break ran into the frequency window's edge, i.e. it is outside the
@@ -1343,6 +1386,10 @@ def fit_gs02_spectrum(x, sp, psyn, nuM, s=(GS02_S1, GS02_S2), free_s=False,
   good = np.isfinite(sp) & (sp > 0.) & np.isfinite(x) & (x > 0.)
   xg, yg = x[good], np.log10(sp[good])
   keep = yg > yg.max() - fit_dec
+  if nu_B is not None:
+    # the cutoff bins are not spectrum: drop them before anything reads xg.min(), which
+    # sets the parameter bounds AND the VFC trigger below
+    keep &= xg >= GS02_NUB_FAC*nu_B
   xg, yg = xg[keep], yg[keep]
   if len(xg) < 12:
     return None
@@ -1730,6 +1777,7 @@ def track_breaks_gs02(r, flux_floor=TRACK_FLUX_FLOOR, rms_max=GS02_TRACK_RMSMAX,
   x = nu_over_num(r); env = r['env']; barT = r['Tb'] - 1.
   nuFnu = r['nuFnu']; n = len(barT)
   nuM_nom = nu_M_over_num(r)
+  nu_B = 1./env.gma_m**2          # gamma=1 floor: gates the fit's low end (GS02_NUB_FAC)
   Fpk = np.nanmax(nuFnu, axis=1)
 
   b_lo = np.full(n, np.nan); b_hi = np.full(n, np.nan); nu_Mt = np.full(n, np.nan)
@@ -1739,7 +1787,7 @@ def track_breaks_gs02(r, flux_floor=TRACK_FLUX_FLOOR, rms_max=GS02_TRACK_RMSMAX,
   bright = (np.isfinite(Fpk) & (Fpk > flux_floor*np.nanmax(Fpk))
             & ((np.isfinite(nuFnu) & (nuFnu > 0.)).sum(axis=1) >= 12))
   for i in np.flatnonzero(bright):
-    f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True)
+    f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_B)
     if f is None:
       continue
     b_lo[i], b_hi[i], nu_Mt[i] = f['b_lo'], f['b_hi'], f['nuM']
@@ -1809,7 +1857,7 @@ def track_breaks_gs02(r, flux_floor=TRACK_FLUX_FLOOR, rms_max=GS02_TRACK_RMSMAX,
               ratio=nu_c/nu_m, s_mid=rms, off=~ok, unres=unres, valid=valid,
               valid_m=valid_m, is_vfc=is_vfc, ambig=ambig, beta_mid=bmid,
               sep_unres=GS02_TRACK_SEPMIN,
-              i_swap=i_swap, nu_M=nuM_nom, nu_Mt=nu_Mt, nu_B=1./env.gma_m**2,
+              i_swap=i_swap, nu_M=nuM_nom, nu_Mt=nu_Mt, nu_B=nu_B,
               nu_win=(float(x.min()), float(x.max())), Fpk=Fpk)
 
 
@@ -2895,6 +2943,7 @@ def plot_gs02_rms(results, barT_f, barT_off=None, outdir=OUTDIR, n_times=GS02_NT
   fig, ax = plt.subplots(figsize=(7.5, 5))
   for r, c in _draw_order(zip(results, colors)):
     x = nu_over_num(r); p = r['env'].psyn; nuM = nu_M_over_num(r)
+    nu_B = 1./r['env'].gma_m**2
     barT = r['Tb'] - 1.
     Fpk = np.nanmax(r['nuFnu'], axis=1)
     live = np.flatnonzero(np.isfinite(Fpk) & (Fpk > 1e-10*np.nanmax(Fpk)))
@@ -2903,7 +2952,7 @@ def plot_gs02_rms(results, barT_f, barT_off=None, outdir=OUTDIR, n_times=GS02_NT
     idx = np.unique(np.geomspace(live[0] + 1, live[-1] + 1, min(n_times, live.size)).astype(int) - 1)
     bb, rr = [], []
     for i in idx:
-      f = fit_gs02_spectrum(x, r['nuFnu'][i, :], p, nuM)
+      f = fit_gs02_spectrum(x, r['nuFnu'][i, :], p, nuM, nu_B=nu_B)
       if f is not None:
         bb.append(barT[i]); rr.append(f['rms'])
     if bb:
@@ -2931,18 +2980,19 @@ def build_gs02_table(results, detections, outdir=OUTDIR):
   fixed, freed, paired, bodies, expcut = [], [], [], [], []
   for r, det in zip(results, detections):
     info = det[3]; x = nu_over_num(r); p = r['env'].psyn; nuM = nu_M_over_num(r)
+    nu_B = 1./r['env'].gma_m**2
     for which in ('rise', 'peak', 'tail'):
       iT = info.get(f'i_{which}')
       if iT is None:
         continue
       sp = r['nuFnu'][iT, :]
-      f = fit_gs02_spectrum(x, sp, p, nuM)
-      ff = fit_gs02_spectrum(x, sp, p, nuM, free_s=True)
+      f = fit_gs02_spectrum(x, sp, p, nuM, nu_B=nu_B)
+      ff = fit_gs02_spectrum(x, sp, p, nuM, free_s=True, nu_B=nu_B)
       if f is None:
         continue
-      fe = fit_gs02_spectrum(x, sp, p, nuM, cutoff='exp')      # cruder cutoff, for reference
-      fb = fit_gs02_spectrum(x, sp, p, nuM, free_bmid=True)    # marginality diagnostic
-      rp = _fit_paired_syn_bpl(x, sp, p, nuM)
+      fe = fit_gs02_spectrum(x, sp, p, nuM, cutoff='exp', nu_B=nu_B)   # cruder cutoff, for reference
+      fb = fit_gs02_spectrum(x, sp, p, nuM, free_bmid=True, nu_B=nu_B) # marginality diagnostic
+      rp = _fit_paired_syn_bpl(x, sp, p, nuM, nu_B=nu_B)
       fixed.append(f['rms']); paired.append(rp); bodies.append(f['rms_body'])
       expcut.append(fe['rms'] if fe else np.nan)
       if ff is not None:
@@ -2990,13 +3040,15 @@ def build_gs02_table(results, detections, outdir=OUTDIR):
   return rows
 
 
-def _fit_paired_syn_bpl(x, sp, psyn, nuM, fit_dec=GS02_FIT_DEC):
+def _fit_paired_syn_bpl(x, sp, psyn, nuM, fit_dec=GS02_FIT_DEC, nu_B=None):
   '''paired_syn_bpl fitted to a spectrum the same way as fit_gs02_spectrum (free breaks,
   free smoothing, free scale), so the two shapes are compared on equal terms. Returns the
   rms of log10(data/fit).'''
   good = np.isfinite(sp) & (sp > 0.)
   xg, yg = x[good], np.log10(sp[good])
   keep = yg > yg.max() - fit_dec
+  if nu_B is not None:
+    keep &= xg >= GS02_NUB_FAC*nu_B
   xg, yg = xg[keep], yg[keep] - yg[keep].max()
   if len(xg) < 12:
     return np.nan

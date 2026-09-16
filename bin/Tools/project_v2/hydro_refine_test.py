@@ -177,7 +177,7 @@ def main(Ri_target=1.05, logrs=(-4., 3.), dmaxes=(None, 0.02, 0.005), key=KEY, z
       seg = [np.nanmedian(g[(ln-ln[jp] >= x-.4) & (ln-ln[jp] < x+.4)])
              for x in (0.5, 1., 1.5, 2., 3.)]
       nuM0 = 1.5*cell.gmax.to_numpy(float)[0]**2*cc['nup_B'][0]*cc['Dop'][0]/env.nu0
-      fit = fit_gs02_spectrum(nu, sp, p, nuM0)
+      fit = fit_gs02_spectrum(nu, sp, p, nuM0, nu_B=1./env.gma_m**2)
       rms = mx = np.nan
       if fit is not None:
         mod = gs02_model(nu, fit, p)
