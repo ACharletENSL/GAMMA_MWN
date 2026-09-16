@@ -2712,13 +2712,16 @@ def _gap(y, mask):
   return np.where(mask, y, np.nan)
 
 
-def _mark_hydro_times(ax, barT_f, barT_off=None):
+def _mark_hydro_times(ax, barT_f, barT_off=None, tnorm=1.):
   '''bar{T}_f (shell crossing) and the rarefaction band, the common hydro times of
-  every sweep point -- same guides as plot_lightcurve_shape, on a bar{T} axis. The band
-  alone marks the cut-off: its right edge IS bar{T}_rf (see plot_lightcurve_shape).'''
-  ax.axvline(barT_f, color='grey', ls=':', lw=.9)
+  every sweep point -- same guides as plot_lightcurve_shape. The band alone marks the
+  cut-off: its right edge IS bar{T}_rf (see plot_lightcurve_shape).
+  tnorm divides both, for an axis drawn in bar{T}/tnorm: pass barT_f on a bar{T}/bar{T}_f
+  axis (the crossing line then lands on 1 by construction), leave it 1 on a bar{T} one.'''
+  ax.axvline(barT_f/tnorm, color='grey', ls=':', lw=.9)
   if barT_off is not None:
-    ax.axvspan(barT_off[0], barT_off[1], color='grey', alpha=0.15, lw=0, zorder=0)
+    ax.axvspan(barT_off[0]/tnorm, barT_off[1]/tnorm, color='grey', alpha=0.15, lw=0,
+               zorder=0)
 
 
 def _curve_median_at(curves, x0):
@@ -2751,11 +2754,191 @@ NU_RX = 1.      # common convention factor on the frequency units of
                 # slides the panels without changing any shape.
 
 
+TNORM_LABEL = '$\\bar{T}/\\bar{T}_f$'   # every panel below is drawn in bar{T}/bar{T}_f, the
+                                       # house abscissa (mid_slope_evolution, sweep_compare,
+                                       # slope_validation, radiative_length). The crossing
+                                       # then sits at 1 in every one of them, so the panels
+                                       # of the fused figure share a reading as well as an
+                                       # axis. Guide-line LABELS stay 'bar{T}^-n': rescaling
+                                       # x cannot change a power-law index, only its
+                                       # normalisation, and the index is what they assert.
+
+
+def _mirror_if_article(png, outdir):
+  '''
+  Trim + mirror one just-written figure into the article folder, but only if it is one of
+  the article's. Done HERE and not only at the end of main(), so that a standalone redraw
+  of a single figure (the way they are iterated on) cannot leave a stale copy behind. The
+  ARTICLE_SERIES gate still decides: nothing is mirrored from the sweeps that are not the
+  article's (the '_z=1' variants, the reference method, ...).
+  '''
+  name = os.path.basename(os.path.normpath(outdir))
+  if os.path.basename(png) in ARTICLE_SERIES.get(name, ()):
+    trim_pngs([png])
+    copy_article_figures(outdir, series={name: (os.path.basename(png),)})
+
+
+def _draw_break_evolution(ax, results, tracks, fits, barT_f, barT_off=None,
+    nu_unit=NU_RX, legend=True):
+  '''
+  The break-evolution panel on a given axis, x in bar{T}/bar{T}_f. Returns the
+  ScalarMappable for the colorbar, which the caller places (beside a single panel, under
+  a stacked pair). See plot_break_evolution for what the panel shows.
+  '''
+  colors, sm = _sweep_colors(results)
+  vals, nu_c_curves = [], []
+  for r, tr, f, c in _draw_order(zip(results, tracks, fits, colors)):
+    barT, v = tr['barT'], tr['valid']
+    if not v.any():
+      continue
+    # the tracks are all in nu_m,0 = env.nu0 units, so each break's own normalisation is a
+    # ratio to that: env.nuc/env.nu0 = (gma_c/gma_m)^2 = f['nominal'], exact since the two
+    # share nu'_B and the Doppler factor
+    n_c, n_m = nu_unit*f['nominal'], nu_unit
+    nu_c, nu_m = tr['nu_c']/n_c, tr['nu_m']/n_m
+    x = barT/barT_f
+    # only MEASURED points are drawn: a finite fitted nu_c that failed a validity cut is a
+    # break the fit placed outside the observed band (the transition into VFC), and showing
+    # it even faintly asserts a cooling break where the fit found none
+    ax.loglog(x, _gap(nu_c, v), color=c, lw=1.5)
+    v_m = tr.get('valid_m', v)
+    ax.loglog(x, _gap(nu_m, v_m), color=c, lw=1.1, ls='--')
+    # the blended stretch: one break, drawn as such, so the gap in the solid curves is
+    # visibly "not measured" rather than "not there"
+    u = tr['unres']
+    if u.any():
+      ax.loglog(x, _gap(nu_c, u), color=c, lw=1.2, ls=':')
+    vals.append(np.concatenate([nu_c[v], nu_m[v_m]]))
+    nu_c_curves.append((x, _gap(nu_c, v)))
+  # y-range from the MEASURED points only: the faint stretches are extrapolations of the
+  # shape beyond the frequency window and can run many decades off, which would otherwise
+  # squash every real curve into the middle of the panel
+  vals = np.concatenate(vals) if vals else np.array([])
+  vals = vals[np.isfinite(vals) & (vals > 0.)]
+  if vals.size:
+    ax.set_ylim(vals.min()/3., vals.max()*3.)
+  # guides: anchored ON the nu_c curves (a small factor above them, leaving room for the
+  # label), not on the panel's range -- both laws are laws OF nu_c, so a free-floating
+  # line elsewhere in the panel is a reference the eye cannot use. The windows are held in
+  # bar{T} (RISE_WIN, barT_off and the grid all are) and converted here, once.
+  rw = np.array(RISE_WIN)/barT_f
+  _guide(ax, rw, -2., 5.*_curve_median_at(nu_c_curves, rw[0]),
+         ls='-', label='$\\bar{T}^{-2}$')
+  xh = np.array([max(2., barT_off[1] if barT_off else 2.),
+                 results[0]['Tb'].max() - 1.])/barT_f
+  _guide(ax, xh, -1., 4.*_curve_median_at(nu_c_curves, xh[0]), ls='-.',
+         label='$\\bar{T}^{-1}$')
+  _mark_hydro_times(ax, barT_f, barT_off, tnorm=barT_f)
+  # y = 1: each break AT its own env normalisation, i.e. where the measured frequency and
+  # the analytic one coincide
+  ax.axhline(1., color='grey', ls=':', lw=.7, zorder=0)
+  u = '' if nu_unit == 1. else f'{nu_unit:g}'
+  ax.set_ylabel(f'$\\nu_X/{u}\\nu_{{X,0}}$')
+  if legend:
+    ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.5, ls='-',
+                                  label='$\\nu_\\mathrm{c}$'),
+                       plt.Line2D([], [], color='k', lw=1.1, ls='--',
+                                  label='$\\nu_\\mathrm{m}$')],
+              loc='upper right', fontsize=11, framealpha=.9)
+  return sm
+
+
+def _mc_band(tracks):
+  '''
+  The ratio range over which the fit cannot NAME the two breaks -- the stretch every curve
+  is absent from, and what the shaded band in the ratio panel marks.
+
+  In an 'MC' bin the fitted mid slope sits between the two asymptotes, so neither break is
+  cleanly nu_c or nu_m (track_breaks_gs02's `ambig`) and the ratio is withheld. The curve
+  therefore jumps straight from its last SLOW-cooling value (ratio > 1) to its first
+  FAST-cooling one (< 1), and those two ARE the band's edges. Measured rather than
+  assumed: on the fiducial sweep the four regimes that cross inside the window (logr =
+  -4..-1) leave a gap running 23.4 -> 0.146, i.e. 2.2 decades, against the 0.35 that the
+  old SEP_UNRESOLVED/GS02_TRACK_SEPMIN band drew.
+
+  NB this is NOT the same statement as the separation floor: a break separation of ~6-19
+  is perfectly resolved, what fails there is the IDENTIFICATION. Taken over every regime
+  that crosses, so the band covers where any of them goes unnameable.
+  Returns None when no track has an MC stretch, leaving the caller its fallback.
+  '''
+  lo, hi = [], []
+  for tr in tracks:
+    amb = tr.get('ambig')
+    if amb is None or not np.any(amb):
+      continue
+    v, ratio = tr['valid'], tr['ratio']
+    i = np.flatnonzero(amb); k = np.arange(len(v))
+    pre, post = np.flatnonzero(v & (k < i[0])), np.flatnonzero(v & (k > i[-1]))
+    if pre.size and np.isfinite(ratio[pre[-1]]):
+      hi.append(float(ratio[pre[-1]]))       # last named SC bin, above the band
+    if post.size and np.isfinite(ratio[post[0]]):
+      lo.append(float(ratio[post[0]]))       # first named FC bin, below it
+  if not lo or not hi:
+    return None
+  return min(lo), max(hi)
+
+
+def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None):
+  '''
+  The break-ratio panel on a given axis, x in bar{T}/bar{T}_f. Returns the ScalarMappable.
+  No title and no y=1 line: the FC/SC boundary carries no information the band does not
+  already bound, and what the band means belongs in the caption.
+  '''
+  colors, sm = _sweep_colors(results)
+  # where the breaks are one unnameable feature -- measured off the tracks (_mc_band),
+  # falling back to the tracker's own separation floor if nothing crosses in this sweep
+  band = _mc_band(tracks)
+  if band is None:
+    sep_u = max(tr.get('sep_unres', SEP_UNRESOLVED) for tr in tracks)
+    band = (1./sep_u, sep_u)
+  ax.axhspan(band[0], band[1], color='grey', alpha=.15, lw=0, zorder=0)
+  # delimited rather than left as a smudge: the edges are measurements, so show them
+  for y in band:
+    ax.axhline(y, color='grey', ls='--', lw=.7, alpha=.7, zorder=0)
+  for r, tr, c in _draw_order(zip(results, tracks, colors)):
+    v = tr['valid']
+    if not v.any():
+      continue
+    ax.loglog(tr['barT']/barT_f, _gap(tr['ratio'], v), color=c, lw=1.4)
+  _mark_hydro_times(ax, barT_f, barT_off, tnorm=barT_f)
+  ax.set_ylabel('$\\nu_{\\rm c}/\\nu_{\\rm m}$')
+  return sm
+
+
+def plot_break_panels(results, tracks, fits, barT_f, barT_off=None, outdir=OUTDIR,
+    nu_unit=NU_RX):
+  '''
+  THE ARTICLE FIGURE: the two break panels fused into one, sharing a bar{T}/bar{T}_f
+  abscissa -- the breaks themselves on top (plot_break_evolution) and their ratio
+  underneath (plot_break_ratio), with one horizontal colorbar along the bottom serving
+  both. Stacking them is the point: the ratio panel is the top panel's two curves
+  divided, so reading one off the other only works if the two share an x axis to the
+  pixel, which sharex guarantees and two separate figures never did.
+  The single-panel figures are still written beside it, unchanged, as diagnostics.
+  '''
+  fig, axes = plt.subplots(2, 1, figsize=(7.5, 9.4), sharex=True,
+                           gridspec_kw=dict(hspace=.05, left=.105, right=.985,
+                                            top=.99, bottom=.125))
+  _draw_break_evolution(axes[0], results, tracks, fits, barT_f, barT_off=barT_off,
+                        nu_unit=nu_unit)
+  sm = _draw_break_ratio(axes[1], results, tracks, barT_f, barT_off=barT_off)
+  axes[1].set_xlabel(TNORM_LABEL)
+  # explicit colorbar axes rather than `ax=axes`: a horizontal bar stolen from a shared-x
+  # pair shrinks the panels unevenly, and the whole point here is that the two stay
+  # aligned to the pixel
+  cax = fig.add_axes([.105, .048, .88, .016])
+  fig.colorbar(sm, cax=cax, orientation='horizontal', label='log$_{10}\\mathcal{C}$')
+  png = os.path.join(outdir, 'break_panels.png')
+  fig.savefig(png, dpi=300)
+  plt.close(fig)
+  _mirror_if_article(png, outdir)
+
+
 def plot_break_evolution(results, tracks, fits, barT_f, barT_off=None, outdir=OUTDIR,
     nu_unit=NU_RX):
   '''
   Time evolution of the two spectral breaks, one colour per gamma_c/gamma_m: nu_c(t)
-  (solid) and nu_m(t) (dashed) vs bar{T}, each against ITS OWN env normalisation
+  (solid) and nu_m(t) (dashed) vs bar{T}/bar{T}_f, each against ITS OWN env normalisation
   (nu_c/env.nuc, nu_m/env.nu0, both x nu_unit -- see NU_RX), so the two start together
   at ~1 and the panel shows how far each DRIFTS from its injection value rather than the
   ~12 decades that separate the regimes; the stretches where a break is not measurable
@@ -2770,100 +2953,40 @@ def plot_break_evolution(results, tracks, fits, barT_f, barT_off=None, outdir=OU
   Normalising nu_c by env.nuc is also what collapses the regimes onto one track, so the
   panel doubles as the collapse figure the second panel used to carry (its A*bar{T}^-2
   reference is now the -2 guide; A itself stays in break_evolution_table.csv).
+  Kept as a standalone DIAGNOSTIC: the article's version of this panel is the top half of
+  plot_break_panels, which is what ARTICLE_SERIES mirrors.
   '''
-  colors, sm = _sweep_colors(results)
   fig, ax = plt.subplots(figsize=(7.5, 5.))
-  vals, nu_c_curves = [], []
-  for r, tr, f, c in _draw_order(zip(results, tracks, fits, colors)):
-    barT, v = tr['barT'], tr['valid']
-    if not v.any():
-      continue
-    # the tracks are all in nu_m,0 = env.nu0 units, so each break's own normalisation is a
-    # ratio to that: env.nuc/env.nu0 = (gma_c/gma_m)^2 = f['nominal'], exact since the two
-    # share nu'_B and the Doppler factor
-    n_c, n_m = nu_unit*f['nominal'], nu_unit
-    nu_c, nu_m = tr['nu_c']/n_c, tr['nu_m']/n_m
-    # only MEASURED points are drawn: a finite fitted nu_c that failed a validity cut is a
-    # break the fit placed outside the observed band (the transition into VFC), and showing
-    # it even faintly asserts a cooling break where the fit found none
-    ax.loglog(barT, _gap(nu_c, v), color=c, lw=1.5)
-    v_m = tr.get('valid_m', v)
-    ax.loglog(barT, _gap(nu_m, v_m), color=c, lw=1.1, ls='--')
-    # the blended stretch: one break, drawn as such, so the gap in the solid curves is
-    # visibly "not measured" rather than "not there"
-    u = tr['unres']
-    if u.any():
-      ax.loglog(barT, _gap(nu_c, u), color=c, lw=1.2, ls=':')
-    vals.append(np.concatenate([nu_c[v], nu_m[v_m]]))
-    nu_c_curves.append((barT, _gap(nu_c, v)))
-  # y-range from the MEASURED points only: the faint stretches are extrapolations of the
-  # shape beyond the frequency window and can run many decades off, which would otherwise
-  # squash every real curve into the middle of the panel
-  vals = np.concatenate(vals) if vals else np.array([])
-  vals = vals[np.isfinite(vals) & (vals > 0.)]
-  if vals.size:
-    ax.set_ylim(vals.min()/3., vals.max()*3.)
-  # guides: anchored ON the nu_c curves (a small factor above them, leaving room for the
-  # label), not on the panel's range -- both laws are laws OF nu_c, so a free-floating
-  # line elsewhere in the panel is a reference the eye cannot use
-  _guide(ax, np.array(RISE_WIN), -2., 5.*_curve_median_at(nu_c_curves, RISE_WIN[0]),
-         ls='-', label='$\\bar{T}^{-2}$')
-  xh = np.array([max(2., barT_off[1] if barT_off else 2.), results[0]['Tb'].max()-1.])
-  _guide(ax, xh, -1., 4.*_curve_median_at(nu_c_curves, xh[0]), ls='-.',
-         label='$\\bar{T}^{-1}$')
-  _mark_hydro_times(ax, barT_f, barT_off)
-  # y = 1: each break AT its own env normalisation, i.e. where the measured frequency and
-  # the analytic one coincide
-  ax.axhline(1., color='grey', ls=':', lw=.7, zorder=0)
-  u = '' if nu_unit == 1. else f'{nu_unit:g}'
-  ax.set_ylabel(f'$\\nu_X/{u}\\nu_{{X,0}}$')
-  ax.set_xlabel('$\\bar{T}$')
-  ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.5, ls='-', label='$\\nu_\\mathrm{c}$'),
-                     plt.Line2D([], [], color='k', lw=1.1, ls='--', label='$\\nu_\\mathrm{m}$')],
-            loc='upper right', fontsize=11, framealpha=.9)
+  sm = _draw_break_evolution(ax, results, tracks, fits, barT_f, barT_off=barT_off,
+                             nu_unit=nu_unit)
+  ax.set_xlabel(TNORM_LABEL)
   fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
   png = os.path.join(outdir, 'break_evolution.png')
   fig.savefig(png, dpi=300)
   plt.close(fig)
-  # trim + mirror HERE and not only at the end of main(), so that a standalone redraw of
-  # this one figure (the way it is iterated on) cannot leave a stale copy in the article
-  # folder. The ARTICLE_SERIES gate still decides: nothing is mirrored from the sweeps
-  # that are not the article's (the '_z=1' variants, the reference method, ...)
-  name = os.path.basename(os.path.normpath(outdir))
-  if os.path.basename(png) in ARTICLE_SERIES.get(name, ()):
-    trim_pngs([png])
-    copy_article_figures(outdir, series={name: (os.path.basename(png),)})
+  _mirror_if_article(png, outdir)
 
 
 def plot_break_ratio(results, tracks, barT_f, barT_off=None, outdir=OUTDIR):
   '''
-  nu_c(t)/nu_m(t) vs bar{T}, one curve per regime, with the FC/SC line at 1. nu_c falls
+  nu_c/nu_m vs bar{T}/bar{T}_f, one curve per regime, with the FC/SC line at 1. nu_c falls
   as bar{T}^-2 while nu_m is nearly flat, so EVERY regime starts slow-cooling and hardens
   toward fast cooling; past the rarefaction cut-off both breaks slide as the same Doppler
   factor and the ratio -- hence the whole spectral shape -- freezes. The crossing itself is
-  a GAP, not a curve: while the ratio is within the detector's resolution floor the two
-  breaks are one blended feature (shaded band, see SEP_UNRESOLVED), so how closely they
-  approach is not measured here.
+  a GAP, not a curve: through it the fitted mid slope sits between the two asymptotes, so
+  neither break is cleanly nu_c or nu_m and the ratio is withheld. The shaded band is that
+  stretch, measured off the tracks (_mc_band) rather than assumed.
+  Kept as a standalone DIAGNOSTIC: the article's version of this panel is the bottom half
+  of plot_break_panels.
   '''
-  colors, sm = _sweep_colors(results)
   fig, ax = plt.subplots(figsize=(7.5, 5))
-  # band width comes from whichever tracker produced these tracks: the knee scan cannot
-  # separate breaks closer than ~SEP_UNRESOLVED, the GS02 shape fit gets down to ~1.5
-  sep_u = max(tr.get('sep_unres', SEP_UNRESOLVED) for tr in tracks)
-  ax.axhspan(1./sep_u, sep_u, color='grey', alpha=0.12, lw=0, zorder=0)
-  for r, tr, c in _draw_order(zip(results, tracks, colors)):
-    v = tr['valid']
-    if not v.any():
-      continue
-    ax.loglog(tr['barT'], _gap(tr['ratio'], v), color=c, lw=1.4)
-  ax.axhline(1., color='grey', ls=':', lw=.9)
-  _mark_hydro_times(ax, barT_f, barT_off)
-  ax.set_xlabel('$\\bar{T}=(T_{\\rm obs}-T_s)/T_0$')
-  ax.set_ylabel('$\\nu_\\mathrm{c}(t)/\\nu_\\mathrm{m}(t)$')
-  ax.set_title('Observed cooling regime vs time\n(shaded: breaks unresolved, one blended feature)')
+  sm = _draw_break_ratio(ax, results, tracks, barT_f, barT_off=barT_off)
+  ax.set_xlabel(TNORM_LABEL)
   fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
-  fig.savefig(os.path.join(outdir, 'break_ratio_evolution.png'), dpi=300)
+  png = os.path.join(outdir, 'break_ratio_evolution.png')
+  fig.savefig(png, dpi=300)
   plt.close(fig)
+  _mirror_if_article(png, outdir)
 
 
 def build_break_evolution_table(results, fits, outdir=OUTDIR, tracks=None, c25=None):
@@ -3421,6 +3544,8 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   c25 = c25_num_curve(key, z, results[0]['Tb'])
   plot_break_evolution(results, tracks, fits, barT_f, barT_off=barT_off, outdir=outdir)
   plot_break_ratio(results, tracks, barT_f, barT_off=barT_off, outdir=outdir)
+  # the two of them fused, which is the one the article takes (ARTICLE_SERIES)
+  plot_break_panels(results, tracks, fits, barT_f, barT_off=barT_off, outdir=outdir)
   build_break_evolution_table(results, fits, outdir=outdir, tracks=tracks, c25=c25)
   plot_gs02_rms(results, barT_f, barT_off=barT_off, outdir=outdir)
   build_gs02_table(results, detections, outdir=outdir)
@@ -3543,10 +3668,14 @@ ARTICLE_SERIES = {   # {source figure dir (run folder stripped): globs of the se
                                        # pulse_profiles_collapsed.png and the lightcurves
                                        # themselves are lightcurve_shape_nu=*.png above
       'mid_slope_evolution.png',       # mid-segment slope vs time (mid_slope_evolution.py)
-      'break_evolution.png',           # nu_c and nu_m vs time, each on its own env
-                                       # normalisation (plot_break_evolution). The glob is
-                                       # exact, so the _table.png and break_ratio_* of the
-                                       # same family stay out
+      'break_panels.png',              # the two break panels fused, sharing a
+                                       # bar{T}/bar{T}_f axis: nu_c and nu_m each on its own
+                                       # env normalisation on top, their ratio underneath
+                                       # (plot_break_panels). REPLACED break_evolution.png
+                                       # here 2026-09-16 -- that one and break_ratio_
+                                       # evolution.png are still written beside it as
+                                       # diagnostics, and the glob is exact so neither they
+                                       # nor the _table.png of the same family come along
   ),
   # The two shells (sweep_shells, same method and same run -- `shells_split` IS the
   # data_rarcut set; the uncut `shells_split_data` does not match this key and mirrors
