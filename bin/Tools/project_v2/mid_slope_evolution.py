@@ -352,7 +352,15 @@ def _band_total(key=DEFAULT_KEY):
       continue
     if not np.isfinite(t):
       continue
-    acc.setdefault((int(float(r['z'])), round(float(r['logr']), 6), r['cls_prod']),
+    # FC* AND VFC SHARE A TRACK. They are the same estimator -- both fall back to the free
+    # line, neither can re-centre -- and the same physical continuum, nu_c descending past
+    # nu_B; only the edge-slope gate separates them. Keying them apart left the VFC table
+    # starting at x = 16.5 while VFC bins start at 15.4, so the first bins CLAMPED to the
+    # table's end value and the drawn track jumped 0.0214 at the class flip. (Contrast
+    # FC <-> FC*, where the estimator DOES change and the two must stay apart -- see
+    # _bias_interp. Merge where the estimator is common, separate where it is not.)
+    cls = 'FCx' if r['cls_prod'] in ('FC*', 'VFC') else r['cls_prod']
+    acc.setdefault((int(float(r['z'])), round(float(r['logr']), 6), cls),
                    []).append((float(r['x']), t))
   out = {}
   for k, v in acc.items():
@@ -492,7 +500,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       # step of 0.0123. One grid, one generator, one single-valued function of the geometry.
       # FC*/VFC: the measured band offset REPLACES the synthetic stand-in entirely
       if band is not None and r.get('regime') in ('FC*', 'VFC'):
-        tr = band.get((int(Z_SHELL), round(float(r['logr']), 6), r['regime']))
+        tr = band.get((int(Z_SHELL), round(float(r['logr']), 6), 'FCx'))
         if tr is not None and tr[0].size >= 2:
           # along-track interpolation, clamped at the ends rather than extrapolated
           b = -float(np.interp(r['x'], tr[0], tr[1]))
@@ -503,14 +511,22 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       # missing correction; drawing it corrected-by-zero states the measurement.
       if corrected and r.get('regime') == 'VSC' and not np.isfinite(b):
         b = 0.
-      _f = itp(r.get('regime')) if (itp is not None and not np.isfinite(b)) else None
-      if _f is not None and all(np.isfinite(r.get(k, np.nan))
-                                for k in ('sep', 's1', 'depth')):
-        # off = depth - sep. Both are measured on the SAME upper break (free_bhi is off for
-        # '2brk_flo'), so the difference is exactly the fitted b_lo above the band bottom.
-        b = float(_f(r['sep'], r['s1'], r['depth'] - r['sep']))
-      elif itp1 is not None and r.get('regime') == 'VFC' \
-           and np.isfinite(r.get('depth', np.nan)) and np.isfinite(r.get('s2', np.nan)):
+      # EVERY branch below is gated on b still being unset. It was an if/elif chain, and
+      # when the band supplied b the first test failed on _f is None and control FELL INTO
+      # the VFC branch, which overwrote the measured offset with the synthetic stand-in --
+      # silently, for every VFC bin, while FC* (which fails that branch's regime test) kept
+      # its offset. The result was a 0.0214 step at the FC*/VFC boundary that looked like a
+      # calibration problem and was not: the offset table is smooth across it (-0.0182 ->
+      # -0.0170) and so is the merged track.
+      if not np.isfinite(b):
+        _f = itp(r.get('regime')) if itp is not None else None
+        if _f is not None and all(np.isfinite(r.get(k, np.nan))
+                                  for k in ('sep', 's1', 'depth')):
+          # off = depth - sep. Both are measured on the SAME upper break (free_bhi is off
+          # for '2brk_flo'), so the difference is the fitted b_lo above the band bottom.
+          b = float(_f(r['sep'], r['s1'], r['depth'] - r['sep']))
+      if not np.isfinite(b) and itp1 is not None and r.get('regime') == 'VFC' \
+         and np.isfinite(r.get('depth', np.nan)) and np.isfinite(r.get('s2', np.nan)):
         b = float(itp1(r['depth'], r['s2']))   # single break: no lower break to index by
       # FC* NO LONGER LANDS HERE. It used to be corrected off the VFC grid, which has the
       # wrong geometry (synth_vfc carries no lower break) and returned -0.003 to -0.011,
@@ -538,17 +554,31 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       c = col(lr)
       # Style says whether the segment EXISTS (core), not how well the shape fitted --
       # the rms cannot tell the two apart. See _style_group and the module docstring.
+      # Runs are cut from the ORDERED track, so a run ends the moment the style changes.
+      # Grouping by style first and splitting on an x-gap afterwards was not enough: where a
+      # stretch of core=0 bins is narrower than the gap threshold, the solid line either side
+      # was joined straight across it -- drawing a settled segment over bins that have none.
       grp = {}
+      runs = []
       for r in d:
         g_ = _style_group(r, corrected)
-        if np.isfinite(r['a_mid'] if g_ == UNC else val(r)):
-          grp.setdefault(g_, []).append(r)
+        if not np.isfinite(r['a_mid'] if g_ == UNC else val(r)):
+          continue
+        grp.setdefault(g_, []).append(r)
+        if runs and runs[-1][0] == g_:
+          runs[-1][1].append(r)
+        else:
+          runs.append((g_, [r]))
       # a track is broken wherever its style changes, so a run of core=0 bins is not
       # joined across by the line either side of it
-      for g_, ls, lw, z in ((SEG, '-', 1.8, 3), (SEG_FB, '--', 1.5, 3)):
-        for run in _runs(grp.get(g_, [])):
-          ax.plot([r['x'] for r in run], [val(r) for r in run], ls, color=c,
-                  lw=lw, solid_capstyle='round', zorder=z)
+      STY = {SEG: ('-', 1.8), SEG_FB: ('--', 1.5)}
+      for g_, run in runs:
+        if g_ not in STY or len(run) < 2:
+          continue
+        ls, lw = STY[g_]
+        for sub_ in _runs(run):        # and still break across a wide gap in x
+          ax.plot([r['x'] for r in sub_], [val(r) for r in sub_], ls, color=c,
+                  lw=lw, solid_capstyle='round', zorder=3)
       if grp.get(NOSEG):      # no settled segment: a_mid is a shape parameter
         ax.plot([r['x'] for r in grp[NOSEG]], [val(r) for r in grp[NOSEG]], 'o',
                 mfc='none', mec=c, ms=3.6, mew=1.0, ls='none', zorder=2)
@@ -577,15 +607,24 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       for i in range(1, len(ypos)):
         if ypos[i] - ypos[i-1] < gap:
           ypos[i] = ypos[i-1] + gap
+      # A track that ends INSIDE the panel gets its label tucked below its last point, where
+      # there is empty space; one that runs to the right edge keeps the label beside it,
+      # since below would fall off the axes. On the slow branch every track but +1..+3 ends
+      # mid-panel, and labelling those to the right ran them into the neighbouring track's
+      # own tail -- which is what made -4 and -3 collide.
+      xr = max(q[0] for q in labs)
       for (xx, yy, lr), yd in zip(labs, ypos):
-        kw = dict(color=col(lr), fontsize=8, fontweight='bold', va='center', ha='left',
+        kw = dict(color=col(lr), fontsize=8, fontweight='bold',
                   annotation_clip=False, zorder=6)
-        if yd == yy:
-          ax.annotate(f'{lr:+d}', xy=(xx, yy), xytext=(5, 0),
-                      textcoords='offset points', **kw)
+        if xx < 0.5*xr:                       # ends mid-panel: label below the end
+          ax.annotate(f'{lr:+d}', xy=(xx, yy), xytext=(0, -9), textcoords='offset points',
+                      ha='center', va='top', **kw)
+        elif yd == yy:
+          ax.annotate(f'{lr:+d}', xy=(xx, yy), xytext=(5, 0), textcoords='offset points',
+                      ha='left', va='center', **kw)
         else:
-          # moved off its anchor, so a hairline says which track it belongs to
           ax.annotate(f'{lr:+d}', xy=(xx, yy), xytext=(xx, yd), textcoords='data',
+                      ha='left', va='center',
                       arrowprops=dict(arrowstyle='-', color=col(lr), lw=0.6, alpha=0.6),
                       **kw)
     ax.set_xscale('log')
