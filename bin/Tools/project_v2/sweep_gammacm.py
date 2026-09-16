@@ -2843,58 +2843,14 @@ def _draw_break_evolution(ax, results, tracks, fits, barT_f, barT_off=None,
   return sm
 
 
-def _mc_band(tracks):
-  '''
-  The ratio range over which the fit cannot NAME the two breaks -- the stretch every curve
-  is absent from, and what the shaded band in the ratio panel marks.
-
-  In an 'MC' bin the fitted mid slope sits between the two asymptotes, so neither break is
-  cleanly nu_c or nu_m (track_breaks_gs02's `ambig`) and the ratio is withheld. The curve
-  therefore jumps straight from its last SLOW-cooling value (ratio > 1) to its first
-  FAST-cooling one (< 1), and those two ARE the band's edges. Measured rather than
-  assumed: on the fiducial sweep the four regimes that cross inside the window (logr =
-  -4..-1) leave a gap running 23.4 -> 0.146, i.e. 2.2 decades, against the 0.35 that the
-  old SEP_UNRESOLVED/GS02_TRACK_SEPMIN band drew.
-
-  NB this is NOT the same statement as the separation floor: a break separation of ~6-19
-  is perfectly resolved, what fails there is the IDENTIFICATION. Taken over every regime
-  that crosses, so the band covers where any of them goes unnameable.
-  Returns None when no track has an MC stretch, leaving the caller its fallback.
-  '''
-  lo, hi = [], []
-  for tr in tracks:
-    amb = tr.get('ambig')
-    if amb is None or not np.any(amb):
-      continue
-    v, ratio = tr['valid'], tr['ratio']
-    i = np.flatnonzero(amb); k = np.arange(len(v))
-    pre, post = np.flatnonzero(v & (k < i[0])), np.flatnonzero(v & (k > i[-1]))
-    if pre.size and np.isfinite(ratio[pre[-1]]):
-      hi.append(float(ratio[pre[-1]]))       # last named SC bin, above the band
-    if post.size and np.isfinite(ratio[post[0]]):
-      lo.append(float(ratio[post[0]]))       # first named FC bin, below it
-  if not lo or not hi:
-    return None
-  return min(lo), max(hi)
-
-
 def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None):
   '''
   The break-ratio panel on a given axis, x in bar{T}/bar{T}_f. Returns the ScalarMappable.
-  No title and no y=1 line: the FC/SC boundary carries no information the band does not
-  already bound, and what the band means belongs in the caption.
+  No title, no y=1 line and NOTHING SHADED -- the gaps in the curves are left to speak for
+  themselves and the caption carries their meaning. See plot_break_ratio for what each
+  kind of gap is; every marking tried here over-claimed (same docstring).
   '''
   colors, sm = _sweep_colors(results)
-  # where the breaks are one unnameable feature -- measured off the tracks (_mc_band),
-  # falling back to the tracker's own separation floor if nothing crosses in this sweep
-  band = _mc_band(tracks)
-  if band is None:
-    sep_u = max(tr.get('sep_unres', SEP_UNRESOLVED) for tr in tracks)
-    band = (1./sep_u, sep_u)
-  ax.axhspan(band[0], band[1], color='grey', alpha=.15, lw=0, zorder=0)
-  # delimited rather than left as a smudge: the edges are measurements, so show them
-  for y in band:
-    ax.axhline(y, color='grey', ls='--', lw=.7, alpha=.7, zorder=0)
   for r, tr, c in _draw_order(zip(results, tracks, colors)):
     v = tr['valid']
     if not v.any():
@@ -2972,10 +2928,33 @@ def plot_break_ratio(results, tracks, barT_f, barT_off=None, outdir=OUTDIR):
   nu_c/nu_m vs bar{T}/bar{T}_f, one curve per regime, with the FC/SC line at 1. nu_c falls
   as bar{T}^-2 while nu_m is nearly flat, so EVERY regime starts slow-cooling and hardens
   toward fast cooling; past the rarefaction cut-off both breaks slide as the same Doppler
-  factor and the ratio -- hence the whole spectral shape -- freezes. The crossing itself is
-  a GAP, not a curve: through it the fitted mid slope sits between the two asymptotes, so
-  neither break is cleanly nu_c or nu_m and the ratio is withheld. The shaded band is that
-  stretch, measured off the tracks (_mc_band) rather than assumed.
+  factor and the ratio -- hence the whole spectral shape -- freezes.
+
+  WHAT A GAP IN A CURVE MEANS -- four different things, and NOTHING in the panel
+  distinguishes them, so the caption must. Counts measured on the fiducial sweep
+  (data_rarcut, z=4), classified exclusively, first reason winning:
+    VFC        nu_c fell BELOW the observed band, so it is an upper bound and not a
+               measurement. 1498 / 1234 / 526 / 76 bins at log10(C) = -5 / -4 / -3 / -2.
+               THIS is what ends the deep fast-cooling curves -- not the crossing.
+    MC         the crossing itself: both breaks measured, the fitted mid slope between the
+               two asymptotes, so neither is cleanly nu_c or nu_m and the ratio is
+               withheld. Only 10 / 54 / 86 / 105 bins at log10(C) = -4 / -3 / -2 / -1, in
+               four DISJOINT, narrow time windows (bar{T}/bar{T}_f 8.4e-5, 1.5-2.5e-4,
+               9.5e-4-2e-3, 0.0125-0.032) -- earlier the deeper the cooling.
+    off-window a break within EDGE_FAC of a frequency-window edge. 1-197 bins, growing
+               with C (197 at log10(C)=+3, where nu_c runs off the TOP).
+    not bright the earliest bins, nothing shocked yet. 2-3 bins per regime.
+
+  NOTHING IS SHADED, and two attempts are recorded here so they are not retried:
+  - the ORIGINAL band, 1/sep_u to sep_u from the tracker's separation floor, marks a
+    criterion that fires on ZERO bins in every regime (`unres`, sep < GS02_TRACK_SEPMIN
+    = 1.5, is empty here) -- it was not merely too thin to see, it was empty;
+  - a band built from the MC gap edges over-claims, because MC bins have NO ratio by
+    construction (nu_c, nu_m are NaN there, so they have no y coordinate at all) and its
+    edges have to be inferred from the NAMED neighbours. Taken across regimes that put
+    1235 of log10(C)=0's 2059 drawn bins inside a band it never belonged in -- that point
+    has no MC bin at all, its ratio just sits at ~10 throughout.
+  The MC region is a set of (time, regime) events, not a region of the ratio axis.
   Kept as a standalone DIAGNOSTIC: the article's version of this panel is the bottom half
   of plot_break_panels.
   '''
