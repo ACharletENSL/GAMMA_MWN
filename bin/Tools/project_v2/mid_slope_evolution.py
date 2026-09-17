@@ -549,12 +549,14 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True,
             ('fc', 0.5, 'Fast-cooling branch', (0.478, 0.615)))
             # the sc top is set by the legend, not by the data: no track goes above
             # a_th = 0.25, so what is left above it is exactly the legend's band
+  # ONE load for the figure, not one per panel: it is the same table either way, and read
+  # inside the loop it announced a borrowed table twice.
+  band = _band_total(key) if corrected else None
   for ax, (br, a_th, title, ylim) in zip(axes, panels):
     sub = [r for r in rows if r['branch'] == br]
     # subtract the estimator's own tilt, bin by bin, at that bin's own parameters -- the
     # (separation, s1) grid for a two-break spectrum, the (band depth, s2) one for a single
     # break. corrected=False leaves every track raw, for the companion figure.
-    band = _band_total(key) if corrected else None
     _ic = {}
     def itp_for(rg):
       if rg not in _ic:

@@ -972,7 +972,11 @@ def _bias_node(arg):
               and b_lo > 0 else np.nan)
   return dict(branch=('fc' if fast else 'sc'), sep=sep, s1=s1, off=off,
               bias=(float(np.mean(b)) if b else np.nan), n=len(b),
-              regime=(max(set(regs), key=regs.count) if regs else ''),
+              # sorted() FIRST: set iteration order is not stable across processes (str
+              # hashing is salted), so a 1-1 tie between the s2 members picked a different
+              # class on every run and the tracked grid was not reproducible -- 6 nodes
+              # moved class between two identical regenerations.
+              regime=(max(sorted(set(regs)), key=regs.count) if regs else ''),
               s1_fit=(float(np.nanmean(sf)) if np.any(np.isfinite(sf)) else np.nan),
               sep_fit=(float(np.nanmean(pf)) if np.any(np.isfinite(pf)) else np.nan))
 
