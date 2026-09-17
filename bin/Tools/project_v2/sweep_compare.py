@@ -967,7 +967,7 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   '''
   os.makedirs(outdir, exist_ok=True)
   la, lb = labels
-  ln = _norm_label(labels, norm_side)
+  _norm_label(labels, norm_side)     # guard only: the ylabel no longer names the side
   if not barT_f > 0.:
     raise ValueError(f'non-positive crossing time bar_T_f={barT_f}')
   colors, sm = _sweep_colors([rf for rf, _ in pairs])
@@ -1017,7 +1017,9 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   rmax = max([np.nanmax(r[np.isfinite(r)]) for r in ratios if np.isfinite(r).any()]
              + [1.001])
   axs[1, 0].set_ylim(1. - .05*(rmax - 1.), rmax + .1*(rmax - 1.))
-  axs[0, 0].set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm max}}$ ({ln} norm.)')
+  # no '(<side> norm.)' here either, for the reason plot_fluence_with_slope gives: both
+  # curves of a pair are on ONE scale, and which side sets it is caption material
+  axs[0, 0].set_ylabel(f'$\\nu F_\\nu/(\\nu F_\\nu)_{{\\rm max}}$')
   axs[1, 0].set_ylabel(f'{lb} / {la}')
   axs[1, 0].plot([], [], 'k--', label=la); axs[1, 0].plot([], [], 'k-', label=lb)
   axs[1, 0].legend(loc='upper left', fontsize=9, framealpha=.9)
