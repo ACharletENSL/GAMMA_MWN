@@ -33,6 +33,7 @@ THE TABLE IS RUN-SPECIFIC (it is measured on one run's spectra), unlike segment_
 synthetic grids -- hence the key in its filename. A hi-res table needs its own deep sweep.
 
   python -c "import band_offset as B; B.main()"
+  python -c "import band_offset as B; B.main(key='cooling_g100_hires')"
 '''
 
 import sys, os, time, csv, numpy as np
@@ -75,11 +76,11 @@ def _grid_bias(br, sep, s1, off):
   return float(f(sep, s1, off))
 
 
-def one_point(r, z, step=14, verbose=True):
+def one_point(r, z, step=14, verbose=True, key=None):
   nub = np.asarray(r['nub'], float); nuFnu = np.asarray(r['nuFnu'], float)
   p = r['env'].psyn
   barT = np.asarray(r['Tb'], float) - 1.
-  bf = S.exit_onset_barT(S.DEFAULT_KEY, z=z)
+  bf = S.exit_onset_barT(key or S.DEFAULT_KEY, z=z)
   # THE PRODUCTION BOTTOM IN *STORED* UNITS. run_sweep stores nub = nuobs/max(nu0, nuc)
   # while LOGNU_MIN is in nu/nu_m, so for a slow-cooling point (nuc > nu0) the stored grid
   # sits 2*logr decades lower. Cutting at LOGNU_MIN directly threw away 2*logr decades of
@@ -173,17 +174,25 @@ def reindex(key=None, path=None):
   return rows
 
 
-def main(step=14):
+def main(step=14, key=None):
+  '''
+  The offset table for ONE run. THE TABLE IS RUN-SPECIFIC -- it is measured on that run's
+  spectra -- so the key goes into the deep-sweep path, into the crossing time the x axis is
+  normalised by, AND into the filename. It used to be fixed at DEFAULT_KEY throughout, which
+  meant a hi-res table could not be built at all and the hi-res figure silently borrowed the
+  fiducial one (mid_slope_evolution._band_total).
+  '''
+  key = key or S.DEFAULT_KEY
   rows = []
   for z, suf in ((4, '_deepband'), (1, '_z=1_deepband')):
-    od = S.figdir('gammacm_sweep_data_rarcut_fc2' + suf)
+    od = S.figdir('gammacm_sweep_data_rarcut_fc2' + suf, key)
     res = S.load_sweep(od)
     if not res:
       print(f'no deep sweep in {od}'); continue
     for r in sorted(res, key=lambda q: q['log10ratio']):
-      rows += one_point(r, z, step=step)
+      rows += one_point(r, z, step=step, key=key)
   from segment_route import calib_path
-  out = calib_path(f'band_offsets_{S.DEFAULT_KEY}.csv')
+  out = calib_path(f'band_offsets_{key}.csv')
   with open(out, 'w', newline='') as fh:
     w = csv.DictWriter(fh, fieldnames=list(FIELDS)); w.writeheader(); w.writerows(rows)
   print(f'{len(rows)} rows -> {out}')

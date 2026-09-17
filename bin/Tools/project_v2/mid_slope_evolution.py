@@ -328,6 +328,14 @@ def _band_total(key=DEFAULT_KEY):
   The TOTAL correction for the classes that cannot be re-centred, measured on the real
   spectra: {(z, logr, class): (x, total)}, to be interpolated along each track in x.
 
+  RUN-SPECIFIC, and now actually keyed on the run. It used to be called with no argument
+  from plot(), so every figure -- hi-res included -- was corrected with the FIDUCIAL run's
+  offsets. That is not a safe default: the offset is measured on one run's spectra, and the
+  two runs' raw FC*/VFC slopes differ by 0.005-0.015 at the fast-cooling end (VFC is a knife
+  edge, see the class note), which is the size of the offset itself. A run without its own
+  table BORROWS the fiducial one and says so out loud, because the alternative -- falling
+  back to the synthetic grid -- is known to have the wrong SIGN for FC*.
+
   FC* and VFC have no nu^(4/3) window, so `_recentred_mid` cannot run and the synthetic
   grids have to stand in for an estimator they were not built on -- and they disagree about
   even the SIGN (measured: FC* -0.0084, VFC +0.0094). band_offset measures the same spectrum
@@ -343,7 +351,13 @@ def _band_total(key=DEFAULT_KEY):
   from segment_route import CALIB_DIR
   path = os.path.join(CALIB_DIR, BAND_OFFSET_CSV.format(key=key))
   if not os.path.isfile(path):
-    return None
+    fid = os.path.join(CALIB_DIR, BAND_OFFSET_CSV.format(key=DEFAULT_KEY))
+    if key == DEFAULT_KEY or not os.path.isfile(fid):
+      print(f'  no band-offset table for {key}: FC*/VFC fall back to the synthetic grid')
+      return None
+    print(f'  *** {key} has NO band-offset table -- BORROWING {DEFAULT_KEY}\'s. Run '
+          f'hpc/unstaged/calib_deepband.sh with KEY={key}, then band_offset.main(key=...)')
+    path = fid
   acc = {}
   for r in _csv.DictReader(open(path)):
     try:
@@ -513,7 +527,8 @@ def _style_group(r, corrected):
   return SEG if r['mid_from'] == 'plateau_recentred' else SEG_FB
 
 
-def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
+def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True,
+    key=DEFAULT_KEY, z=Z_SHELL):
   '''
   Two panels, one per branch, on a shared log time axis. Each holds its asymptote as a
   dashed guide and the sweep points as one curve per log10(gma_c/gma_m). ONE horizontal
@@ -539,7 +554,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
     # subtract the estimator's own tilt, bin by bin, at that bin's own parameters -- the
     # (separation, s1) grid for a two-break spectrum, the (band depth, s2) one for a single
     # break. corrected=False leaves every track raw, for the companion figure.
-    band = _band_total() if corrected else None
+    band = _band_total(key) if corrected else None
     _ic = {}
     def itp_for(rg):
       if rg not in _ic:
@@ -576,7 +591,7 @@ def plot(rows, outdir, barT_f, barT_off=None, fname=FIG_NAME, corrected=True):
       # band; the table is for the classes that cannot.
       _cls = 'FCx' if r.get('regime') in ('FC*', 'VFC') else None
       if band is not None and _cls:
-        tr = band.get((int(Z_SHELL), round(float(r['logr']), 6), _cls))
+        tr = band.get((int(z), round(float(r['logr']), 6), _cls))
         if tr is not None and tr[0].size >= 2:
           # along-track interpolation, clamped at the ends rather than extrapolated
           b = -float(np.interp(r['x'], tr[0], tr[1]))
@@ -800,10 +815,11 @@ def main(key=DEFAULT_KEY, method=METHOD, z=Z_SHELL, outdir=None, use_cache=True)
     print(f'{len(rows)} rows -> {write_rows(rows, outdir)}')
   barT_f = exit_onset_barT(key, z=z)
   off = rarefaction_off_barT(key, z=z)
-  path = plot(rows, outdir, barT_f, off)
+  path = plot(rows, outdir, barT_f, off, key=key, z=z)
   # the same tracks with the estimator's tilt left in, for comparison. Its y range is set
   # from its own data, so the two figures are NOT on a shared scale -- read the guides.
-  raw = plot(rows, outdir, barT_f, off, fname=FIG_NAME_RAW, corrected=False)
+  raw = plot(rows, outdir, barT_f, off, fname=FIG_NAME_RAW, corrected=False,
+              key=key, z=z)
   trim_pngs([path, raw])
   copy_article_figures(outdir)
   print(f'-> {path}\n-> {raw}')

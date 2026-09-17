@@ -905,7 +905,16 @@ BIAS_SEPS = (2.0, 2.2, 2.3, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 7.5, 9.0, 10.0)
 # more the shallower the band -- so the sampling has to be fine enough that the fitted axis
 # stays resolved after the map compresses it: at off = 1.25, s1 = 0.8 and 1.0 fit back as
 # 1.129 and 1.153, so the old 0.3-wide step there was 0.024 of fitted axis.
-BIAS_S1 = (0.4, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.45, 1.7, 2.0, 2.2)
+BIAS_S1 = (0.4, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.45, 1.7, 2.0, 2.2, 2.6, 3.0,
+           4.0, 6.0, 10.0)
+# The top of the axis is not sampling for its own sake: `smoothing_from_identified` pins s1
+# at its bound (10) where the fit stops being constrained, which at hi-res happens on the
+# LAST bins of a track -- s1 runs 1.08, 1.33, 1.71, 2.28 over four bins while a_mid sits at
+# 0.2421 throughout. Stopping the axis at 2.2 left those bins outside the hull and drew them
+# raw, 0.003 off their own track, which reads as a measurement and is not one. The bias is
+# flat up there (sc at sep=6, off=3: -0.00317 at s1=1.7, -0.00328 at 3.0, -0.00324 at 4.0),
+# so covering the range costs nothing and says the right thing: a break this sharp has
+# stopped bleeding into the window, wherever exactly the fit put it.
 # Decades of nu^(4/3) below b_lo -- NEGATIVE means the lower break sits at or below the band
 # bottom, which is what makes a spectrum FC* rather than FC. ONE axis therefore spans both
 # classes, and one generator builds both: synth_spectrum already puts the band bottom `off`

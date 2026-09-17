@@ -24,17 +24,35 @@ export GAMMACM_NPROC=${SLURM_CPUS_PER_TASK:-1}
 export SYN_NO_LOWCUT=1
 export ZSH="${ZSH:?set ZSH}"
 export DEEP_LOGNU="${DEEP_LOGNU:--10.0}"
+# KEY selects the RUN. The table is measured on one run's spectra and is not transferable:
+# the fiducial and hi-res raw FC*/VFC slopes differ by 0.005-0.015 at the fast-cooling end,
+# which is the size of the offset itself. Every run whose a_mid figure is drawn corrected
+# needs its own pass here.
+export KEY="${KEY:-}"
 cd "$SLURM_SUBMIT_DIR/bin/Tools/project_v2"
-echo "=== deep-band calibration: z=$ZSH, lognu_min=$DEEP_LOGNU, SYN_NO_LOWCUT=$SYN_NO_LOWCUT ==="
+echo "=== deep-band calibration: key=${KEY:-<default>}, z=$ZSH, lognu_min=$DEEP_LOGNU, SYN_NO_LOWCUT=$SYN_NO_LOWCUT ==="
 python3 -u -c "
 import os, numpy as np, sweep_gammacm as S
 import radiation_cooling as rc
 assert not rc.SYN_LOWCUT, 'SYN_NO_LOWCUT did not reach the process'
 z = int(os.environ['ZSH'])
-out = S.method_outdir(S.DEFAULT_METHOD, S.DEFAULT_KEY, z) + '_deepband'
-print('writing to', out, flush=True)
-S.run_sweep(S.DEFAULT_KEY, list(S.LOG10RATIO_ARR), z=z,
+key = os.environ.get('KEY') or S.DEFAULT_KEY
+out = S.method_outdir(S.DEFAULT_METHOD, key, z) + '_deepband'
+print('key', key, '-> writing to', out, flush=True)
+S.run_sweep(key, list(S.LOG10RATIO_ARR), z=z,
             lognu_min=float(os.environ['DEEP_LOGNU']), outdir=out,
             nproc=int(os.environ['GAMMACM_NPROC']), skip_cached=False)
-print('deep-band sweep done: z =', z)
+print('deep-band sweep done: key =', key, 'z =', z)
+"
+# The table needs BOTH shells, so only the job that finds the other one already on disk
+# builds it -- otherwise the first to finish writes a half table and the two race for the
+# same csv. It is measured from the caches, so re-running it costs nothing but reading.
+python3 -u -c "
+import os, sweep_gammacm as S, band_offset as B
+key = os.environ.get('KEY') or S.DEFAULT_KEY
+have = [os.path.isdir(S.method_outdir(S.DEFAULT_METHOD, key, z) + '_deepband') for z in (4, 1)]
+if all(have):
+    B.main(step=3, key=key)
+else:
+    print('other shell not on disk yet -- run band_offset.main(key=...) when it is')
 "
