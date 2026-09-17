@@ -2796,8 +2796,16 @@ def _mirror_if_article(png, outdir):
   of a single figure (the way they are iterated on) cannot leave a stale copy behind. The
   ARTICLE_SERIES gate still decides: nothing is mirrored from the sweeps that are not the
   article's (the '_z=1' variants, the reference method, ...).
+
+  The FIELD-CORRECTION TAG has to come off the directory name before the lookup, exactly
+  as copy_article_figures does it: ARTICLE_SERIES is keyed on 'gammacm_sweep_data_rarcut'
+  while every directory in use is '..._fc2'. Without the strip this gate never fired for
+  ANY real sweep, so only main()'s end-of-run pass ever mirrored and the promise above was
+  false -- a standalone redraw updated the sweep folder and left article_choice stale.
   '''
   name = os.path.basename(os.path.normpath(outdir))
+  if name.endswith(FIELD_CORR_TAG):
+    name = name[:-len(FIELD_CORR_TAG)]
   if os.path.basename(png) in ARTICLE_SERIES.get(name, ()):
     trim_pngs([png])
     copy_article_figures(outdir, series={name: (os.path.basename(png),)})
@@ -2889,15 +2897,25 @@ def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None):
     x = tr['barT']/barT_f
     # SOLID where the mid slope names the regime, DASHED where it does not and the naming
     # is carried over by continuity. Both are the same measured quantity -- b_hi/b_lo or
-    # its reciprocal, fitted in every bin -- so the curve is unbroken; the style says how
-    # far the shape alone got, which is what the spectrum figures' MC label means.
-    for base, ls in ((good & ~mc, '-'), (good & mc, '--')):
-      if not base.any():
-        continue
-      m = base.copy()
-      m[1:] |= base[:-1]             # dilate one bin each way, so the solid and the dashed
-      m[:-1] |= base[1:]             # stretches meet on a shared sample, not across a gap
-      ax.loglog(x, _gap(y, m & good), color=c, lw=1.4, ls=ls)
+    # its reciprocal, fitted in every bin -- so the style says how far the shape alone got,
+    # which is what the spectrum figures' MC label means.
+    # BREAK THE LINE AT THE NAMING FLIP. The ratio is sep on one side and 1/sep on the
+    # other, and the fitted separation bottoms out at ~6.5 instead of approaching 1 (s1, s2
+    # are held, so a smoothing mismatch near the crossing is absorbed into the separation),
+    # so the curve is genuinely discontinuous there -- 1.6 dex on all four crossings. Drawn
+    # through, that vertical drop reads as a feature of the data; it is not one. Each side
+    # of i_swap is therefore drawn on its own, and the dilation below cannot bridge them.
+    i_sw = tr.get('i_swap')
+    cuts = [0, len(y)] if not i_sw else [0, int(i_sw), len(y)]
+    for a, b in zip(cuts[:-1], cuts[1:]):
+      side = np.zeros(len(y), bool); side[a:b] = True
+      for base, ls in ((good & ~mc & side, '-'), (good & mc & side, '--')):
+        if not base.any():
+          continue
+        m = base.copy()
+        m[1:] |= base[:-1]           # dilate one bin each way, so the solid and the dashed
+        m[:-1] |= base[1:]           # stretches meet on a shared sample, not across a gap
+        ax.loglog(x, _gap(y, m & good & side), color=c, lw=1.4, ls=ls)
   _mark_hydro_times(ax, barT_f, barT_off, tnorm=barT_f)
   ax.set_ylabel('$\\nu_{\\rm c}/\\nu_{\\rm m}$')
   return sm
