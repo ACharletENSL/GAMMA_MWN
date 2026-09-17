@@ -2876,7 +2876,7 @@ def _draw_break_evolution(ax, results, tracks, fits, barT_f, barT_off=None,
   return sm
 
 
-def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None):
+def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None, legend=True):
   '''
   The break-ratio panel on a given axis, x in bar{T}/bar{T}_f. Returns the ScalarMappable.
   No title, no y=1 line, nothing shaded: the shape class is a LINE STYLE here (solid where
@@ -2918,6 +2918,12 @@ def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None):
         ax.loglog(x, _gap(y, m & good & side), color=c, lw=1.4, ls=ls)
   _mark_hydro_times(ax, barT_f, barT_off, tnorm=barT_f)
   ax.set_ylabel('$\\nu_{\\rm c}/\\nu_{\\rm m}$')
+  # the style key. Black samples, as in the upper panel: the colour axis is the regime and
+  # is already spoken for by the colour bar, so a legend entry must not borrow from it
+  if legend:
+    ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.4, ls='-', label='SC/FC'),
+                       plt.Line2D([], [], color='k', lw=1.4, ls='--', label='MC')],
+              loc='lower right', fontsize=11, framealpha=.9)
   return sm
 
 
