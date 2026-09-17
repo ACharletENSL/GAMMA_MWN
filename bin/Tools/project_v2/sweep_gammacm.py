@@ -1827,6 +1827,11 @@ def track_breaks_gs02(r, flux_floor=TRACK_FLUX_FLOOR, rms_max=GS02_TRACK_RMSMAX,
     sc_before = np.flatnonzero(ok & (~fast_fit) & (~ambig) & (np.arange(n) < i_fc))
     i_sc = int(sc_before[-1]) if sc_before.size else 0
     ambig_ident[i_sc+1:i_fc] = True          # the crossing: named neither way
+  # THE SHAPE CLASS, per bin, exactly as the fit returned it and BEFORE the transition gate
+  # on the line below. This is the same criterion the spectrum figures label a spectrum
+  # with, so a spectrum called MC there is MC here too -- `ambig` is a narrower thing (an
+  # MC bin that also sits in an SC->FC transition) and is what gates the NAMES.
+  mc_shape = ambig.copy()
   ambig = ambig & ambig_ident
   nu_c = np.where(fast, b_lo, b_hi)
   nu_m = np.where(fast, b_hi, b_lo)
@@ -1853,9 +1858,29 @@ def track_breaks_gs02(r, flux_floor=TRACK_FLUX_FLOOR, rms_max=GS02_TRACK_RMSMAX,
   sw = np.flatnonzero(fast)
   i_swap = int(sw[0]) if sw.size else None
   nu_lo, nu_hi = b_lo, b_hi
+
+  # THE RATIO AS A SHAPE PARAMETER (what plot_break_ratio draws). The two branches are
+  # fitted in EVERY bin, MC included, so a ratio always exists: the only open question is
+  # which branch is nu_c, and `fast` answers it by CONTINUITY -- it is monotone, switches
+  # at most once, and is held through ties -- so it names every bin including the ones the
+  # shape alone cannot. That gives one unbroken curve per regime instead of the gaps that
+  # NaN-ing the MC bins left. `mc_shape` says where the naming rests on continuity rather
+  # than on the mid slope, and the panel dashes those stretches.
+  # Its own gates: the fit has to have succeeded, both branches have to be inside the
+  # frequency window, and there have to BE two of them -- in VFC the fit found one break
+  # and b_lo == b_hi, so a ratio would be the constant 1 and mean nothing. NB the window
+  # test is on b_lo/b_hi and not on nu_c/nu_m, which are NaN exactly where `ambig` holds
+  # and would silently drop the crossing bins this is meant to keep.
+  with np.errstate(invalid='ignore'):
+    inwin_b = (b_lo > EDGE_FAC*x.min()) & (b_hi < x.max()/EDGE_FAC)
+  shape_ok = ok & inwin_b & ~is_vfc & np.isfinite(b_lo) & np.isfinite(b_hi)
+  with np.errstate(divide='ignore', invalid='ignore'):
+    ratio_shape = np.where(shape_ok, np.where(fast, b_lo/b_hi, b_hi/b_lo), np.nan)
+
   return dict(barT=barT, nu_lo=nu_lo, nu_hi=nu_hi, nu_c=nu_c, nu_m=nu_m, sep=sep,
               ratio=nu_c/nu_m, s_mid=rms, off=~ok, unres=unres, valid=valid,
               valid_m=valid_m, is_vfc=is_vfc, ambig=ambig, beta_mid=bmid,
+              mc_shape=mc_shape, fast=fast, ratio_shape=ratio_shape,
               sep_unres=GS02_TRACK_SEPMIN,
               i_swap=i_swap, nu_M=nuM_nom, nu_Mt=nu_Mt, nu_B=nu_B,
               nu_win=(float(x.min()), float(x.max())), Fpk=Fpk)
@@ -2846,37 +2871,33 @@ def _draw_break_evolution(ax, results, tracks, fits, barT_f, barT_off=None,
 def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None):
   '''
   The break-ratio panel on a given axis, x in bar{T}/bar{T}_f. Returns the ScalarMappable.
-  No title, no y=1 line and NOTHING SHADED -- the gaps in the curves are left to speak for
-  themselves and the caption carries their meaning. See plot_break_ratio for what each
-  kind of gap is; every marking tried here over-claimed (same docstring).
+  No title, no y=1 line, nothing shaded: the shape class is a LINE STYLE here (solid where
+  the fitted mid slope names the regime, dashed where the naming is carried over by
+  continuity), which is the only marking of it that does not over-claim. See
+  plot_break_ratio for the full account and for what a remaining gap means.
   '''
   colors, sm = _sweep_colors(results)
   for r, tr, c in _draw_order(zip(results, tracks, colors)):
-    v = tr['valid']
-    if not v.any():
+    y = tr.get('ratio_shape')
+    if y is None:                    # a track from the knee scan, which has no shape class
+      y = tr['ratio']; mc = np.zeros(len(y), bool)
+    else:
+      mc = tr['mc_shape']
+    good = np.isfinite(y)
+    if not good.any():
       continue
     x = tr['barT']/barT_f
-    ax.loglog(x, _gap(tr['ratio'], v), color=c, lw=1.4)
-    # THE CROSSING, dashed. Both breaks are measured there -- b_lo and b_hi are fitted
-    # parameters of the same least-squares fit, kept whatever the regime -- and only their
-    # IDENTIFICATION is withheld (track_breaks_gs02 NaNs the NAMES, not the branches). So
-    # nu_c/nu_m is one of sep and 1/sep and the fit cannot say which: draw BOTH. The curve
-    # forks at the last named slow-cooling bin and rejoins at the first named fast-cooling
-    # one, each branch running continuously into the solid curve on its side, which is
-    # what "measured but not nameable" actually looks like. Two lines, not one, because a
-    # single line would have to pick a side and that is exactly the undetermined thing.
-    amb = tr.get('ambig')
-    if amb is None or not np.any(amb):
-      continue
-    m = amb & ~tr['off']
-    m[1:] |= (amb & ~tr['off'])[:-1]      # grow one bin each way so the dashes touch the
-    m[:-1] |= (amb & ~tr['off'])[1:]      # solid curve instead of leaving a sample's gap
-    with np.errstate(divide='ignore', invalid='ignore'):
-      sep = tr['nu_hi']/tr['nu_lo']
-    m &= np.isfinite(sep) & (sep > 0.)
-    if m.any():
-      ax.loglog(x, _gap(sep, m), color=c, lw=1.1, ls='--')
-      ax.loglog(x, _gap(1./sep, m), color=c, lw=1.1, ls='--')
+    # SOLID where the mid slope names the regime, DASHED where it does not and the naming
+    # is carried over by continuity. Both are the same measured quantity -- b_hi/b_lo or
+    # its reciprocal, fitted in every bin -- so the curve is unbroken; the style says how
+    # far the shape alone got, which is what the spectrum figures' MC label means.
+    for base, ls in ((good & ~mc, '-'), (good & mc, '--')):
+      if not base.any():
+        continue
+      m = base.copy()
+      m[1:] |= base[:-1]             # dilate one bin each way, so the solid and the dashed
+      m[:-1] |= base[1:]             # stretches meet on a shared sample, not across a gap
+      ax.loglog(x, _gap(y, m & good), color=c, lw=1.4, ls=ls)
   _mark_hydro_times(ax, barT_f, barT_off, tnorm=barT_f)
   ax.set_ylabel('$\\nu_{\\rm c}/\\nu_{\\rm m}$')
   return sm
@@ -2951,48 +2972,50 @@ def plot_break_ratio(results, tracks, barT_f, barT_off=None, outdir=OUTDIR):
   toward fast cooling; past the rarefaction cut-off both breaks slide as the same Doppler
   factor and the ratio -- hence the whole spectral shape -- freezes.
 
-  WHAT A GAP IN A CURVE MEANS -- four different things, and NOTHING in the panel
-  distinguishes them, so the caption must. Counts measured on the fiducial sweep
-  (data_rarcut, z=4), classified exclusively, first reason winning:
-    VFC        nu_c fell BELOW the observed band, so it is an upper bound and not a
-               measurement. 1498 / 1234 / 526 / 76 bins at log10(C) = -5 / -4 / -3 / -2.
-               THIS is what ends the deep fast-cooling curves -- not the crossing.
-    MC         the crossing itself -- DRAWN, dashed, see below. Only 10 / 54 / 86 / 105
-               bins at log10(C) = -4 / -3 / -2 / -1, in four DISJOINT, narrow time windows
-               (bar{T}/bar{T}_f 8.4e-5, 1.5-2.5e-4, 9.5e-4-2e-3, 0.0125-0.032) -- earlier
-               the deeper the cooling.
+  SOLID vs DASHED -- the style is the SHAPE CLASS, and the curve is unbroken.
+  fit_gs02_spectrum parameterises the breaks as (b_lo, b_hi = b_lo*delta), delta >= 1, so
+  both are free parameters of one least-squares fit and their ordering is guaranteed by
+  construction. They are fitted in EVERY bin, so a ratio always exists; the only open
+  question is which branch is nu_c. That is answered by a third fitted parameter, the
+  mid-segment slope beta_mid: the segment between the breaks goes as -(p-1)/2 in slow
+  cooling and -1/2 in fast, so whichever asymptote it pins to names the breaks.
+    solid   beta_mid pinned to an asymptote: the shape itself names the regime.
+    dashed  beta_mid between the two -- shape class MC, the SAME criterion the spectrum
+            figures label a spectrum with, so a spectrum that reads MC there reads MC
+            here. The ratio is still a measurement (both branches are fitted); what is
+            carried over from the previous bins is the NAMING, by continuity.
+  Continuity is `fast`: monotone, at most one SC -> FC switch, held through ties. It names
+  every bin, so each regime is ONE unbroken curve.
+
+  WHY THE NAMING MUST COME FROM CONTINUITY AND NOT FROM THE MID SLOPE ALONE. An
+  intermediate beta_mid does not by itself put the ordering in doubt. log10(C) = 0 is MC
+  over 1144 bins, bar{T}/bar{T}_f = 0.298 to 764, and never crosses at all: its two
+  branches stay >= 11.2x apart (median 13.0) and its beta_mid drifts only from -0.750,
+  exactly the SC asymptote, to -0.590, never reaching the FC one at -0.500 -- an FC label
+  needs > -0.52, which nothing in the run reaches. The mid segment softens because the
+  tail is a Doppler-smeared superposition rather than a clean broken power law; nu_c stays
+  ~10x above nu_m throughout. So that whole stretch is dashed and slow-cooling, which is
+  the honest reading.
+
+  WHAT A REMAINING GAP MEANS -- the curve does still stop, for three reasons, and nothing
+  in the panel distinguishes them, so the caption must. Counts on the fiducial sweep
+  (data_rarcut, z=4):
+    VFC        the fit found ONE break (b_lo == b_hi), nu_c having fallen below the
+               observed band, so there is no ratio to draw. 1498 / 1234 / 526 / 76 bins at
+               log10(C) = -5 / -4 / -3 / -2. THIS is what ends the deep fast-cooling
+               curves -- not the crossing.
     off-window a break within EDGE_FAC of a frequency-window edge. 1-197 bins, growing
                with C (197 at log10(C)=+3, where nu_c runs off the TOP).
     not bright the earliest bins, nothing shocked yet. 2-3 bins per regime.
 
-  NOTHING IS SHADED, and two attempts are recorded here so they are not retried:
+  NOTHING IS SHADED, and two attempts are recorded so they are not retried:
   - the ORIGINAL band, 1/sep_u to sep_u from the tracker's separation floor, marks a
     criterion that fires on ZERO bins in every regime (`unres`, sep < GS02_TRACK_SEPMIN
     = 1.5, is empty here) -- it was not merely too thin to see, it was empty;
-  - a band built from the MC gap edges over-claims, because MC bins have NO ratio by
-    construction (nu_c, nu_m are NaN there, so they have no y coordinate at all) and its
-    edges have to be inferred from the NAMED neighbours. Taken across regimes that put
-    1235 of log10(C)=0's 2059 drawn bins inside a band it never belonged in -- that point
-    has no MC bin at all, its ratio just sits at ~10 throughout.
-  The MC region is a set of (time, regime) events, not a region of the ratio axis.
-
-  WHAT "BOTH BREAKS MEASURED, NEITHER NAMEABLE" MEANS, and what the DASHED branches are.
-  fit_gs02_spectrum fits the Granot & Sari shape to the whole spectrum with the breaks
-  parameterised as (b_lo, b_hi = b_lo*delta), delta >= 1, so BOTH are free parameters of
-  one least-squares fit and their ordering is guaranteed by construction. They are
-  measured in every bin, MC included, and track_breaks_gs02 keeps them as nu_lo/nu_hi.
-  What identifies them is a THIRD fitted parameter, the mid-segment slope beta_mid: the
-  segment between the two breaks goes as -(p-1)/2 in slow cooling and -1/2 in fast, so
-  whichever asymptote beta_mid pins to says which break is nu_c. It does pin, in 23 of 24
-  rise/peak/tail spectra. It lands BETWEEN the two only while nu_c(t) is crossing nu_m(t),
-  and there the assignment is not supported by the data -- so the NAMES are dropped
-  (nu_c, nu_m -> NaN) while the BRANCHES are kept.
-  nu_c/nu_m is therefore one of sep = b_hi/b_lo and its reciprocal, with the fit unable to
-  say which, and both are drawn dashed. They are mirror images about 1 and each runs
-  continuously into the solid curve on its side -- the curve forks and rejoins. Drawing a
-  single dashed line instead would have to pick a branch, which is the one thing the fit
-  does not determine.
-  NB dashed means nu_m in the UPPER panel of plot_break_panels and the fork here; they are
+  - a band built from the MC gap edges over-claimed: it put 1235 of log10(C)=0's drawn
+    bins inside a band they do not belong in. The MC region is a set of (time, regime)
+    events, not a region of the ratio axis, which is why it is now a LINE STYLE.
+  NB dashed means nu_m in the UPPER panel of plot_break_panels and shape-class MC here;
   different quantities on different axes, so no curve carries both meanings.
   Kept as a standalone DIAGNOSTIC: the article's version of this panel is the bottom half
   of plot_break_panels.
