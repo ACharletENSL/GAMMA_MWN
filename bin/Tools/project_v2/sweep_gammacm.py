@@ -2923,7 +2923,7 @@ def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None, legend=True):
   if legend:
     ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.4, ls='-', label='SC/FC'),
                        plt.Line2D([], [], color='k', lw=1.4, ls='--', label='MC')],
-              loc='lower right', fontsize=11, framealpha=.9)
+              loc='upper right', fontsize=11, framealpha=.9)
   return sm
 
 
