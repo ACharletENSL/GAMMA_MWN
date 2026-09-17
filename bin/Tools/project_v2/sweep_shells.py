@@ -610,7 +610,7 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
   pad = 0.08*max(dhi - dlo, 1e-3)
   axs[1, 0].set_ylim(dlo - pad, dhi + pad)
   sym = KIND_SYM[kind]
-  axs[0, 0].set_ylabel(f'${sym}/({sym})_{{\\rm max,tot}}$')
+  axs[0, 0].set_ylabel(f'${sym}/({sym})_{{\\rm max}}$')
   # `a` is the suite's symbol for a spectral index (a_lo/a_mid/a_hi in spectral_breaks,
   # the a columns of sweep_compare.fluence_slope_table), so it needs no gloss here
   axs[1, 0].set_ylabel('$a_{\\rm RS+FS} - a_{\\rm RS}$')
@@ -722,7 +722,7 @@ def plot_shell_shares(pairs, outdir=OUTDIR, nu_ref=NU_REF):
   axs[1].plot(s['logr'], s['eps_fs'], 's-', lw=1.3, ms=5, color=STY['FS']['color'],
               label=STY['FS']['label'])
   axs[1].set_yscale('log')
-  axs[1].set_ylabel('$\\epsilon_{\\rm rad} = E_{\\rm rad}/E_{\\rm inj}$')
+  axs[1].set_ylabel('$\\epsilon_{\\rm rad}$')
   axs[1].set_xlabel('$\\log_{10}\\mathcal{C}$   (RS)')
   axs[1].legend(fontsize=9)
   fig.tight_layout()

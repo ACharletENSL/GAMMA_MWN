@@ -337,7 +337,7 @@ def plot_efficiency_curve(res_rs, res_fs, outdir=OUTDIR, method=METHOD):
   ax.axhline(1., color='grey', ls=':', lw=.9)
   ax.set_yscale('log')
   ax.grid(alpha=.25, lw=.5)
-  ax.set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
+  ax.set_ylabel('$\\varepsilon_{\\rm rad}$')
   ax.set_xlabel('$\\log_{10}\\mathcal{C}$')
   ax.legend(fontsize=9)
   ax.set_title('Radiative efficiency across the cooling regime'
@@ -450,7 +450,7 @@ def plot_efficiency_models(res_by_method, outdir=OUTDIR, ref=METHOD,
                   zorder=1 if which == 'TOT' else 2)
   axs[0].axhline(1., color='grey', ls=':', lw=.9)
   axs[0].set_yscale('log')
-  axs[0].set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
+  axs[0].set_ylabel('$\\varepsilon_{\\rm rad}$')
   axs[0].set_title('Radiative efficiency: both shells, every rarefaction model')
   axs[1].axhline(1., color='grey', ls=':', lw=.9)
   # a fixed 5% ladder rather than the autoscaled ticks: the default locator labels 1.0 and

@@ -3482,7 +3482,7 @@ def plot_radiative_efficiency(results, outdir=OUTDIR):
   ax.plot(logr, eff, 'o-', color='C2')
   ax.axhline(1., color='grey', ls=':', lw=.9)
   ax.set_xlabel('$\\log_{10}\\mathcal{C}$')
-  ax.set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
+  ax.set_ylabel('$\\varepsilon_{\\rm rad}$')
   fig.tight_layout()
   fig.savefig(os.path.join(outdir, 'radiative_efficiency.png'), dpi=300)
   plt.close(fig)

@@ -203,7 +203,7 @@ def plot_efficiency_compare(pairs, outdir=OUTDIR, labels=LABELS):
   axs[0].plot(logr, eff_f, 'o--', color='C0', label=la)
   axs[0].plot(logr, eff_d, 's-', color='C1', label=lb)
   axs[0].axhline(1., color='grey', ls=':', lw=.9)
-  axs[0].set_ylabel('$\\varepsilon_{\\rm rad}=E_{\\rm rad}/E_{\\rm inj}$')
+  axs[0].set_ylabel('$\\varepsilon_{\\rm rad}$')
   axs[0].legend()
   axs[1].plot(logr, eff_d/eff_f, 'k.-')
   axs[1].axhline(1., color='grey', ls=':', lw=.9)
@@ -956,7 +956,7 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
   Annotated to the same rules as the suite's other pulse figures
   (sweep_gammacm.plot_lightcurve_shape), so these read against those without a second
   legend to learn: the two grey guides at the crossing (x=1) and at the normalising side's
-  peak (y=1), the frequency INSIDE the panel at y=0.92 -- just under that y=1 line without
+  peak (y=1), the frequency INSIDE the panel at y=0.89 -- just under that y=1 line without
   touching it -- and the rarefaction band shaded. What it does NOT carry, and
   plot_lightcurve_compare does, is the crimson end-of-data marker per side: on a linear
   clock the full run's cells outlive the window by two decades, so the only line that ever
@@ -1005,10 +1005,12 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
       if xoff is not None:
         ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
     ax_f.set_xlim(*xlim_lin)
-    # the frequency goes INSIDE the panel, top right, at y=0.92 with va='top' -- the value
-    # plot_lightcurve_shape settled on, which puts the label's top just under the y=1 line
-    # without touching it (0.97 sits ON it, 0.87 reads as detached)
-    ax_f.text(0.97, 0.92, _nu_0_label(nu_t), transform=ax_f.transAxes, ha='right',
+    # the frequency goes INSIDE the panel, top right, with va='top' -- as on
+    # plot_lightcurve_shape, whose reasoning carries over (0.97 sits ON the y=1 line, 0.87
+    # reads as detached). The value is 0.89 rather than that figure's 0.92: this row is
+    # squatter (2.2 of 5.7 inches against a full-height panel), so the same axes-fraction
+    # gap is fewer points on the page and 0.92 had the label grazing the line.
+    ax_f.text(0.97, 0.89, _nu_0_label(nu_t), transform=ax_f.transAxes, ha='right',
               va='top', fontsize=12)
     ax_r.set_xlabel('$\\bar{T}/\\bar{T}_f$')
   axs[0, 0].set_ylim(0., (ymax or 1.)*1.05)
@@ -1047,7 +1049,7 @@ def plot_fluence_with_slope(pairs, series=None, outdir=OUTDIR, labels=LABELS,
   the low-energy slopes twice.
   '''
   os.makedirs(outdir, exist_ok=True)
-  ln = _norm_label(labels, norm_side)
+  _norm_label(labels, norm_side)     # guard only: the ylabel no longer names the side
   series = fluence_series(pairs) if series is None else series
   colors, sm = _sweep_colors([rf for rf, _ in pairs])
   get_spec = lambda r: compute_fluence_spectrum(r['Tb'], r['nuFnu'])
@@ -1068,7 +1070,10 @@ def plot_fluence_with_slope(pairs, series=None, outdir=OUTDIR, labels=LABELS,
   sym = '\\nu \\mathcal{F}_\\nu'
   pre = '\\varepsilon_{\\rm rad}\\,' if mode == 'eff' else ''
   sub = f'({sym})_{{\\nu_\\mathrm{{m}}}}' if mode == 'nu_m' else f'({sym})_{{\\rm max}}'
-  ax_s.set_ylabel(f'${pre}{sym}/{sub}$  ({ln} norm.)')
+  # which side carries the normalisation is in the caption, not on the axis: both curves
+  # of a point are on ONE scale, so the label describes the quantity and the legend the
+  # two linestyles (the cmp figures, where the choice is the subject, still say it)
+  ax_s.set_ylabel(f'${pre}{sym}/{sub}$')
   ax_s.set_xlabel(NU_M_LABEL)
   # no key here: the slope panel's legend carries the same two linestyles plus the break
   # marker, and one key serves both panels of a single figure
