@@ -44,15 +44,15 @@ S.run_sweep(key, list(S.LOG10RATIO_ARR), z=z,
             nproc=int(os.environ['GAMMACM_NPROC']), skip_cached=False)
 print('deep-band sweep done: key =', key, 'z =', z)
 "
-# The table needs BOTH shells, so only the job that finds the other one already on disk
-# builds it -- otherwise the first to finish writes a half table and the two race for the
-# same csv. It is measured from the caches, so re-running it costs nothing but reading.
+# The table is built from whatever deep sweeps are on disk, not only from a complete pair:
+# it is keyed on (z, logr, class), so a run with one shell measured simply has no rows for
+# the other, and the bins there fall back as they would have anyway. Requiring both meant a
+# single-shell run -- which is all the a_mid figure needs, it is drawn for z=4 -- produced no
+# table at all. Chain the two shells with --dependency=afterok rather than running them
+# together (hi-res staging is bound by the file server), which also keeps them off this csv
+# at the same time.
 python3 -u -c "
 import os, sweep_gammacm as S, band_offset as B
 key = os.environ.get('KEY') or S.DEFAULT_KEY
-have = [os.path.isdir(S.method_outdir(S.DEFAULT_METHOD, key, z) + '_deepband') for z in (4, 1)]
-if all(have):
-    B.main(step=3, key=key)
-else:
-    print('other shell not on disk yet -- run band_offset.main(key=...) when it is')
+B.main(step=3, key=key)
 "
