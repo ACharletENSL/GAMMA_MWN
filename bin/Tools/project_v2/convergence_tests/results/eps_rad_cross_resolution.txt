@@ -1,0 +1,117 @@
+eps_rad across resolutions -- 500 vs 10^4 cells/shell
+Measured 2026-09-20 on the cluster (openuHPC), reading the cached FLUX-SWEEP points of
+BOTH runs there: the local _fc2 caches predate the leading-edge onset fix, the cluster
+ones do not, so both sides must be read on the same machine.
+No recompute: eps_rad = E_rad/E_inj is stored in every point cache.
+Script: scripts/test1b_eps_rad.py
+
+RE-VERIFIED after the efficiency re-vintage (slurm 1011179): unchanged, as expected --
+that job wrote only to efficiency_sweep/, never to the flux-sweep caches.
+
+
+=== data  RS (z=4)   [gammacm_sweep_data_fc2] ===
+  logC     eps(500)     eps(1e4)    rel.diff               tag500                 tag1e4
+  -5.0     0.999537     0.999690    1.53e-04         cooling_g100     cooling_g100_hires
+  -4.0     0.999296     0.999697    4.02e-04         cooling_g100     cooling_g100_hires
+  -3.0     0.996231     0.996995    7.66e-04         cooling_g100     cooling_g100_hires
+  -2.0     0.973864     0.974714    8.73e-04         cooling_g100     cooling_g100_hires
+  -1.0     0.858970     0.859536    6.58e-04         cooling_g100     cooling_g100_hires
+  +0.0     0.558049     0.557907    2.55e-04         cooling_g100     cooling_g100_hires
+  +1.0     0.240897     0.240633    1.10e-03         cooling_g100     cooling_g100_hires
+  +2.0     0.082958     0.082847    1.33e-03         cooling_g100     cooling_g100_hires
+  +3.0     0.026210     0.026178    1.26e-03         cooling_g100     cooling_g100_hires
+  -> max |d eps/eps| = 1.332e-03  (0.133 %)   over 9 points
+  cache dates: 500 -> ['2026-09-15']
+               1e4 -> ['2026-09-15', '2026-09-16']
+
+=== data  FS (z=1)   [gammacm_sweep_data_fc2_z=1] ===
+  logC     eps(500)     eps(1e4)    rel.diff               tag500                 tag1e4
+  -5.0     1.000123     0.999427    6.97e-04         cooling_g100     cooling_g100_hires
+  -4.0     0.998718     0.997754    9.65e-04         cooling_g100     cooling_g100_hires
+  -3.0     0.988392     0.987447    9.56e-04         cooling_g100     cooling_g100_hires
+  -2.0     0.927810     0.926772    1.12e-03         cooling_g100     cooling_g100_hires
+  -1.0     0.706254     0.705621    8.96e-04         cooling_g100     cooling_g100_hires
+  +0.0     0.356245     0.356702    1.28e-03         cooling_g100     cooling_g100_hires
+  +1.0     0.131278     0.131648    2.82e-03         cooling_g100     cooling_g100_hires
+  +2.0     0.042875     0.043030    3.61e-03         cooling_g100     cooling_g100_hires
+  +3.0     0.013305     0.013364    4.44e-03         cooling_g100     cooling_g100_hires
+  -> max |d eps/eps| = 4.437e-03  (0.444 %)   over 9 points
+  cache dates: 500 -> ['2026-09-15', '2026-09-16']
+               1e4 -> ['2026-09-15', '2026-09-16']
+
+=== data_rarcut  RS (z=4)   [gammacm_sweep_data_rarcut_fc2] ===
+  logC     eps(500)     eps(1e4)    rel.diff               tag500                 tag1e4
+  -5.0     0.999521     0.999651    1.30e-04         cooling_g100     cooling_g100_hires
+  -4.0     0.999074     0.999331    2.57e-04         cooling_g100     cooling_g100_hires
+  -3.0     0.994465     0.994973    5.11e-04         cooling_g100     cooling_g100_hires
+  -2.0     0.966234     0.967170    9.69e-04         cooling_g100     cooling_g100_hires
+  -1.0     0.843126     0.843805    8.05e-04         cooling_g100     cooling_g100_hires
+  +0.0     0.543486     0.543193    5.39e-04         cooling_g100     cooling_g100_hires
+  +1.0     0.234034     0.233640    1.69e-03         cooling_g100     cooling_g100_hires
+  +2.0     0.080518     0.080355    2.03e-03         cooling_g100     cooling_g100_hires
+  +3.0     0.025414     0.025363    2.01e-03         cooling_g100     cooling_g100_hires
+  -> max |d eps/eps| = 2.027e-03  (0.203 %)   over 9 points
+  cache dates: 500 -> ['2026-09-15']
+               1e4 -> ['2026-09-15', '2026-09-16']
+
+=== data_rarcut  FS (z=1)   [gammacm_sweep_data_rarcut_fc2_z=1] ===
+  logC     eps(500)     eps(1e4)    rel.diff               tag500                 tag1e4
+  -5.0     1.000085     0.999291    7.94e-04         cooling_g100     cooling_g100_hires
+  -4.0     0.998212     0.996733    1.48e-03         cooling_g100     cooling_g100_hires
+  -3.0     0.984940     0.983272    1.69e-03         cooling_g100     cooling_g100_hires
+  -2.0     0.916785     0.916108    7.38e-04         cooling_g100     cooling_g100_hires
+  -1.0     0.689345     0.689973    9.11e-04         cooling_g100     cooling_g100_hires
+  +0.0     0.344709     0.346254    4.48e-03         cooling_g100     cooling_g100_hires
+  +1.0     0.126612     0.127457    6.68e-03         cooling_g100     cooling_g100_hires
+  +2.0     0.041291     0.041611    7.74e-03         cooling_g100     cooling_g100_hires
+  +3.0     0.012795     0.012908    8.82e-03         cooling_g100     cooling_g100_hires
+  -> max |d eps/eps| = 8.819e-03  (0.882 %)   over 9 points
+  cache dates: 500 -> ['2026-09-15', '2026-09-16']
+               1e4 -> ['2026-09-15', '2026-09-16']
+
+================ SUMMARY ================
+        data   RS (z=4)   max |Delta eps_rad/eps_rad| = 0.133 %
+        data   FS (z=1)   max |Delta eps_rad/eps_rad| = 0.444 %
+ data_rarcut   RS (z=4)   max |Delta eps_rad/eps_rad| = 0.203 %
+ data_rarcut   FS (z=1)   max |Delta eps_rad/eps_rad| = 0.882 %
+
+OVERALL MAX = 0.882 %
+
+############################################################
+Link to the dedicated fine efficiency grid (script: test1b_verify_link.py)
+fiducial only -- shows the flux-sweep eps_rad IS the efficiency-curve quantity.
+
+BEFORE the re-vintage the worst shared-target deviation was 4.0e-4 -- NOT the round-off
+check_against_flux_sweep's 1e-9 tolerance expects. Cause: the efficiency cache was
+2026-09-14 17:0x while the flux sweep was 2026-09-15 23:39, a one-day code vintage gap.
+AFTER recomputing the whole 304-point set on the current vintage:
+
+
+=== data  RS(z=4) ===   fine grid: 101 pts, flux sweep: 9 pts, shared: 9
+    -5.0  fine=0.99953694  flux=0.99953694  rel=3.31e-11
+    -4.0  fine=0.99929568  flux=0.99929568  rel=2.51e-11
+    -3.0  fine=0.99623097  flux=0.99623097  rel=1.16e-11
+    -2.0  fine=0.97386365  flux=0.97386365  rel=1.23e-11
+    -1.0  fine=0.85897026  flux=0.85897026  rel=3.42e-11
+    +0.0  fine=0.55804929  flux=0.55804929  rel=1.27e-10
+    +1.0  fine=0.24089676  flux=0.24089676  rel=3.69e-10
+    +2.0  fine=0.08295786  flux=0.08295786  rel=4.80e-10
+    +3.0  fine=0.02621049  flux=0.02621049  rel=3.97e-16
+  -> worst 4.80e-10
+
+=== data  FS(z=1) ===   fine grid: 101 pts, flux sweep: 9 pts, shared: 9
+    -5.0  fine=1.00012341  flux=1.00012341  rel=1.11e-15
+    -4.0  fine=0.99871778  flux=0.99871778  rel=1.56e-15
+    -3.0  fine=0.98839187  flux=0.98839187  rel=2.36e-15
+    -2.0  fine=0.92781046  flux=0.92781046  rel=3.59e-16
+    -1.0  fine=0.70625366  flux=0.70625366  rel=9.43e-16
+    +0.0  fine=0.35624475  flux=0.35624475  rel=1.71e-15
+    +1.0  fine=0.13127764  flux=0.13127764  rel=1.06e-15
+    +2.0  fine=0.04287537  flux=0.04287537  rel=1.94e-15
+    +3.0  fine=0.01330543  flux=0.01330543  rel=1.30e-16
+  -> worst 2.36e-15
+
+i.e. 4.0e-4 -> 4.8e-10 (reference method, now inside the 1e-9 tolerance);
+data_rarcut lands at 4.1e-7. The vintage diagnosis is confirmed.
+eps_rad values themselves moved by <=0.097% (median 1.0e-4) -- curves visually
+unchanged. Previous state kept at efficiency_sweep/{cache,figs}.pre_revintage_20260920/.
