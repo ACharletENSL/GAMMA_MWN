@@ -88,6 +88,28 @@ VALIDATION, all four printed by main().
     injected -p only well below gma_c, since 1-(1-gma/gma_c)^(p-1) tilts the slope by
     ~(p-2)/2 * gma/gma_c. Measured at gma/gma_c = 0.0316 it is already 0.008 steep.
 
+LOSSES: SYNCHROTRON ONLY. gma_synCooled solves dgma/dtt = -gma^2 and nothing else
+(its own docstring: "only synchrotron, no adiabatic"). There is no inverse Compton term
+here and none anywhere in project_v2, so that omission is the pipeline's, not this
+figure's. The ADIABATIC term is the real difference from production: radiation_cooling
+evolves the bounds along the actual syn+adiabatic trajectory and carries the
+renormalisation K0 -> K0*A^(p-1) in its Aad column, worth -16% on eps_rad at slow
+cooling. Two consequences, opposite in size:
+
+  - The field is NOT assumed constant. tt = int dt'/t_{c,1} is an integral, and
+    generate_cellDistrib recomputes t_{c,1} per step, so gma = gma0/(1+gma0*tt) is exact
+    for ANY B'(t') as long as synchrotron is the only loss. Nothing here needs a
+    steady field.
+  - The gma^-2 segment is where it does bite. With expansion the loss rate is
+    -dgma/dtt = gma^2 + a*gma (a = -(1/3) dln rho/dtt), so the dwell time is
+    dtt = dgma/(gma^2 + a*gma): still gma^-2 where synchrotron dominates, but FLATTENING
+    toward gma^-1 below gma ~ a. That is the bottom of the fast-cooling branch --
+    exactly the part that sets the fluence's low-energy slope -- so the -2 drawn here is
+    an upper bound on the steepness there, not a measured result. Where the crossover
+    sits in the fiducial run has not been measured; the break positions and the -p and
+    -(p+1) segments are unaffected, since adiabatic cooling rescales gma uniformly and
+    maps a power law to the same power law.
+
 VALIDITY. gma_synCooled is the ultra-relativistic solution and drives gma -> 0; below
 gma = 1 (marked in red) it is not the physical trajectory, which is why the emission code
 truncates its gamma integral there. On the fiducial bounds that floor is reached at
