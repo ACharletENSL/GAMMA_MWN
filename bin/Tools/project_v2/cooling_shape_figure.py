@@ -128,7 +128,11 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   # the tracks go on top, the distributions they sample below; the height ratio follows
   # the content, so the five decades of panel (b) keep the taller box
   fig, (axT, axD) = plt.subplots(2, 1, figsize=FIGSIZE,
-      gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.24))
+      # hspace .24 left panel (a)'s xlabel only 3.2 px clear of panel (b) -- it bit.
+      # .32 puts it 15.1 px clear while its own tick labels stay 1.4 px above it, so
+      # it groups with the panel it names. The FIGURE HEIGHT is unchanged by this:
+      # hspace redistributes space between panels, it does not add any.
+      gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.32))
 
   # (a) edges and break vs tt ------------------------------------------------------------
   tt = np.geomspace(1e-3/gM0, 1.5*tt_arr[-1], 800)
@@ -149,7 +153,11 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axT.set_xlim(tt[0], tt[-1])
   axT.set_ylim(.15, 3.*gM0)      # headroom under gma=1 for the knee labels
-  axT.set_xlabel('$\\tilde{t}$', fontsize=FS_LAB)
+  # this label sits in the GAP between the panels, so it is kept tight against the
+  # axis it names -- at the default pads it drifts closer to the panel below and
+  # reads as belonging to that one
+  axT.set_xlabel('$\\tilde{t}$', fontsize=FS_LAB, labelpad=1.)
+  axT.tick_params(axis='x', pad=1.5)
   axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
   # bottom centre: the tracks all run from the upper left to the lower right, so the
   # box sits in the one corner they leave empty -- and in the adiabatic variant it is

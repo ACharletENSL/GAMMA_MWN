@@ -234,7 +234,11 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   K0 = norm_plaw_distrib(gm0, gM0, p)
 
   fig, (axT, axD) = plt.subplots(2, 1, figsize=FIGSIZE,
-      gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.24))
+      # hspace .24 left panel (a)'s xlabel only 3.2 px clear of panel (b) -- it bit.
+      # .32 puts it 15.1 px clear while its own tick labels stay 1.4 px above it, so
+      # it groups with the panel it names. The FIGURE HEIGHT is unchanged by this:
+      # hspace redistributes space between panels, it does not add any.
+      gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.32))
 
   # (a) edge tracks vs sigma -------------------------------------------------------------
   sg = np.geomspace(1e-3*sig_arr[0], 1.5*sig_arr[-1], 900)
@@ -264,7 +268,11 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axT.set_xlim(x[0], x[-1])
   axT.set_ylim(.15, 3.*gM0)
-  axT.set_xlabel('$\\tilde{t}_{\\rm eff}$', fontsize=FS_LAB)
+  # this label sits in the GAP between the panels, so it is kept tight against the
+  # axis it names -- at the default pads it drifts closer to the panel below and
+  # reads as belonging to that one
+  axT.set_xlabel('$\\tilde{t}_{\\rm eff}$', fontsize=FS_LAB, labelpad=1.)
+  axT.tick_params(axis='x', pad=1.5)
   axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
   # the regime this figure had to pick, stated inside the panel (article convention)
   axT.annotate(f'$\\log_{{10}}\\mathcal{{C}}={logC:.0f}$', (.03, .22),
