@@ -2,17 +2,27 @@
 # @Author: acharlet
 
 '''
-The time-integrated electron distribution WITH adiabatic cooling, over t_dyn.
+The time-integrated electron distribution WITH adiabatic cooling, over 100 t_dyn.
 
 APPENDIX ILLUSTRATION, on the same footing as cooling_shape_figure: the comoving cooling
 time t'_c is held CONSTANT, so the only thing added to the synchrotron-only picture is
 the adiabatic drag. Not a measurement of this run, not a main result.
 
-The integration runs to ONE t_dyn -- cooling_integrated_figure's own limit -- so the two
-are the same quantity computed two ways, on the same axes and the same C family, and the
-difference between the panels is the adiabatic term and nothing else. sigma_end stays a
-parameter, and pushing it to 1e3 changes the conclusions below considerably; the contrast
-is noted where it matters.
+sigma_end is a PARAMETER and the figure is meant to be re-run at several values; the
+numbers quoted below are at the current default, 100 t_dyn. The three that have been
+looked at, all at a_rho = -2, q = 0:
+
+    sigma_end     edge drop   deep-tail ratio   index    regimes under gma = 1
+    1    t_dyn      x0.808         0.754        -1.932        1 of 7 (to 0.807)
+    100  t_dyn      x0.420         0.415        -1.897        3 of 7 (to 4.2e-3)
+    10^3 t_dyn      x0.370         0.369        -1.951        4 of 7 (to 3.7e-4)
+
+At sigma_end = 1 the figure sits on cooling_integrated_figure's own limit and axes, and
+the 'no adiab.' ghosts ARE that figure's curves; past that the two diverge and the panel
+limits follow the support instead (see plot_integrated_adiab). What the scan shows is
+that the INDEX barely moves while the cut-off marches down and the amplitude is halved:
+the effect is a renormalisation at every integration time, only a bigger one the longer
+you wait.
 
 WHY THAT IS THE RIGHT FOOTING, and where the field went. cooling_shape_figure and
 cooling_integrated_figure never mention B' at all: they are parameterised entirely in
@@ -44,11 +54,13 @@ things move at once.
 
       sigma_end        q = 0      q = 0.5     q = 1
       1    t_dyn       -1.932     -1.931      -1.934    <- q hardly matters
+      100  t_dyn       -1.897     -1.330      -0.401    <- q already dominant
       10^3 t_dyn       -1.951     -1.102      +0.424    <- q decides the index
 
   so the index is a strong function of the FIELD history and not only of the density one,
-  but ONLY once the burn has had time to saturate. At this module's integration time it
-  does not, which is why q = 0 is a safe default here and would not be at 1e3 t_dyn.
+  but ONLY once the burn has had time to saturate. It has barely begun to at one t_dyn
+  and is well past it by 100, so q = 0 is a safe default only at the short end -- at the
+  current 100 t_dyn it is already a real assumption, not a harmless one.
   The q=1 value is positive because once S is frozen every trajectory collapses onto
   gma = A/S_inf: the population slides down as one delta function, and with
   dtt = tt_dyn (1+sigma)^-2 dsigma the normalised time it spends at low gma goes to
@@ -118,32 +130,36 @@ never near -1 (check_index_is_robust). THIS ARGUMENT IS SPECIFIC TO q = 0: the i
 alpha - e = -1 needs e = 1 + alpha, and at q > 0 it fails.
 
 So at constant t'_c the effect is a renormalisation, not a new segment:
-  - the tail keeps index ~ -2: -1.932 here, and -1.98 .. -1.90 across a_rho = -0.5..-2.9;
-  - its amplitude is suppressed toward e = 1 + a_rho/3 = 1/3, but only ASYMPTOTICALLY --
-    over one t_dyn it reaches just 0.754 at the deepest gma where the synchrotron curve
-    still exists to divide by, climbing back to 1 near gma_m (check_deep_tail_ratio);
-  - the bottom edge moves DOWN by x0.808 (edge_drop_factor), again far from its e = 1/3
-    limit: the exact factor is A*e*sigma/((1+sigma)^e - 1), and at sigma = 1 the -1 in
-    that denominator dominates it.
-So over one t_dyn the effect is MODEST and the cut-off SURVIVES, merely pushed down by
-that x0.808. Only over many dynamical times does it wash out into a long gma^-2 tail,
-electrons sliding on instead of stalling (x0.370, and the tail reaching gma = 3.7e-4, at
-sigma_end = 1e3). That contrast is why sigma_end stays a parameter.
+  - the tail keeps index ~ -2: -1.897 at 100 t_dyn, and -1.98 .. -1.82 across
+    a_rho = -0.5 .. -2.9 (check_index_is_robust);
+  - its amplitude is suppressed toward e = 1 + a_rho/3 = 1/3, reaching 0.415 at 100 t_dyn
+    at the deepest gma where the synchrotron curve still exists to divide by, and climbing
+    back to 1 near gma_m (check_deep_tail_ratio);
+  - the bottom edge moves DOWN by x0.420 (edge_drop_factor), still short of its e = 1/3
+    limit: the exact factor is A*e*sigma/((1+sigma)^e - 1) and the -1 in that denominator
+    is what keeps it above e.
+At 100 t_dyn the cut-off is still a cut-off -- every curve ends somewhere -- but it has
+been dragged a full 1.4 decades below where synchrotron alone would leave it, and three
+of the seven regimes end under gma = 1. The washing-out into an open gma^-2 tail is a
+1e3 t_dyn phenomenon; this is the halfway house.
 
   TRAP, and this check was wrong once: the bottom edge has TWO limits, not one.
   gma_m = A gma_m0/(1 + gma_m0 S) tends to A/S only when gma_m0*S >> 1 (cooled), and to
   A*gma_m0 -- pure adiabatic drag, no burn at all -- when gma_m0*S << 1. At log10 C = +3
-  the population has barely cooled (gma_m0*S = 7.8e-4 over one t_dyn), so scoring it
-  against A/S reads wildly off while nothing is wrong. check_bottom_edge gates each regime
-  into the limit it is actually in -- 2 fast, 2 slow, the middle three in neither.
+  the population has barely cooled (gma_m0*S = 0.011 at 100 t_dyn), so scoring it against
+  A/S reads wildly off while nothing is wrong. check_bottom_edge gates each regime into
+  the limit it is actually in -- at 100 t_dyn, 3 fast and 1 slow, the middle three in
+  neither. How many fall in each moves with sigma_end, which is why it is gated and not
+  hard-coded.
 
 VALIDITY, and it BINDS here in a way it did not before. These are ultra-relativistic
 trajectories; below gma = 1 the real loss rate (gma^2 - 1, cooling_distribution.
 coolingFunc_ODE) collapses and electrons stall near gma ~ 1 instead of continuing down,
-which is why the emission code floors its gamma integral there. Over one t_dyn only the
-fastest regime crosses it, and barely -- log10 C = -3 ends at gma = 0.807 -- so the shaded
-band is a sliver at the left edge rather than half the panel. It still means what it says:
-inside it that one curve is the model continued past where it is true.
+which is why the emission code floors its gamma integral there. At 100 t_dyn THREE of the
+seven regimes end below it -- log10 C = -3, -2 and -1, the last of them at gma = 4.2e-3 --
+so the shaded band is a real part of the panel and not a sliver. Inside it those curves
+are the model continued past where it is true, drawn to show where the population is
+heading rather than where it is.
 
 Run:  python cooling_integrated_adiabatic.py
 '''
@@ -166,12 +182,20 @@ A_RHO = -2.0                # dln rho/dln R: simple coasting, rho' ~ R^-2. The r
 Q_B = 0.0                   # B' ~ R^-q. 0 = constant B'/t'_c, the footing cooling_shape
                             # is on. q=1 (B' ~ R^-1) makes the burn SATURATE -- see the
                             # CORRECTION block in the docstring
-SIGMA_END = 1.              # integrate to ONE t_dyn, the synchrotron figure's limit, so
-                            # the two are the same quantity and compare directly.
-                            # sigma = t'/t'_dyn (PHYSICAL time)
+SIGMA_END = 100.            # integrate to 100 t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
+                            # A parameter the user scans: at 1 it matches
+                            # cooling_integrated_figure exactly, at 1e3 the cut-off has
+                            # washed out entirely. The panel limits follow it (below)
 NG = 700                    # points per curve (each costs 2 root-finds + 1 quadrature)
 GMA_FLOOR = 1.              # below this the ultra-relativistic trajectory is not physical
 FNAME = 'cooling_integrated_adiabatic.png'
+
+
+def _pow10(x):
+  'Render an integration limit for a label: 1 -> \'\', 100 -> 10^{2}, 2.5 -> 2.5.'
+  l = np.log10(x)
+  return ('' if x == 1. else
+          f'10^{{{l:.0f}}}' if abs(l - round(l)) < 1e-9 else f'{x:g}')
 
 
 # --- the expansion ---------------------------------------------------------------------
@@ -424,9 +448,9 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
     gM0=GMA_M0, a_rho=A_RHO, q=Q_B, outdir=OUTDIR, fname=FNAME, syn_ref=True, show=False):
   '''
   Same two-panel design as the synchrotron-only figure. The synchrotron-only result over
-  the SAME one t_dyn is drawn underneath as a thin ghost of each curve -- they are
-  exactly cooling_integrated_figure's curves -- so the
-  difference read off the figure is adiabatic cooling and not the integration limit.
+  the SAME sigma_end is drawn underneath as a thin ghost of each curve (at sigma_end = 1
+  those ghosts ARE cooling_integrated_figure's curves), so the difference read off the
+  figure is adiabatic cooling and not the integration limit.
   '''
   logC = np.asarray(logC, dtype=float)
   norm = plt.Normalize(vmin=logC.min(), vmax=logC.max())
@@ -437,7 +461,7 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
       gridspec_kw=dict(height_ratios=[1.9, 1.], hspace=.08))
 
   order = np.argsort(logC)[::-1]       # slowest cooling first, fast curves on top
-  breaks = []
+  breaks, lo_edge, hi_N = [], np.inf, 0.
   for i in order:
     ttd = tt_dyn_of_C(logC[i], gm0)
     if syn_ref:   # the same integral without the expansion term, same upper limit
@@ -451,6 +475,7 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
       axS.semilogx(g_s/gm0, log_slope(g_s, N_s), color=colors[i], lw=.55, alpha=.5,
                    zorder=2)
     gma, N = integrated_distrib_adiab(logC[i], sigma_end, p, gm0, gM0, a_rho, q)
+    lo_edge, hi_N = min(lo_edge, gma[0]), max(hi_N, float(N.max()))
     axN.loglog(gma/gm0, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
     axS.semilogx(gma/gm0, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
     gma_c = 10.**logC[i]*gm0
@@ -460,10 +485,12 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   axN.scatter(breaks[:, 0], breaks[:, 1], s=11, facecolors=colors[order],
               edgecolors='w', linewidths=.5, zorder=6)
 
-  axN.set_ylabel('$N(\\gamma;\\tilde{t}_{\\rm dyn})/N_{\\rm e}$', fontsize=FS_LAB)
-  # EXACTLY the synchrotron figure's limits: same integration time, same C family, so
-  # the two panels are meant to be laid side by side and read off against each other
-  axN.set_ylim(1e-25, 8.)
+  axN.set_ylabel(f'$N(\\gamma;{_pow10(sigma_end)}\\tilde{{t}}_{{\\rm dyn}})/N_{{\\rm e}}$',
+                 fontsize=FS_LAB)
+  # the limits FOLLOW the support: sigma_end is scanned, and hand-set bounds either
+  # crop the fastest cut-offs off the panel or leave decades of blank. The floor stays
+  # fixed -- it is the gma_M rollover, which sigma_end does not move.
+  axN.set_ylim(1e-25, 10.*hi_N)
 
   # the expected indices are reference VALUES, so they belong on an axis: the guides stay
   # inside, their labels go on the right-hand spine as ticks. Inside the panel they had to
@@ -489,7 +516,7 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
     ax.axvline(gM0/gm0, color=INK, ls=':', lw=.8, zorder=1)
     ax.grid(alpha=.25, lw=.4)
     ax.tick_params(which='both', labelsize=FS_TICK)
-  axN.set_xlim(.3/gm0, 4.*gM0/gm0)      # the synchrotron figure's x range, likewise
+  axN.set_xlim(.3*lo_edge/gm0, 4.*gM0/gm0)
   for v, lab in ((1., '$\\gamma_\\mathrm{m}$'), (gM0/gm0, '$\\gamma_\\mathrm{M}$')):
     axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',
