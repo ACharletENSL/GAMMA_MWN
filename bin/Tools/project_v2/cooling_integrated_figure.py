@@ -304,17 +304,22 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
   axN.set_ylim(1e-25, 8.)
 
   # (b) the slopes ---------------------------------------------------------------------
-  # -2 and -p are only half an index apart, so they are hung on opposite sides of their
-  # own lines rather than both above
-  for lev, lab, va in ((-2., '$-2$', 'bottom'), (-p, '$-p$', 'top'),
-                       (-(p+1.), '$-(p+1)$', 'bottom')):
+  # the expected indices are reference VALUES, so they belong on an axis: the guides stay
+  # inside, their labels go on the right-hand spine as ticks. Inside the panel they had to
+  # dodge the curves -- -2 and -p are only half an index apart and were hung on opposite
+  # sides of their own lines -- and on the spine they simply line up.
+  levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
+  for lev, _ in levels:
     axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-    axS.annotate(lab, (.995, lev), xycoords=('axes fraction', 'data'), color=INK,
-                 fontsize=FS_ANN, ha='right', va=va,
-                 bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axS.set_ylim(-(p+2.6), .4)
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axS.set_ylabel('$\\mathrm{d}\\ln N/\\mathrm{d}\\ln\\gamma$', fontsize=FS_LAB)
+  axR = axS.twinx()                       # right-hand spine carries the expected indices
+  axR.set_ylim(axS.get_ylim())
+  axR.set_yticks([lev for lev, _ in levels])
+  axR.set_yticklabels([lab for _, lab in levels])
+  axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
+  axR.grid(False)
 
   # marks shared by both panels: the injected bottom edge sits at x = 1 by construction,
   # the injected ceiling closes every curve, and gma = 1 is where the model stops
@@ -342,7 +347,16 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
   axN.legend(fontsize=FS_LEG, loc='lower left', framealpha=.9, handletextpad=.2,
              borderpad=.4)
 
-  fig.colorbar(sm, ax=(axN, axS), pad=.015, fraction=.045, label=C_LABEL)
+  # the bar moves UP beside the top panel only: the slope panel's right-hand side now
+  # carries the expected-index ticks. An EXPLICIT cax, not ax=axN -- stealing space from
+  # one of two stacked shared-x panels leaves them different widths and breaks the
+  # alignment the pair is read on.
+  fig.subplots_adjust(right=.85)
+  pos = axN.get_position()
+  cax = fig.add_axes([.875, pos.y0, .032, pos.height])
+  cb = fig.colorbar(sm, cax=cax)
+  cb.set_label(C_LABEL, fontsize=FS_LAB)
+  cax.tick_params(labelsize=FS_TICK)
 
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
