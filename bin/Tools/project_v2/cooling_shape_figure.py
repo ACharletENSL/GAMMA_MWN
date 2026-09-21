@@ -85,7 +85,7 @@ INK, MUTED = '0.25', '0.55'
 
 # sized for ONE column of a two-column article: panels stacked, ~3.4 in wide, so
 # every mark and every font is set for that final printed size, not rescaled after
-FIGSIZE = (3.4, 6.4)
+FIGSIZE = (3.4, 5.0)
 FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 8., 7.
 
 
@@ -128,7 +128,7 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   # the tracks go on top, the distributions they sample below; the height ratio follows
   # the content, so the five decades of panel (b) keep the taller box
   fig, (axT, axD) = plt.subplots(2, 1, figsize=FIGSIZE,
-      gridspec_kw=dict(height_ratios=[1., 1.5], hspace=.32))
+      gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.24))
 
   # (a) edges and break vs tt ------------------------------------------------------------
   tt = np.geomspace(1e-3/gM0, 1.5*tt_arr[-1], 800)

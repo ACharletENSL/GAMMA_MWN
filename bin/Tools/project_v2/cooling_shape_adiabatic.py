@@ -25,6 +25,29 @@ and number conservation turns the injected power law into
 
     N(gma,sigma) = K0 A gma^-p (A - S gma)^(p-2)   on [gma_m(sigma), gma_M(sigma)].
 
+THE TIME AXIS IS A GENERALISED NORMALISED TIME. cooling_shape_figure plots against
+tt = int dt'/t'_c, in which the synchrotron solution is gma = gma_0/(1 + gma_0 tt) and
+1/tt is the burn-off asymptote. Plotting the adiabatic problem against tt (or against
+sigma) loses that. The variable that keeps it is
+
+    tt_eff = (1/A(t')) int_{t'_i}^{t'} A(s)/t'_c(s) ds  =  S/A,
+
+because u = (u_0 + S)/A can be rewritten 1/gma = 1/(A gma_0) + tt_eff: an electron
+injected with gma_0 -> inf therefore sits at gma = 1/tt_eff, so 1/tt_eff IS the asymptote
+the top edge slides down, exactly as 1/tt is in the synchrotron figure. Measured,
+gma_M * tt_eff = 1.000 at every sample once the edge has burnt.
+
+Three properties make the pair directly comparable:
+  - tt_eff is strictly increasing (S grows while A falls), so it is a valid abscissa;
+  - tt_eff -> tt as A -> 1, agreeing to 3e-8 at sigma = 1e-8, so the two figures share
+    one clock at early times and the panels can be laid side by side;
+  - the samples are therefore the SAME log10 values cooling_shape_figure uses, and the
+    last of them, tt_eff = 1, lands exactly on gma_M = 1 -- the same end-of-validity
+    coincidence the synchrotron figure has, and for the same reason.
+The knees keep the sibling's names: tt_M and tt_m are where S reaches 1/gma_M0 and
+1/gma_m0. In tt_eff they sit a little RIGHT of 1/gma_M0 and 1/gma_m0, by whatever 1/A
+has grown to by then -- tt_m at 1.8e-3 rather than 1e-3.
+
 THE POINT OF THE FIGURE: ADIABATIC COOLING ADDS NO NEW SHAPE. Substituting x = gma/A
 collapses the expression above to
 
@@ -61,9 +84,9 @@ shapes -- which is the similarity result again.
 VALIDITY. As everywhere in this family, gma_synCooled's ultra-relativistic trajectory is
 not physical below gma = 1 (marked in crimson): the real loss rate goes as gma^2 - 1 and
 electrons stall near 1 instead of continuing down. With the adiabatic drag the population
-gets there SOONER -- at log10 C = 0 the whole distribution is under the floor by
-sigma ~ 1e2 -- so the last sampled times are drawn to show where it is heading, not
-where it is.
+gets there SOONER. The last sampled time, tt_eff = 1, puts gma_M exactly on the floor
+(and gma_m just under it at 0.95), so as in the synchrotron figure that sample IS the end
+of the model's validity, not a time it can be pushed past.
 
 Run:  python cooling_shape_adiabatic.py
 '''
@@ -73,18 +96,38 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from cooling_distribution import gamma_synCooled, norm_plaw_distrib, distrib_plaw_cooled
+from scipy.optimize import brentq
 from cooling_shape_figure import (P_SYN, GM0, GMA_M0, NG, OUTDIR, INK, MUTED, FIGSIZE,
-    FS_LAB, FS_TICK, FS_ANN, FS_LEG, cooled_distrib)
+    FS_LAB, FS_TICK, FS_ANN, FS_LEG, LOGTT_SAMPLES, cooled_distrib)
 from cooling_integrated_figure import tt_dyn_of_C
 from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma, S_of_sigma,
     tt_of_sigma, gamma_cooled)
 
 # --- defaults -------------------------------------------------------------------------
 LOGC = 0.                   # gma_c/gma_m for the tt <-> sigma map; marginal cooling
-# sampled sigma = t'/t'_dyn as log10. At LOGC = 0 (tt_dyn = 1e-3) this is exactly
-# cooling_shape_figure's tt window, 1e-8 .. 1, expressed in dynamical times.
-LOGSIG_SAMPLES = (-5., -4., -3., -2., -1., 0., 1., 2., 3.)
+# sampled at the SAME log10 values cooling_shape_figure samples log10 tt at -- the point
+# of tt_eff being that the two figures then share one clock, slice for slice
+LOGTTE_SAMPLES = LOGTT_SAMPLES
 FNAME = 'cooling_shape_adiabatic.png'
+
+
+# --- the generalised normalised time ----------------------------------------------------
+def tt_eff_of_sigma(sigma, ttd, a_rho=A_RHO, q=Q_B):
+  '''
+  The GENERALISED normalised time of the module docstring,
+
+      tt_eff = (1/A(t')) int_{t'_i}^{t'} A(s)/t'_c(s) ds  =  S/A,
+
+  the variable in which the adiabatic problem carries the synchrotron figure's 1/tt
+  asymptote. Strictly increasing (S grows while A falls), so it is a valid abscissa.
+  '''
+  return S_of_sigma(sigma, ttd, a_rho, q)/A_of_sigma(sigma, a_rho)
+
+
+def sigma_of_tt_eff(tt_eff, ttd, a_rho=A_RHO, q=Q_B, br=(-16., 9.)):
+  'Inverse of tt_eff_of_sigma -- monotone, so one bracketed root in log10 sigma.'
+  g = lambda ls: float(tt_eff_of_sigma(10.**ls, ttd, a_rho, q)) - tt_eff
+  return 10.**brentq(g, br[0], br[1], xtol=1e-13, rtol=8.9e-16)
 
 
 # --- the distribution -----------------------------------------------------------------
@@ -107,8 +150,14 @@ def width(sigma, ttd, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B):
           /gamma_cooled(sigma, gm0, ttd, a_rho, q))
 
 
+# the sigma values LOGTTE_SAMPLES maps to at the module defaults: what the figure draws,
+# and what the checks below are run at. Nine bracketed root-finds, done once at import.
+SIG_SAMPLES = tuple(sigma_of_tt_eff(10.**l, tt_dyn_of_C(LOGC, GM0))
+                    for l in LOGTTE_SAMPLES)
+
+
 # --- validation -------------------------------------------------------------------------
-def check_number_conservation(sig_arr=LOGSIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
+def check_number_conservation(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
     gM0=GMA_M0, a_rho=A_RHO, q=Q_B, Ng=40000):
   '''
   int N dgma must stay 1 at every sigma: cooling moves electrons, adiabatic or not.
@@ -116,13 +165,13 @@ def check_number_conservation(sig_arr=LOGSIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM
   '''
   ttd = tt_dyn_of_C(logC, gm0)
   dev = 0.
-  for ls in sig_arr:
-    gma, N = cooled_distrib_adiab(10.**ls, ttd, p, gm0, gM0, a_rho, q, Ng)
+  for sigma in sigmas:
+    gma, N = cooled_distrib_adiab(sigma, ttd, p, gm0, gM0, a_rho, q, Ng)
     dev = max(dev, abs(np.trapezoid(N, gma) - 1.))
   return dev
 
 
-def check_similarity(sig_arr=LOGSIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0,
+def check_similarity(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0,
     a_rho=A_RHO, q=Q_B, n=40):
   '''
   THE claim of this module: N_adiab(gma,sigma) = (1/A) N_syn(gma/A, S) exactly. Evaluated
@@ -132,8 +181,7 @@ def check_similarity(sig_arr=LOGSIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0, gM0=GM
   ttd = tt_dyn_of_C(logC, gm0)
   K0 = norm_plaw_distrib(gm0, gM0, p)
   dev = 0.
-  for ls in sig_arr:
-    sigma = 10.**ls
+  for sigma in sigmas:
     A, S = float(A_of_sigma(sigma, a_rho)), float(S_of_sigma(sigma, ttd, a_rho, q))
     gma, N = cooled_distrib_adiab(sigma, ttd, p, gm0, gM0, a_rho, q, n)
     ref = K0*distrib_plaw_cooled(gma/A, p, S)/A          # the synchrotron shape, slid
@@ -142,7 +190,7 @@ def check_similarity(sig_arr=LOGSIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0, gM0=GM
   return dev
 
 
-def check_width_law(sig_arr=LOGSIG_SAMPLES, logC=LOGC, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO,
+def check_width_law(sigmas=SIG_SAMPLES, logC=LOGC, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO,
     q=Q_B):
   '''
   The width must obey cooling_shape_figure's collapse law with tt -> S, the A having
@@ -150,15 +198,14 @@ def check_width_law(sig_arr=LOGSIG_SAMPLES, logC=LOGC, gm0=GM0, gM0=GMA_M0, a_rh
   '''
   ttd = tt_dyn_of_C(logC, gm0)
   dev = 0.
-  for ls in sig_arr:
-    sigma = 10.**ls
+  for sigma in sigmas:
     S = float(S_of_sigma(sigma, ttd, a_rho, q))
     pred = (gM0/gm0)*(1. + gm0*S)/(1. + gM0*S)
     dev = max(dev, abs(width(sigma, ttd, gm0, gM0, a_rho, q)/pred - 1.))
   return dev
 
 
-def check_reduces_to_shape(sig_arr=LOGSIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
+def check_reduces_to_shape(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
     gM0=GMA_M0, n=40):
   '''
   At a_rho -> 0 (no expansion) A = 1 and S = tt, so this must reproduce
@@ -166,8 +213,7 @@ def check_reduces_to_shape(sig_arr=LOGSIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
   '''
   ttd = tt_dyn_of_C(logC, gm0)
   dev = 0.
-  for ls in sig_arr:
-    sigma = 10.**ls
+  for sigma in sigmas:
     g_a, N_a = cooled_distrib_adiab(sigma, ttd, p, gm0, gM0, a_rho=1e-12, q=0., Ng=n)
     _, N_s = cooled_distrib(ttd*sigma, p, gm0, gM0, Ng=n)
     dev = max(dev, float(np.max(np.abs(N_a/N_s - 1.))))
@@ -176,44 +222,49 @@ def check_reduces_to_shape(sig_arr=LOGSIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
 
 # --- the figure ---------------------------------------------------------------------------
 def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
-    logsig=LOGSIG_SAMPLES, outdir=OUTDIR, fname=FNAME, show=False):
+    logtte=LOGTTE_SAMPLES, outdir=OUTDIR, fname=FNAME, show=False):
   '''
   Two-panel view, laid out exactly as cooling_shape_figure so the pair can be read across:
   the edge tracks on top, the distributions they sample below.
   '''
   ttd = tt_dyn_of_C(logC, gm0)
-  sig_arr = 10.**np.asarray(logsig, dtype=float)
-  colors = plt.cm.viridis(np.linspace(0., .85, len(sig_arr)))
+  tte_arr = 10.**np.asarray(logtte, dtype=float)
+  sig_arr = np.array([sigma_of_tt_eff(t, ttd, a_rho, q) for t in tte_arr])
+  colors = plt.cm.viridis(np.linspace(0., .85, len(tte_arr)))
   K0 = norm_plaw_distrib(gm0, gM0, p)
 
   fig, (axT, axD) = plt.subplots(2, 1, figsize=FIGSIZE,
-      gridspec_kw=dict(height_ratios=[1., 1.5], hspace=.32))
+      gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.24))
 
   # (a) edge tracks vs sigma -------------------------------------------------------------
   sg = np.geomspace(1e-3*sig_arr[0], 1.5*sig_arr[-1], 900)
+  x = tt_eff_of_sigma(sg, ttd, a_rho, q)             # the abscissa: S/A, not sigma
   cut = lambda y: np.where(y >= 1., y, np.nan)   # never draw below the validity floor
+  # 1/tt_eff is the burn-off asymptote, EXACTLY as 1/tt is in cooling_shape_figure --
+  # that is what this abscissa buys, and the top edge slides down along it
+  axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}_{\\rm eff}$')
   # the two ghosts separate the causes: what synchrotron alone would do at the same time,
   # and what expansion alone would do. The real track is below both.
-  axT.loglog(sg, cut(gamma_synCooled(tt_of_sigma(sg, ttd, q), gM0)), color=MUTED, lw=.8,
-             ls='-', label='syn. only')
-  axT.loglog(sg, cut(A_of_sigma(sg, a_rho)*gM0), color=MUTED, lw=.8, ls='-.',
-             label='adiab. only')
-  axT.loglog(sg, cut(gamma_cooled(sg, gM0, ttd, a_rho, q)), color='k', lw=1.4,
+  axT.loglog(x, cut(gamma_synCooled(tt_of_sigma(sg, ttd, q), gM0)), color='0.68', lw=.8,
+             ls='-', label='syn.')
+  axT.loglog(x, cut(A_of_sigma(sg, a_rho)*gM0), color='0.68', lw=.8, ls=(0, (4, 1.5)),
+             label='adiab.')
+  axT.loglog(x, cut(gamma_cooled(sg, gM0, ttd, a_rho, q)), color='k', lw=1.4,
              label='$\\gamma_\\mathrm{M}$')
-  axT.loglog(sg, cut(gamma_cooled(sg, gm0, ttd, a_rho, q)), color='k', lw=1.1, ls='--',
+  axT.loglog(x, cut(gamma_cooled(sg, gm0, ttd, a_rho, q)), color='k', lw=1.1, ls='--',
              label='$\\gamma_\\mathrm{m}$')
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
-  # the knees are where the edges burn, and they are set by S, not by sigma
-  for gedge, lab in ((gM0, '$\\sigma_M$'), (gm0, '$\\sigma_m$')):
-    tgt = 1./gedge                                    # S at which that edge has burnt
-    k = np.interp(tgt, S_of_sigma(sg, ttd, a_rho, q), sg)
+  # the knees are where the edges burn, i.e. where S reaches 1/gma_edge. In tt_eff they
+  # land a little RIGHT of 1/gma_edge, by the factor 1/A they have picked up by then.
+  for gedge, lab in ((gM0, '$\\tilde{t}_M$'), (gm0, '$\\tilde{t}_m$')):
+    k = np.interp(1./gedge, S_of_sigma(sg, ttd, a_rho, q), x)
     axT.axvline(k, color=INK, ls=':', lw=.8, zorder=1)
     axT.annotate(lab, (k, .015), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='bottom',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axT.set_xlim(sg[0], sg[-1])
+  axT.set_xlim(x[0], x[-1])
   axT.set_ylim(.15, 3.*gM0)
-  axT.set_xlabel("$\\sigma = t'/t'_{\\rm dyn}$", fontsize=FS_LAB)
+  axT.set_xlabel('$\\tilde{t}_{\\rm eff}$', fontsize=FS_LAB)
   axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
   # the regime this figure had to pick, stated inside the panel (article convention)
   axT.annotate(f'$\\log_{{10}}\\mathcal{{C}}={logC:.0f}$', (.03, .22),
@@ -222,15 +273,16 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # bottom centre: the tracks all run from the upper left to the lower right, so the
   # box sits in the one corner they leave empty -- and in the adiabatic variant it is
   # the only placement that does not lie over the flat 'adiab. only' line
-  axT.legend(fontsize=FS_LEG, loc='lower center', framealpha=.9, handlelength=1.4,
-             labelspacing=.25, handletextpad=.5, borderpad=.4)
+  # two columns of SHORT keys: the box has to fit between the two knee labels
+  axT.legend(fontsize=FS_LEG, loc='lower center', framealpha=.9, handlelength=1.2,
+             labelspacing=.2, handletextpad=.4, borderpad=.3, ncol=2, columnspacing=.7)
   axT.grid(alpha=.25, lw=.4)
 
   # (b) the distributions ------------------------------------------------------------------
   gma0, N0 = cooled_distrib_adiab(0., ttd, p, gm0, gM0, a_rho, q)
   axD.loglog(gma0, N0, color='k', lw=1.4, zorder=2)
   edges = []
-  for ls, sigma, c in zip(logsig, sig_arr, colors):
+  for ls, sigma, c in zip(logtte, sig_arr, colors):
     gma, N = cooled_distrib_adiab(sigma, ttd, p, gm0, gM0, a_rho, q)
     axD.loglog(gma, N, color=c, lw=1.2, solid_capstyle='round', label=f'{ls:.0f}',
                zorder=3)
@@ -253,9 +305,10 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axD.set_xlim(.5*float(gamma_cooled(sig_arr[-1], gm0, ttd, a_rho, q)), 2.*gM0)
   axD.set_ylim(1e-16, 1e4)
   axD.set_xlabel('$\\gamma$', fontsize=FS_LAB)
-  axD.set_ylabel('$N(\\gamma,\\sigma)/N_{\\rm e}$', fontsize=FS_LAB)
+  axD.set_ylabel('$N(\\gamma,\\tilde{t}_{\\rm eff})/N_{\\rm e}$', fontsize=FS_LAB)
   leg = axD.legend(fontsize=FS_LEG, ncol=2, loc='lower left', framealpha=.9,
-                   title='$\\log_{10}\\sigma$', handlelength=1.1, labelspacing=.25,
+                   title='$\\log_{10}\\tilde{t}_{\\rm eff}$', handlelength=1.1,
+                   labelspacing=.25,
                    columnspacing=.9, handletextpad=.5, borderpad=.4)
   leg.get_title().set_fontsize(FS_LEG)
   axD.grid(alpha=.25, lw=.4)
@@ -284,13 +337,13 @@ def main(show=False):
   print(f'number conserved: max |int N dgma - 1| = {check_number_conservation():.2e}')
   print(f'width law (S)   : max rel dev = {check_width_law():.2e}')
   print('per sampled time:')
-  for ls in LOGSIG_SAMPLES:
-    sigma = 10.**ls
+  for ls, sigma in zip(LOGTTE_SAMPLES, SIG_SAMPLES):
     A = float(A_of_sigma(sigma, A_RHO))
     S = float(S_of_sigma(sigma, ttd, A_RHO, Q_B))
     gm = float(gamma_cooled(sigma, GM0, ttd, A_RHO, Q_B))
     gM = float(gamma_cooled(sigma, GMA_M0, ttd, A_RHO, Q_B))
-    print(f'  log10 sigma = {ls:+.0f}: A={A:9.3e}  S={S:9.3e}  '
+    print(f'  log10 tt_eff = {ls:+.0f}: sigma={sigma:9.3e}  A={A:9.3e}  '
+          f'S={S:9.3e}  '
           f'gma_m={gm:9.3e}  gma_M={gM:9.3e}  width={gM/gm:8.4f}'
           f'{"   (under the gma=1 floor)" if gM < 1. else ""}')
   plot_cooling_shape_adiab(show=show)
