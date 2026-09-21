@@ -347,8 +347,11 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
   # the marker legend goes in the panel, the regime axis is the colour bar
   axN.scatter([], [], s=11, facecolors='none', edgecolors=INK, linewidths=.7,
               label='$\\gamma_\\mathrm{c}$')
-  axN.legend(fontsize=FS_LEG, loc='lower left', framealpha=.9, handletextpad=.2,
-             borderpad=.4)
+  # right of top centre: the curves all run upper-left to lower-right, so this is the
+  # one patch of the panel no line crosses, and it clears the gma_m / gma_M top labels
+  # (which sit at x ~ 0.39-0.42 and ~ 0.93) because the box spans about 0.55-0.85
+  axN.legend(fontsize=FS_LEG, loc='upper center', bbox_to_anchor=(.70, .95),
+             framealpha=.9, handletextpad=.2, borderpad=.4)
 
   # the bar moves UP beside the top panel only: the slope panel's right-hand side now
   # carries the expected-index ticks. An EXPLICIT cax, not ax=axN -- stealing space from
