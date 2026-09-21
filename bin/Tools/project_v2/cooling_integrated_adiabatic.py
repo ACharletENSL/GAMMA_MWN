@@ -429,8 +429,13 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
     if syn_ref:   # the same integral without the expansion term, same upper limit
       tt_end = float(tt_of_sigma(sigma_end, ttd, q))   # same NORMALISED time, not sigma
       g_s = np.geomspace(gamma_synCooled(tt_end, gm0), gM0, 600)
-      axN.loglog(g_s/gm0, N_integrated(g_s, tt_end, p, gm0, gM0), color=colors[i],
-                 lw=.55, alpha=.5, zorder=2)
+      N_s = N_integrated(g_s, tt_end, p, gm0, gM0)
+      axN.loglog(g_s/gm0, N_s, color=colors[i], lw=.55, alpha=.5, zorder=2)
+      # the ghost belongs in the slope panel too: that the two lie on top of each other
+      # over the whole plateau IS the result -- adiabatic cooling moves the cut-off and
+      # the amplitude, not the index -- and it can only be read where slopes are drawn
+      axS.semilogx(g_s/gm0, log_slope(g_s, N_s), color=colors[i], lw=.55, alpha=.5,
+                   zorder=2)
     gma, N = integrated_distrib_adiab(logC[i], sigma_end, p, gm0, gM0, a_rho, q)
     axN.loglog(gma/gm0, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
     axS.semilogx(gma/gm0, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
@@ -471,8 +476,9 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
     axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axS.annotate('$\\gamma<1$', (GMA_FLOOR/gm0, .03), xycoords=('data', 'axes fraction'),
-               color='crimson', fontsize=FS_ANN, ha='right', va='bottom',
+  axS.annotate('$\\gamma=1$', (GMA_FLOOR/gm0, .10), xycoords=('data', 'axes fraction'),
+               textcoords='offset points', xytext=(3, 0), color='crimson',
+               fontsize=FS_ANN, ha='left', va='bottom',
                bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axN.scatter([], [], s=11, facecolors='none', edgecolors=INK, linewidths=.7,
               label='$\\gamma_\\mathrm{c}$')

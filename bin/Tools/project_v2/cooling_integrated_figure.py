@@ -332,8 +332,9 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
     axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axS.annotate('$\\gamma=1$', (1./gm0, .03), xycoords=('data', 'axes fraction'),
-               color='crimson', fontsize=FS_ANN, ha='center', va='bottom',
+  axS.annotate('$\\gamma=1$', (1./gm0, .10), xycoords=('data', 'axes fraction'),
+               textcoords='offset points', xytext=(3, 0), color='crimson',
+               fontsize=FS_ANN, ha='left', va='bottom',
                bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   # the marker legend goes in the panel, the regime axis is the colour bar
   axN.scatter([], [], s=11, facecolors='none', edgecolors=INK, linewidths=.7,
