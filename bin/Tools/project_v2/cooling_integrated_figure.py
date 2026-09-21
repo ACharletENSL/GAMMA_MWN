@@ -100,15 +100,18 @@ cooling. Two consequences, opposite in size:
     generate_cellDistrib recomputes t_{c,1} per step, so gma = gma0/(1+gma0*tt) is exact
     for ANY B'(t') as long as synchrotron is the only loss. Nothing here needs a
     steady field.
-  - The gma^-2 segment is where it does bite. With expansion the loss rate is
-    -dgma/dtt = gma^2 + a*gma (a = -(1/3) dln rho/dtt), so the dwell time is
-    dtt = dgma/(gma^2 + a*gma): still gma^-2 where synchrotron dominates, but FLATTENING
-    toward gma^-1 below gma ~ a. That is the bottom of the fast-cooling branch --
-    exactly the part that sets the fluence's low-energy slope -- so the -2 drawn here is
-    an upper bound on the steepness there, not a measured result. Where the crossover
-    sits in the fiducial run has not been measured; the break positions and the -p and
-    -(p+1) segments are unaffected, since adiabatic cooling rescales gma uniformly and
-    maps a power law to the same power law.
+  - What it changes is the CUT-OFF, not the slope. With expansion the loss rate is
+    -dgma/dtt = gma^2 + a*gma (a = -(1/3) dln rho/dtt), and the tempting reading -- that
+    the dwell time dtt = dgma/(gma^2 + a*gma) flattens the tail toward gma^-1 below
+    gma ~ a -- IS WRONG, as cooling_integrated_adiabatic computes: a and the cooled
+    population fall at the same rate (1/tau), so a/gma is pinned at a constant and the
+    index stays ~ -2 for every expansion law tested (-2.0 .. -1.87 over
+    a_rho = -0.5 .. -2.9). The -2 drawn here is therefore NOT an upper bound on the
+    steepness. Adiabatic cooling instead (i) suppresses the tail's amplitude toward
+    b = 1 + a_rho/3 and (ii) removes the sharp low-energy cut-off altogether once the
+    integration runs past ~t_dyn, because electrons keep sliding instead of stalling.
+    The break positions and the -p, -(p+1) segments are untouched either way, since
+    adiabatic cooling rescales gma uniformly and maps a power law to the same one.
 
 VALIDITY. gma_synCooled is the ultra-relativistic solution and drives gma -> 0; below
 gma = 1 (marked in red) it is not the physical trajectory, which is why the emission code
