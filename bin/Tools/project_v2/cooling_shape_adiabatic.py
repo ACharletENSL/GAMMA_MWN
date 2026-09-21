@@ -275,7 +275,11 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axT.tick_params(axis='x', pad=1.5)
   axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
   # the regime this figure had to pick, stated inside the panel (article convention)
-  axT.annotate(f'$\\log_{{10}}\\mathcal{{C}}={logC:.0f}$', (.03, .22),
+  # written as the RATIO itself, not as its log: this panel states ONE value, and the
+  # log form is long enough spelled out to run under the legend at lower centre
+  reg = ('$\\bar{\\gamma}_{\\rm c}=\\gamma_{\\rm m}$' if logC == 0. else
+         f'$\\bar{{\\gamma}}_{{\\rm c}}/\\gamma_{{\\rm m}}=10^{{{logC:.0f}}}$')
+  axT.annotate(reg, (.03, .22),
                xycoords='axes fraction', color=INK, fontsize=FS_ANN, ha='left',
                va='bottom')      # clear of gma=1 (~0.09) and of the gma_m track (~0.41)
   # bottom centre: the tracks all run from the upper left to the lower right, so the

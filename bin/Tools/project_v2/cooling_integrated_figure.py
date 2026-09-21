@@ -28,7 +28,8 @@ time of a gma electron is 1/gma and the cooling Lorentz factor is simply
     gma_c = 1/tilde{t}_dyn
 
 (exactly cooling_distribution.check_coolRegime_cell's gma_c = tc1/tdyn). One curve per
-value of C = gma_c/gma_m, the article's `\\mathcal{C}`: fixing C fixes the integration
+value of C = bar{gma}_c/gma_m (the article's `\\mathcal{C}`, spelled out in this
+series' labels): fixing C fixes the integration
 limit, tt_dyn = 1/(C*gma_m0). The colours are the sweep's, jet indexed on log10 C.
 
 THE CLOSED FORM. Two routes, and they agree.
@@ -146,7 +147,9 @@ INK, MUTED = '0.25', '0.55'
 FIGSIZE = (3.4, 5.6)
 FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 7.5, 7.
 
-C_LABEL = '$\\log_{10}\\mathcal{C}$'
+# the ratio is SPELLED OUT in this series, not abbreviated to the article's
+# \mathcal{C} -- parenthesised because it sits inside the log
+C_LABEL = '$\\log_{10}(\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m})$'
 GMA_LABEL = '$\\gamma/\\gamma_{\\mathrm{m},\\!0}$'
 
 
