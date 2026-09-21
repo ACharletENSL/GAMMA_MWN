@@ -219,7 +219,10 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axT.annotate(f'$\\log_{{10}}\\mathcal{{C}}={logC:.0f}$', (.03, .22),
                xycoords='axes fraction', color=INK, fontsize=FS_ANN, ha='left',
                va='bottom')      # clear of gma=1 (~0.09) and of the gma_m track (~0.41)
-  axT.legend(fontsize=FS_LEG, loc='upper right', framealpha=.9, handlelength=1.4,
+  # bottom centre: the tracks all run from the upper left to the lower right, so the
+  # box sits in the one corner they leave empty -- and in the adiabatic variant it is
+  # the only placement that does not lie over the flat 'adiab. only' line
+  axT.legend(fontsize=FS_LEG, loc='lower center', framealpha=.9, handlelength=1.4,
              labelspacing=.25, handletextpad=.5, borderpad=.4)
   axT.grid(alpha=.25, lw=.4)
 
