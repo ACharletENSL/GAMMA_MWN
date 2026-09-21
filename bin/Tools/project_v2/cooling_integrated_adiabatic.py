@@ -2,20 +2,26 @@
 # @Author: acharlet
 
 '''
-The time-integrated electron distribution WITH adiabatic cooling, over 100 t_dyn.
+The time-integrated electron distribution WITH adiabatic cooling, over 10^4 t_dyn.
 
 APPENDIX ILLUSTRATION, on the same footing as cooling_shape_figure: the comoving cooling
 time t'_c is held CONSTANT, so the only thing added to the synchrotron-only picture is
 the adiabatic drag. Not a measurement of this run, not a main result.
 
 sigma_end is a PARAMETER and the figure is meant to be re-run at several values; the
-numbers quoted below are at the current default, 100 t_dyn. The three that have been
+numbers quoted below are at the current default, 10^4 t_dyn. The four that have been
 looked at, all at a_rho = -2, q = 0:
 
     sigma_end     edge drop   deep-tail ratio   index    regimes under gma = 1
     1    t_dyn      x0.808         0.754        -1.932        1 of 7 (to 0.807)
     100  t_dyn      x0.420         0.415        -1.897        3 of 7 (to 4.2e-3)
     10^3 t_dyn      x0.370         0.369        -1.951        4 of 7 (to 3.7e-4)
+    10^4 t_dyn      x0.350         0.350        -1.977        5 of 7 (to 3.5e-5)
+
+Everything converges on the asymptotic predictions as sigma_end grows -- the edge drop
+and the amplitude ratio both reach e = 1/3, the index reaches -2 -- so the long-time end
+of the scan is where the analytic statements in this docstring are cleanest. It is also
+where the figure is least trustworthy: see VALIDITY.
 
 At sigma_end = 1 the figure sits on cooling_integrated_figure's own limit and axes, and
 the 'no adiab.' ghosts ARE that figure's curves; past that the two diverge and the panel
@@ -56,11 +62,13 @@ things move at once.
       1    t_dyn       -1.932     -1.931      -1.934    <- q hardly matters
       100  t_dyn       -1.897     -1.330      -0.401    <- q already dominant
       10^3 t_dyn       -1.951     -1.102      +0.424    <- q decides the index
+      10^4 t_dyn       -1.977     -1.024      +0.498
 
   so the index is a strong function of the FIELD history and not only of the density one,
   but ONLY once the burn has had time to saturate. It has barely begun to at one t_dyn
   and is well past it by 100, so q = 0 is a safe default only at the short end -- at the
-  current 100 t_dyn it is already a real assumption, not a harmless one.
+  current 10^4 t_dyn it is the single biggest assumption in the figure, worth 2.5 in the
+  index on its own.
   The q=1 value is positive because once S is frozen every trajectory collapses onto
   gma = A/S_inf: the population slides down as one delta function, and with
   dtt = tt_dyn (1+sigma)^-2 dsigma the normalised time it spends at low gma goes to
@@ -130,36 +138,41 @@ never near -1 (check_index_is_robust). THIS ARGUMENT IS SPECIFIC TO q = 0: the i
 alpha - e = -1 needs e = 1 + alpha, and at q > 0 it fails.
 
 So at constant t'_c the effect is a renormalisation, not a new segment:
-  - the tail keeps index ~ -2: -1.897 at 100 t_dyn, and -1.98 .. -1.82 across
-    a_rho = -0.5 .. -2.9 (check_index_is_robust);
-  - its amplitude is suppressed toward e = 1 + a_rho/3 = 1/3, reaching 0.415 at 100 t_dyn
-    at the deepest gma where the synchrotron curve still exists to divide by, and climbing
-    back to 1 near gma_m (check_deep_tail_ratio);
-  - the bottom edge moves DOWN by x0.420 (edge_drop_factor), still short of its e = 1/3
-    limit: the exact factor is A*e*sigma/((1+sigma)^e - 1) and the -1 in that denominator
-    is what keeps it above e.
-At 100 t_dyn the cut-off is still a cut-off -- every curve ends somewhere -- but it has
-been dragged a full 1.4 decades below where synchrotron alone would leave it, and three
-of the seven regimes end under gma = 1. The washing-out into an open gma^-2 tail is a
-1e3 t_dyn phenomenon; this is the halfway house.
+  - the tail keeps index ~ -2: -1.977 at 10^4 t_dyn, and -2.00 .. -1.91 across
+    a_rho = -0.5 .. -2.9 (check_index_is_robust) -- the tightest of the whole scan;
+  - its amplitude is suppressed toward e = 1 + a_rho/3 = 1/3, and by 10^4 t_dyn it is
+    THERE: 0.350 at the deepest gma where the synchrotron curve still exists to divide
+    by, climbing back to 1 near gma_m (check_deep_tail_ratio);
+  - the bottom edge moves DOWN by x0.350 (edge_drop_factor), likewise at its e = 1/3
+    limit; the exact factor is A*e*sigma/((1+sigma)^e - 1), and the -1 in that denominator
+    that held it above e at short sigma_end is now negligible.
+So at 10^4 t_dyn the asymptotic description is exact to a percent or two, and the cut-off
+has been dragged 4.5 decades below where synchrotron alone would leave it. Every curve
+still ENDS somewhere -- the population is finite and the edge is sharp -- but for five of
+the seven regimes that end is below gma = 1.
 
   TRAP, and this check was wrong once: the bottom edge has TWO limits, not one.
   gma_m = A gma_m0/(1 + gma_m0 S) tends to A/S only when gma_m0*S >> 1 (cooled), and to
   A*gma_m0 -- pure adiabatic drag, no burn at all -- when gma_m0*S << 1. At log10 C = +3
-  the population has barely cooled (gma_m0*S = 0.011 at 100 t_dyn), so scoring it against
-  A/S reads wildly off while nothing is wrong. check_bottom_edge gates each regime into
-  the limit it is actually in -- at 100 t_dyn, 3 fast and 1 slow, the middle three in
-  neither. How many fall in each moves with sigma_end, which is why it is gated and not
-  hard-coded.
+  the population has barely cooled at short sigma_end (gma_m0*S = 7.8e-4 at one t_dyn),
+  so scoring it against A/S reads wildly off while nothing is wrong. check_bottom_edge
+  gates each regime into the limit it is actually in. HOW MANY fall in each moves with
+  sigma_end -- 2 fast / 2 slow at one t_dyn, 4 fast / 0 slow at 10^4, where the burn has
+  cooled even the slowest regime -- which is why it is gated and reported, not
+  hard-coded. A zero count is a statement about the scan point, not a failure.
 
 VALIDITY, and it BINDS here in a way it did not before. These are ultra-relativistic
 trajectories; below gma = 1 the real loss rate (gma^2 - 1, cooling_distribution.
 coolingFunc_ODE) collapses and electrons stall near gma ~ 1 instead of continuing down,
-which is why the emission code floors its gamma integral there. At 100 t_dyn THREE of the
-seven regimes end below it -- log10 C = -3, -2 and -1, the last of them at gma = 4.2e-3 --
-so the shaded band is a real part of the panel and not a sliver. Inside it those curves
-are the model continued past where it is true, drawn to show where the population is
-heading rather than where it is.
+which is why the emission code floors its gamma integral there. READ THIS FIGURE WITH
+THAT IN MIND: at 10^4 t_dyn FIVE of the seven regimes end below the floor, down to
+gma = 3.5e-5, and the shaded band covers something like the left half of the panel. Those
+five curves are the ultra-relativistic trajectory continued far past where it holds --
+the real loss rate dies as gma^2 - 1 and the electrons would stall near gma ~ 1 instead
+of reaching 1e-5. They show where the population is HEADING under this model, not where
+it is. Only log10 C = +2 and +3 stay entirely above the floor. The shorter the
+integration, the less of this caveat applies: at one t_dyn it is a single curve ending
+at 0.807.
 
 Run:  python cooling_integrated_adiabatic.py
 '''
@@ -182,7 +195,7 @@ A_RHO = -2.0                # dln rho/dln R: simple coasting, rho' ~ R^-2. The r
 Q_B = 0.0                   # B' ~ R^-q. 0 = constant B'/t'_c, the footing cooling_shape
                             # is on. q=1 (B' ~ R^-1) makes the burn SATURATE -- see the
                             # CORRECTION block in the docstring
-SIGMA_END = 100.            # integrate to 100 t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
+SIGMA_END = 1e4             # integrate to 10^4 t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
                             # A parameter the user scans: at 1 it matches
                             # cooling_integrated_figure exactly, at 1e3 the cut-off has
                             # washed out entirely. The panel limits follow it (below)
@@ -593,7 +606,7 @@ def main(show=False):
   for a_rho, ee2, idx in check_index_is_robust():
     print(f'    a_rho={a_rho:+.3f}  e={ee2:.4f}  ->  index {idx:+.4f}')
   print("the field index q matters only once the burn has had TIME to saturate:")
-  for se in (SIGMA_END, 1e3):
+  for se in sorted({1., 1e3, SIGMA_END}):   # always show the short/long contrast
     row = '   '.join(f'q={qq:.1f} {measure_low_slope(-3., se, q=qq)[1]:+.3f}'
                      for qq in (0., .5, 1.))
     print(f'    sigma_end={se:>7g} t_dyn:  {row}')
