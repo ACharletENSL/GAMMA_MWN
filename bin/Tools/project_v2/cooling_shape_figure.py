@@ -4,6 +4,11 @@
 '''
 How a power-law electron distribution is reshaped by synchrotron cooling.
 
+Base module of the four that share figures/cooling_distributions (it defines OUTDIR for
+all of them): {cooling_shape_figure, cooling_integrated_figure} x {synchrotron only,
++ adiabatic}, the adiabatic halves being cooling_shape_adiabatic and
+cooling_integrated_adiabatic. This one is the instantaneous, synchrotron-only corner.
+
 Purely analytic figure -- no simulation data. It draws the exact solution that the
 whole cooling pipeline is built on, using the very functions the pipeline calls
 (cooling_distribution.gamma_synCooled / .distrib_plaw_cooled), so the picture is a
@@ -70,7 +75,10 @@ GM0, GMA_M0 = 1e3, 1e8      # injected bounds gma_m0, gma_M0 (fiducial case)
 # on to tt = 1, where the population has cooled all the way onto gma = 1
 LOGTT_SAMPLES = (-8., -7., -6., -5., -4., -3., -2., -1., 0.)
 NG = 800                    # points per curve
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'cooling_shape')
+# ONE folder for the whole analytic-distribution family: the instantaneous shape and the
+# time-integrated distribution, each with and without adiabatic cooling. Defined here, in
+# the base module, and imported by the other three so the four cannot drift apart.
+OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'cooling_distributions')
 
 # recessive ink for every non-data mark (text never wears a series colour)
 INK, MUTED = '0.25', '0.55'

@@ -126,7 +126,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-from environment import GAMMA_dir
 from cooling_distribution import gamma_synCooled, norm_plaw_distrib, distrib_plaw_cooled
 
 # --- defaults -------------------------------------------------------------------------
@@ -137,7 +136,7 @@ GM0, GMA_M0 = 1e3, 1e8      # injected bounds gma_m0, gma_M0 (fiducial, as cooli
 # the gma = 1 floor on these bounds (see VALIDITY above).
 LOGC_SAMPLES = (-3., -2., -1., 0., 1., 2., 3.)
 NG = 3000                   # points per curve (log-spaced over the support)
-OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'cooling_integrated')
+from cooling_shape_figure import OUTDIR          # the shared family folder
 
 # recessive ink for every non-data mark (text never wears a series colour)
 INK, MUTED = '0.25', '0.55'
