@@ -51,6 +51,14 @@ it converges far more slowly, because the dropped term dies only as (1+sigma)^(|
 C-DEPENDENT, its normalisation carrying tt_dyn, so it is a guide for this panel's
 reference C and not a universal line the way tt_eff^-1 is.
 
+The guide is normalised on gma_m0 and the SLOWEST-cooling C in LOGC_M, because that is
+the curve pure adiabatic drag describes: gma_m = A gma_m0/(1 + gma_m0 A tt_eff), and at
+large C the burn term stays small, so gma_m ~ A gma_m0. Measured against log10 C = +3 the
+guide is within 20% over tt_eff = 1e-4 .. 1 and sits on the curve to the eye. It leaves
+at both ends -- early the curve has not entered the asymptotic regime (A is still ~1 and
+gma_m is still gma_m0), late the burn term grows as tt_eff^e and turns the curve over
+toward tt_eff^-1. So the -2/3 stretch is a TRANSIENT, not the end state.
+
 Three properties make the pair directly comparable:
   - tt_eff is strictly increasing (S grows while A falls), so it is a valid abscissa;
   - tt_eff -> tt as A -> 1, agreeing to 3e-8 at sigma = 1e-8, so the two figures share
@@ -154,7 +162,7 @@ LOGTTE_SAMPLES = LOGTT_SAMPLES
 TTE_LIM = (1e-11, 1e2)      # tt_eff range of the top panel: past 1 so VFC is a band
 MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
 BAND_ALPHA = .13            # tint of the regime bands
-LOGC_M = (2., 0., -2.)      # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M
+LOGC_M = (-3., 0., 3.)      # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M
                             # is C-INDEPENDENT in tt_eff (measured identical to 4-5
                             # significant figures over logC = -3..+3), so only the
                             # bottom edge is worth repeating. LOGC stays the REFERENCE:
@@ -350,10 +358,17 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # (1+sigma)^(|alpha|-1), so the drawn range shows ~-0.63 rather than -0.667), and it is
   # C-DEPENDENT -- the normalisation carries tt_dyn -- so it is a guide for this panel's
   # reference C, not a universal line.
+  # NORMALISED ON THE SLOWEST-COOLING gma_m, not on gma_M. The slow curve is the one
+  # that follows pure adiabatic drag: gma_m = A gma_m0/(1 + gma_m0 A tt_eff), and at
+  # large C the burn term gma_m0*A*tt_eff stays small, so gma_m ~ A gma_m0 and the guide
+  # lies on the curve rather than beside it. It is a transient, though -- that term grows
+  # as tt_eff^e -- so even this curve peels off the guide and turns over toward tt_eff^-1
+  # at the right of the panel.
   alpha_a, e_a = _exps(a_rho, q)
+  ttd_slow = tt_dyn_of_C(max(logC_m), gm0)
   fr = Fraction(alpha_a).limit_denominator(100)
   exp_lab = f'{fr.numerator}' if fr.denominator == 1 else f'{fr.numerator}/{fr.denominator}'
-  axT.loglog(x, gM0*(e_a*x/ttd)**alpha_a, color=MUTED, lw=.9,
+  axT.loglog(x, gm0*(e_a*x/ttd_slow)**alpha_a, color=MUTED, lw=.9,
              ls=(0, (4, 1.2, 1, 1.2, 1, 1.2)),
              label=f'$\\tilde{{t}}_{{\\rm eff}}^{{{exp_lab}}}$')
   # the two ghosts separate the causes: what synchrotron alone would do at the same time,
