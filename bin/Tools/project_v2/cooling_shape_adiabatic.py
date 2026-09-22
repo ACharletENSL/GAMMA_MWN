@@ -244,6 +244,7 @@ TTE_LIM = (1e-11, 1e2)      # the TOP panel runs two decades further than the sa
                             # collapsed spike by then and add nothing below
 MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
 BAND_ALPHA = .13            # tint of the regime bands
+D_STYLES = ('-', '--')      # panel (b) keys the two LOGC_M regimes by style
 LOGC_M = (-3., 3.)          # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M is
                             # C-INDEPENDENT in tt_eff, so only the bottom edge is
                             # repeated; the marginal case is dropped because below C ~ 1
@@ -563,12 +564,19 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # (b) the distributions ------------------------------------------------------------------
   gma0, N0 = cooled_distrib_adiab(0., ttd, p, gm0, gM0, a_rho, q)
   axD.loglog(gma0, N0, color='k', lw=1.4, zorder=2)
-  edges = []
-  for ls, sigma, c in zip(logtte, sig_arr, colors):
-    gma, N = cooled_distrib_adiab(sigma, ttd, p, gm0, gM0, a_rho, q)
-    axD.loglog(gma, N, color=c, lw=1.2, solid_capstyle='round', label=f'{ls:.0f}',
-               zorder=3)
-    edges.append((gma[-1], N[-1]))
+  # BOTH regimes here too, keyed by LINE STYLE as the colour is already spent on time.
+  # Each needs its own sigma per sample, the tt_eff <-> sigma map being C-dependent.
+  edges, lo_D = [], np.inf
+  for j, (lc_b, sty) in enumerate(zip(logC_m, D_STYLES)):
+    ttd_b = tt_dyn_of_C(lc_b, gm0)
+    for ls, c in zip(logtte, colors):
+      sg_b = sigma_of_tt_eff(10.**ls, ttd_b, a_rho, q)
+      gma, N = cooled_distrib_adiab(sg_b, ttd_b, p, gm0, gM0, a_rho, q)
+      axD.loglog(gma, N, color=c, lw=1.2, ls=sty, solid_capstyle='round',
+                 label=(f'{ls:.0f}' if j == 0 else None), zorder=3)
+      lo_D = min(lo_D, float(gma[0]))
+      if j == 0:
+        edges.append((gma[-1], N[-1]))
   edges = np.array(edges)
   axD.plot(edges[:, 0], edges[:, 1], color=MUTED, lw=.7, zorder=4)
   axD.scatter(edges[:, 0], edges[:, 1], s=9, facecolors=colors, edgecolors='w',
@@ -584,21 +592,25 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axD.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
-  axD.set_xlim(.5*float(gamma_cooled(sig_arr[-1], gm0, ttd, a_rho, q)), 2.*gM0)
+  axD.set_xlim(.5*lo_D, 2.*gM0)      # covers the lower of the two families
   axD.set_ylim(1e-16, 1e4)
   axD.set_xlabel('$\\gamma$', fontsize=FS_LAB)
   axD.set_ylabel('$N(\\gamma,\\tilde{t}_{\\rm eff})/N_{\\rm e}$', fontsize=FS_LAB)
-  # WHICH C this panel is. The top panel draws two (LOGC_M) while this one draws the
-  # REFERENCE alone, so without the tag a reader cannot tell which -- or that the bands
-  # and knees above share it. Below the gma_M,0 label, where no curve reaches.
-  axD.annotate(f'$\\bar{{\\gamma}}_{{\\rm c}}/\\gamma_{{\\rm m}}=10^{{{logC:.0f}}}$'
-               '\n(and the bands above)', (.97, .87), xycoords='axes fraction',
-               color=INK, fontsize=FS_ANN, ha='right', va='top')
+  # two keys: COLOUR is time, STYLE is regime. The tag that used to name a single C
+  # here is gone -- the style key says it, and says it for both.
   leg = axD.legend(fontsize=FS_LEG, ncol=2, loc='lower left', framealpha=.9,
                    title='$\\log_{10}\\tilde{t}_{\\rm eff}$', handlelength=1.1,
                    labelspacing=.25,
                    columnspacing=.9, handletextpad=.5, borderpad=.4)
   leg.get_title().set_fontsize(FS_LEG)
+  axD.add_artist(leg)
+  h_st = [axD.plot([], [], color=INK, lw=1.2, ls=sty)[0] for sty in D_STYLES]
+  leg_st = axD.legend(h_st, [lab_c(lc) for lc in logC_m], fontsize=FS_LEG,
+                      loc='upper right', bbox_to_anchor=(.985, .91),
+                      framealpha=.9, handlelength=1.8,
+                      labelspacing=.22, handletextpad=.4, borderpad=.35,
+                      title='$\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m}$')
+  leg_st.get_title().set_fontsize(FS_LEG)
   axD.grid(alpha=.25, lw=.4)
 
   for ax in (axT, axD):
