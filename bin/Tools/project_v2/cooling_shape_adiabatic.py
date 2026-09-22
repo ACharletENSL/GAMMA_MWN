@@ -146,13 +146,13 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from fractions import Fraction
 
-from cooling_distribution import gamma_synCooled, norm_plaw_distrib, distrib_plaw_cooled
+from cooling_distribution import norm_plaw_distrib, distrib_plaw_cooled
 from scipy.optimize import brentq
 from cooling_shape_figure import (P_SYN, GM0, GMA_M0, NG, OUTDIR, INK, MUTED, FIGSIZE,
     FS_LAB, FS_TICK, FS_ANN, FS_LEG, LOGTT_SAMPLES, cooled_distrib)
 from cooling_integrated_figure import tt_dyn_of_C
 from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma, S_of_sigma,
-    tt_of_sigma, gamma_cooled)
+    gamma_cooled)
 
 # --- defaults -------------------------------------------------------------------------
 LOGC = 0.                   # gma_c/gma_m for the tt <-> sigma map; marginal cooling
@@ -162,7 +162,11 @@ LOGTTE_SAMPLES = LOGTT_SAMPLES
 TTE_LIM = (1e-11, 1e2)      # tt_eff range of the top panel: past 1 so VFC is a band
 MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
 BAND_ALPHA = .13            # tint of the regime bands
-LOGC_M = (-3., 0., 3.)      # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M
+LOGC_M = (-3., 3.)          # log10(bar{gma}_c/gma_m) drawn for the gma_m track. The
+                            # marginal case is dropped: below C ~ 1 the shell has not
+                            # expanded by the time the burn finishes, so C = 1 and
+                            # C = 1e-3 differ by 1.25x -- under 1% of the panel -- and
+                            # drew on top of each other. The spread is one-sided. gma_M
                             # is C-INDEPENDENT in tt_eff (measured identical to 4-5
                             # significant figures over logC = -3..+3), so only the
                             # bottom edge is worth repeating. LOGC stays the REFERENCE:
@@ -371,12 +375,8 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axT.loglog(x, gm0*(e_a*x/ttd_slow)**alpha_a, color=MUTED, lw=.9,
              ls=(0, (4, 1.2, 1, 1.2, 1, 1.2)),
              label=f'$\\tilde{{t}}_{{\\rm eff}}^{{{exp_lab}}}$')
-  # the two ghosts separate the causes: what synchrotron alone would do at the same time,
-  # and what expansion alone would do. The real track is below both.
-  axT.loglog(x, gamma_synCooled(tt_of_sigma(sg, ttd, q), gM0), color='0.68', lw=.8,
-             ls='-', label='syn.')
-  axT.loglog(x, A_of_sigma(sg, a_rho)*gM0, color='0.68', lw=.8, ls=(0, (4, 1.5)),
-             label='adiab.')
+  # the syn-only and adiab-only ghosts are gone: the two asymptote guides above now say
+  # what they said, at the slopes rather than as whole tracks, and the panel reads.
   axT.loglog(x, gamma_cooled(sg, gM0, ttd, a_rho, q), color='k', lw=1.4,
              label='$\\gamma_\\mathrm{M}$')
   # gma_m ONCE PER C. Each regime has its own tt_eff <-> sigma map, so each gets its own
