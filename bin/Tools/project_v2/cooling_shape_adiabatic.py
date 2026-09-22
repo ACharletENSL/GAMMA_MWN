@@ -16,6 +16,40 @@ and B' ~ R^-1. The field decays too now, so unlike cooling_shape_figure this is 
 constant-t'_c picture, and the consequences are large -- see THE BURN SATURATES there. The physics functions are imported from
 that module rather than restated, so the two adiabatic figures cannot drift apart.
 
+THE SCALINGS, IN ONE PLACE. Three are put in, one combination controls everything.
+
+  PUT IN, all against radius, with R/R_0 = 1 + sigma and sigma = t'/t'_dyn (coasting):
+      rho' ~ R^-1.2      a_rho = -1.2   ->  A = (rho/rho_0)^(1/3) = (1+sigma)^alpha,
+                                            alpha = a_rho/3 = -0.4
+      B'   ~ R^-1        q = 1          ->  t'_c ~ 1/B'^2 ~ R^2q, so the CLOCK stretches:
+                                            dtt = dt'/t'_c ~ (1+sigma)^-2q dsigma
+
+  THE ONE COMBINATION. S = int A dtt has integrand (1+sigma)^(alpha-2q), so everything
+  turns on
+
+      e = alpha - 2q + 1 = -1.4,     S(sigma) = tt_dyn [(1+sigma)^e - 1]/e.
+
+  e > 0 and the burn grows without bound; e < 0 and it SATURATES at S_inf = tt_dyn/|e|.
+  At the shell fiducial it saturates. Three consequences, each measured:
+
+    1. WHICH REGIMES CAN COOL. The bottom edge needs S > 1/gma_m0, so only
+       C < 1/|e| = 0.714 ever reaches fast cooling. C = 1 and above never do, however
+       long you wait -- which is why LOGC is -3 and not the marginal case.
+    2. THE FINAL WIDTH is closed-form. gma_M/gma_m depends on S alone (the A cancels),
+       so once S freezes so does the width, at
+           gma_M/gma_m -> 1 + |e| C
+       -- exact to six figures over C = 1e-3 .. 10. Mono-energetic needs |e| C << 1,
+       the SAME threshold as (1). At C = 1e-3 it is 1.0014; at C = 1 it stalls at 2.40.
+    3. THE CLOCK CRAWLS. tt itself saturates at tt_dyn, and tt_eff = S/A grows only as
+       (1+sigma)^|alpha|, so tt_eff = 1e2 is sigma ~ 2e5 at the reference C. The top
+       panel's right-hand end is asymptotic behaviour, not a time a shell reaches.
+
+  THE TWO ASYMPTOTES on the top panel follow from the same algebra. gma_M -> 1/tt_eff
+  always. The adiabatic track goes as tt_eff^(alpha/m) with m = max(1-2q, |alpha|): that
+  is alpha = a_rho/3 at q = 0, but alpha/|alpha| = -1 for ANY a_rho once q > 1/2. At the
+  shell fiducial both are tt_eff^-1, which is why the two guides are labelled by
+  mechanism rather than by index.
+
 THE SOLUTION. The cooling equation dgma/dtt = (dlnA/dtt) gma - gma^2 is linear in
 u = 1/gma and integrates with A = (rho/rho_0)^(1/3) as the integrating factor:
 
@@ -188,8 +222,11 @@ LOGC = -3.                  # gma_c/gma_m for the tt <-> sigma map, the bands, t
 # collapse. NOTE the physical cost: with B' ~ R^-1 the clock crawls (tt_eff grows only
 # as sigma^|alpha|), so the right-hand end is sigma ~ 7e12 dynamical times at the
 # reference C. The late panel is asymptotic behaviour, not a time the shell reaches.
-LOGTTE_SAMPLES = (-8., -7., -6., -5., -4., -3., -2., -1., 0., 1., 2.)
-TTE_LIM = (1e-11, 1e2)
+LOGTTE_SAMPLES = (-8., -7., -6., -5., -4., -3., -2., -1., 0.)
+TTE_LIM = (1e-11, 1e2)      # the TOP panel runs two decades further than the samples:
+                            # the tracks' asymptotes only declare themselves past
+                            # tt_eff ~ 1, while the distributions are already a
+                            # collapsed spike by then and add nothing below
 MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
 BAND_ALPHA = .13            # tint of the regime bands
 LOGC_M = (-3., 3.)          # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M is
