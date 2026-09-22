@@ -302,7 +302,15 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
            ('MC',  t_m/MC_FAC,  t_m*MC_FAC,   '0.6'),
            ('FC',  t_m*MC_FAC,  1.,           '#67a9cf'),
            ('VFC', 1.,          x[-1],        '#2166ac'))
+  # GUARD: tt_m is found by interpolating S, and at large C the bottom edge never burns
+  # inside the plotted window -- S tops out below 1/gma_m0 -- so the interp saturates at
+  # the panel edge and FC comes out as a REVERSED span lying over VFC. Clip every band to
+  # the axis and drop the ones that collapse; a missing band is the honest rendering of
+  # a regime this window does not reach.
   for lab, a_, b_, col in bands:
+    a_, b_ = max(a_, x[0]), min(b_, x[-1])
+    if not a_ < b_:
+      continue
     axT.axvspan(a_, b_, color=col, alpha=BAND_ALPHA, lw=0, zorder=0)
     # y = 0.96, not 0.985: with a box the label needs its pad to stay INSIDE the axes,
     # or the box paints over the top spine and breaks it into segments
