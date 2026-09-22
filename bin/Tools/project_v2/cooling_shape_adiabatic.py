@@ -336,8 +336,7 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # gma_m ONCE PER C. Each regime has its own tt_eff <-> sigma map, so each gets its own
   # sigma grid; the abscissa is the same physical variable for all of them, which is why
   # they can share an axis at all -- and why gma_M, drawn once above, lands on every one
-  # of their tracks. The dot on each curve is that C's OWN knee, where its S reaches
-  # 1/gma_m0: the regime boundary the bands draw for the reference C moves with C.
+  # of their tracks.
   colors_m = plt.cm.jet(plt.Normalize(-3., 3.)(np.asarray(logC_m, dtype=float)))
   h_m, lo_m = [], []
   for lc, col in zip(logC_m, colors_m):
@@ -347,10 +346,9 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
     g_c = gamma_cooled(sg_c, gm0, ttd_c, a_rho, q)
     ln, = axT.loglog(x_c, g_c, color=col, lw=1.1, ls='--', zorder=3)
     h_m.append(ln); lo_m.append(float(g_c[-1]))
-    tm_c = np.interp(1./gm0, S_of_sigma(sg_c, ttd_c, a_rho, q), x_c)
-    if x_c[0] < tm_c < x_c[-1]:
-      axT.plot(tm_c, np.interp(tm_c, x_c, g_c), 'o', ms=3.5, mfc=col, mec='w',
-               mew=.6, zorder=6)
+  # a black PROXY so gma_m appears in the top row beside gma_M, as the quantity it is;
+  # which C each coloured track belongs to is the in-panel key's job, not this one's
+  axT.plot([], [], color='k', lw=1.1, ls='--', label='$\\gamma_\\mathrm{m}$')
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
   # the knees are where the edges burn, i.e. where S reaches 1/gma_edge. In tt_eff they
   # land a little RIGHT of 1/gma_edge, by the factor 1/A they have picked up by then.
@@ -385,24 +383,28 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # ORDER MATTERS. The legend that sits OUTSIDE the axes has to be the one left in
   # ax.legend_, because bbox_inches='tight' walks that and not artists re-parented with
   # add_artist -- built the other way round, the top row is cropped off the page.
-  # BOTH legends go above the panel, stacked. With three gma_m tracks added there is no
-  # box-sized gap left inside: a scan of 18 in-panel anchors bottomed out at 3 crossed
-  # lines, and the ones it would cross are the gma_m plateaux this key exists to name.
-  # That costs a second row above the figure -- the one-row rule held at five entries,
-  # not at seven.
+  # the C key is a VERTICAL box inside the panel, centre left. It sits over the gma_m
+  # plateaux, which is accepted here: they are flat and identical there, so the box hides
+  # nothing a reader needs, and it keeps the row above the panel to one line.
   lab_c = lambda lc: '$1$' if lc == 0. else f'$10^{{{lc:.0f}}}$'
-  leg_m = axT.legend(h_m, [lab_c(lc) for lc in logC_m], fontsize=FS_LEG, ncol=3,
-                     loc='lower center', bbox_to_anchor=(.5, 1.14),
-                     title='$\\gamma_\\mathrm{m}$ at $\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m}=$',
-                     framealpha=1., handlelength=1.4, handletextpad=.4, borderpad=.3,
-                     columnspacing=.9)
+  leg_m = axT.legend(h_m, [lab_c(lc) for lc in logC_m], fontsize=FS_LEG,
+                     loc='center left',
+                     title='$\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m}$',
+                     framealpha=.9, handlelength=1.4, labelspacing=.22,
+                     handletextpad=.4, borderpad=.35)
   leg_m.get_title().set_fontsize(FS_LEG)
   axT.add_artist(leg_m)
   h_ref = [ln for ln in axT.get_lines() if not ln.get_label().startswith('_')]
-  leg = axT.legend(h_ref, [ln.get_label() for ln in h_ref], fontsize=FS_LEG,
-                   loc='lower center', bbox_to_anchor=(.5, 1.005), ncol=4,
-                   framealpha=1., handlelength=1.2, handletextpad=.4, borderpad=.3,
-                   columnspacing=.9)
+  # a FIGURE legend, placed over panel (a) in figure coordinates. As an AXES legend
+  # anchored outside its own axes this was silently dropped by savefig's tight-bbox pass
+  # and cropped off the page -- get_tightbbox() reported it at dpi=100 but the saved
+  # figure came out 0.25 in shorter, exactly the legend's height, and reordering the two
+  # legends did not help. Figure legends are always walked.
+  pT = axT.get_position()
+  leg = fig.legend(h_ref, [ln.get_label() for ln in h_ref], fontsize=FS_LEG,
+                   loc='lower center', bbox_to_anchor=(pT.x0 + .5*pT.width, pT.y1 + .008),
+                   bbox_transform=fig.transFigure, ncol=5, framealpha=1.,
+                   handlelength=1.2, handletextpad=.4, borderpad=.3, columnspacing=.9)
   axT.grid(alpha=.25, lw=.4)
 
   # (b) the distributions ------------------------------------------------------------------
@@ -445,9 +447,11 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
 
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
-  # the top legend lives OUTSIDE the axes and was re-parented with add_artist, which
-  # bbox_inches='tight' does not walk -- without this it is cropped off the page
-  fig.savefig(path, dpi=300, bbox_inches='tight', bbox_extra_artists=(leg, leg_m))
+  # NO bbox_extra_artists here. Passing it REPLACES the default extras for every axes
+  # (Figure.get_tightbbox hands the same list down to each Axes.get_tightbbox), which
+  # dropped the legend above panel (a) and cropped it off the page. The default walk
+  # already covers figure legends.
+  fig.savefig(path, dpi=300, bbox_inches='tight')
   print(f'saved {path}')
   if show:
     plt.show()
