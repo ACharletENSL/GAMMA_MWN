@@ -121,6 +121,7 @@ Run:  python cooling_shape_adiabatic.py
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 from cooling_distribution import gamma_synCooled, norm_plaw_distrib, distrib_plaw_cooled
 from scipy.optimize import brentq
@@ -137,6 +138,7 @@ LOGC = 0.                   # gma_c/gma_m for the tt <-> sigma map; marginal coo
 LOGTTE_SAMPLES = LOGTT_SAMPLES
 TTE_LIM = (1e-11, 1e2)      # tt_eff range of the top panel: past 1 so VFC is a band
 MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
+BAND_ALPHA = .13            # tint of the regime bands
 FNAME = 'cooling_shape_adiabatic.png'
 
 
@@ -249,6 +251,15 @@ def check_reduces_to_shape(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
   return dev
 
 
+def _band_bg(col, alpha=BAND_ALPHA):
+  '''
+  The OPAQUE colour a band tint blends to over white. A label box painted in it is
+  invisible against its own band but still masks whatever runs underneath -- which is
+  what the MC label needs, sitting as it does exactly on the tt_m vertical.
+  '''
+  return tuple(alpha*c + (1. - alpha) for c in mcolors.to_rgb(col))
+
+
 # --- the figure ---------------------------------------------------------------------------
 def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     logtte=LOGTTE_SAMPLES, outdir=OUTDIR, fname=FNAME, show=False):
@@ -292,9 +303,12 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
            ('FC',  t_m*MC_FAC,  1.,           '#67a9cf'),
            ('VFC', 1.,          x[-1],        '#2166ac'))
   for lab, a_, b_, col in bands:
-    axT.axvspan(a_, b_, color=col, alpha=.13, lw=0, zorder=0)
-    axT.annotate(lab, (np.sqrt(a_*b_), .985), xycoords=('data', 'axes fraction'),
-                 color=INK, fontsize=FS_ANN, ha='center', va='top')
+    axT.axvspan(a_, b_, color=col, alpha=BAND_ALPHA, lw=0, zorder=0)
+    # y = 0.96, not 0.985: with a box the label needs its pad to stay INSIDE the axes,
+    # or the box paints over the top spine and breaks it into segments
+    axT.annotate(lab, (np.sqrt(a_*b_), .96), xycoords=('data', 'axes fraction'),
+                 color=INK, fontsize=FS_ANN, ha='center', va='top',
+                 bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
   # 1/tt_eff is the burn-off asymptote, EXACTLY as 1/tt is in cooling_shape_figure --
   # that is what this abscissa buys, and the top edge slides down along it
   axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}_{\\rm eff}$')
@@ -321,7 +335,14 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # edge both edges have converged to ~1e-2, so a fixed 0.15 would cut them off partway
   # through VFC -- the one band they were added to populate. A decade of empty top for
   # the band labels.
-  axT.set_ylim(.3*float(gamma_cooled(sg[-1], gm0, ttd, a_rho, q)), 30.*gM0)
+  # TWO decades of empty top, not one: the band labels now carry boxes, and a box at
+  # y = 0.96 reaches down to ~0.86 in axes units -- with only one decade the gma_M
+  # plateau sits at 0.877 and the VSC box paints over it.
+  axT.set_ylim(.3*float(gamma_cooled(sg[-1], gm0, ttd, a_rho, q)), 300.*gM0)
+  # pin the ticks to EVEN powers so gma = 1 carries one: with the extra headroom the
+  # default locator lands on 10^9, 10^7, ... and the crimson gma = 1 line ends up
+  # between two labelled ticks, which is the one value a reader looks for here
+  axT.set_yticks(10.**np.arange(-2., np.log10(gM0) + 1., 2.))
   # this label sits in the GAP between the panels, so it is kept tight against the
   # axis it names -- at the default pads it drifts closer to the panel below and
   # reads as belonging to that one
