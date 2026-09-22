@@ -139,6 +139,11 @@ LOGTTE_SAMPLES = LOGTT_SAMPLES
 TTE_LIM = (1e-11, 1e2)      # tt_eff range of the top panel: past 1 so VFC is a band
 MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
 BAND_ALPHA = .13            # tint of the regime bands
+LOGC_M = (2., 0., -2.)      # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M
+                            # is C-INDEPENDENT in tt_eff (measured identical to 4-5
+                            # significant figures over logC = -3..+3), so only the
+                            # bottom edge is worth repeating. LOGC stays the REFERENCE:
+                            # it sets the bands, the knees and panel (b).
 FNAME = 'cooling_shape_adiabatic.png'
 
 
@@ -262,7 +267,7 @@ def _band_bg(col, alpha=BAND_ALPHA):
 
 # --- the figure ---------------------------------------------------------------------------
 def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
-    logtte=LOGTTE_SAMPLES, outdir=OUTDIR, fname=FNAME, show=False):
+    logtte=LOGTTE_SAMPLES, logC_m=LOGC_M, outdir=OUTDIR, fname=FNAME, show=False):
   '''
   Two-panel view, laid out exactly as cooling_shape_figure so the pair can be read across:
   the edge tracks on top, the distributions they sample below.
@@ -328,8 +333,24 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
              label='adiab.')
   axT.loglog(x, gamma_cooled(sg, gM0, ttd, a_rho, q), color='k', lw=1.4,
              label='$\\gamma_\\mathrm{M}$')
-  axT.loglog(x, gamma_cooled(sg, gm0, ttd, a_rho, q), color='k', lw=1.1, ls='--',
-             label='$\\gamma_\\mathrm{m}$')
+  # gma_m ONCE PER C. Each regime has its own tt_eff <-> sigma map, so each gets its own
+  # sigma grid; the abscissa is the same physical variable for all of them, which is why
+  # they can share an axis at all -- and why gma_M, drawn once above, lands on every one
+  # of their tracks. The dot on each curve is that C's OWN knee, where its S reaches
+  # 1/gma_m0: the regime boundary the bands draw for the reference C moves with C.
+  colors_m = plt.cm.jet(plt.Normalize(-3., 3.)(np.asarray(logC_m, dtype=float)))
+  h_m, lo_m = [], []
+  for lc, col in zip(logC_m, colors_m):
+    ttd_c = tt_dyn_of_C(lc, gm0)
+    sg_c = np.geomspace(*(sigma_of_tt_eff(t, ttd_c, a_rho, q) for t in TTE_LIM), 900)
+    x_c = tt_eff_of_sigma(sg_c, ttd_c, a_rho, q)
+    g_c = gamma_cooled(sg_c, gm0, ttd_c, a_rho, q)
+    ln, = axT.loglog(x_c, g_c, color=col, lw=1.1, ls='--', zorder=3)
+    h_m.append(ln); lo_m.append(float(g_c[-1]))
+    tm_c = np.interp(1./gm0, S_of_sigma(sg_c, ttd_c, a_rho, q), x_c)
+    if x_c[0] < tm_c < x_c[-1]:
+      axT.plot(tm_c, np.interp(tm_c, x_c, g_c), 'o', ms=3.5, mfc=col, mec='w',
+               mew=.6, zorder=6)
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
   # the knees are where the edges burn, i.e. where S reaches 1/gma_edge. In tt_eff they
   # land a little RIGHT of 1/gma_edge, by the factor 1/A they have picked up by then.
@@ -346,7 +367,7 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # TWO decades of empty top, not one: the band labels now carry boxes, and a box at
   # y = 0.96 reaches down to ~0.86 in axes units -- with only one decade the gma_M
   # plateau sits at 0.877 and the VSC box paints over it.
-  axT.set_ylim(.3*float(gamma_cooled(sg[-1], gm0, ttd, a_rho, q)), 300.*gM0)
+  axT.set_ylim(.3*min(lo_m), 300.*gM0)
   # pin the ticks to EVEN powers so gma = 1 carries one: with the extra headroom the
   # default locator lands on 10^9, 10^7, ... and the crimson gma = 1 line ends up
   # between two labelled ticks, which is the one value a reader looks for here
@@ -357,23 +378,31 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axT.set_xlabel('$\\tilde{t}_{\\rm eff}$', fontsize=FS_LAB, labelpad=1.)
   axT.tick_params(axis='x', pad=1.5)
   axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
-  # the regime this figure had to pick, stated inside the panel (article convention)
-  # written as the RATIO itself, not as its log: this panel states ONE value, and the
-  # log form is long enough spelled out to run under the legend at lower centre
-  reg = ('$\\bar{\\gamma}_{\\rm c}=\\gamma_{\\rm m}$' if logC == 0. else
-         f'$\\bar{{\\gamma}}_{{\\rm c}}/\\gamma_{{\\rm m}}=10^{{{logC:.0f}}}$')
-  # lower left: the top left is the gma_M plateau with the VSC band label over it, and
-  # with the legend lifted out of the panel this corner is free again
-  axT.annotate(reg, (.03, .22),
-               xycoords='axes fraction', color=INK, fontsize=FS_ANN, ha='left',
-               va='bottom')
-  # ONE horizontal row ABOVE the panel. With the abscissa extended past tt_eff = 1 the
-  # two edge tracks converge and sweep through the bottom centre, and the regime bands
-  # now claim the top strip, so no in-panel box is both clear of the curves and clear of
-  # the labels. Outside, it costs nothing and frees the whole interior.
-  axT.legend(fontsize=FS_LEG, loc='lower center', bbox_to_anchor=(.5, 1.005),
-             ncol=len(axT.get_lines()), framealpha=1., handlelength=1.2,
-             handletextpad=.4, borderpad=.3, columnspacing=.9)
+  # TWO legends, split by what depends on C. The C-INDEPENDENT curves go in one
+  # horizontal row above the panel (the interior has no box-sized gap: the tracks sweep
+  # through the bottom centre and the bands claim the top strip). The gma_m family gets
+  # its own key at lower left, the one corner all three leave empty.
+  # ORDER MATTERS. The legend that sits OUTSIDE the axes has to be the one left in
+  # ax.legend_, because bbox_inches='tight' walks that and not artists re-parented with
+  # add_artist -- built the other way round, the top row is cropped off the page.
+  # BOTH legends go above the panel, stacked. With three gma_m tracks added there is no
+  # box-sized gap left inside: a scan of 18 in-panel anchors bottomed out at 3 crossed
+  # lines, and the ones it would cross are the gma_m plateaux this key exists to name.
+  # That costs a second row above the figure -- the one-row rule held at five entries,
+  # not at seven.
+  lab_c = lambda lc: '$1$' if lc == 0. else f'$10^{{{lc:.0f}}}$'
+  leg_m = axT.legend(h_m, [lab_c(lc) for lc in logC_m], fontsize=FS_LEG, ncol=3,
+                     loc='lower center', bbox_to_anchor=(.5, 1.14),
+                     title='$\\gamma_\\mathrm{m}$ at $\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m}=$',
+                     framealpha=1., handlelength=1.4, handletextpad=.4, borderpad=.3,
+                     columnspacing=.9)
+  leg_m.get_title().set_fontsize(FS_LEG)
+  axT.add_artist(leg_m)
+  h_ref = [ln for ln in axT.get_lines() if not ln.get_label().startswith('_')]
+  leg = axT.legend(h_ref, [ln.get_label() for ln in h_ref], fontsize=FS_LEG,
+                   loc='lower center', bbox_to_anchor=(.5, 1.005), ncol=4,
+                   framealpha=1., handlelength=1.2, handletextpad=.4, borderpad=.3,
+                   columnspacing=.9)
   axT.grid(alpha=.25, lw=.4)
 
   # (b) the distributions ------------------------------------------------------------------
@@ -416,7 +445,9 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
 
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
-  fig.savefig(path, dpi=300, bbox_inches='tight')
+  # the top legend lives OUTSIDE the axes and was re-parented with add_artist, which
+  # bbox_inches='tight' does not walk -- without this it is cropped off the page
+  fig.savefig(path, dpi=300, bbox_inches='tight', bbox_extra_artists=(leg, leg_m))
   print(f'saved {path}')
   if show:
     plt.show()
