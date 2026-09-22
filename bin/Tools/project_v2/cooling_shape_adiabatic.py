@@ -167,13 +167,12 @@ from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma, S_of_si
 
 # --- defaults -------------------------------------------------------------------------
 LOGC = 0.                   # gma_c/gma_m for the tt <-> sigma map; marginal cooling
-# sampled log10 tt_eff. NOT cooling_shape_figure's -8..0 any more: with B' ~ R^-1 the
-# two figures no longer share a clock (see TTE_LIM), so the overlap is -8..-2.
-LOGTTE_SAMPLES = (-8., -7., -6., -5., -4., -3., -2.)
-TTE_LIM = (1e-11, 1e-2)     # tt_eff range of the top panel. NOT the -8..0 the synchrotron
-                            # figure uses: with B' ~ R^-1 the clock crawls (tt_eff grows
-                            # only as sigma^|alpha|), so tt_eff = 1 would be sigma = 7.3e7
-                            # dynamical times. This range tops out near sigma = 7e2.
+# sampled log10 tt_eff, out to 1e2 so the fast regime is seen to cool right through and
+# collapse. NOTE the physical cost: with B' ~ R^-1 the clock crawls (tt_eff grows only
+# as sigma^|alpha|), so the right-hand end is sigma ~ 7e12 dynamical times at the
+# reference C. The late panel is asymptotic behaviour, not a time the shell reaches.
+LOGTTE_SAMPLES = (-8., -7., -6., -5., -4., -3., -2., -1., 0., 1., 2.)
+TTE_LIM = (1e-11, 1e2)
 MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
 BAND_ALPHA = .13            # tint of the regime bands
 LOGC_M = (-3., 3.)          # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M is

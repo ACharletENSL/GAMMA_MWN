@@ -138,6 +138,18 @@ gma/gma_m0 (or S_a = 0) and f(S_b) = gma/gma_M0 (or S_b = S_end). The window is 
 for, never scanned, which is what keeps the very narrow ones at high gma exact -- handed
 the full range instead, an adaptive rule misses them and silently returns zero.
 
+GMA_C CARRIES THE CHANGED RATE. 1/tt_dyn is the cooling Lorentz factor only while the
+rate is constant. With the field decaying, the electron that has just cooled by sigma_end
+is the one with gma_0 S ~ 1, and what survives the drag is
+
+    gma_c = A/S = 1/tt_eff(sigma_end),
+
+which reduces to 1/tt_end when A = 1 and S = tt. The difference is not cosmetic: at the
+shell fiducial A/S = 1.708/tt_dyn, and marking 1/tt_dyn instead put gma_c BELOW the
+support in every fast-cooling regime (1.0 against a cut-off at 1.705 at log10 C = -3), so
+no marker was drawn there at all. A/S lands on the cut-off, which is where the break
+really is, because gma_m -> A/S once gma_m0 S >> 1.
+
 THE BURN SATURATES, and it decides which regimes can cool at all. With e = alpha - 2q + 1
 = -1.4 < 0 the geometric sum in S turns around: instead of growing without bound,
 
@@ -528,7 +540,16 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
     lo_edge, hi_N = min(lo_edge, gma[0]), max(hi_N, float(N.max()))
     axN.loglog(gma, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
     axS.semilogx(gma, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
-    gma_c = 10.**logC[i]*gm0
+    # gma_c FROM THE ACTUAL BURN, not from tt_dyn. 1/tt_dyn is the cooling Lorentz
+    # factor only if the rate is constant; with the field decaying the electron that has
+    # just cooled by sigma_end is the one with gma_0 S ~ 1, and what survives the drag is
+    #     gma_c = A/S = 1/tt_eff(sigma_end),
+    # which reduces to 1/tt_end when A = 1, S = tt. It matters: at 1/tt_dyn the marker
+    # fell BELOW the support in every fast-cooling regime -- gma_c = 1 against a cut-off
+    # at 1.705 -- so no dot was drawn there at all. A/S lands on the cut-off, which is
+    # where the break actually is, because gma_m -> A/S once gma_m0 S >> 1.
+    gma_c = (float(A_of_sigma(sigma_end, a_rho))
+             /float(S_of_sigma(sigma_end, ttd, a_rho, q)))
     breaks.append((gma_c,
                    N_integrated_adiab(gma_c, ttd, sigma_end, p, gm0, gM0, a_rho, q)))
   breaks = np.array(breaks)
