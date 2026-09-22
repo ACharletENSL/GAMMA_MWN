@@ -566,7 +566,7 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axD.loglog(gma0, N0, color='k', lw=1.4, zorder=2)
   # BOTH regimes here too, keyed by LINE STYLE as the colour is already spent on time.
   # Each needs its own sigma per sample, the tt_eff <-> sigma map being C-dependent.
-  edges, lo_D = [], np.inf
+  edges, lo_D = [[] for _ in logC_m], np.inf
   for j, (lc_b, sty) in enumerate(zip(logC_m, D_STYLES)):
     ttd_b = tt_dyn_of_C(lc_b, gm0)
     for ls, c in zip(logtte, colors):
@@ -575,12 +575,13 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
       axD.loglog(gma, N, color=c, lw=1.2, ls=sty, solid_capstyle='round',
                  label=(f'{ls:.0f}' if j == 0 else None), zorder=3)
       lo_D = min(lo_D, float(gma[0]))
-      if j == 0:
-        edges.append((gma[-1], N[-1]))
-  edges = np.array(edges)
-  axD.plot(edges[:, 0], edges[:, 1], color=MUTED, lw=.7, zorder=4)
-  axD.scatter(edges[:, 0], edges[:, 1], s=9, facecolors=colors, edgecolors='w',
-              linewidths=.5, zorder=6)
+      edges[j].append((gma[-1], N[-1]))
+  # the burn-off front -- the locus gma_M slides down -- now drawn for BOTH regimes, each
+  # in its own style. The dots that used to mark each gma_M are gone: the curve already
+  # ends there, so they only restated where it stopped.
+  for j, sty in enumerate(D_STYLES):
+    ed = np.array(edges[j])
+    axD.plot(ed[:, 0], ed[:, 1], color=MUTED, lw=.7, ls=sty, zorder=4)
 
   gg = np.geomspace(gm0, gM0, 3)
   axD.loglog(gg, 12.*K0*gg**-p, color=MUTED, ls=':', lw=.9)
