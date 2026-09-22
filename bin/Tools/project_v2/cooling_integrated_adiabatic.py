@@ -481,18 +481,18 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
       tt_end = float(tt_of_sigma(sigma_end, ttd, q))   # same NORMALISED time, not sigma
       g_s = np.geomspace(gamma_synCooled(tt_end, gm0), gM0, 600)
       N_s = N_integrated(g_s, tt_end, p, gm0, gM0)
-      axN.loglog(g_s/gm0, N_s, color=colors[i], lw=.55, alpha=.5, zorder=2)
+      axN.loglog(g_s, N_s, color=colors[i], lw=.55, alpha=.5, zorder=2)
       # the ghost belongs in the slope panel too: that the two lie on top of each other
       # over the whole plateau IS the result -- adiabatic cooling moves the cut-off and
       # the amplitude, not the index -- and it can only be read where slopes are drawn
-      axS.semilogx(g_s/gm0, log_slope(g_s, N_s), color=colors[i], lw=.55, alpha=.5,
+      axS.semilogx(g_s, log_slope(g_s, N_s), color=colors[i], lw=.55, alpha=.5,
                    zorder=2)
     gma, N = integrated_distrib_adiab(logC[i], sigma_end, p, gm0, gM0, a_rho, q)
     lo_edge, hi_N = min(lo_edge, gma[0]), max(hi_N, float(N.max()))
-    axN.loglog(gma/gm0, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
-    axS.semilogx(gma/gm0, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
+    axN.loglog(gma, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
+    axS.semilogx(gma, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
     gma_c = 10.**logC[i]*gm0
-    breaks.append((gma_c/gm0,
+    breaks.append((gma_c,
                    N_integrated_adiab(gma_c, ttd, sigma_end, p, gm0, gM0, a_rho, q)))
   breaks = np.array(breaks)
   axN.scatter(breaks[:, 0], breaks[:, 1], s=11, facecolors=colors[order],
@@ -523,18 +523,18 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   axR.grid(False)
 
   for ax in (axN, axS):
-    ax.axvspan(1e-12, GMA_FLOOR/gm0, color='crimson', alpha=.07, lw=0, zorder=0)
-    ax.axvline(GMA_FLOOR/gm0, color='crimson', ls=':', lw=.9, zorder=1)
-    ax.axvline(1., color=INK, ls=':', lw=.8, zorder=1)
-    ax.axvline(gM0/gm0, color=INK, ls=':', lw=.8, zorder=1)
+    ax.axvspan(1e-12, GMA_FLOOR, color='crimson', alpha=.07, lw=0, zorder=0)
+    ax.axvline(GMA_FLOOR, color='crimson', ls=':', lw=.9, zorder=1)
+    ax.axvline(gm0, color=INK, ls=':', lw=.8, zorder=1)
+    ax.axvline(gM0, color=INK, ls=':', lw=.8, zorder=1)
     ax.grid(alpha=.25, lw=.4)
     ax.tick_params(which='both', labelsize=FS_TICK)
-  axN.set_xlim(.3*lo_edge/gm0, 4.*gM0/gm0)
-  for v, lab in ((1., '$\\gamma_\\mathrm{m}$'), (gM0/gm0, '$\\gamma_\\mathrm{M}$')):
+  axN.set_xlim(.3*lo_edge, 4.*gM0)
+  for v, lab in ((gm0, '$\\gamma_\\mathrm{m}$'), (gM0, '$\\gamma_\\mathrm{M}$')):
     axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axS.annotate('$\\gamma=1$', (GMA_FLOOR/gm0, .10), xycoords=('data', 'axes fraction'),
+  axS.annotate('$\\gamma=1$', (GMA_FLOOR, .10), xycoords=('data', 'axes fraction'),
                textcoords='offset points', xytext=(3, 0), color='crimson',
                fontsize=FS_ANN, ha='left', va='bottom',
                bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))

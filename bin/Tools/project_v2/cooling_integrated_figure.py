@@ -150,7 +150,9 @@ FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 7.5, 7.
 # the ratio is SPELLED OUT in this series, not abbreviated to the article's
 # \mathcal{C} -- parenthesised because it sits inside the log
 C_LABEL = '$\\log_{10}(\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m})$'
-GMA_LABEL = '$\\gamma/\\gamma_{\\mathrm{m},\\!0}$'
+# plain gamma, not gamma/gamma_m0: the shape figures' distribution panels are already
+# in gamma, so this puts the whole cooling_distributions family on one abscissa
+GMA_LABEL = '$\\gamma$'
 
 
 # --- the distribution -----------------------------------------------------------------
@@ -290,12 +292,12 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
   breaks = []
   for i in order:
     gma, N = integrated_distrib(logC[i], p, gm0, gM0)
-    axN.loglog(gma/gm0, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
-    axS.semilogx(gma/gm0, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
+    axN.loglog(gma, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
+    axS.semilogx(gma, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
     # gma_c on its own curve, evaluated exactly rather than read off the sampling: the
     # low CUT-OFF when C < 1, the BREAK when C > 1 -- one symbol carrying both roles
     gma_c = 10.**logC[i]*gm0
-    breaks.append((gma_c/gm0, float(N_integrated(gma_c, 1./gma_c, p, gm0, gM0))))
+    breaks.append((gma_c, float(N_integrated(gma_c, 1./gma_c, p, gm0, gM0))))
   breaks = np.array(breaks)
   axN.scatter(breaks[:, 0], breaks[:, 1], s=11, facecolors=colors[order],
               edgecolors='w', linewidths=.5, zorder=6)
@@ -327,20 +329,20 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
   # marks shared by both panels: the injected bottom edge sits at x = 1 by construction,
   # the injected ceiling closes every curve, and gma = 1 is where the model stops
   for ax in (axN, axS):
-    ax.axvline(1., color=INK, ls=':', lw=.8, zorder=1)
-    ax.axvline(gM0/gm0, color=INK, ls=':', lw=.8, zorder=1)
-    ax.axvline(1./gm0, color='crimson', ls=':', lw=.9, zorder=1)
+    ax.axvline(gm0, color=INK, ls=':', lw=.8, zorder=1)
+    ax.axvline(gM0, color=INK, ls=':', lw=.8, zorder=1)
+    ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
     ax.grid(alpha=.25, lw=.4)
     ax.tick_params(which='both', labelsize=FS_TICK)
-  axN.set_xlim(.3/gm0, 4.*gM0/gm0)
+  axN.set_xlim(.3, 4.*gM0)
   # the injected bounds are labelled along the top of (a); gma = 1 cannot go there --
   # the fastest-cooling curve peaks in that corner -- so it is labelled in (b) instead,
   # where the bottom left is empty
-  for v, lab in ((1., '$\\gamma_\\mathrm{m}$'), (gM0/gm0, '$\\gamma_\\mathrm{M}$')):
+  for v, lab in ((gm0, '$\\gamma_\\mathrm{m}$'), (gM0, '$\\gamma_\\mathrm{M}$')):
     axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axS.annotate('$\\gamma=1$', (1./gm0, .10), xycoords=('data', 'axes fraction'),
+  axS.annotate('$\\gamma=1$', (1., .10), xycoords=('data', 'axes fraction'),
                textcoords='offset points', xytext=(3, 0), color='crimson',
                fontsize=FS_ANN, ha='left', va='bottom',
                bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
