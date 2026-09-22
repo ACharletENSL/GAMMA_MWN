@@ -45,10 +45,25 @@ THE SCALINGS, IN ONE PLACE. Three are put in, one combination controls everythin
        panel's right-hand end is asymptotic behaviour, not a time a shell reaches.
 
   THE TWO ASYMPTOTES on the top panel follow from the same algebra. gma_M -> 1/tt_eff
-  always. The adiabatic track goes as tt_eff^(alpha/m) with m = max(1-2q, |alpha|): that
-  is alpha = a_rho/3 at q = 0, but alpha/|alpha| = -1 for ANY a_rho once q > 1/2. At the
-  shell fiducial both are tt_eff^-1, which is why the two guides are labelled by
-  mechanism rather than by index.
+  always. For the adiabatic track, substitute S and A into tt_eff = S/A:
+
+      tt_eff = (ttd/e) [ (1+sigma)^(1-2q) - (1+sigma)^|alpha| ]
+
+  -- two competing powers, and the larger wins. Write m for it. Since e > 0 is the same
+  statement as 1-2q > |alpha|, m = max(1-2q, |alpha|) is not a trick: it is just asking
+  WHICH MECHANISM is advancing the clock.
+
+      e > 0, burn-driven.  S still grows, tt_eff rides it, m = 1-2q, and inverting gives
+                           A ~ tt_eff^(alpha/(1-2q)) -- at q = 0 that is alpha = a_rho/3.
+      e < 0, drag-driven.  S has frozen at S_inf, so tt_eff = S_inf/A and therefore
+                           A = S_inf/tt_eff IDENTICALLY. Slope -1, for any a_rho, and
+                           not as an asymptote -- it is the definition of tt_eff once S
+                           is constant. Verified: A*tt_eff/S_inf = 0.9984, 0.999997, 1.0
+                           at sigma = 1e2, 1e4, 1e6.
+
+  The shell fiducial is the second case, so both guides are tt_eff^-1 and they are
+  labelled by mechanism rather than by index. They differ only in normalisation --
+  1/tt_eff for gma_M against S_inf/tt_eff for the drag.
 
 THE SOLUTION. The cooling equation dgma/dtt = (dlnA/dtt) gma - gma^2 is linear in
 u = 1/gma and integrates with A = (rho/rho_0)^(1/3) as the integrating factor:
