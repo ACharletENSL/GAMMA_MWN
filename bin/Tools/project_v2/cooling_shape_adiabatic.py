@@ -110,13 +110,23 @@ THE COOLING REGIMES, as bands on the top panel. The two knees are the boundaries
 and tt_m are where the injected edges burn (S = 1/gma_M0 and S = 1/gma_m0), so below tt_M
 none of the population has cooled and above tt_m all of it has.
 
-AT THE SHELL FIDUCIAL THE LOWER KNEE DOES NOT EXIST. The burn saturates at
-S_inf = tt_dyn/|e| = 0.714 tt_dyn, and the bottom edge needs S > 1/gma_m0, so it cools
-only for C < 1/|e| = 0.714. The reference C = 1 is above that: gma_m NEVER fully cools,
-however long you wait, and the panel shows VSC and SC alone. _knee() returns None there
-rather than letting np.interp saturate at the panel edge and draw a knee that is not
-real. The five-band description below is what q = 0 gives, and is kept because MC_FAC
-and the band construction are unchanged -- only which of them are reachable.
+THE LOWER KNEE EXISTS ONLY BELOW A THRESHOLD, and that is what fixes the reference C.
+The burn saturates at S_inf = tt_dyn/|e| = 0.714 tt_dyn, and the bottom edge needs
+S > 1/gma_m0, so it cools only for
+
+    C < 1/|e| = 0.714.
+
+At the marginal C = 1 there is simply no tt_m -- gma_m never fully cools however long
+you wait -- and the panel degenerates to VSC + SC. This figure illustrates the general
+evolution rather than any one cell of the run, so LOGC is -3: a regime that does cool,
+which restores all five bands and both knees, and which is ALSO one of the two curves
+LOGC_M draws, so the tt_m vertical passes through a knee that is on the plot. At that
+reference the width collapses to 1.0014 by tt_eff = 1e2 -- the population really does go
+mono-energetic -- where at C = 1 it freezes at 2.4 and stays there.
+
+_knee() still returns None when the burn saturates first, rather than letting np.interp
+saturate at the panel edge and draw a knee that is not real; it is what guards the
+C > 0.714 case if the reference is ever moved back.
 
     VSC   tt_eff < tt_M                     nothing has cooled yet
     SC    tt_M < tt_eff < tt_m/MC_FAC       the top edge is burning, gma_m untouched
@@ -166,7 +176,14 @@ from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma, S_of_si
     gamma_cooled)
 
 # --- defaults -------------------------------------------------------------------------
-LOGC = 0.                   # gma_c/gma_m for the tt <-> sigma map; marginal cooling
+LOGC = -3.                  # gma_c/gma_m for the tt <-> sigma map, the bands, the knees
+                            # and panel (b). NOT the marginal case any more: with the
+                            # burn saturating, the bottom edge cools only for
+                            # C < 1/|e| = 0.714, so at C = 1 there is no tt_m and the
+                            # panel showed VSC + SC alone. This is an ILLUSTRATIVE
+                            # figure, so the reference sits on a regime that does cool --
+                            # and on one of the two curves LOGC_M draws, so the tt_m
+                            # vertical passes through a knee that is on the plot.
 # sampled log10 tt_eff, out to 1e2 so the fast regime is seen to cool right through and
 # collapse. NOTE the physical cost: with B' ~ R^-1 the clock crawls (tt_eff grows only
 # as sigma^|alpha|), so the right-hand end is sigma ~ 7e12 dynamical times at the
