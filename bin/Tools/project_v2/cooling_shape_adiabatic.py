@@ -588,6 +588,12 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axD.set_ylim(1e-16, 1e4)
   axD.set_xlabel('$\\gamma$', fontsize=FS_LAB)
   axD.set_ylabel('$N(\\gamma,\\tilde{t}_{\\rm eff})/N_{\\rm e}$', fontsize=FS_LAB)
+  # WHICH C this panel is. The top panel draws two (LOGC_M) while this one draws the
+  # REFERENCE alone, so without the tag a reader cannot tell which -- or that the bands
+  # and knees above share it. Below the gma_M,0 label, where no curve reaches.
+  axD.annotate(f'$\\bar{{\\gamma}}_{{\\rm c}}/\\gamma_{{\\rm m}}=10^{{{logC:.0f}}}$'
+               '\n(and the bands above)', (.97, .87), xycoords='axes fraction',
+               color=INK, fontsize=FS_ANN, ha='right', va='top')
   leg = axD.legend(fontsize=FS_LEG, ncol=2, loc='lower left', framealpha=.9,
                    title='$\\log_{10}\\tilde{t}_{\\rm eff}$', handlelength=1.1,
                    labelspacing=.25,
