@@ -81,6 +81,30 @@ cooling regime; LOGC = 0 (the marginal case gma_c = gma_m) is the default and is
 inside panel (a). Other regimes only stretch the sigma axis, they do not change the
 shapes -- which is the similarity result again.
 
+THE COOLING REGIMES, as bands on the top panel. The two knees are the boundaries: tt_M
+and tt_m are where the injected edges burn (S = 1/gma_M0 and S = 1/gma_m0), so below tt_M
+none of the population has cooled and above tt_m all of it has.
+
+    VSC   tt_eff < tt_M                     nothing has cooled yet
+    SC    tt_M < tt_eff < tt_m/MC_FAC       the top edge is burning, gma_m untouched
+    MC    tt_m/MC_FAC .. tt_m*MC_FAC        a NEIGHBOURHOOD of tt_m, not a boundary
+    FC    tt_m*MC_FAC < tt_eff < 1          the whole population has cooled
+    VFC   tt_eff > 1
+
+MC is the one band that is a choice: marginal cooling is a neighbourhood of tt_m rather
+than a point, taken here as a factor MC_FAC = 3 either side. The others are set by the
+knees. Colours are the house shape-class palette (sweep_gammacm's per-spectrum table),
+RdBu from VSC red to VFC blue; 'marginal' is #f7f7f7 there, invisible as a tint, so MC
+gets a grey instead.
+
+VFC IS EXACTLY WHERE THE MODEL STOPS, and not by coincidence of these bounds. gma_M ->
+1/tt_eff once the top edge has burnt (that is what this abscissa is for), so tt_eff > 1
+means gma_M < 1: the whole population, its most energetic electron included, is
+sub-relativistic. That holds for any gma_M0 >> 1. So the VFC band is always past the
+ultra-relativistic trajectory's validity -- which is why every track in the figure is cut
+at gma = 1 and the VFC band contains none of them. Read it as the regime the model cannot
+follow, not as an empty stretch of axis.
+
 VALIDITY. As everywhere in this family, gma_synCooled's ultra-relativistic trajectory is
 not physical below gma = 1 (marked in crimson): the real loss rate goes as gma^2 - 1 and
 electrons stall near 1 instead of continuing down. With the adiabatic drag the population
@@ -108,6 +132,8 @@ LOGC = 0.                   # gma_c/gma_m for the tt <-> sigma map; marginal coo
 # sampled at the SAME log10 values cooling_shape_figure samples log10 tt at -- the point
 # of tt_eff being that the two figures then share one clock, slice for slice
 LOGTTE_SAMPLES = LOGTT_SAMPLES
+TTE_LIM = (1e-11, 1e2)      # tt_eff range of the top panel: past 1 so VFC is a band
+MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
 FNAME = 'cooling_shape_adiabatic.png'
 
 
@@ -241,9 +267,27 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
       gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.32))
 
   # (a) edge tracks vs sigma -------------------------------------------------------------
-  sg = np.geomspace(1e-3*sig_arr[0], 1.5*sig_arr[-1], 900)
+  sg = np.geomspace(*(sigma_of_tt_eff(t, ttd, a_rho, q) for t in TTE_LIM), 900)
   x = tt_eff_of_sigma(sg, ttd, a_rho, q)             # the abscissa: S/A, not sigma
   cut = lambda y: np.where(y >= 1., y, np.nan)   # never draw below the validity floor
+  # the cooling REGIMES, as bands on the same axis the knees are marked on. tt_M and
+  # tt_m are where the two injected edges burn (S = 1/gma_M0, 1/gma_m0), so they are the
+  # regime boundaries: above tt_m the whole population has cooled, below tt_M none of it
+  # has. MC is not a boundary but a NEIGHBOURHOOD of tt_m, taken here as a factor
+  # MC_FAC either side. Colours are the house shape-class palette (sweep_gammacm's
+  # per-spectrum table), RdBu from VSC red to VFC blue; 'marginal' is #f7f7f7 there,
+  # invisible as a tint, so MC gets a grey instead.
+  S_sg = S_of_sigma(sg, ttd, a_rho, q)
+  t_M, t_m = (np.interp(1./g, S_sg, x) for g in (gM0, gm0))
+  bands = (('VSC', x[0],        t_M,          '#b2182b'),
+           ('SC',  t_M,         t_m/MC_FAC,   '#ef8a62'),
+           ('MC',  t_m/MC_FAC,  t_m*MC_FAC,   '0.6'),
+           ('FC',  t_m*MC_FAC,  1.,           '#67a9cf'),
+           ('VFC', 1.,          x[-1],        '#2166ac'))
+  for lab, a_, b_, col in bands:
+    axT.axvspan(a_, b_, color=col, alpha=.13, lw=0, zorder=0)
+    axT.annotate(lab, (np.sqrt(a_*b_), .985), xycoords=('data', 'axes fraction'),
+                 color=INK, fontsize=FS_ANN, ha='center', va='top')
   # 1/tt_eff is the burn-off asymptote, EXACTLY as 1/tt is in cooling_shape_figure --
   # that is what this abscissa buys, and the top edge slides down along it
   axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}_{\\rm eff}$')
@@ -260,14 +304,13 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
   # the knees are where the edges burn, i.e. where S reaches 1/gma_edge. In tt_eff they
   # land a little RIGHT of 1/gma_edge, by the factor 1/A they have picked up by then.
-  for gedge, lab in ((gM0, '$\\tilde{t}_M$'), (gm0, '$\\tilde{t}_m$')):
-    k = np.interp(1./gedge, S_of_sigma(sg, ttd, a_rho, q), x)
+  for k, lab in ((t_M, '$\\tilde{t}_M$'), (t_m, '$\\tilde{t}_m$')):
     axT.axvline(k, color=INK, ls=':', lw=.8, zorder=1)
     axT.annotate(lab, (k, .015), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='bottom',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axT.set_xlim(x[0], x[-1])
-  axT.set_ylim(.15, 3.*gM0)
+  axT.set_ylim(.15, 30.*gM0)   # a decade of empty top for the band labels
   # this label sits in the GAP between the panels, so it is kept tight against the
   # axis it names -- at the default pads it drifts closer to the panel below and
   # reads as belonging to that one
@@ -279,15 +322,18 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # log form is long enough spelled out to run under the legend at lower centre
   reg = ('$\\bar{\\gamma}_{\\rm c}=\\gamma_{\\rm m}$' if logC == 0. else
          f'$\\bar{{\\gamma}}_{{\\rm c}}/\\gamma_{{\\rm m}}=10^{{{logC:.0f}}}$')
+  # lower left: the top left is the gma_M plateau with the VSC band label over it, and
+  # with the legend lifted out of the panel this corner is free again
   axT.annotate(reg, (.03, .22),
                xycoords='axes fraction', color=INK, fontsize=FS_ANN, ha='left',
-               va='bottom')      # clear of gma=1 (~0.09) and of the gma_m track (~0.41)
-  # bottom centre: the tracks all run from the upper left to the lower right, so the
-  # box sits in the one corner they leave empty -- and in the adiabatic variant it is
-  # the only placement that does not lie over the flat 'adiab. only' line
-  # two columns of SHORT keys: the box has to fit between the two knee labels
-  axT.legend(fontsize=FS_LEG, loc='lower center', framealpha=.9, handlelength=1.2,
-             labelspacing=.2, handletextpad=.4, borderpad=.3, ncol=2, columnspacing=.7)
+               va='bottom')
+  # ONE horizontal row ABOVE the panel. With the abscissa extended past tt_eff = 1 the
+  # two edge tracks converge and sweep through the bottom centre, and the regime bands
+  # now claim the top strip, so no in-panel box is both clear of the curves and clear of
+  # the labels. Outside, it costs nothing and frees the whole interior.
+  axT.legend(fontsize=FS_LEG, loc='lower center', bbox_to_anchor=(.5, 1.005),
+             ncol=len(axT.get_lines()), framealpha=1., handlelength=1.2,
+             handletextpad=.4, borderpad=.3, columnspacing=.9)
   axT.grid(alpha=.25, lw=.4)
 
   # (b) the distributions ------------------------------------------------------------------
