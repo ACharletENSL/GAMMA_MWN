@@ -100,10 +100,13 @@ gets a grey instead.
 VFC IS EXACTLY WHERE THE MODEL STOPS, and not by coincidence of these bounds. gma_M ->
 1/tt_eff once the top edge has burnt (that is what this abscissa is for), so tt_eff > 1
 means gma_M < 1: the whole population, its most energetic electron included, is
-sub-relativistic. That holds for any gma_M0 >> 1. So the VFC band is always past the
-ultra-relativistic trajectory's validity -- which is why every track in the figure is cut
-at gma = 1 and the VFC band contains none of them. Read it as the regime the model cannot
-follow, not as an empty stretch of axis.
+sub-relativistic. That holds for any gma_M0 >> 1, so the VFC band is ALWAYS past the
+ultra-relativistic trajectory's validity. The tracks are drawn through it anyway -- the
+integrated figures have always carried their curves into the sub-relativistic region, and
+cutting them here made the one band they were added to populate look like blank axis. The
+crimson gma = 1 line is the caveat: below it the real loss rate dies as gma^2 - 1 and the
+electrons stall near 1 instead of reaching the 1e-2 the tracks show at the right edge.
+Read that stretch as where the model says the population is HEADING, not where it is.
 
 VALIDITY. As everywhere in this family, gma_synCooled's ultra-relativistic trajectory is
 not physical below gma = 1 (marked in crimson): the real loss rate goes as gma^2 - 1 and
@@ -269,7 +272,11 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # (a) edge tracks vs sigma -------------------------------------------------------------
   sg = np.geomspace(*(sigma_of_tt_eff(t, ttd, a_rho, q) for t in TTE_LIM), 900)
   x = tt_eff_of_sigma(sg, ttd, a_rho, q)             # the abscissa: S/A, not sigma
-  cut = lambda y: np.where(y >= 1., y, np.nan)   # never draw below the validity floor
+  # tracks continue BELOW gma = 1 rather than stopping there, matching the integrated
+  # figures, which have always drawn their curves into the shaded sub-relativistic
+  # region. The gma = 1 line still marks where the ultra-relativistic trajectory
+  # stops being the physical one; it is a caveat on the curve, not a reason to hide
+  # where the model says the population is heading.
   # the cooling REGIMES, as bands on the same axis the knees are marked on. tt_M and
   # tt_m are where the two injected edges burn (S = 1/gma_M0, 1/gma_m0), so they are the
   # regime boundaries: above tt_m the whole population has cooled, below tt_M none of it
@@ -293,13 +300,13 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}_{\\rm eff}$')
   # the two ghosts separate the causes: what synchrotron alone would do at the same time,
   # and what expansion alone would do. The real track is below both.
-  axT.loglog(x, cut(gamma_synCooled(tt_of_sigma(sg, ttd, q), gM0)), color='0.68', lw=.8,
+  axT.loglog(x, gamma_synCooled(tt_of_sigma(sg, ttd, q), gM0), color='0.68', lw=.8,
              ls='-', label='syn.')
-  axT.loglog(x, cut(A_of_sigma(sg, a_rho)*gM0), color='0.68', lw=.8, ls=(0, (4, 1.5)),
+  axT.loglog(x, A_of_sigma(sg, a_rho)*gM0, color='0.68', lw=.8, ls=(0, (4, 1.5)),
              label='adiab.')
-  axT.loglog(x, cut(gamma_cooled(sg, gM0, ttd, a_rho, q)), color='k', lw=1.4,
+  axT.loglog(x, gamma_cooled(sg, gM0, ttd, a_rho, q), color='k', lw=1.4,
              label='$\\gamma_\\mathrm{M}$')
-  axT.loglog(x, cut(gamma_cooled(sg, gm0, ttd, a_rho, q)), color='k', lw=1.1, ls='--',
+  axT.loglog(x, gamma_cooled(sg, gm0, ttd, a_rho, q), color='k', lw=1.1, ls='--',
              label='$\\gamma_\\mathrm{m}$')
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
   # the knees are where the edges burn, i.e. where S reaches 1/gma_edge. In tt_eff they
@@ -310,7 +317,11 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
                  fontsize=FS_ANN, ha='center', va='bottom',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axT.set_xlim(x[0], x[-1])
-  axT.set_ylim(.15, 30.*gM0)   # a decade of empty top for the band labels
+  # the floor follows the tracks: they now run on below gma = 1, and at the right-hand
+  # edge both edges have converged to ~1e-2, so a fixed 0.15 would cut them off partway
+  # through VFC -- the one band they were added to populate. A decade of empty top for
+  # the band labels.
+  axT.set_ylim(.3*float(gamma_cooled(sg[-1], gm0, ttd, a_rho, q)), 30.*gM0)
   # this label sits in the GAP between the panels, so it is kept tight against the
   # axis it names -- at the default pads it drifts closer to the panel below and
   # reads as belonging to that one

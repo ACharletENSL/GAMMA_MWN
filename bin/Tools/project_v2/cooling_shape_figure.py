@@ -51,7 +51,10 @@ distribution loses energy, not electrons.
 
 Validity. gma_synCooled is the ultra-relativistic solution and drives gma -> 0; below
 gma = 1 (marked in red in both panels) it is no longer the physical trajectory, which
-is why the emission code truncates its gamma integral there (radiation_cooling.get_epnu:
+is why the emission code truncates its gamma integral there. The TRACKS are still drawn
+below it, as the integrated figures draw their curves into the same region -- the red
+line is a caveat on the curve, not a reason to hide where the model points
+(radiation_cooling.get_epnu:
 number is conserved, so the clipped bound is the whole correction). The last
 sampled time, tt = 1, lands exactly on that line: gma_M = 1/(1 + 1/gma_M0) -> 1, so on
 these bounds tt = 1 IS the end of the model's validity, not a time it can be pushed
@@ -136,12 +139,14 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
 
   # (a) edges and break vs tt ------------------------------------------------------------
   tt = np.geomspace(1e-3/gM0, 1.5*tt_arr[-1], 800)
-  # every track stops AT gma = 1: past it gamma_synCooled is no longer the physical
-  # trajectory, so drawing it there would assert an evolution the model does not have
-  cut = lambda y: np.where(y >= 1., y, np.nan)
+  # tracks continue BELOW gma = 1 rather than stopping there, matching the integrated
+  # figures, which have always drawn their curves into the shaded sub-relativistic
+  # region. The gma = 1 line still marks where the ultra-relativistic trajectory
+  # stops being the physical one; it is a caveat on the curve, not a reason to hide
+  # where the model says the population is heading.
   axT.loglog(tt, 1./tt, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}$')
-  axT.loglog(tt, cut(gamma_synCooled(tt, gM0)), color='k', lw=1.4, label='$\\gamma_\\mathrm{M}$')
-  axT.loglog(tt, cut(gamma_synCooled(tt, gm0)), color='k', lw=1.1, ls='--',
+  axT.loglog(tt, gamma_synCooled(tt, gM0), color='k', lw=1.4, label='$\\gamma_\\mathrm{M}$')
+  axT.loglog(tt, gamma_synCooled(tt, gm0), color='k', lw=1.1, ls='--',
              label='$\\gamma_\\mathrm{m}$')
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
   # the two knees, labelled along the bottom where nothing else runs; each is the
