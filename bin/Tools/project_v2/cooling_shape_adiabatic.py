@@ -448,39 +448,30 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
     axT.annotate(lab, (np.sqrt(a_*b_), .96), xycoords=('data', 'axes fraction'),
                  color=INK, fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
-  # 1/tt_eff is the burn-off asymptote, EXACTLY as 1/tt is in cooling_shape_figure --
-  # that is what this abscissa buys, and the top edge slides down along it
-  axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9,
-             label='$\\tilde{t}_{\\rm eff}^{-1}$ syn.')
-  # the ADIABATIC asymptote, companion to that one and drawn the same way -- exactly,
-  # not offset, so each guide converges onto the track it describes. With e = 1 + alpha
-  # the identity tt_eff = (ttd/e)[(1+sigma) - (1+sigma)^|alpha|] leaves (1+sigma) ->
-  # e*tt_eff/ttd whenever a_rho > -3, so A -> (e*tt_eff/ttd)^alpha: SLOPE alpha = a_rho/3,
-  # i.e. -2/3 for coasting, against -1 for synchrotron. Two caveats it does not share
-  # with tt_eff^-1: it converges far more slowly (the dropped term dies only as
-  # (1+sigma)^(|alpha|-1), so the drawn range shows ~-0.63 rather than -0.667), and it is
-  # C-DEPENDENT -- the normalisation carries tt_dyn -- so it is a guide for this panel's
-  # reference C, not a universal line.
-  # NORMALISED ON THE SLOWEST-COOLING gma_m, not on gma_M. The slow curve is the one
-  # that follows pure adiabatic drag: gma_m = A gma_m0/(1 + gma_m0 A tt_eff), and at
-  # large C the burn term gma_m0*A*tt_eff stays small, so gma_m ~ A gma_m0 and the guide
-  # lies on the curve rather than beside it. It is a transient, though -- that term grows
-  # as tt_eff^e -- so even this curve peels off the guide and turns over toward tt_eff^-1
-  # at the right of the panel.
-  # The exponent is NOT alpha in general -- that is the q = 0 form. tt_eff carries two
-  # powers of (1+sigma), (1-2q) and |alpha|, and the LARGER wins:
-  #     m = max(1-2q, |alpha|),  (1+sigma) -> (|e| tt_eff/ttd)^(1/m),  A -> ...^(alpha/m).
-  # At q = 0 with a_rho > -3, m = 1 and the slope is alpha = a_rho/3. At q > 1/2 the
-  # first power goes negative, m = |alpha|, and the slope is alpha/|alpha| = -1 for ANY
-  # a_rho -- the same slope as the synchrotron asymptote, differing only in normalisation.
+  # THE TWO ASYMPTOTES. gma_M -> 1/tt_eff always -- that is what this abscissa buys.
+  # The adiabatic track goes as tt_eff^(alpha/m) with m = max(1-2q, |alpha|): that is
+  # alpha = a_rho/3 while the burn still grows, but -1 for ANY a_rho once it has frozen,
+  # where tt_eff = S_inf/A makes A = S_inf/tt_eff identically. Both are drawn EXACTLY,
+  # not offset, so each sits on the track it describes -- the synchrotron one on gma_M,
+  # the adiabatic one on the slowest-cooling gma_m, which is the curve pure drag
+  # describes (gma_m ~ A gma_m0 while its burn term stays small).
   alpha_a, e_a = _exps(a_rho, q)
   m_a = max(1. - 2.*q, abs(alpha_a))
   ttd_slow = tt_dyn_of_C(max(logC_m), gm0)
   fr = Fraction(alpha_a/m_a).limit_denominator(100)
   exp_lab = f'{fr.numerator}' if fr.denominator == 1 else f'{fr.numerator}/{fr.denominator}'
+  # At the shell fiducial the two INDICES COINCIDE at -1, so the guides share a style and
+  # a single legend entry; only their normalisation differs (1/tt_eff against
+  # S_inf/tt_eff). They are drawn apart, and labelled apart, wherever the indices differ
+  # -- at q = 0 the adiabatic slope is a_rho/3 and two keys are the honest rendering.
+  same = abs(alpha_a/m_a + 1.) < 1e-9
+  axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9,
+             label='$\\tilde{t}_{\\rm eff}^{-1}$' if same
+                   else '$\\tilde{t}_{\\rm eff}^{-1}$ syn.')
   axT.loglog(x, gm0*(abs(e_a)*x/ttd_slow)**(alpha_a/m_a), color=MUTED, lw=.9,
-             ls=(0, (4, 1.2, 1, 1.2, 1, 1.2)),
-             label=f'$\\tilde{{t}}_{{\\rm eff}}^{{{exp_lab}}}$ adiab.')
+             ls='-.' if same else (0, (4, 1.2, 1, 1.2, 1, 1.2)),
+             label='_nolegend_' if same
+                   else f'$\\tilde{{t}}_{{\\rm eff}}^{{{exp_lab}}}$ adiab.')
   # the syn-only and adiab-only ghosts are gone: the two asymptote guides above now say
   # what they said, at the slopes rather than as whole tracks, and the panel reads.
   axT.loglog(x, gamma_cooled(sg, gM0, ttd, a_rho, q), color='k', lw=1.4,
