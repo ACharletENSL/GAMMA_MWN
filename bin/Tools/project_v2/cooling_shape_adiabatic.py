@@ -11,9 +11,9 @@ cooling_distributions:
     instantaneous N     cooling_shape_figure      THIS MODULE
     time-integrated     cooling_integrated_figure cooling_integrated_adiabatic
 
-Same hydrodynamics and the same footing as cooling_integrated_adiabatic: simple coasting
-(rho' ~ R^-2) with the comoving cooling time t'_c held CONSTANT, so the only thing added
-to cooling_shape_figure is the adiabatic drag. The physics functions are imported from
+Same hydrodynamics as cooling_integrated_adiabatic: the SHELL FIDUCIAL, rho' ~ R^-1.2
+and B' ~ R^-1. The field decays too now, so unlike cooling_shape_figure this is not a
+constant-t'_c picture, and the consequences are large -- see THE BURN SATURATES there. The physics functions are imported from
 that module rather than restated, so the two adiabatic figures cannot drift apart.
 
 THE SOLUTION. The cooling equation dgma/dtt = (dlnA/dtt) gma - gma^2 is linear in
@@ -41,9 +41,12 @@ The ADIABATIC track has an asymptote of its own on the same axis, and the panel 
 it: the same identity tt_eff = (ttd/e)[(1+sigma) - (1+sigma)^|alpha|] leaves
 (1+sigma) -> e*tt_eff/ttd for any a_rho > -3, so
 
-    A -> (e*tt_eff/ttd)^alpha,     slope alpha = a_rho/3  =  -2/3 for coasting,
+    A -> (|e| tt_eff/ttd)^(alpha/m),   m = max(1-2q, |alpha|),
 
-against -1 for synchrotron. Measured local slopes converge on alpha for every law tried
+which is slope alpha = a_rho/3 at q = 0 but alpha/|alpha| = -1 once q > 1/2 -- the SAME
+slope as the synchrotron asymptote, differing only in normalisation. At the shell
+fiducial (q = 1) that is the case, which is why the panel carries two parallel guides
+labelled 'syn.' and 'adiab.' rather than two different indices. Measured local slopes converge on alpha for every law tried
 (a_rho = -0.5, -1.205, -2, -2.9 give -0.167, -0.402, -0.665, -0.914 by tt_eff = 1e4
 against -0.167, -0.402, -0.667, -0.967 predicted). TWO WAYS it is unlike tt_eff^-1:
 it converges far more slowly, because the dropped term dies only as (1+sigma)^(|alpha|-1)
@@ -107,6 +110,14 @@ THE COOLING REGIMES, as bands on the top panel. The two knees are the boundaries
 and tt_m are where the injected edges burn (S = 1/gma_M0 and S = 1/gma_m0), so below tt_M
 none of the population has cooled and above tt_m all of it has.
 
+AT THE SHELL FIDUCIAL THE LOWER KNEE DOES NOT EXIST. The burn saturates at
+S_inf = tt_dyn/|e| = 0.714 tt_dyn, and the bottom edge needs S > 1/gma_m0, so it cools
+only for C < 1/|e| = 0.714. The reference C = 1 is above that: gma_m NEVER fully cools,
+however long you wait, and the panel shows VSC and SC alone. _knee() returns None there
+rather than letting np.interp saturate at the panel edge and draw a knee that is not
+real. The five-band description below is what q = 0 gives, and is kept because MC_FAC
+and the band construction are unchanged -- only which of them are reachable.
+
     VSC   tt_eff < tt_M                     nothing has cooled yet
     SC    tt_M < tt_eff < tt_m/MC_FAC       the top edge is burning, gma_m untouched
     MC    tt_m/MC_FAC .. tt_m*MC_FAC        a NEIGHBOURHOOD of tt_m, not a boundary
@@ -156,21 +167,20 @@ from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma, S_of_si
 
 # --- defaults -------------------------------------------------------------------------
 LOGC = 0.                   # gma_c/gma_m for the tt <-> sigma map; marginal cooling
-# sampled at the SAME log10 values cooling_shape_figure samples log10 tt at -- the point
-# of tt_eff being that the two figures then share one clock, slice for slice
-LOGTTE_SAMPLES = LOGTT_SAMPLES
-TTE_LIM = (1e-11, 1e2)      # tt_eff range of the top panel: past 1 so VFC is a band
+# sampled log10 tt_eff. NOT cooling_shape_figure's -8..0 any more: with B' ~ R^-1 the
+# two figures no longer share a clock (see TTE_LIM), so the overlap is -8..-2.
+LOGTTE_SAMPLES = (-8., -7., -6., -5., -4., -3., -2.)
+TTE_LIM = (1e-11, 1e-2)     # tt_eff range of the top panel. NOT the -8..0 the synchrotron
+                            # figure uses: with B' ~ R^-1 the clock crawls (tt_eff grows
+                            # only as sigma^|alpha|), so tt_eff = 1 would be sigma = 7.3e7
+                            # dynamical times. This range tops out near sigma = 7e2.
 MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
 BAND_ALPHA = .13            # tint of the regime bands
-LOGC_M = (-3., 3.)          # log10(bar{gma}_c/gma_m) drawn for the gma_m track. The
-                            # marginal case is dropped: below C ~ 1 the shell has not
-                            # expanded by the time the burn finishes, so C = 1 and
-                            # C = 1e-3 differ by 1.25x -- under 1% of the panel -- and
-                            # drew on top of each other. The spread is one-sided. gma_M
-                            # is C-INDEPENDENT in tt_eff (measured identical to 4-5
-                            # significant figures over logC = -3..+3), so only the
-                            # bottom edge is worth repeating. LOGC stays the REFERENCE:
-                            # it sets the bands, the knees and panel (b).
+LOGC_M = (-3., 3.)          # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M is
+                            # C-INDEPENDENT in tt_eff, so only the bottom edge is
+                            # repeated; the marginal case is dropped because below C ~ 1
+                            # the two ends are degenerate. LOGC stays the REFERENCE: it
+                            # sets the bands, the knees and panel (b).
 FNAME = 'cooling_shape_adiabatic.png'
 
 
@@ -187,8 +197,14 @@ def tt_eff_of_sigma(sigma, ttd, a_rho=A_RHO, q=Q_B):
   return S_of_sigma(sigma, ttd, a_rho, q)/A_of_sigma(sigma, a_rho)
 
 
-def sigma_of_tt_eff(tt_eff, ttd, a_rho=A_RHO, q=Q_B, br=(-16., 9.)):
-  'Inverse of tt_eff_of_sigma -- monotone, so one bracketed root in log10 sigma.'
+def sigma_of_tt_eff(tt_eff, ttd, a_rho=A_RHO, q=Q_B, br=(-16., 40.)):
+  '''
+  Inverse of tt_eff_of_sigma -- monotone, so one bracketed root in log10 sigma.
+  The bracket has to be WIDE. At q > 1/2 the clock crawls: tt_eff grows only as
+  sigma^|alpha|, so reaching tt_eff = 1e2 on the slowest-cooling C needs sigma
+  ~ 1e20. A bracket of 1e9, enough at q = 0, raises 'f(a) and f(b) must have
+  different signs' there.
+  '''
   g = lambda ls: float(tt_eff_of_sigma(10.**ls, ttd, a_rho, q)) - tt_eff
   return 10.**brentq(g, br[0], br[1], xtol=1e-13, rtol=8.9e-16)
 
@@ -328,12 +344,26 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # per-spectrum table), RdBu from VSC red to VFC blue; 'marginal' is #f7f7f7 there,
   # invisible as a tint, so MC gets a grey instead.
   S_sg = S_of_sigma(sg, ttd, a_rho, q)
-  t_M, t_m = (np.interp(1./g, S_sg, x) for g in (gM0, gm0))
-  bands = (('VSC', x[0],        t_M,          '#b2182b'),
-           ('SC',  t_M,         t_m/MC_FAC,   '#ef8a62'),
-           ('MC',  t_m/MC_FAC,  t_m*MC_FAC,   '0.6'),
-           ('FC',  t_m*MC_FAC,  1.,           '#67a9cf'),
-           ('VFC', 1.,          x[-1],        '#2166ac'))
+
+  def _knee(g):
+    '''
+    The tt_eff at which S reaches 1/g, or None if it never does. That second case is
+    REAL once the burn saturates (e < 0): S stops at tt_dyn/|e|, and if that is below
+    1/gma_m0 the bottom edge never cools at all -- the condition is C < 1/|e|. Left to
+    np.interp it would saturate at the panel edge and draw a knee that does not exist,
+    which is what the shell fiducial (C = 1, S_inf = 0.71/gma_m0) would have shown.
+    '''
+    return np.interp(1./g, S_sg, x) if S_sg[-1] >= 1./g else None
+
+  t_M, t_m = _knee(gM0), _knee(gm0)
+  if t_m is None:      # no lower knee: SC simply runs to the edge of the panel
+    bands = (('VSC', x[0], t_M, '#b2182b'), ('SC', t_M, x[-1], '#ef8a62'))
+  else:
+    bands = (('VSC', x[0],        t_M,          '#b2182b'),
+             ('SC',  t_M,         t_m/MC_FAC,   '#ef8a62'),
+             ('MC',  t_m/MC_FAC,  t_m*MC_FAC,   '0.6'),
+             ('FC',  t_m*MC_FAC,  1.,           '#67a9cf'),
+             ('VFC', 1.,          x[-1],        '#2166ac'))
   # GUARD: tt_m is found by interpolating S, and at large C the bottom edge never burns
   # inside the plotted window -- S tops out below 1/gma_m0 -- so the interp saturates at
   # the panel edge and FC comes out as a REVERSED span lying over VFC. Clip every band to
@@ -352,7 +382,7 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # 1/tt_eff is the burn-off asymptote, EXACTLY as 1/tt is in cooling_shape_figure --
   # that is what this abscissa buys, and the top edge slides down along it
   axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9,
-             label='$\\tilde{t}_{\\rm eff}^{-1}$')
+             label='$\\tilde{t}_{\\rm eff}^{-1}$ syn.')
   # the ADIABATIC asymptote, companion to that one and drawn the same way -- exactly,
   # not offset, so each guide converges onto the track it describes. With e = 1 + alpha
   # the identity tt_eff = (ttd/e)[(1+sigma) - (1+sigma)^|alpha|] leaves (1+sigma) ->
@@ -368,13 +398,20 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # lies on the curve rather than beside it. It is a transient, though -- that term grows
   # as tt_eff^e -- so even this curve peels off the guide and turns over toward tt_eff^-1
   # at the right of the panel.
+  # The exponent is NOT alpha in general -- that is the q = 0 form. tt_eff carries two
+  # powers of (1+sigma), (1-2q) and |alpha|, and the LARGER wins:
+  #     m = max(1-2q, |alpha|),  (1+sigma) -> (|e| tt_eff/ttd)^(1/m),  A -> ...^(alpha/m).
+  # At q = 0 with a_rho > -3, m = 1 and the slope is alpha = a_rho/3. At q > 1/2 the
+  # first power goes negative, m = |alpha|, and the slope is alpha/|alpha| = -1 for ANY
+  # a_rho -- the same slope as the synchrotron asymptote, differing only in normalisation.
   alpha_a, e_a = _exps(a_rho, q)
+  m_a = max(1. - 2.*q, abs(alpha_a))
   ttd_slow = tt_dyn_of_C(max(logC_m), gm0)
-  fr = Fraction(alpha_a).limit_denominator(100)
+  fr = Fraction(alpha_a/m_a).limit_denominator(100)
   exp_lab = f'{fr.numerator}' if fr.denominator == 1 else f'{fr.numerator}/{fr.denominator}'
-  axT.loglog(x, gm0*(e_a*x/ttd_slow)**alpha_a, color=MUTED, lw=.9,
+  axT.loglog(x, gm0*(abs(e_a)*x/ttd_slow)**(alpha_a/m_a), color=MUTED, lw=.9,
              ls=(0, (4, 1.2, 1, 1.2, 1, 1.2)),
-             label=f'$\\tilde{{t}}_{{\\rm eff}}^{{{exp_lab}}}$')
+             label=f'$\\tilde{{t}}_{{\\rm eff}}^{{{exp_lab}}}$ adiab.')
   # the syn-only and adiab-only ghosts are gone: the two asymptote guides above now say
   # what they said, at the slopes rather than as whole tracks, and the panel reads.
   axT.loglog(x, gamma_cooled(sg, gM0, ttd, a_rho, q), color='k', lw=1.4,
@@ -399,6 +436,8 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   # the knees are where the edges burn, i.e. where S reaches 1/gma_edge. In tt_eff they
   # land a little RIGHT of 1/gma_edge, by the factor 1/A they have picked up by then.
   for k, lab in ((t_M, '$\\tilde{t}_M$'), (t_m, '$\\tilde{t}_m$')):
+    if k is None:
+      continue
     axT.axvline(k, color=INK, ls=':', lw=.8, zorder=1)
     axT.annotate(lab, (k, .015), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='bottom',

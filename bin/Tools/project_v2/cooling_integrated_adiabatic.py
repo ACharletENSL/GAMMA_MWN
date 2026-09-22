@@ -4,9 +4,10 @@
 '''
 The time-integrated electron distribution WITH adiabatic cooling, over t_dyn.
 
-APPENDIX ILLUSTRATION, on the same footing as cooling_shape_figure: the comoving cooling
-time t'_c is held CONSTANT, so the only thing added to the synchrotron-only picture is
-the adiabatic drag. Not a measurement of this run, not a main result.
+APPENDIX ILLUSTRATION on the SHELL FIDUCIAL SCALINGS: rho' ~ R^-1.2 and B' ~ R^-1, i.e.
+a_rho = -1.2 (matching this run's measured -1.205, a SPREADING shell) and q = 1. Earlier
+drafts held t'_c constant (q = 0) to isolate the adiabatic drag; the field now decays
+too, and that is not a cosmetic difference -- see THE BURN SATURATES below.
 
 sigma_end is a PARAMETER and the figure is meant to be re-run at several values; the
 numbers quoted below are at the current default, ONE t_dyn. The four that have been
@@ -17,6 +18,11 @@ looked at, all at a_rho = -2, q = 0:
     100  t_dyn      x0.420         0.415        -1.897        3 of 7 (to 4.2e-3)
     10^3 t_dyn      x0.370         0.369        -1.951        4 of 7 (to 3.7e-4)
     10^4 t_dyn      x0.350         0.350        -1.977        5 of 7 (to 3.5e-5)
+
+  (that table is at the PREVIOUS scalings, a_rho = -2 and q = 0; it is kept because the
+  sigma_end trend it shows is what the parameter is for. At the shell fiducial the
+  same scan gives a much milder drag -- x0.854 and 0.789 at one t_dyn, and no regime
+  under gma = 1 at all -- because the burn is throttled, below.)
 
 Everything converges on the asymptotic predictions as sigma_end grows -- the edge drop
 and the amplitude ratio both reach e = 1/3, the index reaches -2 -- so the long-time end
@@ -102,11 +108,14 @@ Number conservation (dgma_0/dgma = A/(A - S*gma)^2) then gives
 
 the synchrotron form with 1 -> A and tt -> S. Both edges follow the same trajectory.
 
-THE HYDRODYNAMICS: simple coasting. R/R_0 = 1 + sigma with sigma = t'/t'_dyn (t_dyn = the
-comoving radius-doubling time R/(Gamma c), cooling_distribution.get_tdbl_cell), and a
-shell of fixed comoving width expanding spherically has rho' ~ R^-2, i.e.
+THE HYDRODYNAMICS: coasting, on the shell fiducial. R/R_0 = 1 + sigma with
+sigma = t'/t'_dyn (t_dyn = the comoving radius-doubling time R/(Gamma c),
+cooling_distribution.get_tdbl_cell), and
 
-    a_rho = dln rho/dln R = -2,    alpha = a_rho/3 = -2/3.
+    a_rho = dln rho/dln R = -1.2,    alpha = a_rho/3 = -0.4,    B' ~ R^-1  (q = 1).
+
+A shell of FIXED comoving width would give a_rho = -2; -1.2 is the spread shell this run
+actually has.
 
 With B' ~ R^-q and e = alpha - 2q + 1,  S(sigma) = tt_dyn [(1+sigma)^e - 1]/e, so
 (1 + e*S/tt_dyn) = (1+sigma)^e and A can be written as a function of S alone,
@@ -129,8 +138,28 @@ gma/gma_m0 (or S_a = 0) and f(S_b) = gma/gma_M0 (or S_b = S_end). The window is 
 for, never scanned, which is what keeps the very narrow ones at high gma exact -- handed
 the full range instead, an adaptive rule misses them and silently returns zero.
 
-WHAT ADIABATIC COOLING CHANGES AT CONSTANT t'_c -- AND THE gma^-1 THAT DOES NOT HAPPEN
-HERE. The synchrotron-only gma^-2 segment is a dwell time, dtt = dgma/gma^2. With
+THE BURN SATURATES, and it decides which regimes can cool at all. With e = alpha - 2q + 1
+= -1.4 < 0 the geometric sum in S turns around: instead of growing without bound,
+
+    S -> S_inf = tt_dyn/|e| = 0.714 tt_dyn,      and tt itself -> tt_dyn.
+
+An electron can therefore only ever accumulate a FINITE synchrotron burn, however long
+you wait. The bottom edge cools only if that finite budget covers it, S_inf > 1/gma_m0,
+which is a condition on the regime alone:
+
+    C < 1/|e| = 0.714     (log10 C < -0.146)
+
+Verified by direct scan: C = 1e-3, 0.1 and 0.5 cool, C = 0.714, 1, 10 and 1e3 never do.
+Of the seven regimes drawn, only log10 C = -3, -2 and -1 ever reach fast cooling; the
+other four stay slow-cooling FOREVER, not merely within the integration window. At q = 0
+that statement does not exist -- S grows without bound and every regime gets there
+eventually. It is the single sharpest consequence of the field decaying.
+
+It also makes the tt_eff clock crawl (cooling_shape_adiabatic's abscissa): tt_eff grows
+only as sigma^|alpha|, so tt_eff = 1 needs sigma = 7.3e7 at C = 1 and 2.3e15 at C = 1e3.
+Late tt_eff on that panel is not a time this system reaches.
+
+WHAT ADIABATIC COOLING CHANGES -- AND THE gma^-1 THAT DOES NOT HAPPEN HERE. The synchrotron-only gma^-2 segment is a dwell time, dtt = dgma/gma^2. With
 expansion the loss rate is gma^2 + a*gma, and the tempting reading -- that the tail
 flattens toward gma^-1 wherever a > gma -- is WRONG at q = 0. It treats a as fixed while
 gma falls; they fall TOGETHER. At q = 0, e = 1 + alpha, so alpha - e = -1 identically and
@@ -192,12 +221,14 @@ from cooling_integrated_figure import (P_SYN, GM0, GMA_M0, LOGC_SAMPLES, OUTDIR,
     tt_dyn_of_C, log_slope, N_integrated)
 
 # --- defaults -------------------------------------------------------------------------
-A_RHO = -2.0                # dln rho/dln R: simple coasting, rho' ~ R^-2. The run's own
-                            # measured value is -1.205 (prerar_cell_evolution alpha_D
-                            # = -0.795); nothing qualitative moves, see check_index_is_robust
-Q_B = 0.0                   # B' ~ R^-q. 0 = constant B'/t'_c, the footing cooling_shape
-                            # is on. q=1 (B' ~ R^-1) makes the burn SATURATE -- see the
-                            # CORRECTION block in the docstring
+A_RHO = -1.2                # dln rho/dln R: the shell fiducial, rho' ~ R^-1.2. Matches
+                            # this run's measured -1.205 (prerar_cell_evolution's
+                            # alpha_D = -0.795 through dlnrho/dlnR = -2 - alpha_D), i.e.
+                            # a SPREADING shell, not the R^-2 of a fixed comoving width
+Q_B = 1.0                   # B' ~ R^-q, the shell fiducial q = 1. NOT a cosmetic change:
+                            # e = alpha - 2q + 1 goes NEGATIVE, so the synchrotron burn
+                            # SATURATES (S -> tt_dyn/|e|) instead of growing without
+                            # bound, and tt itself saturates at tt_dyn. See the docstring
 SIGMA_END = 1.              # integrate to ONE t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
                             # A parameter the user scans: at 1 it matches
                             # cooling_integrated_figure exactly, at 1e3 the cut-off has
@@ -409,7 +440,10 @@ def edge_drop_factor(sigma_end=SIGMA_END, a_rho=A_RHO, q=Q_B):
   _, e = _exps(a_rho, q)
   A, S1 = float(A_of_sigma(sigma_end, a_rho)), float(S_of_sigma(sigma_end, 1., a_rho, q))
   tt_end = float(tt_of_sigma(sigma_end, 1., q))
-  return (A/S1)*tt_end, e
+  # the e limit is a q = 0 result: it needs alpha - e = -1, i.e. e = 1 + alpha. Once the
+  # burn saturates (e < 0) S stops growing while A keeps falling, so the drop has NO
+  # finite limit -- it goes to zero. Reporting e there would assert a negative ratio.
+  return (A/S1)*tt_end, (e if e > 0. else None)
 
 
 def check_deep_tail_ratio(logC=-3., sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0,
@@ -598,14 +632,17 @@ def main(show=False):
         'first order, so it is the trapezoid over the support edges, not the model)')
   df, nf, ds, ns = check_bottom_edge()
   drop, ee = edge_drop_factor()
+  lim = f'-> e = {ee:.3f} as sigma -> inf' if ee is not None else \
+        '-> 0 as sigma -> inf: the burn saturates, so there is no finite limit'
   print(f'bottom edge    : fast limit A/S  dev {df:.2e} ({nf} regimes); '
         f'slow limit A*gma_m0 dev {ds:.2e} ({ns})')
   print(f'               : edge drops x{drop:.3f} below the synchrotron-only one at the '
-        f'same tt (-> e = {ee:.3f} as sigma -> inf)')
-  print(f'deep-tail ratio N_adiab/N_syn (-> e = {ee:.4f} deep, -> 1 near gma_m):')
+        f'same tt ({lim})')
+  print(f'deep-tail ratio N_adiab/N_syn (-> 1 near gma_m'
+        + (f', -> e = {ee:.4f} deep' if ee is not None else '') + '):')
   for g, r in check_deep_tail_ratio():
     print(f'    gma={g:10.3e}: {r:.4f}')
-  print('index is ~ -2 for ANY a_rho AT q=0 (only the amplitude, e, moves):')
+  print(f'index is ~ -2 for ANY a_rho at this q ({Q_B:g}):')
   for a_rho, ee2, idx in check_index_is_robust():
     print(f'    a_rho={a_rho:+.3f}  e={ee2:.4f}  ->  index {idx:+.4f}')
   print("the field index q matters only once the burn has had TIME to saturate:")
