@@ -2,14 +2,14 @@
 # @Author: acharlet
 
 '''
-The time-integrated electron distribution WITH adiabatic cooling, over 10^4 t_dyn.
+The time-integrated electron distribution WITH adiabatic cooling, over t_dyn.
 
 APPENDIX ILLUSTRATION, on the same footing as cooling_shape_figure: the comoving cooling
 time t'_c is held CONSTANT, so the only thing added to the synchrotron-only picture is
 the adiabatic drag. Not a measurement of this run, not a main result.
 
 sigma_end is a PARAMETER and the figure is meant to be re-run at several values; the
-numbers quoted below are at the current default, 10^4 t_dyn. The four that have been
+numbers quoted below are at the current default, ONE t_dyn. The four that have been
 looked at, all at a_rho = -2, q = 0:
 
     sigma_end     edge drop   deep-tail ratio   index    regimes under gma = 1
@@ -20,8 +20,12 @@ looked at, all at a_rho = -2, q = 0:
 
 Everything converges on the asymptotic predictions as sigma_end grows -- the edge drop
 and the amplitude ratio both reach e = 1/3, the index reaches -2 -- so the long-time end
-of the scan is where the analytic statements in this docstring are cleanest. It is also
-where the figure is least trustworthy: see VALIDITY.
+of the scan is where the analytic statements in this docstring are cleanest, and also
+where the figure is least trustworthy (see VALIDITY). At the DEFAULT, one t_dyn, none of
+that applies: the figure sits on cooling_integrated_figure's own limit and axes, the
+'no adiab.' ghosts ARE that figure's curves, and the difference between the panels is the
+adiabatic term and nothing else. That is what makes this the right default -- it is the
+comparison -- at the cost of every asymptote being only half-approached.
 
 At sigma_end = 1 the figure sits on cooling_integrated_figure's own limit and axes, and
 the 'no adiab.' ghosts ARE that figure's curves; past that the two diverge and the panel
@@ -66,9 +70,9 @@ things move at once.
 
   so the index is a strong function of the FIELD history and not only of the density one,
   but ONLY once the burn has had time to saturate. It has barely begun to at one t_dyn
-  and is well past it by 100, so q = 0 is a safe default only at the short end -- at the
-  current 10^4 t_dyn it is the single biggest assumption in the figure, worth 2.5 in the
-  index on its own.
+  and is well past it by 100, so q = 0 is a safe default only at the short end -- which
+  is where the current default sits. At one t_dyn the three q agree to 0.003 in the
+  index; at 10^4 they span 2.5. Move sigma_end up and q stops being a free choice.
   The q=1 value is positive because once S is frozen every trajectory collapses onto
   gma = A/S_inf: the population slides down as one delta function, and with
   dtt = tt_dyn (1+sigma)^-2 dsigma the normalised time it spends at low gma goes to
@@ -138,18 +142,18 @@ never near -1 (check_index_is_robust). THIS ARGUMENT IS SPECIFIC TO q = 0: the i
 alpha - e = -1 needs e = 1 + alpha, and at q > 0 it fails.
 
 So at constant t'_c the effect is a renormalisation, not a new segment:
-  - the tail keeps index ~ -2: -1.977 at 10^4 t_dyn, and -2.00 .. -1.91 across
-    a_rho = -0.5 .. -2.9 (check_index_is_robust) -- the tightest of the whole scan;
-  - its amplitude is suppressed toward e = 1 + a_rho/3 = 1/3, and by 10^4 t_dyn it is
-    THERE: 0.350 at the deepest gma where the synchrotron curve still exists to divide
-    by, climbing back to 1 near gma_m (check_deep_tail_ratio);
-  - the bottom edge moves DOWN by x0.350 (edge_drop_factor), likewise at its e = 1/3
-    limit; the exact factor is A*e*sigma/((1+sigma)^e - 1), and the -1 in that denominator
-    that held it above e at short sigma_end is now negligible.
-So at 10^4 t_dyn the asymptotic description is exact to a percent or two, and the cut-off
-has been dragged 4.5 decades below where synchrotron alone would leave it. Every curve
-still ENDS somewhere -- the population is finite and the edge is sharp -- but for five of
-the seven regimes that end is below gma = 1.
+  - the tail keeps index ~ -2: -1.932 at one t_dyn, and -1.98 .. -1.90 across
+    a_rho = -0.5 .. -2.9 (check_index_is_robust);
+  - its amplitude is suppressed toward e = 1 + a_rho/3 = 1/3, but only ASYMPTOTICALLY --
+    over one t_dyn it reaches just 0.754 at the deepest gma where the synchrotron curve
+    still exists to divide by, climbing back to 1 near gma_m (check_deep_tail_ratio);
+  - the bottom edge moves DOWN by x0.808 (edge_drop_factor), far short of its e = 1/3
+    limit: the exact factor is A*e*sigma/((1+sigma)^e - 1), and at sigma = 1 the -1 in
+    that denominator dominates it.
+So over one t_dyn the effect is MODEST and the cut-off SURVIVES, merely pushed down by
+that x0.808. Only over many dynamical times does it wash out into a long gma^-2 tail,
+electrons sliding on instead of stalling -- x0.350 and a tail reaching gma = 3.5e-5 at
+sigma_end = 1e4. That contrast is why sigma_end stays a parameter.
 
   TRAP, and this check was wrong once: the bottom edge has TWO limits, not one.
   gma_m = A gma_m0/(1 + gma_m0 S) tends to A/S only when gma_m0*S >> 1 (cooled), and to
@@ -157,22 +161,21 @@ the seven regimes that end is below gma = 1.
   the population has barely cooled at short sigma_end (gma_m0*S = 7.8e-4 at one t_dyn),
   so scoring it against A/S reads wildly off while nothing is wrong. check_bottom_edge
   gates each regime into the limit it is actually in. HOW MANY fall in each moves with
-  sigma_end -- 2 fast / 2 slow at one t_dyn, 4 fast / 0 slow at 10^4, where the burn has
-  cooled even the slowest regime -- which is why it is gated and reported, not
-  hard-coded. A zero count is a statement about the scan point, not a failure.
+  sigma_end -- 2 fast / 2 slow at the default one t_dyn, 4 fast / 0 slow at 10^4, where
+  the burn has cooled even the slowest regime -- which is why it is gated and reported,
+  not hard-coded. A zero count is a statement about the scan point, not a failure.
 
 VALIDITY, and it BINDS here in a way it did not before. These are ultra-relativistic
 trajectories; below gma = 1 the real loss rate (gma^2 - 1, cooling_distribution.
 coolingFunc_ODE) collapses and electrons stall near gma ~ 1 instead of continuing down,
-which is why the emission code floors its gamma integral there. READ THIS FIGURE WITH
-THAT IN MIND: at 10^4 t_dyn FIVE of the seven regimes end below the floor, down to
-gma = 3.5e-5, and the shaded band covers something like the left half of the panel. Those
-five curves are the ultra-relativistic trajectory continued far past where it holds --
-the real loss rate dies as gma^2 - 1 and the electrons would stall near gma ~ 1 instead
-of reaching 1e-5. They show where the population is HEADING under this model, not where
-it is. Only log10 C = +2 and +3 stay entirely above the floor. The shorter the
-integration, the less of this caveat applies: at one t_dyn it is a single curve ending
-at 0.807.
+which is why the emission code floors its gamma integral there. At the default one
+t_dyn this barely bites: only the fastest regime crosses, and barely -- log10 C = -3 ends
+at gma = 0.807 -- so the shaded band is a sliver at the left edge rather than half the
+panel. It still means what it says for that one curve. The caveat grows with sigma_end,
+and by 10^4 t_dyn FIVE of the seven regimes end below the floor, down to gma = 3.5e-5,
+with only log10 C = +2 and +3 entirely above it; there the shaded half of the panel is
+the ultra-relativistic trajectory continued far past where it holds, and should be read
+as where the population is HEADING, not where it is.
 
 Run:  python cooling_integrated_adiabatic.py
 '''
@@ -195,7 +198,7 @@ A_RHO = -2.0                # dln rho/dln R: simple coasting, rho' ~ R^-2. The r
 Q_B = 0.0                   # B' ~ R^-q. 0 = constant B'/t'_c, the footing cooling_shape
                             # is on. q=1 (B' ~ R^-1) makes the burn SATURATE -- see the
                             # CORRECTION block in the docstring
-SIGMA_END = 1e4             # integrate to 10^4 t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
+SIGMA_END = 1.              # integrate to ONE t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
                             # A parameter the user scans: at 1 it matches
                             # cooling_integrated_figure exactly, at 1e3 the cut-off has
                             # washed out entirely. The panel limits follow it (below)
