@@ -37,6 +37,20 @@ injected with gma_0 -> inf therefore sits at gma = 1/tt_eff, so 1/tt_eff IS the 
 the top edge slides down, exactly as 1/tt is in the synchrotron figure. Measured,
 gma_M * tt_eff = 1.000 at every sample once the edge has burnt.
 
+The ADIABATIC track has an asymptote of its own on the same axis, and the panel draws
+it: the same identity tt_eff = (ttd/e)[(1+sigma) - (1+sigma)^|alpha|] leaves
+(1+sigma) -> e*tt_eff/ttd for any a_rho > -3, so
+
+    A -> (e*tt_eff/ttd)^alpha,     slope alpha = a_rho/3  =  -2/3 for coasting,
+
+against -1 for synchrotron. Measured local slopes converge on alpha for every law tried
+(a_rho = -0.5, -1.205, -2, -2.9 give -0.167, -0.402, -0.665, -0.914 by tt_eff = 1e4
+against -0.167, -0.402, -0.667, -0.967 predicted). TWO WAYS it is unlike tt_eff^-1:
+it converges far more slowly, because the dropped term dies only as (1+sigma)^(|alpha|-1)
+-- over the drawn range the coasting track reads about -0.63, not -0.667 -- and it is
+C-DEPENDENT, its normalisation carrying tt_dyn, so it is a guide for this panel's
+reference C and not a universal line the way tt_eff^-1 is.
+
 Three properties make the pair directly comparable:
   - tt_eff is strictly increasing (S grows while A falls), so it is a valid abscissa;
   - tt_eff -> tt as A -> 1, agreeing to 3e-8 at sigma = 1e-8, so the two figures share
@@ -122,6 +136,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from fractions import Fraction
 
 from cooling_distribution import gamma_synCooled, norm_plaw_distrib, distrib_plaw_cooled
 from scipy.optimize import brentq
@@ -324,7 +339,23 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
                  bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
   # 1/tt_eff is the burn-off asymptote, EXACTLY as 1/tt is in cooling_shape_figure --
   # that is what this abscissa buys, and the top edge slides down along it
-  axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}_{\\rm eff}$')
+  axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9,
+             label='$\\tilde{t}_{\\rm eff}^{-1}$')
+  # the ADIABATIC asymptote, companion to that one and drawn the same way -- exactly,
+  # not offset, so each guide converges onto the track it describes. With e = 1 + alpha
+  # the identity tt_eff = (ttd/e)[(1+sigma) - (1+sigma)^|alpha|] leaves (1+sigma) ->
+  # e*tt_eff/ttd whenever a_rho > -3, so A -> (e*tt_eff/ttd)^alpha: SLOPE alpha = a_rho/3,
+  # i.e. -2/3 for coasting, against -1 for synchrotron. Two caveats it does not share
+  # with tt_eff^-1: it converges far more slowly (the dropped term dies only as
+  # (1+sigma)^(|alpha|-1), so the drawn range shows ~-0.63 rather than -0.667), and it is
+  # C-DEPENDENT -- the normalisation carries tt_dyn -- so it is a guide for this panel's
+  # reference C, not a universal line.
+  alpha_a, e_a = _exps(a_rho, q)
+  fr = Fraction(alpha_a).limit_denominator(100)
+  exp_lab = f'{fr.numerator}' if fr.denominator == 1 else f'{fr.numerator}/{fr.denominator}'
+  axT.loglog(x, gM0*(e_a*x/ttd)**alpha_a, color=MUTED, lw=.9,
+             ls=(0, (4, 1.2, 1, 1.2, 1, 1.2)),
+             label=f'$\\tilde{{t}}_{{\\rm eff}}^{{{exp_lab}}}$')
   # the two ghosts separate the causes: what synchrotron alone would do at the same time,
   # and what expansion alone would do. The real track is below both.
   axT.loglog(x, gamma_synCooled(tt_of_sigma(sg, ttd, q), gM0), color='0.68', lw=.8,
@@ -403,7 +434,7 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
   pT = axT.get_position()
   leg = fig.legend(h_ref, [ln.get_label() for ln in h_ref], fontsize=FS_LEG,
                    loc='lower center', bbox_to_anchor=(pT.x0 + .5*pT.width, pT.y1 + .008),
-                   bbox_transform=fig.transFigure, ncol=5, framealpha=1.,
+                   bbox_transform=fig.transFigure, ncol=len(h_ref), framealpha=1.,
                    handlelength=1.2, handletextpad=.4, borderpad=.3, columnspacing=.9)
   axT.grid(alpha=.25, lw=.4)
 
