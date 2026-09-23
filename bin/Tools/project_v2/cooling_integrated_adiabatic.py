@@ -10,86 +10,21 @@ drafts held t'_c constant (q = 0) to isolate the adiabatic drag; the field now d
 too, and that is not a cosmetic difference -- see THE BURN SATURATES below.
 
 sigma_end is a PARAMETER and the figure is meant to be re-run at several values; the
-numbers quoted below are at the current default, ONE t_dyn. The four that have been
-looked at, all at a_rho = -2, q = 0:
+numbers below are at the current default, 100 t_dyn, on the shell fiducial (a_rho = -2,
+gma_ad = 4/3, hence q = 4/3, alpha = -2/3, e = -7/3):
 
-    sigma_end     edge drop   deep-tail ratio   index    regimes under gma = 1
-    1    t_dyn      x0.808         0.754        -1.932        1 of 7 (to 0.807)
-    100  t_dyn      x0.420         0.415        -1.897        3 of 7 (to 4.2e-3)
-    10^3 t_dyn      x0.370         0.369        -1.951        4 of 7 (to 3.7e-4)
-    10^4 t_dyn      x0.350         0.350        -1.977        5 of 7 (to 3.5e-5)
+    A(100) = 0.0461 (drag x21.7)      S/tt_dyn = 0.4286 (SATURATED)
+    tt_end/tt_dyn = 0.5997            edge drops x0.065 below synchrotron-only
+    deep-tail ratio 0.513             1 of 7 regimes under gma = 1 (C = 1e-3, to 0.107)
 
-  (that table is at the PREVIOUS scalings, a_rho = -2 and q = 0; it is kept because the
-  sigma_end trend it shows is what the parameter is for. At the shell fiducial the
-  same scan gives a much milder drag -- x0.854 and 0.789 at one t_dyn, and no regime
-  under gma = 1 at all -- because the burn is throttled, below.)
-
-Everything converges on the asymptotic predictions as sigma_end grows -- the edge drop
-and the amplitude ratio both reach e = 1/3, the index reaches -2 -- so the long-time end
-of the scan is where the analytic statements in this docstring are cleanest, and also
-where the figure is least trustworthy (see VALIDITY). At the DEFAULT, one t_dyn, none of
-that applies: the figure sits on cooling_integrated_figure's own limit and axes, the
-'no adiab.' ghosts ARE that figure's curves, and the difference between the panels is the
-adiabatic term and nothing else. That is what makes this the right default -- it is the
-comparison -- at the cost of every asymptote being only half-approached.
-
-At sigma_end = 1 the figure sits on cooling_integrated_figure's own limit and axes, and
-the 'no adiab.' ghosts ARE that figure's curves; past that the two diverge and the panel
-limits follow the support instead (see plot_integrated_adiab). What the scan shows is
-that the INDEX barely moves while the cut-off marches down and the amplitude is halved:
-the effect is a renormalisation at every integration time, only a bigger one the longer
-you wait.
-
-WHY THAT IS THE RIGHT FOOTING, and where the field went. cooling_shape_figure and
-cooling_integrated_figure never mention B' at all: they are parameterised entirely in
-
-    tt = int dt'/t_{c,1},
-
-and that integral ABSORBS any B'(t') whatsoever -- dgma/dtt = -gma^2 is exact for any
-field history. Those two figures are therefore agnostic, not "constant B'". This one
-cannot be: the adiabatic drag A = (rho/rho_0)^(1/3) is a function of RADIUS, so it needs
-the tt <-> t' <-> R map that the synchrotron figures were free to ignore, and that map is
-exactly where B' re-enters. Something has to be assumed. Holding t'_c fixed is the
-minimal choice and the one that isolates the adiabatic term: let B' decay as well and two
-things move at once.
-
-  CORRECTION, recorded because the earlier draft of this module got it wrong. Its
-  docstring announced B' ~ R^-1 while the code did, and always did, the constant-t'_c
-  case -- R/R_0 = 1 + tau was written with tau = tt/tt_dyn, which is only the radius when
-  tt is proportional to t'. The two are NOT interchangeable, and not by a small amount.
-  With B' ~ R^-q the map is dtt = tt_dyn (1+sigma)^-2q dsigma (sigma = t'/t'_dyn), so
-
-      q = 0:  tt = tt_dyn*sigma                 unbounded
-      q = 1:  tt = tt_dyn*sigma/(1+sigma)  ->  tt_dyn        SATURATES
-
-  i.e. with B' ~ R^-1 an electron can only ever spend a finite normalised time cooling,
-  and the synchrotron burn saturates at S = tt_dyn/(2q-1-alpha) = 0.600 tt_dyn, where at
-  q = 0 it grows without bound. Over ONE t_dyn that is barely visible -- S is 0.411 tt_dyn
-  against 0.780 -- but it decides everything once the integration is long. Measured, same
-  a_rho, only q and the integration time moved:
-
-      sigma_end        q = 0      q = 0.5     q = 1
-      1    t_dyn       -1.932     -1.931      -1.934    <- q hardly matters
-      100  t_dyn       -1.897     -1.330      -0.401    <- q already dominant
-      10^3 t_dyn       -1.951     -1.102      +0.424    <- q decides the index
-      10^4 t_dyn       -1.977     -1.024      +0.498
-
-  so the index is a strong function of the FIELD history and not only of the density one,
-  but ONLY once the burn has had time to saturate. It has barely begun to at one t_dyn
-  and is well past it by 100, so q = 0 is a safe default only at the short end -- which
-  is where the current default sits. At one t_dyn the three q agree to 0.003 in the
-  index; at 10^4 they span 2.5. Move sigma_end up and q stops being a free choice.
-  The q=1 value is positive because once S is frozen every trajectory collapses onto
-  gma = A/S_inf: the population slides down as one delta function, and with
-  dtt = tt_dyn (1+sigma)^-2 dsigma the normalised time it spends at low gma goes to
-  nothing -- asymptotically N ~ gma^(-1-1/alpha) = gma^(+1/2) for coasting, which is the
-  +0.42 above still short of its limit at sigma_end = 1e3. (Note tt IS the right weight for
-  a fluence: dt' * P ~ dt' * B'^2 ~ dtt, so the B' that cancels out of the trajectory
-  cancels out of the emission too.) NB the gma^-1 guessed in an earlier turn is wrong at
-  BOTH ends -- -1.93 here, and -1.95 to +0.42 at 1e3 t_dyn; it is not a limit this
-  system takes.
-  q_B is a parameter (default 0) so this is computed rather than argued about; main()
-  reports the scan.
+THE LOW-ENERGY INDEX IS POSITIVE HERE, and that is the headline, not a detail: +0.33 at
+log10 C = -3 rising to +0.94 in the slow regimes, against -1.93 when the same figure
+integrated to ONE t_dyn. The burn saturates while the drag keeps going, so electrons
+pushed below gma_c spend almost no NORMALISED time there -- and tt is the right weight
+for a fluence, since dt'*P ~ dt'*B'^2 ~ dtt. The time-integrated distribution therefore
+PEAKS at gma_c and falls away below it, instead of holding a gma^-2 plateau down to a
+sharp cut-off. The gma_c markers sit on those peaks. Integrate to one t_dyn instead and
+the old picture returns; the contrast is why sigma_end stays a parameter.
 
 THE EQUATION IS LINEAR IN u = 1/gma. With the adiabatic term the cooling equation is
 
@@ -575,7 +510,7 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
   for lev, _ in levels:
     axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-  axS.set_ylim(-(p+2.6), .4)
+  axS.set_ylim(-(p+2.6), 1.5)     # room for the POSITIVE low-energy slopes
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axS.set_ylabel('$\\mathrm{d}\\ln N/\\mathrm{d}\\ln\\gamma$', fontsize=FS_LAB)
   axR = axS.twinx()                       # right-hand spine carries the expected indices

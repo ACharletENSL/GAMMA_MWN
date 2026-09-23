@@ -181,6 +181,7 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   axT.loglog(tt, gamma_synCooled(tt, gM0), color='k', lw=1.4, label='$\\gamma_\\mathrm{M}$')
   axT.loglog(tt, gamma_synCooled(tt, gm0), color='k', lw=1.1, ls='--',
              label='$\\gamma_\\mathrm{m}$')
+  axT.axhspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)       # gma < 1 on the TRACK panel is a y band
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
   # the two knees, labelled along the bottom where nothing else runs; each is the
   # cooling time of the edge it burns, tilde{t}_M = 1/gma_M0 and tilde{t}_m = 1/gma_m0
@@ -246,6 +247,7 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   # gma = 1 marked here as in panel (a): the last sampled time lands right on it
+  axD.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
   axD.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
   axD.set_xlim(.5*gamma_synCooled(tt_arr[-1], gm0), 2.*gM0)
   axD.set_ylim(1e-16, 1e4)

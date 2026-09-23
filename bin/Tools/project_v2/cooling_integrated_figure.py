@@ -68,6 +68,13 @@ Two edges are not power laws and are drawn as they are, not idealized:
   - the BOTTOM, a hard edge at gma_m(tt_dyn) = gma_m0/(1 + gma_m0*tt_dyn), which in fast
     cooling is ~gma_c and in slow cooling is just under gma_m0.
 
+INTEGRATION LIMIT. SIGMA_END sets how many t_dyn the integral runs over; the default is
+100, so the label reads N(gma; 10^2 tt_dyn). gma_c stays 1/tt_dyn -- the cooling Lorentz
+factor AT the dynamical time, a property of the system rather than of the window -- so
+its markers sit ON the curves rather than at their cut-offs once sigma_end > 1. The
+panel's peak and its x floor both follow sigma_end; a fixed top clipped the
+fastest-cooling curve at 100 t_dyn, whose peak is ~1e4.
+
 VALIDATION, all four printed by main().
 
   - SUM RULE: int N(gma;tt_dyn) dgma = tt_dyn exactly, for every C -- cooling moves
@@ -293,9 +300,10 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   # The fast branch is DEGENERATE -- every C < 1 shares one envelope and differs only in
   # where it is cut off -- so the overdraw hides nothing that is not identical.
   order = np.argsort(logC)[::-1]
-  breaks = []
+  breaks, hi_N = [], 0.   # hi_N follows the peak; a fixed top clipped it at 100 t_dyn
   for i in order:
     gma, N = integrated_distrib(logC[i], p, gm0, gM0, sigma_end=sigma_end)
+    hi_N = max(hi_N, float(N.max()))
     axN.loglog(gma, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
     axS.semilogx(gma, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
     # gma_c on its own curve, evaluated exactly rather than read off the sampling: the
@@ -312,7 +320,8 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   _t = '' if sigma_end == 1. else f'10^{{{np.log10(sigma_end):.0f}}}'
   axN.set_ylabel(f'$N(\\gamma;{_t}\\tilde{{t}}_{{\\rm dyn}})/N_{{\\rm e}}$',
                  fontsize=FS_LAB)
-  axN.set_ylim(1e-25, 10.*sigma_end)
+  axN.set_ylim(1e-25, 10.*hi_N)   # follows the peak: at 100 t_dyn a fixed top
+                                  # clipped the fastest-cooling curve
 
   # (b) the slopes ---------------------------------------------------------------------
   # the expected indices are reference VALUES, so they belong on an axis: the guides stay
@@ -322,7 +331,7 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
   for lev, _ in levels:
     axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-  axS.set_ylim(-(p+2.6), .4)
+  axS.set_ylim(-(p+2.6), 1.5)     # room for the POSITIVE low-energy slopes
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axS.set_ylabel('$\\mathrm{d}\\ln N/\\mathrm{d}\\ln\\gamma$', fontsize=FS_LAB)
   axR = axS.twinx()                       # right-hand spine carries the expected indices
@@ -335,6 +344,7 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   # marks shared by both panels: the injected bottom edge sits at x = 1 by construction,
   # the injected ceiling closes every curve, and gma = 1 is where the model stops
   for ax in (axN, axS):
+    ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)        # gma < 1: the model's floor, shaded in every
     ax.axvline(gm0, color=INK, ls=':', lw=.8, zorder=1)
     ax.axvline(gM0, color=INK, ls=':', lw=.8, zorder=1)
     ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)

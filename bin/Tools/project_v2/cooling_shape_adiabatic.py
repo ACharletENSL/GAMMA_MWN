@@ -367,6 +367,7 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
                label='$\\gamma_\\mathrm{M}$')
     axT.loglog(x, gamma_cooled(sg, gm0, ttd_c, a_rho, q), color='k', lw=1.1, ls='--',
                label='$\\gamma_\\mathrm{m}$')
+    axT.axhspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
     axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
     axT.set_xlim(x[0], x[-1])
     axT.set_ylim(.3*float(gamma_cooled(sg[-1], gm0, ttd_c, a_rho, q)), 30.*gM0)
@@ -397,6 +398,7 @@ def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RH
       axD.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                    fontsize=FS_ANN, ha='center', va='top',
                    bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+    axD.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
     axD.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
     axD.set_xlim(.5*lo_D, 2.*gM0)
     axD.set_ylim(1e-16, 1e4)
