@@ -155,50 +155,18 @@ cooling regime; LOGC = 0 (the marginal case gma_c = gma_m) is the default and is
 inside panel (a). Other regimes only stretch the sigma axis, they do not change the
 shapes -- which is the similarity result again.
 
-THE COOLING REGIMES, as bands on the top panel. The two knees are the boundaries: tt_M
-and tt_m are where the injected edges burn (S = 1/gma_M0 and S = 1/gma_m0), so below tt_M
-none of the population has cooled and above tt_m all of it has.
+THE COOLING REGIMES ARE NOT DRAWN HERE any more. They are defined by synchrotron
+cooling, and on this abscissa they would be C-dependent: the saturating burn moves t_m,
+and for C above 1/|e| there is no t_m at all. They live on cooling_shape_figure's
+pure-synchrotron panel instead, where t_M = 1/gma_M,0 and t_m = 1/gma_m,0 need no
+reference C.
 
-THE LOWER KNEE EXISTS ONLY BELOW A THRESHOLD, and that is what fixes the reference C.
-The burn saturates at S_inf = tt_dyn/|e| = 0.714 tt_dyn, and the bottom edge needs
-S > 1/gma_m0, so it cools only for
-
-    C < 1/|e| = 0.714.
-
-At the marginal C = 1 there is simply no tt_m -- gma_m never fully cools however long
-you wait -- and the panel degenerates to VSC + SC. This figure illustrates the general
-evolution rather than any one cell of the run, so LOGC is -3: a regime that does cool,
-which restores all five bands and both knees, and which is ALSO one of the two curves
-LOGC_M draws, so the tt_m vertical passes through a knee that is on the plot. At that
-reference the width collapses to 1.0014 by tt_eff = 1e2 -- the population really does go
-mono-energetic -- where at C = 1 it freezes at 2.4 and stays there.
-
-_knee() still returns None when the burn saturates first, rather than letting np.interp
-saturate at the panel edge and draw a knee that is not real; it is what guards the
-C > 0.714 case if the reference is ever moved back.
-
-    VSC   tt_eff < tt_M                     nothing has cooled yet
-    SC    tt_M < tt_eff < tt_m/MC_FAC       the top edge is burning, gma_m untouched
-    MC    tt_m/MC_FAC .. tt_m*MC_FAC        a NEIGHBOURHOOD of tt_m, not a boundary
-    FC    tt_m*MC_FAC < tt_eff < 1          the whole population has cooled
-    VFC   tt_eff > 1
-
-MC is the one band that is a choice: marginal cooling is a neighbourhood of tt_m rather
-than a point, taken here as a factor MC_FAC = 3 either side. The others are set by the
-knees. Colours are the house shape-class palette (sweep_gammacm's per-spectrum table),
-RdBu from VSC red to VFC blue; 'marginal' is #f7f7f7 there, invisible as a tint, so MC
-gets a grey instead.
-
-VFC IS EXACTLY WHERE THE MODEL STOPS, and not by coincidence of these bounds. gma_M ->
-1/tt_eff once the top edge has burnt (that is what this abscissa is for), so tt_eff > 1
-means gma_M < 1: the whole population, its most energetic electron included, is
-sub-relativistic. That holds for any gma_M0 >> 1, so the VFC band is ALWAYS past the
-ultra-relativistic trajectory's validity. The tracks are drawn through it anyway -- the
-integrated figures have always carried their curves into the sub-relativistic region, and
-cutting them here made the one band they were added to populate look like blank axis. The
-crimson gma = 1 line is the caveat: below it the real loss rate dies as gma^2 - 1 and the
-electrons stall near 1 instead of reaching the 1e-2 the tracks show at the right edge.
-Read that stretch as where the model says the population is HEADING, not where it is.
+THE ABSCISSA IS t'/t'_c,i -- the comoving time in units of the cooling time at injection,
+which is just sigma*tt_dyn (sigma = t'/t'_dyn, tt_dyn = t'_dyn/t'_c,i). It is NOT
+tt = int dt'/t'_c, which lags it once the field decays, and not the tt_eff = S/A this
+figure used before. Both columns share one t'/t'_c,i range, so they can be read across.
+The cost, and the reason for the 2x2: gma_M is C-independent in tt_eff but not here, so
+each regime needs both of its edges and they cannot share a panel.
 
 VALIDITY. As everywhere in this family, gma_synCooled's ultra-relativistic trajectory is
 not physical below gma = 1 (marked in crimson): the real loss rate goes as gma^2 - 1 and
@@ -213,8 +181,6 @@ Run:  python cooling_shape_adiabatic.py
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from fractions import Fraction
 
 from cooling_distribution import norm_plaw_distrib, distrib_plaw_cooled
 from scipy.optimize import brentq
@@ -237,20 +203,21 @@ LOGC = -3.                  # gma_c/gma_m for the tt <-> sigma map, the bands, t
 # collapse. NOTE the physical cost: with B' ~ R^-1 the clock crawls (tt_eff grows only
 # as sigma^|alpha|), so the right-hand end is sigma ~ 7e12 dynamical times at the
 # reference C. The late panel is asymptotic behaviour, not a time the shell reaches.
-LOGTTE_SAMPLES = (-8., -7., -6., -5., -4., -3., -2., -1., 0.)
+LOGT_SAMPLES = (-8., -7., -6., -5., -4., -3., -2., -1., 0.)
+T_LIM = (1e-11, 1e2)        # t'/t'_c,i span of the track panels
 TTE_LIM = (1e-11, 1e2)      # the TOP panel runs two decades further than the samples:
                             # the tracks' asymptotes only declare themselves past
                             # tt_eff ~ 1, while the distributions are already a
                             # collapsed spike by then and add nothing below
-MC_FAC = 3.                 # MC is taken as tt_m/MC_FAC .. tt_m*MC_FAC
-BAND_ALPHA = .13            # tint of the regime bands
-D_STYLES = ('-', '--')      # panel (b) keys the two LOGC_M regimes by style
-LOGC_M = (-3., 3.)          # log10(bar{gma}_c/gma_m) drawn for the gma_m track. gma_M is
-                            # C-INDEPENDENT in tt_eff, so only the bottom edge is
-                            # repeated; the marginal case is dropped because below C ~ 1
-                            # the two ends are degenerate. LOGC stays the REFERENCE: it
-                            # sets the bands, the knees and panel (b).
+LOGC_M = (-3., 3.)          # log10(bar{gma}_c/gma_m): ONE COLUMN PER VALUE. Both edges
+                            # are drawn per regime now -- gma_M is C-independent only in
+                            # tt_eff, not on this abscissa -- so they cannot share panels
 FNAME = 'cooling_shape_adiabatic.png'
+
+
+def lab_C(lc):
+  'Render a regime label: 0 -> 1, otherwise 10^n.'
+  return '1' if lc == 0. else f'10^{{{lc:.0f}}}'
 
 
 # --- the generalised normalised time ----------------------------------------------------
@@ -298,10 +265,10 @@ def width(sigma, ttd, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B):
           /gamma_cooled(sigma, gm0, ttd, a_rho, q))
 
 
-# the sigma values LOGTTE_SAMPLES maps to at the module defaults: what the figure draws,
+# the sigma values LOGT_SAMPLES maps to at the module defaults: what the figure draws,
 # and what the checks below are run at. Nine bracketed root-finds, done once at import.
 SIG_SAMPLES = tuple(sigma_of_tt_eff(10.**l, tt_dyn_of_C(LOGC, GM0))
-                    for l in LOGTTE_SAMPLES)
+                    for l in LOGT_SAMPLES)
 
 
 # --- validation -------------------------------------------------------------------------
@@ -368,257 +335,92 @@ def check_reduces_to_shape(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
   return dev
 
 
-def _band_bg(col, alpha=BAND_ALPHA):
-  '''
-  The OPAQUE colour a band tint blends to over white. A label box painted in it is
-  invisible against its own band but still masks whatever runs underneath -- which is
-  what the MC label needs, sitting as it does exactly on the tt_m vertical.
-  '''
-  return tuple(alpha*c + (1. - alpha) for c in mcolors.to_rgb(col))
-
-
 # --- the figure ---------------------------------------------------------------------------
-def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
-    logtte=LOGTTE_SAMPLES, logC_m=LOGC_M, outdir=OUTDIR, fname=FNAME, show=False):
-  '''
-  Two-panel view, laid out exactly as cooling_shape_figure so the pair can be read across:
-  the edge tracks on top, the distributions they sample below.
-  '''
-  ttd = tt_dyn_of_C(logC, gm0)
+def plot_cooling_shape_adiab(logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO,
+    q=Q_B, logtte=LOGT_SAMPLES, logC_m=LOGC_M, outdir=OUTDIR, fname=FNAME, show=False):
+  """
+  A 2x2 grid: ONE COLUMN PER REGIME, tracks above and distributions below. Overlaying the
+  two regimes on shared panels was unreadable once both edges had to be drawn per regime
+  -- which is forced by the abscissa (below) -- so they are separated instead.
+
+  THE ABSCISSA IS t'/t'_c,i, the physical comoving time in units of the cooling time at
+  injection. That is simply sigma*tt_dyn: sigma = t'/t'_dyn and tt_dyn = t'_dyn/t'_c,i.
+  It is NOT tt = int dt'/t'_c, which lags it once the field decays, and it is not the
+  tt_eff = S/A this figure used before. The cost, and the reason for the split: gma_M is
+  C-independent in tt_eff but NOT here, so each regime needs both its edges.
+  """
   tte_arr = 10.**np.asarray(logtte, dtype=float)
-  sig_arr = np.array([sigma_of_tt_eff(t, ttd, a_rho, q) for t in tte_arr])
   colors = plt.cm.viridis(np.linspace(0., .85, len(tte_arr)))
   K0 = norm_plaw_distrib(gm0, gM0, p)
+  nC = len(logC_m)
 
-  fig, (axT, axD) = plt.subplots(2, 1, figsize=FIGSIZE,
-      # hspace .24 left panel (a)'s xlabel only 3.2 px clear of panel (b) -- it bit.
-      # .32 puts it 15.1 px clear while its own tick labels stay 1.4 px above it, so
-      # it groups with the panel it names. The FIGURE HEIGHT is unchanged by this:
-      # hspace redistributes space between panels, it does not add any.
-      gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.32))
+  fig, axs = plt.subplots(2, nC, figsize=(3.2*nC, 5.4), squeeze=False,
+      gridspec_kw=dict(height_ratios=[1., 1.35], hspace=.30, wspace=.28))
 
-  # (a) edge tracks vs sigma -------------------------------------------------------------
-  sg = np.geomspace(*(sigma_of_tt_eff(t, ttd, a_rho, q) for t in TTE_LIM), 900)
-  x = tt_eff_of_sigma(sg, ttd, a_rho, q)             # the abscissa: S/A, not sigma
-  # tracks continue BELOW gma = 1 rather than stopping there, matching the integrated
-  # figures, which have always drawn their curves into the shaded sub-relativistic
-  # region. The gma = 1 line still marks where the ultra-relativistic trajectory
-  # stops being the physical one; it is a caveat on the curve, not a reason to hide
-  # where the model says the population is heading.
-  # the cooling REGIMES, as bands on the same axis the knees are marked on. tt_M and
-  # tt_m are where the two injected edges burn (S = 1/gma_M0, 1/gma_m0), so they are the
-  # regime boundaries: above tt_m the whole population has cooled, below tt_M none of it
-  # has. MC is not a boundary but a NEIGHBOURHOOD of tt_m, taken here as a factor
-  # MC_FAC either side. Colours are the house shape-class palette (sweep_gammacm's
-  # per-spectrum table), RdBu from VSC red to VFC blue; 'marginal' is #f7f7f7 there,
-  # invisible as a tint, so MC gets a grey instead.
-  S_sg = S_of_sigma(sg, ttd, a_rho, q)
-
-  def _knee(g):
-    '''
-    The tt_eff at which S reaches 1/g, or None if it never does. That second case is
-    REAL once the burn saturates (e < 0): S stops at tt_dyn/|e|, and if that is below
-    1/gma_m0 the bottom edge never cools at all -- the condition is C < 1/|e|. Left to
-    np.interp it would saturate at the panel edge and draw a knee that does not exist,
-    which is what the shell fiducial (C = 1, S_inf = 0.71/gma_m0) would have shown.
-    '''
-    return np.interp(1./g, S_sg, x) if S_sg[-1] >= 1./g else None
-
-  t_M, t_m = _knee(gM0), _knee(gm0)
-  if t_m is None:      # no lower knee: SC simply runs to the edge of the panel
-    bands = (('VSC', x[0], t_M, '#b2182b'), ('SC', t_M, x[-1], '#ef8a62'))
-  else:
-    bands = (('VSC', x[0],        t_M,          '#b2182b'),
-             ('SC',  t_M,         t_m/MC_FAC,   '#ef8a62'),
-             ('MC',  t_m/MC_FAC,  t_m*MC_FAC,   '0.6'),
-             ('FC',  t_m*MC_FAC,  1.,           '#67a9cf'),
-             ('VFC', 1.,          x[-1],        '#2166ac'))
-  # GUARD: tt_m is found by interpolating S, and at large C the bottom edge never burns
-  # inside the plotted window -- S tops out below 1/gma_m0 -- so the interp saturates at
-  # the panel edge and FC comes out as a REVERSED span lying over VFC. Clip every band to
-  # the axis and drop the ones that collapse; a missing band is the honest rendering of
-  # a regime this window does not reach.
-  for lab, a_, b_, col in bands:
-    a_, b_ = max(a_, x[0]), min(b_, x[-1])
-    if not a_ < b_:
-      continue
-    axT.axvspan(a_, b_, color=col, alpha=BAND_ALPHA, lw=0, zorder=0)
-    # y = 0.96, not 0.985: with a box the label needs its pad to stay INSIDE the axes,
-    # or the box paints over the top spine and breaks it into segments
-    axT.annotate(lab, (np.sqrt(a_*b_), .96), xycoords=('data', 'axes fraction'),
-                 color=INK, fontsize=FS_ANN, ha='center', va='top',
-                 bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
-  # THE TWO ASYMPTOTES. gma_M -> 1/tt_eff always -- that is what this abscissa buys.
-  # The adiabatic track goes as tt_eff^(alpha/m) with m = max(1-2q, |alpha|): that is
-  # alpha = a_rho/3 while the burn still grows, but -1 for ANY a_rho once it has frozen,
-  # where tt_eff = S_inf/A makes A = S_inf/tt_eff identically. Both are drawn EXACTLY,
-  # not offset, so each sits on the track it describes -- the synchrotron one on gma_M,
-  # the adiabatic one on the slowest-cooling gma_m, which is the curve pure drag
-  # describes (gma_m ~ A gma_m0 while its burn term stays small).
-  alpha_a, e_a = _exps(a_rho, q)
-  m_a = max(1. - 2.*q, abs(alpha_a))
-  ttd_slow = tt_dyn_of_C(max(logC_m), gm0)
-  fr = Fraction(alpha_a/m_a).limit_denominator(100)
-  exp_lab = f'{fr.numerator}' if fr.denominator == 1 else f'{fr.numerator}/{fr.denominator}'
-  # At the shell fiducial the two INDICES COINCIDE at -1, so the guides share a style and
-  # a single legend entry; only their normalisation differs (1/tt_eff against
-  # S_inf/tt_eff). They are drawn apart, and labelled apart, wherever the indices differ
-  # -- at q = 0 the adiabatic slope is a_rho/3 and two keys are the honest rendering.
-  same = abs(alpha_a/m_a + 1.) < 1e-9
-  axT.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9,
-             label='$\\tilde{t}_{\\rm eff}^{-1}$' if same
-                   else '$\\tilde{t}_{\\rm eff}^{-1}$ syn.')
-  axT.loglog(x, gm0*(abs(e_a)*x/ttd_slow)**(alpha_a/m_a), color=MUTED, lw=.9,
-             ls='-.' if same else (0, (4, 1.2, 1, 1.2, 1, 1.2)),
-             label='_nolegend_' if same
-                   else f'$\\tilde{{t}}_{{\\rm eff}}^{{{exp_lab}}}$ adiab.')
-  # the syn-only and adiab-only ghosts are gone: the two asymptote guides above now say
-  # what they said, at the slopes rather than as whole tracks, and the panel reads.
-  axT.loglog(x, gamma_cooled(sg, gM0, ttd, a_rho, q), color='k', lw=1.4,
-             label='$\\gamma_\\mathrm{M}$')
-  # gma_m ONCE PER C. Each regime has its own tt_eff <-> sigma map, so each gets its own
-  # sigma grid; the abscissa is the same physical variable for all of them, which is why
-  # they can share an axis at all -- and why gma_M, drawn once above, lands on every one
-  # of their tracks.
-  colors_m = plt.cm.jet(plt.Normalize(-3., 3.)(np.asarray(logC_m, dtype=float)))
-  h_m, lo_m = [], []
-  for lc, col in zip(logC_m, colors_m):
+  for k, lc in enumerate(logC_m):
+    axT, axD = axs[0, k], axs[1, k]
     ttd_c = tt_dyn_of_C(lc, gm0)
-    sg_c = np.geomspace(*(sigma_of_tt_eff(t, ttd_c, a_rho, q) for t in TTE_LIM), 900)
-    x_c = tt_eff_of_sigma(sg_c, ttd_c, a_rho, q)
-    g_c = gamma_cooled(sg_c, gm0, ttd_c, a_rho, q)
-    ln, = axT.loglog(x_c, g_c, color=col, lw=1.1, ls='--', zorder=3)
-    h_m.append(ln); lo_m.append(float(g_c[-1]))
-  # a black PROXY so gma_m appears in the top row beside gma_M, as the quantity it is;
-  # which C each coloured track belongs to is the in-panel key's job, not this one's
-  axT.plot([], [], color='k', lw=1.1, ls='--', label='$\\gamma_\\mathrm{m}$')
-  axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
-  # the knees are where the edges burn, i.e. where S reaches 1/gma_edge. In tt_eff they
-  # land a little RIGHT of 1/gma_edge, by the factor 1/A they have picked up by then.
-  for k, lab in ((t_M, '$\\tilde{t}_M$'), (t_m, '$\\tilde{t}_m$')):
-    if k is None:
-      continue
-    axT.axvline(k, color=INK, ls=':', lw=.8, zorder=1)
-    axT.annotate(lab, (k, .015), xycoords=('data', 'axes fraction'), color=INK,
-                 fontsize=FS_ANN, ha='center', va='bottom',
-                 bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axT.set_xlim(x[0], x[-1])
-  # the floor follows the tracks: they now run on below gma = 1, and at the right-hand
-  # edge both edges have converged to ~1e-2, so a fixed 0.15 would cut them off partway
-  # through VFC -- the one band they were added to populate. A decade of empty top for
-  # the band labels.
-  # TWO decades of empty top, not one: the band labels now carry boxes, and a box at
-  # y = 0.96 reaches down to ~0.86 in axes units -- with only one decade the gma_M
-  # plateau sits at 0.877 and the VSC box paints over it.
-  axT.set_ylim(.3*min(lo_m), 300.*gM0)
-  # pin the ticks to EVEN powers so gma = 1 carries one: with the extra headroom the
-  # default locator lands on 10^9, 10^7, ... and the crimson gma = 1 line ends up
-  # between two labelled ticks, which is the one value a reader looks for here
-  axT.set_yticks(10.**np.arange(-2., np.log10(gM0) + 1., 2.))
-  # this label sits in the GAP between the panels, so it is kept tight against the
-  # axis it names -- at the default pads it drifts closer to the panel below and
-  # reads as belonging to that one
-  axT.set_xlabel('$\\tilde{t}_{\\rm eff}$', fontsize=FS_LAB, labelpad=1.)
-  axT.tick_params(axis='x', pad=1.5)
-  axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
-  # TWO legends, split by what depends on C. The C-INDEPENDENT curves go in one
-  # horizontal row above the panel (the interior has no box-sized gap: the tracks sweep
-  # through the bottom centre and the bands claim the top strip). The gma_m family gets
-  # its own key at lower left, the one corner all three leave empty.
-  # ORDER MATTERS. The legend that sits OUTSIDE the axes has to be the one left in
-  # ax.legend_, because bbox_inches='tight' walks that and not artists re-parented with
-  # add_artist -- built the other way round, the top row is cropped off the page.
-  # the C key is a VERTICAL box inside the panel, centre left. It sits over the gma_m
-  # plateaux, which is accepted here: they are flat and identical there, so the box hides
-  # nothing a reader needs, and it keeps the row above the panel to one line.
-  lab_c = lambda lc: '$1$' if lc == 0. else f'$10^{{{lc:.0f}}}$'
-  leg_m = axT.legend(h_m, [lab_c(lc) for lc in logC_m], fontsize=FS_LEG,
-                     loc='center left',
-                     title='$\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m}$',
-                     framealpha=.9, handlelength=1.4, labelspacing=.22,
-                     handletextpad=.4, borderpad=.35)
-  leg_m.get_title().set_fontsize(FS_LEG)
-  axT.add_artist(leg_m)
-  h_ref = [ln for ln in axT.get_lines() if not ln.get_label().startswith('_')]
-  # a FIGURE legend, placed over panel (a) in figure coordinates. As an AXES legend
-  # anchored outside its own axes this was silently dropped by savefig's tight-bbox pass
-  # and cropped off the page -- get_tightbbox() reported it at dpi=100 but the saved
-  # figure came out 0.25 in shorter, exactly the legend's height, and reordering the two
-  # legends did not help. Figure legends are always walked.
-  pT = axT.get_position()
-  leg = fig.legend(h_ref, [ln.get_label() for ln in h_ref], fontsize=FS_LEG,
-                   loc='lower center', bbox_to_anchor=(pT.x0 + .5*pT.width, pT.y1 + .008),
-                   bbox_transform=fig.transFigure, ncol=len(h_ref), framealpha=1.,
-                   handlelength=1.2, handletextpad=.4, borderpad=.3, columnspacing=.9)
-  axT.grid(alpha=.25, lw=.4)
+    x = np.geomspace(*T_LIM, 900)                  # t'/t'_c,i, SHARED by both columns
+    sg = x/ttd_c                                   # sigma = (t'/t'_c,i)/tt_dyn
+    # both edges now, the abscissa having cost gma_M its C-independence
+    axT.loglog(x, gamma_cooled(sg, gM0, ttd_c, a_rho, q), color='k', lw=1.4,
+               label='$\\gamma_\\mathrm{M}$')
+    axT.loglog(x, gamma_cooled(sg, gm0, ttd_c, a_rho, q), color='k', lw=1.1, ls='--',
+               label='$\\gamma_\\mathrm{m}$')
+    axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
+    axT.set_xlim(x[0], x[-1])
+    axT.set_ylim(.3*float(gamma_cooled(sg[-1], gm0, ttd_c, a_rho, q)), 30.*gM0)
+    axT.set_yticks(10.**np.arange(-2., np.log10(gM0) + 1., 2.))
+    axT.set_xlabel("$t'/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
+    axT.tick_params(axis='x', pad=1.5)
+    axT.annotate(f'$\\bar{{\\gamma}}_{{\\rm c}}/\\gamma_{{\\rm m}}={lab_C(lc)}$',
+                 (.5, 1.02), xycoords='axes fraction', color=INK, fontsize=FS_LAB,
+                 ha='center', va='bottom')
 
-  # (b) the distributions ------------------------------------------------------------------
-  gma0, N0 = cooled_distrib_adiab(0., ttd, p, gm0, gM0, a_rho, q)
-  axD.loglog(gma0, N0, color='k', lw=1.4, zorder=2)
-  # BOTH regimes here too, keyed by LINE STYLE as the colour is already spent on time.
-  # Each needs its own sigma per sample, the tt_eff <-> sigma map being C-dependent.
-  edges, lo_D = [[] for _ in logC_m], np.inf
-  for j, (lc_b, sty) in enumerate(zip(logC_m, D_STYLES)):
-    ttd_b = tt_dyn_of_C(lc_b, gm0)
+    # (b) the distributions for THIS regime
+    axD.loglog(*cooled_distrib_adiab(0., ttd_c, p, gm0, gM0, a_rho, q), color='k',
+               lw=1.4, zorder=2)
+    edges, lo_D = [], np.inf
     for ls, c in zip(logtte, colors):
-      sg_b = sigma_of_tt_eff(10.**ls, ttd_b, a_rho, q)
-      gma, N = cooled_distrib_adiab(sg_b, ttd_b, p, gm0, gM0, a_rho, q)
-      axD.loglog(gma, N, color=c, lw=1.2, ls=sty, solid_capstyle='round',
-                 label=(f'{ls:.0f}' if j == 0 else None), zorder=3)
-      lo_D = min(lo_D, float(gma[0]))
-      edges[j].append((gma[-1], N[-1]))
-  # the burn-off front -- the locus gma_M slides down -- now drawn for BOTH regimes, each
-  # in its own style. The dots that used to mark each gma_M are gone: the curve already
-  # ends there, so they only restated where it stopped.
-  for j, sty in enumerate(D_STYLES):
-    ed = np.array(edges[j])
-    axD.plot(ed[:, 0], ed[:, 1], color=MUTED, lw=.7, ls=sty, zorder=4)
-
-  gg = np.geomspace(gm0, gM0, 3)
-  axD.loglog(gg, 12.*K0*gg**-p, color=MUTED, ls=':', lw=.9)
-  axD.annotate('$\\propto\\gamma^{-p}$', (gg[1], 12.*K0*gg[1]**-p),
-               textcoords='offset points', xytext=(3, 3), color=MUTED, fontsize=FS_ANN)
-  for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'), (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
-    axD.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-    axD.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
-                 fontsize=FS_ANN, ha='center', va='top',
-                 bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axD.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
-  axD.set_xlim(.5*lo_D, 2.*gM0)      # covers the lower of the two families
-  axD.set_ylim(1e-16, 1e4)
-  axD.set_xlabel('$\\gamma$', fontsize=FS_LAB)
-  axD.set_ylabel('$N(\\gamma,\\tilde{t}_{\\rm eff})/N_{\\rm e}$', fontsize=FS_LAB)
-  # two keys: COLOUR is time, STYLE is regime. The tag that used to name a single C
-  # here is gone -- the style key says it, and says it for both.
-  leg = axD.legend(fontsize=FS_LEG, ncol=2, loc='lower left', framealpha=.9,
-                   title='$\\log_{10}\\tilde{t}_{\\rm eff}$', handlelength=1.1,
-                   labelspacing=.25,
-                   columnspacing=.9, handletextpad=.5, borderpad=.4)
-  leg.get_title().set_fontsize(FS_LEG)
-  axD.add_artist(leg)
-  h_st = [axD.plot([], [], color=INK, lw=1.2, ls=sty)[0] for sty in D_STYLES]
-  leg_st = axD.legend(h_st, [lab_c(lc) for lc in logC_m], fontsize=FS_LEG,
-                      loc='upper right', bbox_to_anchor=(.985, .91),
-                      framealpha=.9, handlelength=1.8,
-                      labelspacing=.22, handletextpad=.4, borderpad=.35,
-                      title='$\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m}$')
-  leg_st.get_title().set_fontsize(FS_LEG)
-  axD.grid(alpha=.25, lw=.4)
-
-  for ax in (axT, axD):
-    ax.tick_params(which='both', labelsize=FS_TICK)
+      sg_b = 10.**ls/ttd_c
+      gma, N = cooled_distrib_adiab(sg_b, ttd_c, p, gm0, gM0, a_rho, q)
+      axD.loglog(gma, N, color=c, lw=1.2, solid_capstyle='round',
+                 label=(f'{ls:.0f}' if k == 0 else None), zorder=3)
+      lo_D = min(lo_D, float(gma[0])); edges.append((gma[-1], N[-1]))
+    ed = np.array(edges)
+    axD.plot(ed[:, 0], ed[:, 1], color=MUTED, lw=.7, zorder=4)
+    gg = np.geomspace(gm0, gM0, 3)
+    axD.loglog(gg, 12.*K0*gg**-p, color=MUTED, ls=':', lw=.9)
+    for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'),
+                   (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
+      axD.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+      axD.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
+                   fontsize=FS_ANN, ha='center', va='top',
+                   bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+    axD.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
+    axD.set_xlim(.5*lo_D, 2.*gM0)
+    axD.set_ylim(1e-16, 1e4)
+    axD.set_xlabel('$\\gamma$', fontsize=FS_LAB)
+    if k == 0:
+      axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
+      axD.set_ylabel("$N(\\gamma,t')/N_{\\rm e}$", fontsize=FS_LAB)
+      leg = axD.legend(fontsize=FS_LEG, ncol=2, loc='lower left', framealpha=.9,
+                       title="$\\log_{10}(t'/t'_{\\rm c,i})$", handlelength=1.1,
+                       labelspacing=.25, columnspacing=.9, handletextpad=.5, borderpad=.4)
+      leg.get_title().set_fontsize(FS_LEG)
+      axT.legend(fontsize=FS_LEG, loc='lower left', framealpha=.9, handlelength=1.4,
+                 labelspacing=.25, handletextpad=.5, borderpad=.4)
+    for ax in (axT, axD):
+      ax.grid(alpha=.25, lw=.4)
+      ax.tick_params(which='both', labelsize=FS_TICK)
 
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
-  # NO bbox_extra_artists here. Passing it REPLACES the default extras for every axes
-  # (Figure.get_tightbbox hands the same list down to each Axes.get_tightbbox), which
-  # dropped the legend above panel (a) and cropped it off the page. The default walk
-  # already covers figure legends.
   fig.savefig(path, dpi=300, bbox_inches='tight')
   print(f'saved {path}')
   if show:
     plt.show()
-  return fig, (axT, axD)
+  return fig, axs
 
 
 def main(show=False):
@@ -633,7 +435,7 @@ def main(show=False):
   print(f'number conserved: max |int N dgma - 1| = {check_number_conservation():.2e}')
   print(f'width law (S)   : max rel dev = {check_width_law():.2e}')
   print('per sampled time:')
-  for ls, sigma in zip(LOGTTE_SAMPLES, SIG_SAMPLES):
+  for ls, sigma in zip(LOGT_SAMPLES, SIG_SAMPLES):
     A = float(A_of_sigma(sigma, A_RHO))
     S = float(S_of_sigma(sigma, ttd, A_RHO, Q_B))
     gm = float(gamma_cooled(sigma, GM0, ttd, A_RHO, Q_B))
