@@ -237,7 +237,7 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   # edge, the string ran along the front and straight through the curve bundle whichever
   # edge and alignment were used. Below the locus and right of the legend is the one
   # clear patch of this panel.
-  axD.annotate("$\\propto(t'/t'_{\\rm c,i})^{-1}$", (.60, .13), xycoords='axes fraction',
+  axD.annotate("$\\propto(t'/t'_{\\rm c,i})^{-1}$", (.60, .20), xycoords='axes fraction',
                color=INK, fontsize=FS_ANN, ha='center', va='center')
   # the injected bounds, marked as their inverses are in panel (a); along the TOP here,
   # the bottom of this panel belongs to the legend
