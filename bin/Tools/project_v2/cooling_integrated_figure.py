@@ -137,6 +137,9 @@ GM0, GMA_M0 = 1e3, 1e8      # injected bounds gma_m0, gma_M0 (fiducial, as cooli
 # the gma = 1 floor on these bounds (see VALIDITY above).
 LOGC_SAMPLES = (-3., -2., -1., 0., 1., 2., 3.)
 NG = 3000                   # points per curve (log-spaced over the support)
+SIGMA_END = 100.            # integrate to this many t_dyn. gma_c stays 1/tt_dyn -- it is
+                            # the cooling Lorentz factor AT the dynamical time, a property
+                            # of the system, not of how long one chooses to integrate
 from cooling_shape_figure import OUTDIR          # the shared family folder
 
 # recessive ink for every non-data mark (text never wears a series colour)
@@ -174,15 +177,16 @@ def N_integrated(gma, ttd, p=P_SYN, gm0=GM0, gM0=GMA_M0):
   return np.where(A > B, K0*gma**(-(p+1.))/(p-1.)*(A**(p-1.) - B**(p-1.)), 0.)
 
 
-def integrated_distrib(logC, p=P_SYN, gm0=GM0, gM0=GMA_M0, Ng=NG):
+def integrated_distrib(logC, p=P_SYN, gm0=GM0, gM0=GMA_M0, Ng=NG, sigma_end=SIGMA_END):
   '''
-  (gma, N(gma;tt_dyn)) over the support. Sampled from the lowest gma the population
-  ever reaches, gma_m(tt_dyn), up to the injected ceiling gma_M0; N vanishes at both
-  ends by construction.
+  (gma, N(gma; sigma_end*tt_dyn)) over the support. Sampled from the lowest gma the
+  population ever reaches up to the injected ceiling gma_M0; N vanishes at both ends by
+  construction. N_integrated's second argument IS the integration limit, so the only
+  change from integrating to one t_dyn is passing sigma_end*ttd.
   '''
-  ttd = tt_dyn_of_C(logC, gm0)
-  gma = np.geomspace(gamma_synCooled(ttd, gm0), gM0, Ng)
-  return gma, N_integrated(gma, ttd, p, gm0, gM0)
+  tt_end = sigma_end*tt_dyn_of_C(logC, gm0)
+  gma = np.geomspace(gamma_synCooled(tt_end, gm0), gM0, Ng)
+  return gma, N_integrated(gma, tt_end, p, gm0, gM0)
 
 
 def log_slope(gma, N):
@@ -270,7 +274,7 @@ def check_tail_universality(logC_arr=None, gma=1e5, p=P_SYN, gm0=GM0, gM0=GMA_M0
 
 
 # --- the figure -----------------------------------------------------------------------
-def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
+def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=SIGMA_END,
     outdir=OUTDIR, fname='cooling_integrated.png', show=False):
   '''
   Two-panel view: the time-integrated distributions over the regime family, and the
@@ -291,13 +295,13 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
   order = np.argsort(logC)[::-1]
   breaks = []
   for i in order:
-    gma, N = integrated_distrib(logC[i], p, gm0, gM0)
+    gma, N = integrated_distrib(logC[i], p, gm0, gM0, sigma_end=sigma_end)
     axN.loglog(gma, N, color=colors[i], lw=1.2, solid_capstyle='round', zorder=3)
     axS.semilogx(gma, log_slope(gma, N), color=colors[i], lw=1.1, zorder=3)
     # gma_c on its own curve, evaluated exactly rather than read off the sampling: the
     # low CUT-OFF when C < 1, the BREAK when C > 1 -- one symbol carrying both roles
     gma_c = 10.**logC[i]*gm0
-    breaks.append((gma_c, float(N_integrated(gma_c, 1./gma_c, p, gm0, gM0))))
+    breaks.append((gma_c, float(N_integrated(gma_c, sigma_end/gma_c, p, gm0, gM0))))
   breaks = np.array(breaks)
   axN.scatter(breaks[:, 0], breaks[:, 1], s=11, facecolors=colors[order],
               edgecolors='w', linewidths=.5, zorder=6)
@@ -305,8 +309,10 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
   # (a) the distributions ------------------------------------------------------------
   # no power-law guides here: the slope panel states the three indices quantitatively,
   # and dotted guides over these curves only collide with them
-  axN.set_ylabel('$N(\\gamma;\\tilde{t}_{\\rm dyn})/N_{\\rm e}$', fontsize=FS_LAB)
-  axN.set_ylim(1e-25, 8.)
+  _t = '' if sigma_end == 1. else f'10^{{{np.log10(sigma_end):.0f}}}'
+  axN.set_ylabel(f'$N(\\gamma;{_t}\\tilde{{t}}_{{\\rm dyn}})/N_{{\\rm e}}$',
+                 fontsize=FS_LAB)
+  axN.set_ylim(1e-25, 10.*sigma_end)
 
   # (b) the slopes ---------------------------------------------------------------------
   # the expected indices are reference VALUES, so they belong on an axis: the guides stay
@@ -334,7 +340,8 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES,
     ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
     ax.grid(alpha=.25, lw=.4)
     ax.tick_params(which='both', labelsize=FS_TICK)
-  axN.set_xlim(.3, 4.*gM0)
+  axN.set_xlim(.3*float(gamma_synCooled(sigma_end*tt_dyn_of_C(min(logC), gm0), gm0)),
+               4.*gM0)
   # the injected bounds are labelled along the top of (a); gma = 1 cannot go there --
   # the fastest-cooling curve peaks in that corner -- so it is labelled in (b) instead,
   # where the bottom left is empty

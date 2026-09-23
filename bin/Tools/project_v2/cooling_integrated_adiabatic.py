@@ -242,7 +242,7 @@ GMA_AD = 4./3.              # adiabatic index of the shocked gas (relativistic).
 #     B' ~ R^-q   with   q = -a_rho*gma_ad/2.
 # At the shell values that is q = 4/3, not something to be chosen independently.
 Q_B = -A_RHO*GMA_AD/2.
-SIGMA_END = 1.              # integrate to ONE t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
+SIGMA_END = 100.            # integrate to 100 t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
                             # A parameter the user scans: at 1 it matches
                             # cooling_integrated_figure exactly, at 1e3 the cut-off has
                             # washed out entirely. The panel limits follow it (below)
@@ -550,8 +550,11 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
     # fell BELOW the support in every fast-cooling regime -- gma_c = 1 against a cut-off
     # at 1.705 -- so no dot was drawn there at all. A/S lands on the cut-off, which is
     # where the break actually is, because gma_m -> A/S once gma_m0 S >> 1.
-    gma_c = (float(A_of_sigma(sigma_end, a_rho))
-             /float(S_of_sigma(sigma_end, ttd, a_rho, q)))
+    # evaluated AT ONE t_dyn, not at sigma_end: gma_c is the cooling Lorentz factor at
+    # the dynamical time, a property of the system, and it should not slide when the
+    # integration window is lengthened. It still lands inside the support, since the
+    # bottom edge only moves further down as sigma_end grows.
+    gma_c = float(A_of_sigma(1., a_rho))/float(S_of_sigma(1., ttd, a_rho, q))
     breaks.append((gma_c,
                    N_integrated_adiab(gma_c, ttd, sigma_end, p, gm0, gM0, a_rho, q)))
   breaks = np.array(breaks)
