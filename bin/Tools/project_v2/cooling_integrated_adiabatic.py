@@ -233,14 +233,15 @@ from cooling_integrated_figure import (P_SYN, GM0, GMA_M0, LOGC_SAMPLES, OUTDIR,
     tt_dyn_of_C, log_slope, N_integrated)
 
 # --- defaults -------------------------------------------------------------------------
-A_RHO = -1.2                # dln rho/dln R: the shell fiducial, rho' ~ R^-1.2. Matches
-                            # this run's measured -1.205 (prerar_cell_evolution's
-                            # alpha_D = -0.795 through dlnrho/dlnR = -2 - alpha_D), i.e.
-                            # a SPREADING shell, not the R^-2 of a fixed comoving width
-Q_B = 1.0                   # B' ~ R^-q, the shell fiducial q = 1. NOT a cosmetic change:
-                            # e = alpha - 2q + 1 goes NEGATIVE, so the synchrotron burn
-                            # SATURATES (S -> tt_dyn/|e|) instead of growing without
-                            # bound, and tt itself saturates at tt_dyn. See the docstring
+A_RHO = -2.0                # dln rho/dln R: a FREELY EXPANDING shell, rho' ~ R^-2
+GMA_AD = 4./3.              # adiabatic index of the shocked gas (relativistic). This run
+                            # measures gma_ad ~ 1.64 (prerar_cell_evolution); pass 5/3 for
+                            # that. It enters only through Q_B, below
+# B' IS NOT FREE. A constant fraction of the energy density goes to the field,
+# B'^2/8pi = eps_B e', and e' ~ rho^gma_ad along an adiabat, so B' ~ rho^(gma_ad/2) and
+#     B' ~ R^-q   with   q = -a_rho*gma_ad/2.
+# At the shell values that is q = 4/3, not something to be chosen independently.
+Q_B = -A_RHO*GMA_AD/2.
 SIGMA_END = 1.              # integrate to ONE t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
                             # A parameter the user scans: at 1 it matches
                             # cooling_integrated_figure exactly, at 1e3 the cut-off has
@@ -479,7 +480,7 @@ def check_deep_tail_ratio(logC=-3., sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=G
 
 
 def check_index_is_robust(a_rhos=(-0.5, -1.205, -2.0, -2.5, -2.9), logC=-3.,
-    sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0, q=Q_B):
+    sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0, gma_ad=GMA_AD):
   '''
   The claim the appendix rests on: the tail index is ~ -2 for ANY expansion law, because
   alpha - b = -1 pins a/gma whatever a_rho is. Only the amplitude (-> b) moves. Returns
@@ -487,7 +488,8 @@ def check_index_is_robust(a_rhos=(-0.5, -1.205, -2.0, -2.5, -2.9), logC=-3.,
   '''
   out = []
   for a_rho in a_rhos:
-    _, e = _exps(a_rho, q)
+    q = -a_rho*gma_ad/2.          # q is TIED to a_rho; scanning at fixed q would leave
+    _, e = _exps(a_rho, q)        # the B'-rho relation behind
     out.append((a_rho, e, measure_low_slope(logC, sigma_end, p, gm0, gM0, a_rho, q)[1]))
   return out
 

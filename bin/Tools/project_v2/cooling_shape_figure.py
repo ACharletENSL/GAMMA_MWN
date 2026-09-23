@@ -66,6 +66,7 @@ Run:  python cooling_shape_figure.py
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 from environment import GAMMA_dir
 from cooling_distribution import gamma_synCooled, norm_plaw_distrib, distrib_plaw_cooled
@@ -83,6 +84,9 @@ NG = 800                    # points per curve
 # the base module, and imported by the other three so the four cannot drift apart.
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'cooling_distributions')
 
+MC_FAC = 3.                 # MC is taken as t_m/MC_FAC .. t_m*MC_FAC
+BAND_ALPHA = .13            # tint of the regime bands
+
 # recessive ink for every non-data mark (text never wears a series colour)
 INK, MUTED = '0.25', '0.55'
 
@@ -90,6 +94,11 @@ INK, MUTED = '0.25', '0.55'
 # every mark and every font is set for that final printed size, not rescaled after
 FIGSIZE = (3.4, 5.0)
 FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 8., 7.
+
+
+def _band_bg(col, alpha=BAND_ALPHA):
+  'Opaque colour a band tint blends to over white, so a label box can match its band.'
+  return tuple(alpha*c + (1. - alpha) for c in mcolors.to_rgb(col))
 
 
 # --- the distribution -----------------------------------------------------------------
@@ -138,37 +147,66 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
       gridspec_kw=dict(height_ratios=[1., 1.45], hspace=.32))
 
   # (a) edges and break vs tt ------------------------------------------------------------
-  tt = np.geomspace(1e-3/gM0, 1.5*tt_arr[-1], 800)
+  # NOTE ON UNITS. This figure has no expansion, so the field has no reason to change
+  # and t'_c is constant: tt = int dt'/t'_c IS t'/t'_c,i, exactly. The axis is labelled
+  # that way because it is the physical reading; cooling_shape_adiabatic, which does
+  # expand, has to convert between the two.
+  tt = np.geomspace(1e-3/gM0, 1e2, 900)
+  # THE COOLING REGIMES live here, on the pure-synchrotron panel, because that is what
+  # defines them: t_M = 1/gma_M0 and t_m = 1/gma_m0 are where the two injected edges
+  # burn, and in these units they need no reference C at all. MC is a NEIGHBOURHOOD of
+  # t_m, taken as a factor MC_FAC either side. Colours are the house shape-class palette
+  # (sweep_gammacm's per-spectrum table), RdBu from VSC red to VFC blue; its 'marginal'
+  # #f7f7f7 is invisible as a tint, so MC gets a grey.
+  t_M, t_m = 1./gM0, 1./gm0
+  for lab, a_, b_, col in (('VSC', tt[0],       t_M,         '#b2182b'),
+                           ('SC',  t_M,         t_m/MC_FAC,  '#ef8a62'),
+                           ('MC',  t_m/MC_FAC,  t_m*MC_FAC,  '0.6'),
+                           ('FC',  t_m*MC_FAC,  1.,          '#67a9cf'),
+                           ('VFC', 1.,          tt[-1],      '#2166ac')):
+    a_, b_ = max(a_, tt[0]), min(b_, tt[-1])
+    if not a_ < b_:
+      continue
+    axT.axvspan(a_, b_, color=col, alpha=BAND_ALPHA, lw=0, zorder=0)
+    axT.annotate(lab, (np.sqrt(a_*b_), .96), xycoords=('data', 'axes fraction'),
+                 color=INK, fontsize=FS_ANN, ha='center', va='top',
+                 bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
   # tracks continue BELOW gma = 1 rather than stopping there, matching the integrated
   # figures, which have always drawn their curves into the shaded sub-relativistic
   # region. The gma = 1 line still marks where the ultra-relativistic trajectory
   # stops being the physical one; it is a caveat on the curve, not a reason to hide
   # where the model says the population is heading.
-  axT.loglog(tt, 1./tt, color=MUTED, ls='-.', lw=.9, label='$1/\\tilde{t}$')
+  axT.loglog(tt, 1./tt, color=MUTED, ls='-.', lw=.9,
+             label="$(t'/t'_{\\rm c,i})^{-1}$")
   axT.loglog(tt, gamma_synCooled(tt, gM0), color='k', lw=1.4, label='$\\gamma_\\mathrm{M}$')
   axT.loglog(tt, gamma_synCooled(tt, gm0), color='k', lw=1.1, ls='--',
              label='$\\gamma_\\mathrm{m}$')
   axT.axhline(1., color='crimson', ls=':', lw=.9, zorder=1)
   # the two knees, labelled along the bottom where nothing else runs; each is the
   # cooling time of the edge it burns, tilde{t}_M = 1/gma_M0 and tilde{t}_m = 1/gma_m0
-  for v, lab in ((1./gM0, '$\\tilde{t}_M$'), (1./gm0, '$\\tilde{t}_m$')):
+  for v, lab in ((t_M, '$\\tilde{t}_M$'), (t_m, '$\\tilde{t}_m$')):
     axT.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
     axT.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='bottom',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axT.set_xlim(tt[0], tt[-1])
-  axT.set_ylim(.15, 3.*gM0)      # headroom under gma=1 for the knee labels
+  axT.set_ylim(.15, 300.*gM0)    # two decades of empty top for the band labels
+  axT.set_yticks(10.**np.arange(-2., np.log10(gM0) + 1., 2.))
   # this label sits in the GAP between the panels, so it is kept tight against the
   # axis it names -- at the default pads it drifts closer to the panel below and
   # reads as belonging to that one
-  axT.set_xlabel('$\\tilde{t}$', fontsize=FS_LAB, labelpad=1.)
+  axT.set_xlabel("$t'/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
   axT.tick_params(axis='x', pad=1.5)
   axT.set_ylabel('$\\gamma$', fontsize=FS_LAB)
-  # bottom centre: the tracks all run from the upper left to the lower right, so the
-  # box sits in the one corner they leave empty -- and in the adiabatic variant it is
-  # the only placement that does not lie over the flat 'adiab. only' line
-  axT.legend(fontsize=FS_LEG, loc='lower center', framealpha=.9, handlelength=1.4,
-             labelspacing=.25, handletextpad=.5, borderpad=.4)
+  # ONE row ABOVE the panel. With the bands claiming the top strip and the knee labels
+  # the floor, every in-panel placement now sits on one or the other -- lower centre put
+  # the box straight over the tt_m label. A FIGURE legend, because bbox_inches='tight'
+  # walks those; and no bbox_extra_artists, which would replace every axes' defaults.
+  pT = axT.get_position()
+  fig.legend(*axT.get_legend_handles_labels(), fontsize=FS_LEG, loc='lower center',
+             bbox_to_anchor=(pT.x0 + .5*pT.width, pT.y1 + .008),
+             bbox_transform=fig.transFigure, ncol=3, framealpha=1., handlelength=1.4,
+             handletextpad=.5, borderpad=.3, columnspacing=.9)
   axT.grid(alpha=.25, lw=.4)
 
   # (b) the distributions ----------------------------------------------------------------
@@ -194,7 +232,8 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   axD.annotate('$\\propto\\gamma^{-p}$', (gg[1], 12.*K0*gg[1]**-p),
                textcoords='offset points', xytext=(3, 3), color=MUTED, fontsize=FS_ANN)
   # the front is labelled where it runs, no leader line
-  axD.annotate('$\\propto1/\\tilde{t}$', xy=(edges[3, 0], edges[3, 1]), xycoords='data',
+  axD.annotate("$\\propto(t'/t'_{\\rm c,i})^{-1}$", xy=(edges[3, 0], edges[3, 1]),
+               xycoords='data',
                textcoords='offset points', xytext=(-4, -5), color=INK, fontsize=FS_ANN,
                ha='right', va='top')
   # the injected bounds, marked as their inverses are in panel (a); along the TOP here,
@@ -209,9 +248,10 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   axD.set_xlim(.5*gamma_synCooled(tt_arr[-1], gm0), 2.*gM0)
   axD.set_ylim(1e-16, 1e4)
   axD.set_xlabel('$\\gamma$', fontsize=FS_LAB)
-  axD.set_ylabel('$N(\\gamma,\\tilde{t})/N_{\\rm e}$', fontsize=FS_LAB)
+  axD.set_ylabel("$N(\\gamma,t')/N_{\\rm e}$", fontsize=FS_LAB)
   leg = axD.legend(fontsize=FS_LEG, ncol=2, loc='lower left', framealpha=.9,
-                   title='$\\log_{10}\\tilde{t}$', handlelength=1.1, labelspacing=.25,
+                   title="$\\log_{10}(t'/t'_{\\rm c,i})$", handlelength=1.1,
+                   labelspacing=.25,
                    columnspacing=.9, handletextpad=.5, borderpad=.4)
   leg.get_title().set_fontsize(FS_LEG)
   axD.grid(alpha=.25, lw=.4)
