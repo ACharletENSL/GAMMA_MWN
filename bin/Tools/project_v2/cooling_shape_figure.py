@@ -233,15 +233,15 @@ def plot_cooling_shape(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT_SAMPLES,
   axD.annotate('$\\propto\\gamma^{-p}$', (gg[1], 12.*K0*gg[1]**-p),
                textcoords='offset points', xytext=(3, 3), color=MUTED, fontsize=FS_ANN)
   # the front is labelled where it runs, no leader line
-  # anchored on the front locus and set running to the RIGHT: right-aligned off
-  # edges[3] the string reached back onto the gma_m,0 vertical; off edges[2] it ran past
-  axD.annotate("$\\propto(t'/t'_{\\rm c,i})^{-1}$", xy=(edges[4, 0], edges[4, 1]),
-               xycoords='data',
-               textcoords='offset points', xytext=(4, -13), color=INK, fontsize=FS_ANN,
-               ha='left', va='top')   # the right edge, so edges[4] it is
+  # In the WEDGE below the front locus, not hung off one of its points: anchored to an
+  # edge, the string ran along the front and straight through the curve bundle whichever
+  # edge and alignment were used. Below the locus and right of the legend is the one
+  # clear patch of this panel.
+  axD.annotate("$\\propto(t'/t'_{\\rm c,i})^{-1}$", (.60, .13), xycoords='axes fraction',
+               color=INK, fontsize=FS_ANN, ha='center', va='center')
   # the injected bounds, marked as their inverses are in panel (a); along the TOP here,
   # the bottom of this panel belongs to the legend
-  for v, lab in ((gm0, '$\\gamma_{m,0}$'), (gM0, '$\\gamma_{M,0}$')):
+  for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'), (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
     axD.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
     axD.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',

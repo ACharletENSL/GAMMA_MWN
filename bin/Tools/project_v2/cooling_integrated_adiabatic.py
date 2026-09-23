@@ -174,6 +174,7 @@ Run:  python cooling_integrated_adiabatic.py
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+from fractions import Fraction
 from scipy.optimize import brentq
 from scipy.integrate import quad
 
@@ -523,7 +524,13 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   # inside, their labels go on the right-hand spine as ticks. Inside the panel they had to
   # dodge the curves -- -2 and -p are only half an index apart and were hung on opposite
   # sides of their own lines -- and on the spine they simply line up.
-  levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
+  # the low-energy plateau, (1-2q)/alpha - 1, joins the three cooled-segment levels.
+  # DERIVED from the hydro rather than written in, so it follows a_rho and q.
+  al_s, _ = _exps(a_rho, q)
+  fr = Fraction((1. - 2.*q)/al_s - 1.).limit_denominator(100)
+  lo_lab = (f'${fr.numerator:+d}$' if fr.denominator == 1
+            else f'${fr.numerator:+d}/{fr.denominator}$')
+  levels = ((float(fr), lo_lab), (-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
   for lev, _ in levels:
     axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
   # the low-energy plateau sits at (1-2q)/alpha - 1 = +3/2 on the shell fiducial,
