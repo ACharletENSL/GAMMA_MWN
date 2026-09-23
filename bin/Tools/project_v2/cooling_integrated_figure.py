@@ -331,7 +331,10 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
   for lev, _ in levels:
     axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-  axS.set_ylim(-(p+2.6), 1.5)     # room for the POSITIVE low-energy slopes
+  # the low-energy plateau sits at (1-2q)/alpha - 1 = +3/2 on the shell fiducial,
+  # so a top of +1.5 cut it off exactly; +2.5 shows it with headroom. The much
+  # larger spikes right at the cut-off are the edge singularity and do clip.
+  axS.set_ylim(-(p+2.6), 2.5)
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axS.set_ylabel('$\\mathrm{d}\\ln N/\\mathrm{d}\\ln\\gamma$', fontsize=FS_LAB)
   axR = axS.twinx()                       # right-hand spine carries the expected indices

@@ -16,15 +16,30 @@ gma_ad = 4/3, hence q = 4/3, alpha = -2/3, e = -7/3):
     A(100) = 0.0461 (drag x21.7)      S/tt_dyn = 0.4286 (SATURATED)
     tt_end/tt_dyn = 0.5997            edge drops x0.065 below synchrotron-only
     deep-tail ratio 0.513             1 of 7 regimes under gma = 1 (C = 1e-3, to 0.107)
+    low-energy index +1.49            against -1.93 when integrating to ONE t_dyn
 
-THE LOW-ENERGY INDEX IS POSITIVE HERE, and that is the headline, not a detail: +0.33 at
-log10 C = -3 rising to +0.94 in the slow regimes, against -1.93 when the same figure
-integrated to ONE t_dyn. The burn saturates while the drag keeps going, so electrons
-pushed below gma_c spend almost no NORMALISED time there -- and tt is the right weight
-for a fluence, since dt'*P ~ dt'*B'^2 ~ dtt. The time-integrated distribution therefore
-PEAKS at gma_c and falls away below it, instead of holding a gma^-2 plateau down to a
-sharp cut-off. The gma_c markers sit on those peaks. Integrate to one t_dyn instead and
-the old picture returns; the contrast is why sigma_end stays a parameter.
+THE LOW-ENERGY INDEX IS POSITIVE HERE, at +3/2, and that is the headline rather than a
+detail. Once the burn has frozen every trajectory collapses onto gma ~ A, so essentially
+the whole population passes a given low gma together and the integral is just its dwell
+time. With gma ~ (1+sigma)^alpha and dtt = tt_dyn (1+sigma)^-2q dsigma,
+
+    dtt/dgma ~ gma^((1-2q)/alpha - 1)   =>   index = (1-2q)/alpha - 1 = +3/2
+
+on the shell fiducial (alpha = -2/3, q = 4/3). Measured +1.494 on the plateau, and the
+prediction tracks a_rho: -1.2 -> +1/2, -2 -> +3/2, -2.5 -> +1.8.
+
+So the time-integrated distribution PEAKS at gma_c and falls away below it as gma^+3/2,
+instead of holding a gma^-2 plateau down to a sharp cut-off. tt is the right weight for a
+fluence (dt'*P ~ dt'*B'^2 ~ dtt), so this is a statement about the emitted spectrum and
+not only about the electrons. The gma_c markers sit on those peaks. Integrating to one
+t_dyn instead returns the old picture, which is why sigma_end stays a parameter.
+
+  MEASUREMENT TRAP, and it cost a wrong number in two earlier versions of this file:
+  measure_low_slope's window used to be 3x-30x above the cut-off, which STRADDLES the
+  turnover toward gma_c and averages the +3/2 plateau with the decline beyond it. It
+  reported +0.33. The plateau runs from the cut-off to about 3x above it, so the window
+  is 1.2x-3x now. The same mistake sized the slope panel: its top was +1.5, which cut
+  the plateau off at exactly its own value and made it look like an edge spike.
 
 THE EQUATION IS LINEAR IN u = 1/gma. With the adiabatic term the cooling equation is
 
@@ -430,10 +445,11 @@ def check_index_is_robust(a_rhos=(-0.5, -1.205, -2.0, -2.5, -2.9), logC=-3.,
 
 
 def measure_low_slope(logC, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO,
-    q=Q_B, frac=(3., 30.)):
+    q=Q_B, frac=(1.2, 3.)):
   '''
-  The index of the new low-energy tail, measured a decade or so above the bottom edge so
-  neither the edge itself nor the gma_c break contaminates it. Returns (gma, slope).
+  The index of the low-energy tail, measured on the PLATEAU: 1.2x to 3x above the bottom
+  edge. A 3x-30x window straddled the turnover toward gma_c and averaged the plateau with
+  the decline, reporting +0.33 where the plateau is +1.50. Returns (gma, slope).
   '''
   ttd = tt_dyn_of_C(logC, gm0)
   lo = gamma_cooled(sigma_end, gm0, ttd, a_rho, q)
@@ -510,7 +526,10 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
   for lev, _ in levels:
     axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-  axS.set_ylim(-(p+2.6), 1.5)     # room for the POSITIVE low-energy slopes
+  # the low-energy plateau sits at (1-2q)/alpha - 1 = +3/2 on the shell fiducial,
+  # so a top of +1.5 cut it off exactly; +2.5 shows it with headroom. The much
+  # larger spikes right at the cut-off are the edge singularity and do clip.
+  axS.set_ylim(-(p+2.6), 2.5)
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axS.set_ylabel('$\\mathrm{d}\\ln N/\\mathrm{d}\\ln\\gamma$', fontsize=FS_LAB)
   axR = axS.twinx()                       # right-hand spine carries the expected indices
@@ -618,7 +637,7 @@ def main(show=False):
     g, sl = measure_low_slope(lc)
     print(f'  log10 C = {lc:+.0f}: gma_m({SIGMA_END:g} t_dyn) = {lo:10.3e}'
           f'{"  (BELOW the gma=1 floor)" if lo < GMA_FLOOR else "":26s}'
-          f'  index 3-30x above it: {sl:+.3f}')
+          f'  index 1.2-3x above it: {sl:+.3f}')
   plot_integrated_adiab(show=show)
 
 
