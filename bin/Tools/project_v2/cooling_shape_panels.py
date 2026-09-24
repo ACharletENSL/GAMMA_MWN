@@ -64,7 +64,8 @@ from cooling_distribution import gamma_synCooled, norm_plaw_distrib
 from cooling_shape_figure import (P_SYN, GM0, GMA_M0, OUTDIR, INK, MUTED, MC_FAC,
     FS_LAB, FS_TICK, FS_ANN, FS_LEG, LOGTT_SAMPLES, BAND_ALPHA, _band_bg, cooled_distrib)
 from cooling_integrated_figure import tt_dyn_of_C
-from cooling_integrated_adiabatic import A_RHO, Q_B, _exps, gamma_cooled
+from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma,
+    gamma_cooled)
 from cooling_shape_adiabatic import cooled_distrib_adiab, lab_C
 
 # --- defaults -------------------------------------------------------------------------
@@ -157,9 +158,32 @@ LAB_GUIDE, LAB_TDYN = "$(t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
 # the knees are named for the PHYSICAL time, not for tt: the abscissa is t'/t'_c,i, and
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
+LAB_ADRIFT = "$\\propto A(t')$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
 LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
+
+
+def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=.9):
+  '''
+  The burnt asymptote gma = A/S_inf, drawn only over the stretch where it IS one.
+
+  Once the burn has frozen, the denominator of gma = A gma_0/(1 + gma_0 S) is a constant
+  per electron, so EVERY trajectory becomes gma ~ A(t'): cooling is purely adiabatic from
+  there on. An edge that burnt (gma_0 S_inf >> 1) forgets gma_0 and lands on A/S_inf
+  itself; one that never burnt -- panel (c)'s gma_m -- runs PARALLEL to it at A gma_0,
+  the offset between them being the 1 + |e| C the width law stalls at.
+
+  Starts where S has reached `frac` of S_inf, which inverts exactly: with e < 0,
+  S/S_inf = 1 - (1+sigma)^e.
+  '''
+  _, e = _exps(a_rho, q)
+  if e >= 0.:
+    return                                     # unbounded burn: nothing ever freezes
+  x0 = ((1. - frac)**(1./e) - 1.)*ttd          # that sigma, read on this abscissa
+  xg = x[x >= x0]
+  ax.loglog(xg, A_of_sigma(xg/ttd, a_rho)*abs(e)/ttd, color=MUTED, ls=':', lw=1.1,
+            zorder=5, label=LAB_ADRIFT)
 
 
 def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
@@ -169,7 +193,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
   The regime bands are drawn on panel (a) only: that is where they are defined. The
   adiabatic panels instead mark t'_dyn, the scale their C is measured against. The two
   knees echo the edges they belong to -- solid for M, dashed for m -- thin, so they read
-  as marks rather than as a third and fourth track.
+  as marks rather than as a third and fourth track. The adiabatic panels also carry the
+  frozen-burn asymptote (see _frozen_guide).
   '''
   fig, axs = _row(FIGSIZE_TRACKS)
   x = np.geomspace(*T_LIM, NX)
@@ -206,6 +231,7 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
       # t'_dyn IS tt_dyn on this abscissa, by definition of the unit
       ax.axvline(ttd, color=INK, ls='-.', lw=.9, zorder=2, label=LAB_TDYN)
       knees = tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0))
+      _frozen_guide(ax, x, ttd, a_rho, q)
 
     ax.loglog(x, gM, color='k', lw=1.4, label=LAB_GMM)
     ax.loglog(x, gm, color='k', lw=1.1, ls='--', label=LAB_GM)
@@ -225,8 +251,11 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     ax.grid(alpha=.25, lw=.4)
   axs[0].set_ylabel('$\\gamma$', fontsize=FS_LAB)
 
-  _legend_above(fig, axs, ncol=6,
-                order=(LAB_GMM, LAB_GM, LAB_GUIDE, LAB_TMM, LAB_TM, LAB_TDYN))
+  # the scalings last: the tracks and the times that mark them first, then what they
+  # tend to -- 1/tt while synchrotron still bites, A(t') once the burn has frozen
+  _legend_above(fig, axs, ncol=7,
+                order=(LAB_GMM, LAB_GM, LAB_TMM, LAB_TM, LAB_TDYN,
+                       LAB_GUIDE, LAB_ADRIFT))
   return _save(fig, axs, outdir, fname, show)
 
 
@@ -317,8 +346,17 @@ def main(show=False):
     gm = float(gamma_cooled(x_end/ttd, GM0, ttd, A_RHO, Q_B))
     kM, km = (tt_knee(g, ttd) for g in (GMA_M0, GM0))
     print(f'  C = 10^{lc:+.0f}      gma_m = {gm:.3e}   (tt_dyn = {ttd:.3e})'
-          f'   tt_M = {kM:.3e}'
-          f"   tt_m = {'never burns' if km is None else f'{km:.3e}'}")
+          f'   t_M = {kM:.3e}'
+          f"   t_m = {'never burns' if km is None else f'{km:.3e}'}")
+    # the frozen-burn guide is an ASYMPTOTE, so say how close the edges are to it by
+    # the end of the panel rather than trusting the overlay to the eye. gma_M burnt,
+    # so it tends to A/S_inf itself; gma_m only does where it burnt too.
+    s_inf = ttd/abs(_exps(A_RHO, Q_B)[1])
+    gA = float(A_of_sigma(x_end/ttd, A_RHO))/s_inf
+    gM = float(gamma_cooled(x_end/ttd, GMA_M0, ttd, A_RHO, Q_B))
+    print(f'                   gma_M/(A/S_inf) = {gM/gA:.4f}'
+          f'   gma_m/(A gma_m,i) = {gm/(float(A_of_sigma(x_end/ttd, A_RHO))*GM0):.4f}'
+          f'   gma_M/gma_m = {gM/gm:8.3f}  (1+|e|C = {1. + abs(_exps(A_RHO, Q_B)[1])*10.**lc:8.3f})')
   plot_cooling_tracks(show=show)
   plot_cooling_shapes(show=show)
 
