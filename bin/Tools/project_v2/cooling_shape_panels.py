@@ -82,6 +82,11 @@ GMA_LIM = (1e-3, 30.*GMA_M0)
 N_LIM = (1e-16, 1e4)        # N/N_e range of the SHAPE panels
 # a row of three, sized for a two-column article's full width. The shape panels get the
 # taller box: twenty decades of N against ten of gamma.
+GUIDE_LW, GUIDE_OFF = 1.3, 5.
+# Guides run PARALLEL to the tracks, offset up by GUIDE_OFF, rather than on top of them.
+# Drawn exactly they are invisible -- an asymptote lies on the curve by construction --
+# and widened enough to see they bury the track instead. The offset is the shapes
+# figure's gamma^-p convention, and it costs nothing: a guide is read by its SLOPE.
 FIGSIZE_TRACKS, FIGSIZE_SHAPES = (7.1, 2.75), (7.1, 3.15)
 FN_TRACKS, FN_SHAPES = 'cooling_tracks.png', 'cooling_shapes.png'
 
@@ -178,6 +183,16 @@ LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
 
 
+def freeze_x(ttd, a_rho=A_RHO, q=Q_B, frac=.5):
+  '''
+  t'/t'_c,i at which the burn S has reached `frac` of S_inf -- the bend between the two
+  asymptotes. With e < 0, S/S_inf = 1 - (1+sigma)^e inverts exactly. None when e >= 0,
+  where the burn never freezes and there is no bend.
+  '''
+  _, e = _exps(a_rho, q)
+  return None if e >= 0. else ((1. - frac)**(1./e) - 1.)*ttd
+
+
 def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=.5):
   '''
   The frozen-burn asymptote, drawn as the PURE POWER LAW it becomes.
@@ -189,20 +204,18 @@ def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=.5):
   the offset between them being the 1 + |e| C the width law stalls at.
 
   A = (1+sigma)^alpha, so the line drawn is |e|/tt_dyn * sigma^alpha -- the large-sigma
-  form, a straight |e|-normalised power of the abscissa rather than the exact A/S_inf.
-  The two differ by (1+1/sigma)^alpha, 37% at sigma = 1.7 and 1.5% by sigma = 100, so
-  the guide comes DOWN onto the track from above and the convergence is the asymptote
-  declaring itself. That is why it is started early, at `frac` of S_inf rather than at
-  the 0.9 the exact version used: a guide has to be long enough to read as a straight
-  line, and the stretch where it does not yet lie on the curve is doing work.
+  form, a straight |e|-normalised power of the abscissa rather than the exact A/S_inf
+  (the two agree to 0.07% by the right-hand edge; main() prints it). Offset up by
+  GUIDE_OFF like every other guide here, and started at `frac` of S_inf rather than the
+  0.9 the bend itself needs, because a guide has to be long enough to read as a slope.
   '''
-  _, e = _exps(a_rho, q)
-  if e >= 0.:
+  x0 = freeze_x(ttd, a_rho, q, frac)
+  if x0 is None:
     return                                     # unbounded burn: nothing ever freezes
-  x0 = ((1. - frac)**(1./e) - 1.)*ttd          # sigma at `frac` of S_inf, on this axis
   xg = x[x >= x0]
-  ax.loglog(xg, abs(e)/ttd*(xg/ttd)**(a_rho/3.), color=MUTED, ls=':', lw=1.1,
-            zorder=5, label=lab_adrift(a_rho))
+  ax.loglog(xg, GUIDE_OFF*abs(_exps(a_rho, q)[1])/ttd*(xg/ttd)**(a_rho/3.),
+            color=MUTED, ls=':',
+            lw=GUIDE_LW, zorder=5, label=lab_adrift(a_rho))
 
 
 def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
@@ -239,7 +252,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
                     color=INK, fontsize=FS_ANN, ha='center', va='top',
                     bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
       # 1/tt is the asymptote the top edge slides down, never a place it bends
-      ax.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label=LAB_GUIDE)
+      ax.loglog(x, GUIDE_OFF/x, color=MUTED, ls='-.', lw=GUIDE_LW, zorder=5,
+                label=LAB_GUIDE)
       gM, gm = gamma_synCooled(x, gM0), gamma_synCooled(x, gm0)
       knees = (t_M, t_m)                           # A = 1, so S = tt and S = 1/gma_0
                                                    # is reached at exactly 1/gma_0
@@ -250,6 +264,15 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
       # t'_dyn IS tt_dyn on this abscissa, by definition of the unit
       ax.axvline(ttd, color=INK, ls='-.', lw=.9, zorder=2, label=LAB_TDYN)
       knees = tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0))
+      # BOTH asymptotes, and the bend between them is the point. Before the burn
+      # freezes A is still ~1 and S is still ~t'/t'_c,i, so the top edge runs down the
+      # same 1/tt it does in (a); after, it turns onto A. The synchrotron guide is cut
+      # a little past the bend so the two visibly cross there instead of butting.
+      x0 = freeze_x(ttd, a_rho, q)
+      if x0 is not None:
+        xs = x[x <= 3.*x0]
+        ax.loglog(xs, GUIDE_OFF/xs, color=MUTED, ls='-.', lw=GUIDE_LW, zorder=5,
+                  label=LAB_GUIDE)
       _frozen_guide(ax, x, ttd, a_rho, q)
 
     ax.loglog(x, gM, color='k', lw=1.4, label=LAB_GMM)
