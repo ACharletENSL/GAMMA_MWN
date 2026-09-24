@@ -185,7 +185,7 @@ def lab_adrift(a_rho=A_RHO):
   fr = Fraction(a_rho/3.).limit_denominator(100)
   ix = (f'{fr.numerator:+d}' if fr.denominator == 1
         else f'{fr.numerator:+d}/{fr.denominator}')
-  return "$\\propto(t'/t'_{\\rm c,i})^{" + ix + "}$"
+  return "$(t'/t'_{\\rm c,i})^{" + ix + "}$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
 LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
