@@ -45,8 +45,8 @@ For (b) and (c), sigma = (t'/t'_c,i)/tt_dyn does the conversion.
 
 NEITHER FIGURE IS TITLED: the panels are identified by the caption, so nothing competes
 with the curves for the top strip. For the same reason each repeated mark is LABELLED
-ONCE, in panel (a), and drawn bare in (b) and (c): the injected bounds on the shapes,
-the two knees on the tracks. One reading serves all three panels.
+ONCE and drawn bare elsewhere: the injected bounds are labelled in panel (a) of the
+shapes, and the two knees are named in the tracks' legend instead of in any panel.
 
 The two figures share: the sampled times (cooling_shape_figure.LOGTT_SAMPLES, the same
 log10 t'/t'_c,i in every panel), the viridis ramp ordered by time, the injected bounds
@@ -154,6 +154,9 @@ def _mark_gma1(ax, axis):
 # --- (1) the edge tracks ----------------------------------------------------------------
 LAB_GM, LAB_GMM = '$\\gamma_\\mathrm{m}$', '$\\gamma_\\mathrm{M}$'
 LAB_GUIDE, LAB_TDYN = "$(t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
+# the knees are named for the PHYSICAL time, not for tt: the abscissa is t'/t'_c,i, and
+# outside panel (a) that is not tt at all -- tt lags it once the field decays
+LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
 LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
@@ -164,7 +167,9 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
   '''
   gma_m and gma_M against t'/t'_c,i, one panel per physics case (see module docstring).
   The regime bands are drawn on panel (a) only: that is where they are defined. The
-  adiabatic panels instead mark t'_dyn, the scale their C is measured against.
+  adiabatic panels instead mark t'_dyn, the scale their C is measured against. The two
+  knees echo the edges they belong to -- solid for M, dashed for m -- thin, so they read
+  as marks rather than as a third and fourth track.
   '''
   fig, axs = _row(FIGSIZE_TRACKS)
   x = np.geomspace(*T_LIM, NX)
@@ -179,14 +184,6 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
            ('FC',  t_m*MC_FAC, 1.,         '#67a9cf'),
            ('VFC', 1.,         x[-1],      '#2166ac'))
 
-  def band_at(v):
-    '''
-    Tint behind abscissa v, so a label box can be painted to disappear into it.
-    Left-CLOSED, which is what decides tt_M: it sits exactly on the VSC|SC edge, and
-    the band a knee opens is the one it belongs to.
-    '''
-    return next((c for _, a_, b_, c in bands if a_ <= v < b_), 'w')
-
   for ax, (kind, ttd) in zip(axs, panel_specs(gm0, logC_m)):
     if kind == 'syn':
       for lab, a_, b_, col in bands:
@@ -200,30 +197,25 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
       # 1/tt is the asymptote the top edge slides down, never a place it bends
       ax.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label=LAB_GUIDE)
       gM, gm = gamma_synCooled(x, gM0), gamma_synCooled(x, gm0)
+      knees = (t_M, t_m)                           # A = 1, so S = tt and S = 1/gma_0
+                                                   # is reached at exactly 1/gma_0
     else:
       sg = x/ttd                                   # sigma = (t'/t'_c,i)/tt_dyn
       gM = gamma_cooled(sg, gM0, ttd, a_rho, q)
       gm = gamma_cooled(sg, gm0, ttd, a_rho, q)
       # t'_dyn IS tt_dyn on this abscissa, by definition of the unit
       ax.axvline(ttd, color=INK, ls='-.', lw=.9, zorder=2, label=LAB_TDYN)
-      # the same two knees as (a), bare: where the burn reaches 1/gma_M,i and 1/gma_m,i
-      for g0 in (gM0, gm0):
-        v = tt_knee(g0, ttd, a_rho, q)
-        if v is not None:
-          ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+      knees = tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0))
 
     ax.loglog(x, gM, color='k', lw=1.4, label=LAB_GMM)
     ax.loglog(x, gm, color='k', lw=1.1, ls='--', label=LAB_GM)
     _mark_gma1(ax, 'y')
-    if kind == 'syn':
-      # the two knees, along the floor where nothing else runs; each box painted to
-      # match the band it stands in rather than punching a white hole in it
-      for v, lab in ((t_M, '$\\tilde{t}_\\mathrm{M}$'),
-                     (t_m, '$\\tilde{t}_\\mathrm{m}$')):
-        ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-        ax.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=INK,
-                    fontsize=FS_ANN, ha='center', va='bottom',
-                    bbox=dict(fc=_band_bg(band_at(v)), ec='none', pad=1.))
+    # the knees, in every panel now and named in the legend rather than in the panel --
+    # (a) had the only floor free enough for a label box, and one reading serves three.
+    # None where the edge never burns, which is the slow-cooling panel's missing t'_m.
+    for v, ls, lab in zip(knees, ('-', '--'), (LAB_TMM, LAB_TM)):
+      if v is not None:
+        ax.axvline(v, color=INK, ls=ls, lw=.8, zorder=1, label=lab)
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(*GMA_LIM)
     ax.set_yticks(10.**np.arange(-2., np.log10(gM0) + 1., 2.))
@@ -233,7 +225,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     ax.grid(alpha=.25, lw=.4)
   axs[0].set_ylabel('$\\gamma$', fontsize=FS_LAB)
 
-  _legend_above(fig, axs, order=(LAB_GMM, LAB_GM, LAB_GUIDE, LAB_TDYN), ncol=4)
+  _legend_above(fig, axs, ncol=6,
+                order=(LAB_GMM, LAB_GM, LAB_GUIDE, LAB_TMM, LAB_TM, LAB_TDYN))
   return _save(fig, axs, outdir, fname, show)
 
 
