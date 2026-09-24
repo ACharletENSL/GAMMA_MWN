@@ -82,9 +82,13 @@ GMA_LIM = (1e-3, 30.*GMA_M0)
 N_LIM = (1e-16, 1e4)        # N/N_e range of the SHAPE panels
 # a row of three, sized for a two-column article's full width. The shape panels get the
 # taller box: twenty decades of N against ten of gamma.
-GUIDE_LW = 1.3              # guides lie ON the track, so they are drawn over it: dotted
+GUIDE_LW = 1.               # guides lie ON the track, so they are drawn over it: dotted
                             # and dash-dot at this width read as grey marks while the
                             # black shows through the gaps. Wider buries the track.
+GUIDE_PAD = 2.              # how far a guide runs past the knee it takes over at, and
+                            # past the handover: enough to see it arrive and leave, not
+                            # enough to leave the track. Starting at the panel edge
+                            # instead sent the 1/tt line up through (a)'s VSC label.
 GUIDE_FRAC = .3             # the HANDOVER, as a fraction of S_inf: synchrotron guide up
                             # to it, frozen-burn guide after. Each asymptote is exact
                             # only in its own limit, and .3 is where the two errors
@@ -216,7 +220,7 @@ def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=GUIDE_FRAC):
   x0 = freeze_x(ttd, a_rho, q, frac)
   if x0 is None:
     return                                     # unbounded burn: nothing ever freezes
-  xg = x[x >= x0]
+  xg = x[x >= x0/GUIDE_PAD]                    # overlapping the 1/tt guide at the bend
   ax.loglog(xg, abs(_exps(a_rho, q)[1])/ttd*(xg/ttd)**(a_rho/3.), color=MUTED, ls=':',
             lw=GUIDE_LW, zorder=5, label=lab_adrift(a_rho))
 
@@ -254,11 +258,10 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
         ax.annotate(lab, (np.sqrt(a_*b_), .985), xycoords=('data', 'axes fraction'),
                     color=INK, fontsize=FS_ANN, ha='center', va='top',
                     bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
-      # 1/tt is the asymptote the top edge slides down, never a place it bends
-      ax.loglog(x, 1./x, color=MUTED, ls='-.', lw=GUIDE_LW, zorder=5, label=LAB_GUIDE)
       gM, gm = gamma_synCooled(x, gM0), gamma_synCooled(x, gm0)
       knees = (t_M, t_m)                           # A = 1, so S = tt and S = 1/gma_0
                                                    # is reached at exactly 1/gma_0
+      x0 = None                                    # nothing freezes: 1/tt runs on
     else:
       sg = x/ttd                                   # sigma = (t'/t'_c,i)/tt_dyn
       gM = gamma_cooled(sg, gM0, ttd, a_rho, q)
@@ -266,16 +269,20 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
       # t'_dyn IS tt_dyn on this abscissa, by definition of the unit
       ax.axvline(ttd, color=INK, ls='-.', lw=.9, zorder=2, label=LAB_TDYN)
       knees = tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0))
-      # BOTH asymptotes, meeting at the bend. Before the burn freezes A is still ~1 and
-      # S is still ~t'/t'_c,i, so the top edge runs down the same 1/tt it does in (a);
-      # after, it turns onto A. Neither line is cut short of the other: they hand over
-      # at GUIDE_FRAC, which is what makes each as long as it can honestly be.
+      # the second asymptote. Before the burn freezes A is still ~1 and S is still
+      # ~t'/t'_c,i, so the top edge runs down the same 1/tt it does in (a); after, it
+      # turns onto A. The two hand over at GUIDE_FRAC, overlapping by GUIDE_PAD.
       x0 = freeze_x(ttd, a_rho, q, GUIDE_FRAC)
-      if x0 is not None:
-        xs = x[x <= x0]
-        ax.loglog(xs, 1./xs, color=MUTED, ls='-.', lw=GUIDE_LW, zorder=5,
-                  label=LAB_GUIDE)
       _frozen_guide(ax, x, ttd, a_rho, q, GUIDE_FRAC)
+
+    # 1/tt is the asymptote the top edge slides down, never a place it bends. It starts
+    # a little before the knee where the edge begins to burn -- there is nothing for it
+    # to describe while the edge still sits at gma_M,i -- and, where a frozen-burn guide
+    # takes over, stops a little past the handover.
+    xs = x if knees[0] is None else x[x >= knees[0]/GUIDE_PAD]
+    if x0 is not None:
+      xs = xs[xs <= x0*GUIDE_PAD]
+    ax.loglog(xs, 1./xs, color=MUTED, ls='-.', lw=GUIDE_LW, zorder=5, label=LAB_GUIDE)
 
     ax.loglog(x, gM, color='k', lw=1.4, label=LAB_GMM)
     ax.loglog(x, gm, color='k', lw=1.1, ls='--', label=LAB_GM)
