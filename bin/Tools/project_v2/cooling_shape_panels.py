@@ -20,8 +20,8 @@ THE THREE PANELS, and what each assumes.
       tilde{t}_M = 1/gma_M0 and tilde{t}_m = 1/gma_m0, and in these units they need no
       reference C at all. Physics from cooling_shape_figure.
 
-  (b) SYNCHROTRON + ADIABATIC, fast cooling, bar{gma}_c/gma_m = 1e-3.
-  (c) the same, slow cooling, bar{gma}_c/gma_m = 1e+3.
+  (b) SYNCHROTRON + ADIABATIC, fast cooling, bar{gma}_c/gma_m,i = 1e-2.
+  (c) the same, slow cooling, bar{gma}_c/gma_m,i = 1e+2.
 
       Both on the FREELY EXPANDING SHELL at constant eps_B, which is one choice, not
       two: rho' ~ R^-2 (a shell of fixed comoving width, coasting R/R_0 = 1 + sigma),
@@ -30,7 +30,10 @@ THE THREE PANELS, and what each assumes.
       alpha = a_rho/3 = -2/3 that gives e = alpha - 2q + 1 = -7/3 < 0: the synchrotron
       burn saturates at S_inf = tt_dyn/|e|, and only C < 1/|e| reaches fast cooling --
       which is why (b) and (c) sit either side of that threshold rather than either
-      side of C = 1. The constants live in cooling_integrated_adiabatic (A_RHO, Q_B)
+      side of C = 1. Each carries the scale its regime is set by, as a dash-dotted
+      vertical: t'_dyn on the tracks, bar{gma}_c on the shapes -- one is the abscissa
+      reading of the other, since gma_c = 1/tt_dyn. The constants live in
+      cooling_integrated_adiabatic (A_RHO, Q_B)
       and the trajectory in gamma_cooled / cooled_distrib_adiab, so nothing is
       restated here.
 
@@ -39,6 +42,10 @@ t'/t'_c,i in all three, not the generalised tt_eff = S/A. In tt_eff the top edge
 C-independent and slides down 1/tt_eff in every panel; in t'/t'_c,i it is not, which is
 exactly why the two regimes need panels of their own instead of one shared pair of axes.
 For (b) and (c), sigma = (t'/t'_c,i)/tt_dyn does the conversion.
+
+NEITHER FIGURE IS TITLED: the panels are identified by the caption, so nothing competes
+with the curves for the top strip. The injected bounds keep their dotted verticals on the
+shape panels but lose their labels for the same reason.
 
 The two figures share: the sampled times (cooling_shape_figure.LOGTT_SAMPLES, the same
 log10 t'/t'_c,i in every panel), the viridis ramp ordered by time, the injected bounds
@@ -60,14 +67,14 @@ from cooling_integrated_adiabatic import A_RHO, Q_B, gamma_cooled
 from cooling_shape_adiabatic import cooled_distrib_adiab, lab_C
 
 # --- defaults -------------------------------------------------------------------------
-LOGC_PANELS = (-3., 3.)     # the two adiabatic columns: either side of the C < 1/|e|
+LOGC_PANELS = (-2., 2.)     # the two adiabatic columns: either side of the C < 1/|e|
                             # cooling threshold, not either side of C = 1
 T_LIM = (1e-11, 1e2)        # t'/t'_c,i span of the TRACK panels, shared by all three
 NX = 900                    # points per track
 # ONE y range for the three track panels, so the drag in (b)/(c) is read against (a)
 # rather than against a rescaled axis. The floor clears the lowest edge any panel
-# reaches (4.6e-3, the slow-cooling adiabatic gma_m); the ceiling leaves the decade the
-# regime-band labels of panel (a) sit in.
+# reaches (2.1e-2, the slow-cooling adiabatic gma_m -- main() prints all three); the
+# ceiling leaves the decade the regime-band labels of panel (a) sit in.
 GMA_LIM = (1e-3, 30.*GMA_M0)
 N_LIM = (1e-16, 1e4)        # N/N_e range of the SHAPE panels
 # a row of three, sized for a two-column article's full width. The shape panels get the
@@ -78,15 +85,11 @@ FN_TRACKS, FN_SHAPES = 'cooling_tracks.png', 'cooling_shapes.png'
 
 def panel_specs(gm0=GM0, logC_m=LOGC_PANELS):
   '''
-  (kind, tt_dyn, title) for the three panels, in the order BOTH figures use.
-  tt_dyn is None for the synchrotron panel, which has no C to set one.
+  (kind, tt_dyn) for the three panels, in the order BOTH figures use. tt_dyn is None
+  for the synchrotron panel, which has no C to set one. The panels are UNTITLED -- the
+  caption names them -- so this carries no label.
   '''
-  out = [('syn', None, '(a) synchrotron only')]
-  for k, lc in zip('bc', logC_m):
-    out.append(('adiab', tt_dyn_of_C(lc, gm0),
-                f'({k}) $+$ adiabatic, '
-                f'$\\bar{{\\gamma}}_{{\\rm c}}/\\gamma_{{\\rm m}}={lab_C(lc)}$'))
-  return out
+  return [('syn', None)] + [('adiab', tt_dyn_of_C(lc, gm0)) for lc in logC_m]
 
 
 def _row(figsize, n=3, wspace=.10):
@@ -96,24 +99,27 @@ def _row(figsize, n=3, wspace=.10):
   return fig, axs[0]
 
 
-def _legend_above(fig, ax_src, axs, **kw):
+def _legend_above(fig, axs, order=(), **kw):
   '''
   ONE legend row above the panels. In-panel placement has nowhere to go here: the
-  panels are a third as wide as the two-panel figures' were, and the band labels,
-  the injected-bound labels and the curve bundle already claim top, bottom and middle.
-  A FIGURE legend, because bbox_inches='tight' walks those -- and no
-  bbox_extra_artists, which would REPLACE every axes' own extras and crop it.
+  panels are a third as wide as the two-panel figures' were, and the injected bounds,
+  the band labels and the curve bundle already claim top, bottom and middle. A FIGURE
+  legend, because bbox_inches='tight' walks those -- and no bbox_extra_artists, which
+  would REPLACE every axes' own extras and crop it.
 
-  Anchored above the TITLES, measured rather than guessed: axes.y1 leaves the row
-  sitting straight on top of them, and the clearance a title needs is its font size,
-  which is not a fixed fraction of a figure whose height changes between the two.
+  Handles are merged across ALL panels and deduped by label, because the entries are
+  not all drawn in the same one: the 1/tt guide belongs to (a) and t'_dyn to (b)/(c).
+  `order` then fixes the reading order, which plot order cannot -- the guide has to be
+  drawn first to sit under the tracks.
   '''
-  fig.canvas.draw()                       # titles have no extent until they are laid out
-  inv = fig.transFigure.inverted()
-  top = max(inv.transform(ax.title.get_window_extent())[1, 1] for ax in axs)
+  seen = {}
+  for ax in axs:
+    for h, l in zip(*ax.get_legend_handles_labels()):
+      seen.setdefault(l, h)
+  keys = [l for l in order if l in seen] + [l for l in seen if l not in order]
   p0, p1 = axs[0].get_position(), axs[-1].get_position()
-  fig.legend(*ax_src.get_legend_handles_labels(), fontsize=FS_LEG, loc='lower center',
-             bbox_to_anchor=(.5*(p0.x0 + p1.x1), top + .015),
+  fig.legend([seen[l] for l in keys], keys, fontsize=FS_LEG, loc='lower center',
+             bbox_to_anchor=(.5*(p0.x0 + p1.x1), p0.y1 + .015),
              bbox_transform=fig.transFigure, framealpha=1., handlelength=1.4,
              handletextpad=.5, borderpad=.3, columnspacing=.9, **kw)
 
@@ -127,28 +133,41 @@ def _mark_gma1(ax, axis):
 
 
 # --- (1) the edge tracks ----------------------------------------------------------------
+LAB_GM, LAB_GMM = '$\\gamma_\\mathrm{m}$', '$\\gamma_\\mathrm{M}$'
+LAB_GUIDE, LAB_TDYN = "$(t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
+
+
 def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     logC_m=LOGC_PANELS, outdir=OUTDIR, fname=FN_TRACKS, show=False):
   '''
   gma_m and gma_M against t'/t'_c,i, one panel per physics case (see module docstring).
-  The regime bands are drawn on panel (a) only: that is where they are defined.
+  The regime bands are drawn on panel (a) only: that is where they are defined. The
+  adiabatic panels instead mark t'_dyn, the scale their C is measured against.
   '''
   fig, axs = _row(FIGSIZE_TRACKS)
   x = np.geomspace(*T_LIM, NX)
+  # THE COOLING REGIMES. t_M and t_m are the cooling times of the two injected edges;
+  # MC is a NEIGHBOURHOOD of t_m, a factor MC_FAC either side. Colours are the house
+  # shape-class palette (sweep_gammacm's per-spectrum table), RdBu from VSC red to VFC
+  # blue; its 'marginal' #f7f7f7 is invisible as a tint, so MC gets a grey.
+  t_M, t_m = 1./gM0, 1./gm0
+  bands = (('VSC', x[0],       t_M,        '#b2182b'),
+           ('SC',  t_M,        t_m/MC_FAC, '#ef8a62'),
+           ('MC',  t_m/MC_FAC, t_m*MC_FAC, '0.6'),
+           ('FC',  t_m*MC_FAC, 1.,         '#67a9cf'),
+           ('VFC', 1.,         x[-1],      '#2166ac'))
 
-  for ax, (kind, ttd, title) in zip(axs, panel_specs(gm0, logC_m)):
+  def band_at(v):
+    '''
+    Tint behind abscissa v, so a label box can be painted to disappear into it.
+    Left-CLOSED, which is what decides tt_M: it sits exactly on the VSC|SC edge, and
+    the band a knee opens is the one it belongs to.
+    '''
+    return next((c for _, a_, b_, c in bands if a_ <= v < b_), 'w')
+
+  for ax, (kind, ttd) in zip(axs, panel_specs(gm0, logC_m)):
     if kind == 'syn':
-      # THE COOLING REGIMES. t_M and t_m are the cooling times of the two injected
-      # edges; MC is a NEIGHBOURHOOD of t_m, a factor MC_FAC either side. Colours are
-      # the house shape-class palette (sweep_gammacm's per-spectrum table), RdBu from
-      # VSC red to VFC blue; its 'marginal' #f7f7f7 is invisible as a tint, so MC
-      # gets a grey.
-      t_M, t_m = 1./gM0, 1./gm0
-      for lab, a_, b_, col in (('VSC', x[0],       t_M,        '#b2182b'),
-                               ('SC',  t_M,        t_m/MC_FAC, '#ef8a62'),
-                               ('MC',  t_m/MC_FAC, t_m*MC_FAC, '0.6'),
-                               ('FC',  t_m*MC_FAC, 1.,         '#67a9cf'),
-                               ('VFC', 1.,         x[-1],      '#2166ac')):
+      for lab, a_, b_, col in bands:
         a_, b_ = max(a_, x[0]), min(b_, x[-1])
         if not a_ < b_:
           continue
@@ -157,34 +176,36 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
                     color=INK, fontsize=FS_ANN, ha='center', va='top',
                     bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
       # 1/tt is the asymptote the top edge slides down, never a place it bends
-      ax.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label="$(t'/t'_{\\rm c,i})^{-1}$")
+      ax.loglog(x, 1./x, color=MUTED, ls='-.', lw=.9, label=LAB_GUIDE)
       gM, gm = gamma_synCooled(x, gM0), gamma_synCooled(x, gm0)
     else:
       sg = x/ttd                                   # sigma = (t'/t'_c,i)/tt_dyn
       gM = gamma_cooled(sg, gM0, ttd, a_rho, q)
       gm = gamma_cooled(sg, gm0, ttd, a_rho, q)
+      # t'_dyn IS tt_dyn on this abscissa, by definition of the unit
+      ax.axvline(ttd, color=INK, ls='-.', lw=.9, zorder=2, label=LAB_TDYN)
 
-    ax.loglog(x, gM, color='k', lw=1.4, label='$\\gamma_\\mathrm{M}$')
-    ax.loglog(x, gm, color='k', lw=1.1, ls='--', label='$\\gamma_\\mathrm{m}$')
+    ax.loglog(x, gM, color='k', lw=1.4, label=LAB_GMM)
+    ax.loglog(x, gm, color='k', lw=1.1, ls='--', label=LAB_GM)
     _mark_gma1(ax, 'y')
     if kind == 'syn':
-      # the two knees, along the floor where nothing else runs
-      for v, lab in ((1./gM0, '$\\tilde{t}_M$'), (1./gm0, '$\\tilde{t}_m$')):
+      # the two knees, along the floor where nothing else runs; each box painted to
+      # match the band it stands in rather than punching a white hole in it
+      for v, lab in ((t_M, '$\\tilde{t}_M$'), (t_m, '$\\tilde{t}_m$')):
         ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
         ax.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=INK,
                     fontsize=FS_ANN, ha='center', va='bottom',
-                    bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+                    bbox=dict(fc=_band_bg(band_at(v)), ec='none', pad=1.))
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(*GMA_LIM)
     ax.set_yticks(10.**np.arange(-2., np.log10(gM0) + 1., 2.))
     ax.set_xlabel("$t'/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
-    ax.set_title(title, fontsize=FS_LAB, pad=3.)
     ax.tick_params(axis='x', pad=1.5)
     ax.tick_params(which='both', labelsize=FS_TICK)
     ax.grid(alpha=.25, lw=.4)
   axs[0].set_ylabel('$\\gamma$', fontsize=FS_LAB)
 
-  _legend_above(fig, axs[0], axs, ncol=3)
+  _legend_above(fig, axs, order=(LAB_GMM, LAB_GM, LAB_GUIDE, LAB_TDYN), ncol=4)
   return _save(fig, axs, outdir, fname, show)
 
 
@@ -194,13 +215,18 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
   '''
   N(gma,t') at the sampled log10(t'/t'_c,i), one panel per physics case. Same panel
   order as plot_cooling_tracks, and the SAME sampled times in every panel.
+
+  The injected bounds keep their verticals but not their labels, and bar{gma}_c = 1/tt_dyn
+  is marked on the adiabatic panels the same way: unlabelled, because with the panels
+  untitled the caption is where all three get named, and three annotations in a panel
+  this wide would sit on the curves.
   '''
   fig, axs = _row(FIGSIZE_SHAPES)
   colors = plt.cm.viridis(np.linspace(0., .85, len(logtt)))
   K0 = norm_plaw_distrib(gm0, gM0, p)
   lo = np.inf
 
-  for ax, (kind, ttd, title) in zip(axs, panel_specs(gm0, logC_m)):
+  for ax, (kind, ttd) in zip(axs, panel_specs(gm0, logC_m)):
     # the injected law goes UNDER the cooled ones: the earliest of them tracks it
     # almost exactly, and on top the black would hide that curve entirely
     ax.loglog(*(cooled_distrib(0., p, gm0, gM0) if kind == 'syn' else
@@ -226,24 +252,20 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
       ax.annotate('$\\propto\\gamma^{-p}$', (gg[1], 12.*K0*gg[1]**-p),
                   textcoords='offset points', xytext=(3, 3), color=MUTED,
                   fontsize=FS_ANN)
-    # the injected bounds, along the TOP
-    for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'),
-                   (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
+    else:
+      ax.axvline(1./ttd, color=INK, ls='-.', lw=.9, zorder=2)   # bar{gma}_c = 1/tt_dyn
+    for v in (gm0, gM0):                                        # injected bounds, unlabelled
       ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-      ax.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
-                  fontsize=FS_ANN, ha='center', va='top',
-                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
     _mark_gma1(ax, 'x')
     ax.set_ylim(*N_LIM)
     ax.set_xlabel('$\\gamma$', fontsize=FS_LAB)
-    ax.set_title(title, fontsize=FS_LAB, pad=3.)
     ax.tick_params(which='both', labelsize=FS_TICK)
     ax.grid(alpha=.25, lw=.4)
   for ax in axs:
     ax.set_xlim(.5*lo, 2.*gM0)
   axs[0].set_ylabel("$N(\\gamma,t')/N_{\\rm e}$", fontsize=FS_LAB)
 
-  _legend_above(fig, axs[0], axs, ncol=len(logtt),
+  _legend_above(fig, axs, ncol=len(logtt),
                 title="$\\log_{10}(t'/t'_{\\rm c,i})$")
   fig.legends[-1].get_title().set_fontsize(FS_LEG)
   return _save(fig, axs, outdir, fname, show)

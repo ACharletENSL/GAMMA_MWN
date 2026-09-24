@@ -159,7 +159,7 @@ FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 7.5, 7.
 
 # the ratio is SPELLED OUT in this series, not abbreviated to the article's
 # \mathcal{C} -- parenthesised because it sits inside the log
-C_LABEL = '$\\log_{10}(\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m})$'
+C_LABEL = '$\\log_{10}(\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m,i})$'
 # plain gamma, not gamma/gamma_m0: the shape figures' distribution panels are already
 # in gamma, so this puts the whole cooling_distributions family on one abscissa
 GMA_LABEL = '$\\gamma$'
