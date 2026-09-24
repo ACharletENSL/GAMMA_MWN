@@ -44,8 +44,9 @@ exactly why the two regimes need panels of their own instead of one shared pair 
 For (b) and (c), sigma = (t'/t'_c,i)/tt_dyn does the conversion.
 
 NEITHER FIGURE IS TITLED: the panels are identified by the caption, so nothing competes
-with the curves for the top strip. The injected bounds keep their dotted verticals on the
-shape panels but lose their labels for the same reason.
+with the curves for the top strip. For the same reason each repeated mark is LABELLED
+ONCE, in panel (a), and drawn bare in (b) and (c): the injected bounds on the shapes,
+the two knees on the tracks. One reading serves all three panels.
 
 The two figures share: the sampled times (cooling_shape_figure.LOGTT_SAMPLES, the same
 log10 t'/t'_c,i in every panel), the viridis ramp ordered by time, the injected bounds
@@ -63,7 +64,7 @@ from cooling_distribution import gamma_synCooled, norm_plaw_distrib
 from cooling_shape_figure import (P_SYN, GM0, GMA_M0, OUTDIR, INK, MUTED, MC_FAC,
     FS_LAB, FS_TICK, FS_ANN, FS_LEG, LOGTT_SAMPLES, BAND_ALPHA, _band_bg, cooled_distrib)
 from cooling_integrated_figure import tt_dyn_of_C
-from cooling_integrated_adiabatic import A_RHO, Q_B, gamma_cooled
+from cooling_integrated_adiabatic import A_RHO, Q_B, _exps, gamma_cooled
 from cooling_shape_adiabatic import cooled_distrib_adiab, lab_C
 
 # --- defaults -------------------------------------------------------------------------
@@ -124,6 +125,24 @@ def _legend_above(fig, axs, order=(), **kw):
              handletextpad=.5, borderpad=.3, columnspacing=.9, **kw)
 
 
+def tt_knee(gma0, ttd, a_rho=A_RHO, q=Q_B):
+  '''
+  t'/t'_c,i at which the edge injected at gma0 starts to burn -- where the effective
+  burn S reaches 1/gma0. S(sigma) inverts in closed form, so this needs no root-find:
+
+      S = ttd[(1+sigma)^e - 1]/e = 1/gma0   =>   1 + sigma = [1 + e/(gma0 ttd)]^(1/e)
+
+  None when that bracket is <= 0. With e < 0 the burn saturates at S_inf = ttd/|e|, so
+  an edge with gma0*ttd < |e| NEVER burns and the knee does not exist -- the C < 1/|e|
+  threshold seen from the other side, and the reason panel (c) has a tt_M but no tt_m.
+  At gma0*ttd >> |e| the bracket -> 1 and the knee returns to its synchrotron value
+  1/gma0, which is why the two tt_M verticals line up across the three panels.
+  '''
+  _, e = _exps(a_rho, q)
+  b = 1. + e/(gma0*ttd)
+  return None if b <= 0. else (b**(1./e) - 1.)*ttd
+
+
 def _mark_gma1(ax, axis):
   "gma = 1: a y band on the track panels, an x band on the shape panels."
   span = ax.axhspan if axis == 'y' else ax.axvspan
@@ -135,6 +154,9 @@ def _mark_gma1(ax, axis):
 # --- (1) the edge tracks ----------------------------------------------------------------
 LAB_GM, LAB_GMM = '$\\gamma_\\mathrm{m}$', '$\\gamma_\\mathrm{M}$'
 LAB_GUIDE, LAB_TDYN = "$(t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
+# mathtext puts no space after the comma, so the \! keeps the two indices from touching
+LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
+LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
 
 
 def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
@@ -184,6 +206,11 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
       gm = gamma_cooled(sg, gm0, ttd, a_rho, q)
       # t'_dyn IS tt_dyn on this abscissa, by definition of the unit
       ax.axvline(ttd, color=INK, ls='-.', lw=.9, zorder=2, label=LAB_TDYN)
+      # the same two knees as (a), bare: where the burn reaches 1/gma_M,i and 1/gma_m,i
+      for g0 in (gM0, gm0):
+        v = tt_knee(g0, ttd, a_rho, q)
+        if v is not None:
+          ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
 
     ax.loglog(x, gM, color='k', lw=1.4, label=LAB_GMM)
     ax.loglog(x, gm, color='k', lw=1.1, ls='--', label=LAB_GM)
@@ -216,10 +243,10 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
   N(gma,t') at the sampled log10(t'/t'_c,i), one panel per physics case. Same panel
   order as plot_cooling_tracks, and the SAME sampled times in every panel.
 
-  The injected bounds keep their verticals but not their labels, and bar{gma}_c = 1/tt_dyn
-  is marked on the adiabatic panels the same way: unlabelled, because with the panels
-  untitled the caption is where all three get named, and three annotations in a panel
-  this wide would sit on the curves.
+  The injected bounds are labelled in panel (a) and drawn bare in (b) and (c), where
+  the top strip is needed for the curves. bar{gma}_c = 1/tt_dyn is marked on the
+  adiabatic panels with the dash-dot the tracks give t'_dyn, and carries no annotation
+  at all -- the caption names it.
   '''
   fig, axs = _row(FIGSIZE_SHAPES)
   colors = plt.cm.viridis(np.linspace(0., .85, len(logtt)))
@@ -254,8 +281,12 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
                   fontsize=FS_ANN)
     else:
       ax.axvline(1./ttd, color=INK, ls='-.', lw=.9, zorder=2)   # bar{gma}_c = 1/tt_dyn
-    for v in (gm0, gM0):                                        # injected bounds, unlabelled
+    for v, lab in ((gm0, LAB_GMI), (gM0, LAB_GMMI)):
       ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+      if kind == 'syn':
+        ax.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
+                    fontsize=FS_ANN, ha='center', va='top',
+                    bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
     _mark_gma1(ax, 'x')
     ax.set_ylim(*N_LIM)
     ax.set_xlabel('$\\gamma$', fontsize=FS_LAB)
@@ -290,7 +321,10 @@ def main(show=False):
   for lc in LOGC_PANELS:
     ttd = tt_dyn_of_C(lc, GM0)
     gm = float(gamma_cooled(x_end/ttd, GM0, ttd, A_RHO, Q_B))
-    print(f'  C = 10^{lc:+.0f}      gma_m = {gm:.3e}   (tt_dyn = {ttd:.3e})')
+    kM, km = (tt_knee(g, ttd) for g in (GMA_M0, GM0))
+    print(f'  C = 10^{lc:+.0f}      gma_m = {gm:.3e}   (tt_dyn = {ttd:.3e})'
+          f'   tt_M = {kM:.3e}'
+          f"   tt_m = {'never burns' if km is None else f'{km:.3e}'}")
   plot_cooling_tracks(show=show)
   plot_cooling_shapes(show=show)
 
