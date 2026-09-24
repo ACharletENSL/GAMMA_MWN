@@ -57,6 +57,7 @@ Run:  python cooling_shape_panels.py
 '''
 
 import os
+from fractions import Fraction
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -158,15 +159,28 @@ LAB_GUIDE, LAB_TDYN = "$(t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
 # the knees are named for the PHYSICAL time, not for tt: the abscissa is t'/t'_c,i, and
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
-LAB_ADRIFT = "$\\propto A(t')$"
+
+
+
+def lab_adrift(a_rho=A_RHO):
+  '''
+  Legend entry for the frozen-burn guide, as a POWER of the abscissa. Once the burn has
+  frozen gma ~ A = (1+sigma)^alpha, and past a few t'_dyn that is sigma^alpha, i.e. a
+  straight line of index alpha = a_rho/3 in t'/t'_c,i. Rendered as a fraction, so -2/3
+  reads as -2/3 and not as -0.667.
+  '''
+  fr = Fraction(a_rho/3.).limit_denominator(100)
+  ix = (f'{fr.numerator:+d}' if fr.denominator == 1
+        else f'{fr.numerator:+d}/{fr.denominator}')
+  return "$\\propto(t'/t'_{\\rm c,i})^{" + ix + "}$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
 LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
 
 
-def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=.9):
+def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=.5):
   '''
-  The burnt asymptote gma = A/S_inf, drawn only over the stretch where it IS one.
+  The frozen-burn asymptote, drawn as the PURE POWER LAW it becomes.
 
   Once the burn has frozen, the denominator of gma = A gma_0/(1 + gma_0 S) is a constant
   per electron, so EVERY trajectory becomes gma ~ A(t'): cooling is purely adiabatic from
@@ -174,16 +188,21 @@ def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=.9):
   itself; one that never burnt -- panel (c)'s gma_m -- runs PARALLEL to it at A gma_0,
   the offset between them being the 1 + |e| C the width law stalls at.
 
-  Starts where S has reached `frac` of S_inf, which inverts exactly: with e < 0,
-  S/S_inf = 1 - (1+sigma)^e.
+  A = (1+sigma)^alpha, so the line drawn is |e|/tt_dyn * sigma^alpha -- the large-sigma
+  form, a straight |e|-normalised power of the abscissa rather than the exact A/S_inf.
+  The two differ by (1+1/sigma)^alpha, 37% at sigma = 1.7 and 1.5% by sigma = 100, so
+  the guide comes DOWN onto the track from above and the convergence is the asymptote
+  declaring itself. That is why it is started early, at `frac` of S_inf rather than at
+  the 0.9 the exact version used: a guide has to be long enough to read as a straight
+  line, and the stretch where it does not yet lie on the curve is doing work.
   '''
   _, e = _exps(a_rho, q)
   if e >= 0.:
     return                                     # unbounded burn: nothing ever freezes
-  x0 = ((1. - frac)**(1./e) - 1.)*ttd          # that sigma, read on this abscissa
+  x0 = ((1. - frac)**(1./e) - 1.)*ttd          # sigma at `frac` of S_inf, on this axis
   xg = x[x >= x0]
-  ax.loglog(xg, A_of_sigma(xg/ttd, a_rho)*abs(e)/ttd, color=MUTED, ls=':', lw=1.1,
-            zorder=5, label=LAB_ADRIFT)
+  ax.loglog(xg, abs(e)/ttd*(xg/ttd)**(a_rho/3.), color=MUTED, ls=':', lw=1.1,
+            zorder=5, label=lab_adrift(a_rho))
 
 
 def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
@@ -255,7 +274,7 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
   # tend to -- 1/tt while synchrotron still bites, A(t') once the burn has frozen
   _legend_above(fig, axs, ncol=7,
                 order=(LAB_GMM, LAB_GM, LAB_TMM, LAB_TM, LAB_TDYN,
-                       LAB_GUIDE, LAB_ADRIFT))
+                       LAB_GUIDE, lab_adrift(a_rho)))
   return _save(fig, axs, outdir, fname, show)
 
 
@@ -354,7 +373,10 @@ def main(show=False):
     s_inf = ttd/abs(_exps(A_RHO, Q_B)[1])
     gA = float(A_of_sigma(x_end/ttd, A_RHO))/s_inf
     gM = float(gamma_cooled(x_end/ttd, GMA_M0, ttd, A_RHO, Q_B))
+    # and how good the PURE POWER the legend advertises is against the exact A/S_inf
+    pw = abs(_exps(A_RHO, Q_B)[1])/ttd*(x_end/ttd)**(A_RHO/3.)
     print(f'                   gma_M/(A/S_inf) = {gM/gA:.4f}'
+          f'   power/exact = {pw/gA:.4f}'
           f'   gma_m/(A gma_m,i) = {gm/(float(A_of_sigma(x_end/ttd, A_RHO))*GM0):.4f}'
           f'   gma_M/gma_m = {gM/gm:8.3f}  (1+|e|C = {1. + abs(_exps(A_RHO, Q_B)[1])*10.**lc:8.3f})')
   plot_cooling_tracks(show=show)
