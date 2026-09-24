@@ -218,7 +218,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     if kind == 'syn':
       # the two knees, along the floor where nothing else runs; each box painted to
       # match the band it stands in rather than punching a white hole in it
-      for v, lab in ((t_M, '$\\tilde{t}_M$'), (t_m, '$\\tilde{t}_m$')):
+      for v, lab in ((t_M, '$\\tilde{t}_\\mathrm{M}$'),
+                     (t_m, '$\\tilde{t}_\\mathrm{m}$')):
         ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
         ax.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=INK,
                     fontsize=FS_ANN, ha='center', va='bottom',
