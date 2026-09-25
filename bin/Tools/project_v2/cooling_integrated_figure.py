@@ -318,7 +318,7 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   # no power-law guides here: the slope panel states the three indices quantitatively,
   # and dotted guides over these curves only collide with them
   _t = '' if sigma_end == 1. else f'10^{{{np.log10(sigma_end):.0f}}}'
-  axN.set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N/{\\rm d}\\gamma_{\\rm e}"
+  axN.set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e}"
                  + f'\\;({_t}\\tilde{{t}}_{{\\rm dyn}})$',
                  fontsize=FS_LAB)
   axN.set_ylim(1e-25, 10.*hi_N)   # follows the peak: at 100 t_dyn a fixed top
@@ -336,7 +336,7 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   # above zero is the edge spike and the panel is clipped back to it
   axS.set_ylim(-(p+2.6), .4)
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
-  axS.set_ylabel("${\\rm d}\\ln({\\rm d}N/{\\rm d}\\gamma_{\\rm e})"
+  axS.set_ylabel("${\\rm d}\\ln({\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e})"
                  "/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
   axR = axS.twinx()                       # right-hand spine carries the expected indices
   axR.set_ylim(axS.get_ylim())

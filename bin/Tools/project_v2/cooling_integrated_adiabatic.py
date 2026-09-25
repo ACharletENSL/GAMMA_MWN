@@ -513,7 +513,7 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   axN.scatter(breaks[:, 0], breaks[:, 1], s=11, facecolors=colors[order],
               edgecolors='w', linewidths=.5, zorder=6)
 
-  axN.set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N/{\\rm d}\\gamma_{\\rm e}"
+  axN.set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e}"
                  + f'\\;({_pow10(sigma_end)}\\tilde{{t}}_{{\\rm dyn}})$',
                  fontsize=FS_LAB)
   # the limits FOLLOW the support: sigma_end is scanned, and hand-set bounds either
@@ -539,7 +539,7 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   # larger spikes right at the cut-off are the edge singularity and do clip.
   axS.set_ylim(-(p+2.6), 2.5)
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
-  axS.set_ylabel("${\\rm d}\\ln({\\rm d}N/{\\rm d}\\gamma_{\\rm e})"
+  axS.set_ylabel("${\\rm d}\\ln({\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e})"
                  "/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
   axR = axS.twinx()                       # right-hand spine carries the expected indices
   axR.set_ylim(axS.get_ylim())

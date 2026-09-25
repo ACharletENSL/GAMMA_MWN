@@ -79,7 +79,7 @@ NX = 900                    # points per track
 # reaches (2.1e-2, the slow-cooling adiabatic gma_m -- main() prints all three); the
 # ceiling leaves the decade the regime-band labels of panel (a) sit in.
 GMA_LIM = (1e-3, 30.*GMA_M0)
-N_LIM = (1e-16, 1e4)        # N/N_e range of the SHAPE panels
+N_LIM = (1e-16, 1e4)        # N_e^-1 dN_e/dgma_e range of the SHAPE panels
 # a row of three, sized for a two-column article's full width. The shape panels get the
 # taller box: twenty decades of N against ten of gamma.
 GUIDE_LW = 1.               # guides lie ON the track, so they are drawn over it: dotted
@@ -368,7 +368,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     ax.grid(alpha=.25, lw=.4)
   for ax in axs:
     ax.set_xlim(.5*lo, 2.*gM0)
-  axs[0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
+  axs[0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
 
   _legend_above(fig, axs, ncol=len(logtt),
                 title="$\\log_{10}(t'/t'_{\\rm c,i})$")
