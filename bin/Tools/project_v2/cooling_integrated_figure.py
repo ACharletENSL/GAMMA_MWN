@@ -162,7 +162,7 @@ FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 7.5, 7.
 C_LABEL = '$\\log_{10}(\\bar{\\gamma}_{\\rm c}/\\gamma_{\\rm m,i})$'
 # plain gamma, not gamma/gamma_m0: the shape figures' distribution panels are already
 # in gamma, so this puts the whole cooling_distributions family on one abscissa
-GMA_LABEL = '$\\gamma$'
+GMA_LABEL = '$\\gamma_{\\rm e}$'
 
 
 # --- the distribution -----------------------------------------------------------------
@@ -318,7 +318,8 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   # no power-law guides here: the slope panel states the three indices quantitatively,
   # and dotted guides over these curves only collide with them
   _t = '' if sigma_end == 1. else f'10^{{{np.log10(sigma_end):.0f}}}'
-  axN.set_ylabel(f'$N(\\gamma;{_t}\\tilde{{t}}_{{\\rm dyn}})/N_{{\\rm e}}$',
+  axN.set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N/{\\rm d}\\gamma_{\\rm e}"
+                 + f'\\;({_t}\\tilde{{t}}_{{\\rm dyn}})$',
                  fontsize=FS_LAB)
   axN.set_ylim(1e-25, 10.*hi_N)   # follows the peak: at 100 t_dyn a fixed top
                                   # clipped the fastest-cooling curve
@@ -335,7 +336,8 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   # above zero is the edge spike and the panel is clipped back to it
   axS.set_ylim(-(p+2.6), .4)
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
-  axS.set_ylabel('$\\mathrm{d}\\ln N/\\mathrm{d}\\ln\\gamma$', fontsize=FS_LAB)
+  axS.set_ylabel("${\\rm d}\\ln({\\rm d}N/{\\rm d}\\gamma_{\\rm e})"
+                 "/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
   axR = axS.twinx()                       # right-hand spine carries the expected indices
   axR.set_ylim(axS.get_ylim())
   axR.set_yticks([lev for lev, _ in levels])

@@ -2645,6 +2645,18 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
     plt.close(fig)
 
 
+
+# The shape classes are STORED under the names the classifier assigns and RENDERED under
+# these. 'MC' is the stored one -- it is a value in every cached `regime` field, a key in
+# CLASSES/REGIMES and the thing every `== 'MC'` test compares against -- so it is not
+# renamed; only what a reader sees is. Marginally fast cooling is MFC on the figures.
+DISP_CLASS = {'MC': 'MFC'}
+
+
+def disp_class(c):
+  'Shape class as the figures spell it. Pass-through for anything without a display name.'
+  return DISP_CLASS.get(c, c)
+
 def build_regime_table(results, detections, outdir=OUTDIR):
   '''
   For every (log10ratio x rise/peak/tail) spectrum, measure the time-dependent
@@ -2922,7 +2934,8 @@ def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None, legend=True):
   # is already spoken for by the colour bar, so a legend entry must not borrow from it
   if legend:
     ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.4, ls='-', label='SC/FC'),
-                       plt.Line2D([], [], color='k', lw=1.4, ls='--', label='MC')],
+                       plt.Line2D([], [], color='k', lw=1.4, ls='--',
+                                  label=disp_class('MC'))],
               loc='upper right', fontsize=11, framealpha=.9)
   return sm
 

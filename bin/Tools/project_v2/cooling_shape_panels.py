@@ -62,7 +62,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from cooling_distribution import gamma_synCooled, norm_plaw_distrib
-from cooling_shape_figure import (P_SYN, GM0, GMA_M0, OUTDIR, INK, MUTED, MC_FAC,
+from cooling_shape_figure import (P_SYN, GM0, GMA_M0, OUTDIR, INK, MUTED, MFC_FAC,
     FS_LAB, FS_TICK, FS_ANN, FS_LEG, LOGTT_SAMPLES, BAND_ALPHA, _band_bg, cooled_distrib)
 from cooling_integrated_figure import tt_dyn_of_C
 from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma,
@@ -238,14 +238,14 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
   fig, axs = _row(FIGSIZE_TRACKS)
   x = np.geomspace(*T_LIM, NX)
   # THE COOLING REGIMES. t_M and t_m are the cooling times of the two injected edges;
-  # MC is a NEIGHBOURHOOD of t_m, a factor MC_FAC either side. Colours are the house
+  # MFC is a NEIGHBOURHOOD of t_m, a factor MFC_FAC either side. Colours are the house
   # shape-class palette (sweep_gammacm's per-spectrum table), RdBu from VSC red to VFC
-  # blue; its 'marginal' #f7f7f7 is invisible as a tint, so MC gets a grey.
+  # blue; its 'marginal' #f7f7f7 is invisible as a tint, so MFC gets a grey.
   t_M, t_m = 1./gM0, 1./gm0
   bands = (('VSC', x[0],       t_M,        '#b2182b'),
-           ('SC',  t_M,        t_m/MC_FAC, '#ef8a62'),
-           ('MC',  t_m/MC_FAC, t_m*MC_FAC, '0.6'),
-           ('FC',  t_m*MC_FAC, 1.,         '#67a9cf'),
+           ('SC',  t_M,        t_m/MFC_FAC, '#ef8a62'),
+           ('MFC', t_m/MFC_FAC, t_m*MFC_FAC, '0.6'),
+           ('FC',  t_m*MFC_FAC, 1.,         '#67a9cf'),
            ('VFC', 1.,         x[-1],      '#2166ac'))
 
   for ax, (kind, ttd) in zip(axs, panel_specs(gm0, logC_m)):
@@ -300,7 +300,7 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     ax.tick_params(axis='x', pad=1.5)
     ax.tick_params(which='both', labelsize=FS_TICK)
     ax.grid(alpha=.25, lw=.4)
-  axs[0].set_ylabel('$\\gamma$', fontsize=FS_LAB)
+  axs[0].set_ylabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)
 
   # the scalings last: the tracks and the times that mark them first, then what they
   # tend to -- 1/tt while synchrotron still bites, A(t') once the burn has frozen
@@ -350,7 +350,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     gg = np.geomspace(gm0, gM0, 3)
     ax.loglog(gg, 12.*K0*gg**-p, color=MUTED, ls=':', lw=.9)
     if kind == 'syn':
-      ax.annotate('$\\propto\\gamma^{-p}$', (gg[1], 12.*K0*gg[1]**-p),
+      ax.annotate('$\\propto\\gamma_{\\rm e}^{-p}$', (gg[1], 12.*K0*gg[1]**-p),
                   textcoords='offset points', xytext=(3, 3), color=MUTED,
                   fontsize=FS_ANN)
     else:
@@ -363,12 +363,12 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
                     bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
     _mark_gma1(ax, 'x')
     ax.set_ylim(*N_LIM)
-    ax.set_xlabel('$\\gamma$', fontsize=FS_LAB)
+    ax.set_xlabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)
     ax.tick_params(which='both', labelsize=FS_TICK)
     ax.grid(alpha=.25, lw=.4)
   for ax in axs:
     ax.set_xlim(.5*lo, 2.*gM0)
-  axs[0].set_ylabel("$N(\\gamma,t')/N_{\\rm e}$", fontsize=FS_LAB)
+  axs[0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
 
   _legend_above(fig, axs, ncol=len(logtt),
                 title="$\\log_{10}(t'/t'_{\\rm c,i})$")

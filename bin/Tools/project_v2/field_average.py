@@ -729,7 +729,7 @@ def plot_correction(cells, breaks, outdir, key=KEY, clock=CLOCK, fname=FIG):
       s = np.sqrt(r['offset'])
       ax.plot(np.interp(s, C[o], ts[o]), s, mk, color=col, ms=6, mec=INK, mew=0.7,
               zorder=5)
-      ax.annotate(f'${r["logr"]:+.0f}$ ({r["regime"]})',
+      ax.annotate(f'${r["logr"]:+.0f}$ ({swp.disp_class(r["regime"])})',
                   (np.interp(s, C[o], ts[o]), s), textcoords='offset points',
                   xytext=(0, dy), ha='center', va='top' if dy < 0 else 'bottom',
                   fontsize=7.5, color=col)

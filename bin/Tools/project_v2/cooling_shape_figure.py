@@ -83,7 +83,7 @@ NG = 800                    # points per curve
 # the base module, and imported by the other three so the four cannot drift apart.
 OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'cooling_distributions')
 
-MC_FAC = 3.                 # MC is taken as t_m/MC_FAC .. t_m*MC_FAC
+MFC_FAC = 3.                 # MFC is taken as t_m/MFC_FAC .. t_m*MFC_FAC
 BAND_ALPHA = .13            # tint of the regime bands
 
 # recessive ink for every non-data mark (text never wears a series colour)
