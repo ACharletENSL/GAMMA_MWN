@@ -26,14 +26,15 @@ THE THREE PANELS, and what each assumes.
       Both on the FREELY EXPANDING SHELL at constant eps_B, which is one choice, not
       two: rho' ~ R^-2 (a shell of fixed comoving width, coasting R/R_0 = 1 + sigma),
       and then B'^2/8pi = eps_B e' with e' ~ rho'^gma_ad ties the field to it,
-      B' ~ rho'^(gma_ad/2), so q = -a_rho*gma_ad/2 = 4/3 is DERIVED. With
-      alpha = a_rho/3 = -2/3 that gives e = alpha - 2q + 1 = -7/3 < 0: the synchrotron
-      burn saturates at S_inf = tt_dyn/|e|, and only C < 1/|e| reaches fast cooling --
+      B' ~ rho'^(gma_ad/2), so q = -a_rho*gma_ad = 10/3 is DERIVED (q is the
+      exponent of t'_c, not of B'). With d = -a_rho/3 = 2/3 that gives
+      s = d + q - 1 = 3 > 0: the synchrotron burn saturates at S_inf = tt_dyn/s, and
+      only C < 1/s reaches fast cooling --
       which is why (b) and (c) sit either side of that threshold rather than either
       side of C = 1. Each carries the scale its regime is set by, as a dash-dotted
       vertical: t'_dyn on the tracks, bar{gma}_c on the shapes -- one is the abscissa
       reading of the other, since gma_c = 1/tt_dyn. The constants live in
-      cooling_integrated_adiabatic (A_RHO, Q_B)
+      cooling_integrated_adiabatic (A_RHO, Q_C)
       and the trajectory in gamma_cooled / cooled_distrib_adiab, so nothing is
       restated here.
 
@@ -65,20 +66,21 @@ from cooling_distribution import gamma_synCooled, norm_plaw_distrib
 from cooling_shape_figure import (P_SYN, GM0, GMA_M0, OUTDIR, INK, MUTED, MFC_FAC,
     FS_LAB, FS_TICK, FS_ANN, FS_LEG, LOGTT_SAMPLES, BAND_ALPHA, _band_bg, cooled_distrib)
 from cooling_integrated_figure import tt_dyn_of_C
-from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma,
+from cooling_integrated_adiabatic import (A_RHO, Q_C, _exps, A_of_sigma,
     gamma_cooled)
 from cooling_shape_adiabatic import cooled_distrib_adiab, lab_C
 
 # --- defaults -------------------------------------------------------------------------
-LOGC_PANELS = (-2., 2.)     # the two adiabatic columns: either side of the C < 1/|e|
+LOGC_PANELS = (-2., 2.)     # the two adiabatic columns: either side of the C < 1/s
                             # cooling threshold, not either side of C = 1
 T_LIM = (1e-11, 1e2)        # t'/t'_c,i span of the TRACK panels, shared by all three
 NX = 900                    # points per track
 # ONE y range for the three track panels, so the drag in (b)/(c) is read against (a)
-# rather than against a rescaled axis. The floor clears the lowest edge any panel
-# reaches (2.1e-2, the slow-cooling adiabatic gma_m -- main() prints all three); the
-# ceiling leaves the decade the regime-band labels of panel (a) sit in.
-GMA_LIM = (1e-3, 30.*GMA_M0)
+# rather than against a rescaled axis. The tracks are CUT at gma_e = 1, so the floor no
+# longer has to clear them: it leaves about three quarters of a decade of empty gutter
+# below the cut for the vertical labels, and the ceiling leaves the decade the
+# regime-band labels of panel (a) sit in.
+GMA_LIM = (.15, 30.*GMA_M0)
 N_LIM = (1e-16, 1e4)        # N_e^-1 dN_e/dgma_e range of the SHAPE panels
 # a row of three, sized for a two-column article's full width. The shape panels get the
 # taller box: twenty decades of N against ten of gamma.
@@ -89,23 +91,27 @@ GUIDE_PAD = 2.              # how far a guide runs past the knee it takes over a
                             # past the handover: enough to see it arrive and leave, not
                             # enough to leave the track. Starting at the panel edge
                             # instead sent the 1/tt line up through (a)'s VSC label.
-GUIDE_FRAC = .3             # the HANDOVER, as a fraction of S_inf: synchrotron guide up
+GUIDE_FRAC = .2             # the HANDOVER, as a fraction of S_inf: synchrotron guide up
                             # to it, frozen-burn guide after. Each asymptote is exact
-                            # only in its own limit, and .3 is where the two errors
-                            # balance -- 1/tt is 14% low there and sigma^alpha 10% high,
+                            # only in its own limit, and .2 is where the two errors
+                            # balance best -- measured at s = 3, 1/tt is 8-9% low there
+                            # and sigma^-d 16-18% high, against 13-14% and 29-30% at .3 --
                             # so the pair covers the whole cooled track without either
                             # visibly leaving it.
 FIGSIZE_TRACKS, FIGSIZE_SHAPES = (7.1, 2.75), (7.1, 3.15)
 FN_TRACKS, FN_SHAPES = 'cooling_tracks.png', 'cooling_shapes.png'
+# what each panel is, said on the panel rather than left to the caption
+PANEL_LABS = ('syn. only', 'syn. + adiab. \u2013 FC', 'syn. + adiab. \u2013 SC')
 
 
 def panel_specs(gm0=GM0, logC_m=LOGC_PANELS):
   '''
-  (kind, tt_dyn) for the three panels, in the order BOTH figures use. tt_dyn is None
-  for the synchrotron panel, which has no C to set one. The panels are UNTITLED -- the
-  caption names them -- so this carries no label.
+  (kind, tt_dyn, label) for the three panels, in the order BOTH figures use. tt_dyn is
+  None for the synchrotron panel, which has no C to set one.
   '''
-  return [('syn', None)] + [('adiab', tt_dyn_of_C(lc, gm0)) for lc in logC_m]
+  return ([('syn', None, PANEL_LABS[0])]
+          + [('adiab', tt_dyn_of_C(lc, gm0), lab)
+             for lc, lab in zip(logC_m, PANEL_LABS[1:])])
 
 
 def _row(figsize, n=3, wspace=.10):
@@ -133,14 +139,17 @@ def _legend_above(fig, axs, order=(), **kw):
     for h, l in zip(*ax.get_legend_handles_labels()):
       seen.setdefault(l, h)
   keys = [l for l in order if l in seen] + [l for l in seen if l not in order]
+  fig.canvas.draw()                     # titles have no extent until they are laid out
+  inv = fig.transFigure.inverted()
+  top = max(inv.transform(ax.title.get_window_extent())[1, 1] for ax in axs)
   p0, p1 = axs[0].get_position(), axs[-1].get_position()
   fig.legend([seen[l] for l in keys], keys, fontsize=FS_LEG, loc='lower center',
-             bbox_to_anchor=(.5*(p0.x0 + p1.x1), p0.y1 + .015),
+             bbox_to_anchor=(.5*(p0.x0 + p1.x1), top + .012),
              bbox_transform=fig.transFigure, framealpha=1., handlelength=1.4,
              handletextpad=.5, borderpad=.3, columnspacing=.9, **kw)
 
 
-def tt_knee(gma0, ttd, a_rho=A_RHO, q=Q_B):
+def tt_knee(gma0, ttd, a_rho=A_RHO, q=Q_C):
   '''
   t'/t'_c,i at which the edge injected at gma0 starts to burn -- where the effective
   burn S reaches 1/gma0. S(sigma) inverts in closed form, so this needs no root-find:
@@ -148,22 +157,47 @@ def tt_knee(gma0, ttd, a_rho=A_RHO, q=Q_B):
       S = ttd[(1+sigma)^e - 1]/e = 1/gma0   =>   1 + sigma = [1 + e/(gma0 ttd)]^(1/e)
 
   None when that bracket is <= 0. With e < 0 the burn saturates at S_inf = ttd/|e|, so
-  an edge with gma0*ttd < |e| NEVER burns and the knee does not exist -- the C < 1/|e|
+  an edge with gma0*ttd < |e| NEVER burns and the knee does not exist -- the C < 1/s
   threshold seen from the other side, and the reason panel (c) has a tt_M but no tt_m.
   At gma0*ttd >> |e| the bracket -> 1 and the knee returns to its synchrotron value
   1/gma0, which is why the two tt_M verticals line up across the three panels.
   '''
-  _, e = _exps(a_rho, q)
-  b = 1. + e/(gma0*ttd)
-  return None if b <= 0. else (b**(1./e) - 1.)*ttd
+  _, s = _exps(a_rho, q)
+  b = 1. - s/(gma0*ttd)
+  return None if b <= 0. else (b**(-1./s) - 1.)*ttd
 
 
-def _mark_gma1(ax, axis):
-  "gma = 1: a y band on the track panels, an x band on the shape panels."
-  span = ax.axhspan if axis == 'y' else ax.axvspan
+def _mark_gma1(ax, axis, span=True):
+  '''
+  gma_e = 1, below which the ultra-relativistic trajectory is not the physical one:
+  a y mark on the track panels, an x mark on the shape panels. `span` shades the
+  region as well as drawing the line -- the tracks CUT there instead, so they only
+  want the line and keep the strip below it as a gutter for the vertical labels.
+  '''
   line = ax.axhline if axis == 'y' else ax.axvline
-  span(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
+  if span:
+    (ax.axhspan if axis == 'y' else ax.axvspan)(1e-30, 1., color='crimson', alpha=.07,
+                                                lw=0, zorder=0)
   line(1., color='crimson', ls=':', lw=.9, zorder=1)
+
+
+def _cut1(y):
+  "Tracks stop at gma_e = 1 rather than running on into a region the model cannot state."
+  y = np.asarray(y, dtype=float)
+  return np.where(y >= 1., y, np.nan)
+
+
+def _vline(ax, v, lab, ls='-', lw=.8, color=INK, top=False):
+  '''
+  A marked vertical, named ON the line rather than in the legend. The tracks put their
+  names along the FLOOR, in the gutter the gma_e = 1 cut leaves empty; the shapes put
+  theirs along the top, where the curves have already fallen away.
+  '''
+  ax.axvline(v, color=color, ls=ls, lw=lw, zorder=1)
+  ax.annotate(lab, (v, .985 if top else .02), xycoords=('data', 'axes fraction'),
+              color=color, fontsize=FS_ANN, ha='center',
+              va='top' if top else 'bottom',
+              bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
 
 
 # --- (1) the edge tracks ----------------------------------------------------------------
@@ -172,6 +206,10 @@ LAB_GUIDE, LAB_TDYN = "$(t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
 # the knees are named for the PHYSICAL time, not for tt: the abscissa is t'/t'_c,i, and
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
+LAB_SYN = 'syn. only'       # the same population with the expansion switched off
+LAB_GC = '$\\bar{\\gamma}_{\\rm c}$'
+SYN_REF = '0.62'            # lighter than the tracks, and solid/dashed rather than the
+                            # guides' dash-dot and dotted, so it reads as another CASE
 
 
 
@@ -191,17 +229,17 @@ LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
 
 
-def freeze_x(ttd, a_rho=A_RHO, q=Q_B, frac=.5):
+def freeze_x(ttd, a_rho=A_RHO, q=Q_C, frac=.5):
   '''
   t'/t'_c,i at which the burn S has reached `frac` of S_inf -- the bend between the two
-  asymptotes. With e < 0, S/S_inf = 1 - (1+sigma)^e inverts exactly. None when e >= 0,
+  asymptotes. With e < 0, S/S_inf = 1 - (1+sigma)^-s inverts exactly. None when e >= 0,
   where the burn never freezes and there is no bend.
   '''
-  _, e = _exps(a_rho, q)
-  return None if e >= 0. else ((1. - frac)**(1./e) - 1.)*ttd
+  _, s = _exps(a_rho, q)
+  return None if s <= 0. else ((1. - frac)**(-1./s) - 1.)*ttd
 
 
-def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=GUIDE_FRAC):
+def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_C, frac=GUIDE_FRAC):
   '''
   The frozen-burn asymptote, drawn as the PURE POWER LAW it becomes.
 
@@ -221,11 +259,11 @@ def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_B, frac=GUIDE_FRAC):
   if x0 is None:
     return                                     # unbounded burn: nothing ever freezes
   xg = x[x >= x0/GUIDE_PAD]                    # overlapping the 1/tt guide at the bend
-  ax.loglog(xg, abs(_exps(a_rho, q)[1])/ttd*(xg/ttd)**(a_rho/3.), color=MUTED, ls=':',
-            lw=GUIDE_LW, zorder=5, label=lab_adrift(a_rho))
+  ax.loglog(xg, _cut1(_exps(a_rho, q)[1]/ttd*(xg/ttd)**(a_rho/3.)), color=MUTED,
+            ls=':', lw=GUIDE_LW, zorder=5, label=lab_adrift(a_rho))
 
 
-def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
+def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     logC_m=LOGC_PANELS, outdir=OUTDIR, fname=FN_TRACKS, show=False):
   '''
   gma_m and gma_M against t'/t'_c,i, one panel per physics case (see module docstring).
@@ -248,7 +286,7 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
            ('FC',  t_m*MFC_FAC, 1.,         '#67a9cf'),
            ('VFC', 1.,         x[-1],      '#2166ac'))
 
-  for ax, (kind, ttd) in zip(axs, panel_specs(gm0, logC_m)):
+  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m)):
     if kind == 'syn':
       for lab, a_, b_, col in bands:
         a_, b_ = max(a_, x[0]), min(b_, x[-1])
@@ -266,8 +304,13 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
       sg = x/ttd                                   # sigma = (t'/t'_c,i)/tt_dyn
       gM = gamma_cooled(sg, gM0, ttd, a_rho, q)
       gm = gamma_cooled(sg, gm0, ttd, a_rho, q)
-      # t'_dyn IS tt_dyn on this abscissa, by definition of the unit
-      ax.axvline(ttd, color=INK, ls='-.', lw=.9, zorder=2, label=LAB_TDYN)
+      # the SAME population with the expansion switched off, drawn thin underneath:
+      # it is what panel (a) shows, so the drag is read off the gap rather than by
+      # looking across the figure
+      ax.loglog(x, _cut1(gamma_synCooled(x, gM0)), color=SYN_REF, lw=.9, zorder=2,
+                label=LAB_SYN)
+      ax.loglog(x, _cut1(gamma_synCooled(x, gm0)), color=SYN_REF, lw=.9, ls='--',
+                zorder=2)
       knees = tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0))
       # the second asymptote. Before the burn freezes A is still ~1 and S is still
       # ~t'/t'_c,i, so the top edge runs down the same 1/tt it does in (a); after, it
@@ -282,21 +325,25 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
     xs = x if knees[0] is None else x[x >= knees[0]/GUIDE_PAD]
     if x0 is not None:
       xs = xs[xs <= x0*GUIDE_PAD]
-    ax.loglog(xs, 1./xs, color=MUTED, ls='-.', lw=GUIDE_LW, zorder=5, label=LAB_GUIDE)
+    ax.loglog(xs, _cut1(1./xs), color=MUTED, ls='-.', lw=GUIDE_LW, zorder=5,
+              label=LAB_GUIDE)
 
-    ax.loglog(x, gM, color='k', lw=1.4, label=LAB_GMM)
-    ax.loglog(x, gm, color='k', lw=1.1, ls='--', label=LAB_GM)
-    _mark_gma1(ax, 'y')
-    # the knees, in every panel now and named in the legend rather than in the panel --
-    # (a) had the only floor free enough for a label box, and one reading serves three.
-    # None where the edge never burns, which is the slow-cooling panel's missing t'_m.
+    ax.loglog(x, _cut1(gM), color='k', lw=1.4, label=LAB_GMM)
+    ax.loglog(x, _cut1(gm), color='k', lw=1.1, ls='--', label=LAB_GM)
+    _mark_gma1(ax, 'y', span=False)
+    # the verticals, each named ON its line along the floor. The knees echo the edges
+    # they belong to, solid for M and dashed for m; None where the edge never burns,
+    # which is the slow-cooling panel's missing t'_m.
     for v, ls, lab in zip(knees, ('-', '--'), (LAB_TMM, LAB_TM)):
       if v is not None:
-        ax.axvline(v, color=INK, ls=ls, lw=.8, zorder=1, label=lab)
+        _vline(ax, v, lab, ls)
+    if ttd is not None:
+      _vline(ax, ttd, LAB_TDYN, '-.', lw=.9)   # t'_dyn IS tt_dyn on this abscissa
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(*GMA_LIM)
-    ax.set_yticks(10.**np.arange(-2., np.log10(gM0) + 1., 2.))
+    ax.set_yticks(10.**np.arange(0., np.log10(gM0) + 1., 2.))
     ax.set_xlabel("$t'/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
+    ax.set_title(plab, fontsize=FS_LAB, pad=3.)
     ax.tick_params(axis='x', pad=1.5)
     ax.tick_params(which='both', labelsize=FS_TICK)
     ax.grid(alpha=.25, lw=.4)
@@ -304,30 +351,28 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
 
   # the scalings last: the tracks and the times that mark them first, then what they
   # tend to -- 1/tt while synchrotron still bites, A(t') once the burn has frozen
-  _legend_above(fig, axs, ncol=7,
-                order=(LAB_GMM, LAB_GM, LAB_TMM, LAB_TM, LAB_TDYN,
-                       LAB_GUIDE, lab_adrift(a_rho)))
+  _legend_above(fig, axs, ncol=5,
+                order=(LAB_GMM, LAB_GM, LAB_SYN, LAB_GUIDE, lab_adrift(a_rho)))
   return _save(fig, axs, outdir, fname, show)
 
 
 # --- (2) the distribution shapes ---------------------------------------------------------
-def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
+def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     logtt=LOGTT_SAMPLES, logC_m=LOGC_PANELS, outdir=OUTDIR, fname=FN_SHAPES, show=False):
   '''
   N(gma,t') at the sampled log10(t'/t'_c,i), one panel per physics case. Same panel
   order as plot_cooling_tracks, and the SAME sampled times in every panel.
 
-  The injected bounds are labelled in panel (a) and drawn bare in (b) and (c), where
-  the top strip is needed for the curves. bar{gma}_c = 1/tt_dyn is marked on the
-  adiabatic panels with the dash-dot the tracks give t'_dyn, and carries no annotation
-  at all -- the caption names it.
+  Every vertical is named ON its line along the top strip: the two injected bounds in
+  all three panels, and bar{gma}_c = 1/tt_dyn on the adiabatic two, marked with the
+  dash-dot the tracks give t'_dyn.
   '''
   fig, axs = _row(FIGSIZE_SHAPES)
   colors = plt.cm.viridis(np.linspace(0., .85, len(logtt)))
   K0 = norm_plaw_distrib(gm0, gM0, p)
   lo = np.inf
 
-  for ax, (kind, ttd) in zip(axs, panel_specs(gm0, logC_m)):
+  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m)):
     # the injected law goes UNDER the cooled ones: the earliest of them tracks it
     # almost exactly, and on top the black would hide that curve entirely
     ax.loglog(*(cooled_distrib(0., p, gm0, gM0) if kind == 'syn' else
@@ -354,16 +399,13 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
                   textcoords='offset points', xytext=(3, 3), color=MUTED,
                   fontsize=FS_ANN)
     else:
-      ax.axvline(1./ttd, color=INK, ls='-.', lw=.9, zorder=2)   # bar{gma}_c = 1/tt_dyn
-    for v, lab in ((gm0, LAB_GMI), (gM0, LAB_GMMI)):
-      ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-      if kind == 'syn':
-        ax.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
-                    fontsize=FS_ANN, ha='center', va='top',
-                    bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+      _vline(ax, 1./ttd, LAB_GC, '-.', lw=.9, top=True)   # bar{gma}_c = 1/tt_dyn
+    for v, lab in ((gm0, LAB_GMI), (gM0, LAB_GMMI)):      # the injected bounds
+      _vline(ax, v, lab, ':', top=True)
     _mark_gma1(ax, 'x')
     ax.set_ylim(*N_LIM)
     ax.set_xlabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)
+    ax.set_title(plab, fontsize=FS_LAB, pad=3.)
     ax.tick_params(which='both', labelsize=FS_TICK)
     ax.grid(alpha=.25, lw=.4)
   for ax in axs:
@@ -394,7 +436,7 @@ def main(show=False):
   print(f'  (a) synchrotron   gma_m = {gamma_synCooled(x_end, GM0):.3e}')
   for lc in LOGC_PANELS:
     ttd = tt_dyn_of_C(lc, GM0)
-    gm = float(gamma_cooled(x_end/ttd, GM0, ttd, A_RHO, Q_B))
+    gm = float(gamma_cooled(x_end/ttd, GM0, ttd, A_RHO, Q_C))
     kM, km = (tt_knee(g, ttd) for g in (GMA_M0, GM0))
     print(f'  C = 10^{lc:+.0f}      gma_m = {gm:.3e}   (tt_dyn = {ttd:.3e})'
           f'   t_M = {kM:.3e}'
@@ -402,15 +444,15 @@ def main(show=False):
     # the frozen-burn guide is an ASYMPTOTE, so say how close the edges are to it by
     # the end of the panel rather than trusting the overlay to the eye. gma_M burnt,
     # so it tends to A/S_inf itself; gma_m only does where it burnt too.
-    s_inf = ttd/abs(_exps(A_RHO, Q_B)[1])
+    s_inf = ttd/abs(_exps(A_RHO, Q_C)[1])
     gA = float(A_of_sigma(x_end/ttd, A_RHO))/s_inf
-    gM = float(gamma_cooled(x_end/ttd, GMA_M0, ttd, A_RHO, Q_B))
+    gM = float(gamma_cooled(x_end/ttd, GMA_M0, ttd, A_RHO, Q_C))
     # and how good the PURE POWER the legend advertises is against the exact A/S_inf
-    pw = abs(_exps(A_RHO, Q_B)[1])/ttd*(x_end/ttd)**(A_RHO/3.)
+    pw = abs(_exps(A_RHO, Q_C)[1])/ttd*(x_end/ttd)**(A_RHO/3.)
     print(f'                   gma_M/(A/S_inf) = {gM/gA:.4f}'
           f'   power/exact = {pw/gA:.4f}'
           f'   gma_m/(A gma_m,i) = {gm/(float(A_of_sigma(x_end/ttd, A_RHO))*GM0):.4f}'
-          f'   gma_M/gma_m = {gM/gm:8.3f}  (1+|e|C = {1. + abs(_exps(A_RHO, Q_B)[1])*10.**lc:8.3f})')
+          f'   gma_M/gma_m = {gM/gm:8.3f}  (1+sC = {1. + abs(_exps(A_RHO, Q_C)[1])*10.**lc:8.3f})')
   plot_cooling_tracks(show=show)
   plot_cooling_shapes(show=show)
 

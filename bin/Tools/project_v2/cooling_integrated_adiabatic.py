@@ -184,15 +184,18 @@ from cooling_integrated_figure import (P_SYN, GM0, GMA_M0, LOGC_SAMPLES, OUTDIR,
     tt_dyn_of_C, log_slope, N_integrated)
 
 # --- defaults -------------------------------------------------------------------------
-A_RHO = -2.0                # dln rho/dln R: a FREELY EXPANDING shell, rho' ~ R^-2
-GMA_AD = 4./3.              # adiabatic index of the shocked gas (relativistic). This run
-                            # measures gma_ad ~ 1.64 (prerar_cell_evolution); pass 5/3 for
-                            # that. It enters only through Q_B, below
+A_RHO = -2.0                # dln rho'/dln R: a FREELY EXPANDING shell, rho' ~ R^-2
+GMA_AD = 5./3.              # adiabatic index of the shocked gas. This run measures
+                            # gma_ad ~ 1.64 (prerar_cell_evolution), so 5/3 rather than
+                            # the relativistic 4/3. It enters only through Q_C, below
+# THE EXPONENTS ARE DEFINED POSITIVE, with the signs carried by the definitions, so that
+# an expanding shell with a decaying field has d, q, s all > 0. With tau = t'/t'_i,
+#     A = tau^-d        d = -a_rho/3            (the adiabatic drag)
+#     t'_c = t'_c,i tau^q                       (the clock stretching)
 # B' IS NOT FREE. A constant fraction of the energy density goes to the field,
-# B'^2/8pi = eps_B e', and e' ~ rho^gma_ad along an adiabat, so B' ~ rho^(gma_ad/2) and
-#     B' ~ R^-q   with   q = -a_rho*gma_ad/2.
-# At the shell values that is q = 4/3, not something to be chosen independently.
-Q_B = -A_RHO*GMA_AD/2.
+# B'^2/8pi = eps_B e', and e' ~ rho'^gma_ad along an adiabat, so B' ~ rho'^(gma_ad/2),
+# and t'_c ~ B'^-2 then gives   q = -a_rho*gma_ad.   At the shell values q = 10/3.
+Q_C = -A_RHO*GMA_AD
 SIGMA_END = 100.            # integrate to 100 t_dyn.  sigma = t'/t'_dyn (PHYSICAL time).
                             # A parameter the user scans: at 1 it matches
                             # cooling_integrated_figure exactly, at 1e3 the cut-off has
@@ -210,57 +213,65 @@ def _pow10(x):
 
 
 # --- the expansion ---------------------------------------------------------------------
-def _exps(a_rho=A_RHO, q=Q_B):
+def _exps(a_rho=A_RHO, q=Q_C):
   '''
-  (alpha, e) = (a_rho/3, alpha - 2q + 1). e sets how the synchrotron burn S grows with
-  radius: e > 0 unbounded, e <= 0 SATURATES (the field decays faster than the electrons
-  can radiate). Both signs are supported -- that is the point of working in S.
+  (d, s) = (-a_rho/3, d + q - 1), both POSITIVE for an expanding shell with a decaying
+  field. With tau = t'/t'_i, A = tau^-d and t'_c = t'_c,i tau^q, so the burn integrand
+  A/t'_c goes as tau^-(d+q) and
+
+      S(tau) = (t'_i/t'_c,i) (1 - tau^-s)/s .
+
+  s > 0 therefore SATURATES the burn at S_inf = (t'_i/t'_c,i)/s: the field decays faster
+  than the electrons can radiate. s < 0 leaves it unbounded. Both signs are supported --
+  that is the point of working in S.
   '''
-  alpha = a_rho/3.
-  e = alpha - 2.*q + 1.
-  if abs(e) < 1e-9:
-    raise ValueError(f'a_rho={a_rho}, q={q} gives e=0 (S ~ log sigma); not supported.')
-  return alpha, e
+  d = -a_rho/3.
+  s = d + q - 1.
+  if abs(s) < 1e-9:
+    raise ValueError(f'a_rho={a_rho}, q={q} gives s=0 (S ~ log sigma); not supported.')
+  return d, s
 
 
 def A_of_sigma(sigma, a_rho=A_RHO):
-  "Adiabatic factor A = (rho/rho_0)^(1/3) at sigma = t'/t'_dyn, coasting R/R_0 = 1+sigma."
+  "A = (rho'/rho'_i)^(1/3) = tau^-d at sigma = t'/t'_dyn, coasting tau = 1 + sigma."
   return (1. + np.asarray(sigma, dtype=float))**(a_rho/3.)
 
 
-def S_of_sigma(sigma, ttd, a_rho=A_RHO, q=Q_B):
+def S_of_sigma(sigma, ttd, a_rho=A_RHO, q=Q_C):
   'Effective synchrotron burn S = int_0^tt A dtt, as a function of PHYSICAL time.'
-  _, e = _exps(a_rho, q)
-  return ttd*((1. + np.asarray(sigma, dtype=float))**e - 1.)/e
+  _, s_ = _exps(a_rho, q)
+  return ttd*(1. - (1. + np.asarray(sigma, dtype=float))**(-s_))/s_
 
 
-def tt_of_sigma(sigma, ttd, q=Q_B):
+def tt_of_sigma(sigma, ttd, q=Q_C):
   '''
-  The normalised time itself, tt = int dt'/t_{c,1}, with t_c1 ~ R^2q. At q=0 this is just
-  ttd*sigma; at q=1 it saturates at ttd, which is the whole content of the correction.
+  The normalised time itself, tt = int dt'/t_{c,1}, with t'_c ~ tau^q. At q = 0 this is
+  just ttd*sigma; at q = 2 it saturates at ttd, which is the whole content of the
+  correction.
   '''
   sigma = np.asarray(sigma, dtype=float)
-  k = 1. - 2.*q
+  k = 1. - q
   return ttd*np.log1p(sigma) if abs(k) < 1e-9 else ttd*((1. + sigma)**k - 1.)/k
 
 
-def A_of_S(S, ttd, a_rho=A_RHO, q=Q_B):
+def A_of_S(S, ttd, a_rho=A_RHO, q=Q_C):
   '''
-  A expressed through S alone: (1 + e*S/ttd) = (1+sigma)^e, so A = (1+e*S/ttd)^(alpha/e).
-  This is the form the quadrature needs and it is valid for either sign of e.
+  A expressed through S alone: (1 - s*S/ttd) = tau^-s, so A = (1 - s*S/ttd)^(d/s). This
+  is the form the quadrature needs and it is valid for either sign of s; at s > 0 the
+  bracket runs from 1 down to 0, reaching 0 exactly at the saturated S_inf = ttd/s.
   '''
-  alpha, e = _exps(a_rho, q)
-  return (1. + e*np.asarray(S, dtype=float)/ttd)**(alpha/e)
+  d, s_ = _exps(a_rho, q)
+  return (1. - s_*np.asarray(S, dtype=float)/ttd)**(d/s_)
 
 
-def gamma_cooled(sigma, gma0, ttd, a_rho=A_RHO, q=Q_B):
+def gamma_cooled(sigma, gma0, ttd, a_rho=A_RHO, q=Q_C):
   'gma(sigma) = A gma_0/(1 + gma_0 S) -- synchrotron AND adiabatic.'
   return (A_of_sigma(sigma, a_rho)*gma0
           /(1. + gma0*S_of_sigma(sigma, ttd, a_rho, q)))
 
 
 # --- the distribution -------------------------------------------------------------------
-def N_instant(gma, sigma, ttd, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B):
+def N_instant(gma, sigma, ttd, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C):
   'K0 A gma^-p (A - S gma)^(p-2), zero off the support.'
   gma = np.asarray(gma, dtype=float)
   A, S = A_of_sigma(sigma, a_rho), S_of_sigma(sigma, ttd, a_rho, q)
@@ -270,7 +281,7 @@ def N_instant(gma, sigma, ttd, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B)
 
 
 def N_integrated_adiab(gma, ttd, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0,
-    a_rho=A_RHO, q=Q_B):
+    a_rho=A_RHO, q=Q_C):
   '''
   int_0^{t'(sigma_end)} N dtt at one gma, by the S quadrature of the module docstring.
   The support is solved for, never scanned.
@@ -297,7 +308,7 @@ def N_integrated_adiab(gma, ttd, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_
 
 
 def integrated_distrib_adiab(logC, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0,
-    a_rho=A_RHO, q=Q_B, Ng=NG):
+    a_rho=A_RHO, q=Q_C, Ng=NG):
   '''
   (gma, N(gma; sigma_end)) over the support: from the lowest gma the bottom edge reaches,
   gma_m(sigma_end), up to the injected ceiling.
@@ -328,7 +339,7 @@ def check_reduces_to_syn(logC_arr=LOGC_SAMPLES, p=P_SYN, gm0=GM0, gM0=GMA_M0, n=
   return dev, npts
 
 
-def check_trajectory(logC=0., sigma_end=SIGMA_END, gm0=GM0, a_rho=A_RHO, q=Q_B, n=6):
+def check_trajectory(logC=0., sigma_end=SIGMA_END, gm0=GM0, a_rho=A_RHO, q=Q_C, n=6):
   '''
   gma(tau) = A gma_0/(1 + gma_0 S) against a direct ODE solve of
   dgma/dtau = tt_dyn*[(dlnA/dtau)gma/tt_dyn - gma^2], i.e. the equation before it was
@@ -336,9 +347,9 @@ def check_trajectory(logC=0., sigma_end=SIGMA_END, gm0=GM0, a_rho=A_RHO, q=Q_B, 
   '''
   from scipy.integrate import solve_ivp
   ttd = tt_dyn_of_C(logC, gm0)
-  alpha, _ = _exps(a_rho, q)
+  d_, _ = _exps(a_rho, q)
   # dgma/dtau = alpha*gma/(1+tau) - ttd*gma^2   (dtt = ttd dtau)
-  rhs = lambda sg, y: alpha*y/(1.+sg) - ttd*(1.+sg)**(-2.*q)*y*y
+  rhs = lambda sg, y: -d_*y/(1.+sg) - ttd*(1.+sg)**(-q)*y*y
   dev = 0.
   for gma0 in np.geomspace(gm0, GMA_M0, n):
     sol = solve_ivp(rhs, (0., sigma_end), [gma0], rtol=1e-11, atol=1e-30, method='Radau')
@@ -348,7 +359,7 @@ def check_trajectory(logC=0., sigma_end=SIGMA_END, gm0=GM0, a_rho=A_RHO, q=Q_B, 
 
 
 def check_sum_rule(logC_arr=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0,
-    a_rho=A_RHO, q=Q_B, Ng=1200):
+    a_rho=A_RHO, q=Q_C, Ng=1200):
   '''
   Number is conserved at every tt, so int N(gma;tt_end) dgma = tt_end for every regime.
   Returns (dev at Ng, dev at 2*Ng). Each point costs a root-find pair and a quadrature,
@@ -370,7 +381,7 @@ def check_sum_rule(logC_arr=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0,
 
 
 def check_bottom_edge(logC_arr=LOGC_SAMPLES, sigma_end=SIGMA_END, gm0=GM0, a_rho=A_RHO,
-    q=Q_B, gate=30.):
+    q=Q_C, gate=30.):
   '''
   The bottom edge has TWO limits and the single asymptote b*gma_c/sigma_end is only one of
   them -- applying it everywhere is a 97% error at log10 C = +3, which is how this check
@@ -394,24 +405,24 @@ def check_bottom_edge(logC_arr=LOGC_SAMPLES, sigma_end=SIGMA_END, gm0=GM0, a_rho
   return df, nf, ds, ns
 
 
-def edge_drop_factor(sigma_end=SIGMA_END, a_rho=A_RHO, q=Q_B):
+def edge_drop_factor(sigma_end=SIGMA_END, a_rho=A_RHO, q=Q_C):
   '''
   How far below the synchrotron-only bottom edge (~gma_c/sigma_end) the adiabatic one sits:
   (A/S)/(1/tt_end) = A*b*sigma_end/((1+sigma_end)^b - 1). It tends to b as sigma_end -> inf, but
   the (1+tau)^b - 1 is NOT negligible at tau = 1e3 with a small b -- 0.370 against b =
   0.333 for coasting. Returns (measured factor, b).
   '''
-  _, e = _exps(a_rho, q)
+  _, s_ = _exps(a_rho, q)
   A, S1 = float(A_of_sigma(sigma_end, a_rho)), float(S_of_sigma(sigma_end, 1., a_rho, q))
   tt_end = float(tt_of_sigma(sigma_end, 1., q))
-  # the e limit is a q = 0 result: it needs alpha - e = -1, i.e. e = 1 + alpha. Once the
-  # burn saturates (e < 0) S stops growing while A keeps falling, so the drop has NO
-  # finite limit -- it goes to zero. Reporting e there would assert a negative ratio.
-  return (A/S1)*tt_end, (e if e > 0. else None)
+  # the -s limit is a q = 0 result: it needs d + s = 1. Once the burn saturates (s > 0)
+  # S stops growing while A keeps falling, so the drop has NO finite limit -- it goes to
+  # zero. Reporting -s there would assert a negative ratio.
+  return (A/S1)*tt_end, (-s_ if s_ < 0. else None)
 
 
 def check_deep_tail_ratio(logC=-3., sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0,
-    a_rho=A_RHO, q=Q_B, n=6):
+    a_rho=A_RHO, q=Q_C, n=6):
   '''
   Deep in the tail the loss rate is gma^2/b, so the dwell time -- and with every electron
   already past, the whole integral -- is b times the synchrotron-only one at the same gma
@@ -434,19 +445,26 @@ def check_index_is_robust(a_rhos=(-0.5, -1.205, -2.0, -2.5, -2.9), logC=-3.,
     sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0, gma_ad=GMA_AD):
   '''
   The claim the appendix rests on: the tail index is ~ -2 for ANY expansion law, because
-  alpha - b = -1 pins a/gma whatever a_rho is. Only the amplitude (-> b) moves. Returns
-  [(a_rho, b, index)].
+  d + s = 1 pins a/gma whatever a_rho is. Only the amplitude moves. Returns
+  [(a_rho, s, index)].
+
+  SKIPS the singular law. s = 0 at a_rho = -3/(1+3*gma_ad) -- -0.5 at gma_ad = 5/3, which
+  was in the default list -- where the burn is logarithmic and S(tau) has no power form.
+  That is one law out of a continuum, not a failure of the claim, so it is stepped over
+  rather than raised.
   '''
   out = []
   for a_rho in a_rhos:
-    q = -a_rho*gma_ad/2.          # q is TIED to a_rho; scanning at fixed q would leave
-    _, e = _exps(a_rho, q)        # the B'-rho relation behind
-    out.append((a_rho, e, measure_low_slope(logC, sigma_end, p, gm0, gM0, a_rho, q)[1]))
+    q = -a_rho*gma_ad             # q is TIED to a_rho; scanning at fixed q would leave
+    if abs(-a_rho/3. + q - 1.) < 1e-9:        # the B'-rho relation behind
+      continue
+    _, s_ = _exps(a_rho, q)
+    out.append((a_rho, s_, measure_low_slope(logC, sigma_end, p, gm0, gM0, a_rho, q)[1]))
   return out
 
 
 def measure_low_slope(logC, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO,
-    q=Q_B, frac=(1.2, 3.)):
+    q=Q_C, frac=(1.2, 3.)):
   '''
   The index of the low-energy tail, measured on the PLATEAU: 1.2x to 3x above the bottom
   edge. A 3x-30x window straddled the turnover toward gma_c and averaged the plateau with
@@ -461,7 +479,7 @@ def measure_low_slope(logC, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0, gM0=GMA_M0, a
 
 # --- the figure ---------------------------------------------------------------------------
 def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=GM0,
-    gM0=GMA_M0, a_rho=A_RHO, q=Q_B, outdir=OUTDIR, fname=FNAME, syn_ref=True, show=False):
+    gM0=GMA_M0, a_rho=A_RHO, q=Q_C, outdir=OUTDIR, fname=FNAME, syn_ref=True, show=False):
   '''
   Same two-panel design as the synchrotron-only figure. The synchrotron-only result over
   the SAME sigma_end is drawn underneath as a thin ghost of each curve (at sigma_end = 1
@@ -525,10 +543,10 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   # inside, their labels go on the right-hand spine as ticks. Inside the panel they had to
   # dodge the curves -- -2 and -p are only half an index apart and were hung on opposite
   # sides of their own lines -- and on the spine they simply line up.
-  # the low-energy plateau, (1-2q)/alpha - 1, joins the three cooled-segment levels.
-  # DERIVED from the hydro rather than written in, so it follows a_rho and q.
-  al_s, _ = _exps(a_rho, q)
-  fr = Fraction((1. - 2.*q)/al_s - 1.).limit_denominator(100)
+  # the low-energy plateau, (q-1)/d - 1, joins the three cooled-segment levels. DERIVED
+  # from the hydro rather than written in, so it follows a_rho and q.
+  d_, _ = _exps(a_rho, q)
+  fr = Fraction((q - 1.)/d_ - 1.).limit_denominator(100)
   lo_lab = (f'${fr.numerator:+d}$' if fr.denominator == 1
             else f'${fr.numerator:+d}/{fr.denominator}$')
   levels = ((float(fr), lo_lab), (-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
@@ -596,22 +614,22 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
 
 
 def main(show=False):
-  alpha, e = _exps(A_RHO, Q_B)
-  print(f"hydro : simple coasting, rho' ~ R^{A_RHO:g};  field: B' ~ R^-{Q_B:g}"
-        f"{'  (constant B'+chr(39)+'/t'+chr(39)+'_c -- the cooling_shape footing)' if Q_B == 0 else ''}")
-  print(f'        alpha={alpha:+.5f}  e=alpha-2q+1={e:+.5f}  -> burn '
-        f'{"grows without bound" if e > 0 else f"SATURATES at S={-1./e:.3f} tt_dyn"}')
+  d, s = _exps(A_RHO, Q_C)
+  print(f"hydro : simple coasting, rho' ~ R^{A_RHO:g};  clock: t'_c ~ R^{Q_C:g}"
+        f"{'  (constant B'+chr(39)+'/t'+chr(39)+'_c -- the cooling_shape footing)' if Q_C == 0 else ''}")
+  print(f'        d=-a_rho/3={d:+.5f}  s=d+q-1={s:+.5f}  -> burn '
+        f'{f"SATURATES at S={1./s:.3f} tt_dyn" if s > 0 else "grows without bound"}')
   A = float(A_of_sigma(SIGMA_END, A_RHO))
   print(f'over sigma={SIGMA_END:g} t_dyn: A={A:.4g} (adiabatic drag x{1./A:.1f}), '
         f'tt_end/tt_dyn={float(tt_of_sigma(SIGMA_END, 1.)):.4g}, '
         f'S/tt_dyn={float(S_of_sigma(SIGMA_END, 1.)):.4g}')
 
   # what the OTHER field index would do -- the prescription this module used to claim
-  for qq in (0., 1.):
+  for qq in (0., 2.):
     al, ee = _exps(A_RHO, qq)
     print(f'   q={qq:g}: tt_end/tt_dyn={float(tt_of_sigma(SIGMA_END, 1., qq)):9.4g}   '
           f'S/tt_dyn={float(S_of_sigma(SIGMA_END, 1., A_RHO, qq)):9.4g}   '
-          f'{"unbounded" if ee > 0 else "SATURATED"}')
+          f'{"SATURATED" if ee > 0 else "unbounded"}')
 
   dev, n = check_reduces_to_syn()
   print(f'reduces to syn : max rel dev over {n} points at a_rho->0, q=0 = {dev:.2e}')
@@ -621,28 +639,28 @@ def main(show=False):
         'first order, so it is the trapezoid over the support edges, not the model)')
   df, nf, ds, ns = check_bottom_edge()
   drop, ee = edge_drop_factor()
-  lim = f'-> e = {ee:.3f} as sigma -> inf' if ee is not None else \
+  lim = f'-> {ee:.3f} as sigma -> inf' if ee is not None else \
         '-> 0 as sigma -> inf: the burn saturates, so there is no finite limit'
   print(f'bottom edge    : fast limit A/S  dev {df:.2e} ({nf} regimes); '
         f'slow limit A*gma_m0 dev {ds:.2e} ({ns})')
   print(f'               : edge drops x{drop:.3f} below the synchrotron-only one at the '
         f'same tt ({lim})')
   print(f'deep-tail ratio N_adiab/N_syn (-> 1 near gma_m'
-        + (f', -> e = {ee:.4f} deep' if ee is not None else '') + '):')
+        + (f', -> {ee:.4f} deep' if ee is not None else '') + '):')
   for g, r in check_deep_tail_ratio():
     print(f'    gma={g:10.3e}: {r:.4f}')
-  print(f'index is ~ -2 for ANY a_rho at this q ({Q_B:g}):')
+  print(f'index is ~ -2 for ANY a_rho at this q ({Q_C:g}):')
   for a_rho, ee2, idx in check_index_is_robust():
-    print(f'    a_rho={a_rho:+.3f}  e={ee2:.4f}  ->  index {idx:+.4f}')
+    print(f'    a_rho={a_rho:+.3f}  s={ee2:.4f}  ->  index {idx:+.4f}')
   print("the field index q matters only once the burn has had TIME to saturate:")
   for se in sorted({1., 1e3, SIGMA_END}):   # always show the short/long contrast
     row = '   '.join(f'q={qq:.1f} {measure_low_slope(-3., se, q=qq)[1]:+.3f}'
-                     for qq in (0., .5, 1.))
+                     for qq in (0., 1., 2.))
     print(f'    sigma_end={se:>7g} t_dyn:  {row}')
   print('bottom edge, and the local index just above it, per regime:')
   for lc in LOGC_SAMPLES:
     ttd = tt_dyn_of_C(lc, GM0)
-    lo = gamma_cooled(SIGMA_END, GM0, ttd, A_RHO, Q_B)
+    lo = gamma_cooled(SIGMA_END, GM0, ttd, A_RHO, Q_C)
     g, sl = measure_low_slope(lc)
     print(f'  log10 C = {lc:+.0f}: gma_m({SIGMA_END:g} t_dyn) = {lo:10.3e}'
           f'{"  (BELOW the gma=1 floor)" if lo < GMA_FLOOR else "":26s}'

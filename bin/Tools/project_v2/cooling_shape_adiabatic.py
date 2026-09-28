@@ -186,7 +186,7 @@ from cooling_distribution import norm_plaw_distrib, distrib_plaw_cooled
 from scipy.optimize import brentq
 from cooling_shape_figure import P_SYN, GM0, GMA_M0, NG, cooled_distrib
 from cooling_integrated_figure import tt_dyn_of_C
-from cooling_integrated_adiabatic import (A_RHO, Q_B, _exps, A_of_sigma, S_of_sigma,
+from cooling_integrated_adiabatic import (A_RHO, Q_C, _exps, A_of_sigma, S_of_sigma,
     gamma_cooled)
 
 # --- defaults -------------------------------------------------------------------------
@@ -205,7 +205,7 @@ def lab_C(lc):
 
 
 # --- the generalised normalised time ----------------------------------------------------
-def tt_eff_of_sigma(sigma, ttd, a_rho=A_RHO, q=Q_B):
+def tt_eff_of_sigma(sigma, ttd, a_rho=A_RHO, q=Q_C):
   '''
   The GENERALISED normalised time of the module docstring,
 
@@ -217,7 +217,7 @@ def tt_eff_of_sigma(sigma, ttd, a_rho=A_RHO, q=Q_B):
   return S_of_sigma(sigma, ttd, a_rho, q)/A_of_sigma(sigma, a_rho)
 
 
-def sigma_of_tt_eff(tt_eff, ttd, a_rho=A_RHO, q=Q_B, br=(-16., 40.)):
+def sigma_of_tt_eff(tt_eff, ttd, a_rho=A_RHO, q=Q_C, br=(-16., 40.)):
   '''
   Inverse of tt_eff_of_sigma -- monotone, so one bracketed root in log10 sigma.
   The bracket has to be WIDE. At q > 1/2 the clock crawls: tt_eff grows only as
@@ -230,7 +230,7 @@ def sigma_of_tt_eff(tt_eff, ttd, a_rho=A_RHO, q=Q_B, br=(-16., 40.)):
 
 
 # --- the distribution -----------------------------------------------------------------
-def cooled_distrib_adiab(sigma, ttd, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B,
+def cooled_distrib_adiab(sigma, ttd, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     Ng=NG):
   '''
   (gma, N(gma,sigma)) sampled over the SUPPORT [gma_m(sigma), gma_M(sigma)] only --
@@ -243,7 +243,7 @@ def cooled_distrib_adiab(sigma, ttd, p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, 
   return gma, norm_plaw_distrib(gm0, gM0, p)*A*gma**-p*np.abs(A - S*gma)**(p-2.)
 
 
-def width(sigma, ttd, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_B):
+def width(sigma, ttd, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C):
   'gma_M/gma_m at sigma -- the A cancels, so this is the synchrotron law clocked in S.'
   return (gamma_cooled(sigma, gM0, ttd, a_rho, q)
           /gamma_cooled(sigma, gm0, ttd, a_rho, q))
@@ -257,7 +257,7 @@ SIG_SAMPLES = tuple(sigma_of_tt_eff(10.**l, tt_dyn_of_C(LOGC, GM0))
 
 # --- validation -------------------------------------------------------------------------
 def check_number_conservation(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
-    gM0=GMA_M0, a_rho=A_RHO, q=Q_B, Ng=40000):
+    gM0=GMA_M0, a_rho=A_RHO, q=Q_C, Ng=40000):
   '''
   int N dgma must stay 1 at every sigma: cooling moves electrons, adiabatic or not.
   Returns the largest relative deviation.
@@ -271,7 +271,7 @@ def check_number_conservation(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
 
 
 def check_similarity(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0,
-    a_rho=A_RHO, q=Q_B, n=40):
+    a_rho=A_RHO, q=Q_C, n=40):
   '''
   THE claim of this module: N_adiab(gma,sigma) = (1/A) N_syn(gma/A, S) exactly. Evaluated
   against the pipeline's own distrib_plaw_cooled on the rescaled axis. Returns the
@@ -290,7 +290,7 @@ def check_similarity(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0, gM0=GMA_M0
 
 
 def check_width_law(sigmas=SIG_SAMPLES, logC=LOGC, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO,
-    q=Q_B):
+    q=Q_C):
   '''
   The width must obey cooling_shape_figure's collapse law with tt -> S, the A having
   cancelled. Returns the largest relative deviation.
@@ -320,10 +320,10 @@ def check_reduces_to_shape(sigmas=SIG_SAMPLES, logC=LOGC, p=P_SYN, gm0=GM0,
 
 
 def main():
-  alpha, e = _exps(A_RHO, Q_B)
+  d, s = _exps(A_RHO, Q_C)
   ttd = tt_dyn_of_C(LOGC, GM0)
-  print(f"hydro: coasting rho' ~ R^{A_RHO:g}, B' ~ R^-{Q_B:g};  "
-        f'alpha={alpha:+.4f}  e={e:+.4f}')
+  print(f"hydro: coasting rho' ~ R^{A_RHO:g}, t'_c ~ R^{Q_C:g};  "
+        f'd={d:+.4f}  s={s:+.4f}')
   print(f'clock: log10 C = {LOGC:.0f} -> tt_dyn = {ttd:.3e}, so sigma = tt/tt_dyn')
   print(f'similarity      : max |A*N_adiab(A x) / N_syn(x,S) - 1| = '
         f'{check_similarity():.2e}')
@@ -333,9 +333,9 @@ def main():
   print('per sampled time:')
   for ls, sigma in zip(LOGT_SAMPLES, SIG_SAMPLES):
     A = float(A_of_sigma(sigma, A_RHO))
-    S = float(S_of_sigma(sigma, ttd, A_RHO, Q_B))
-    gm = float(gamma_cooled(sigma, GM0, ttd, A_RHO, Q_B))
-    gM = float(gamma_cooled(sigma, GMA_M0, ttd, A_RHO, Q_B))
+    S = float(S_of_sigma(sigma, ttd, A_RHO, Q_C))
+    gm = float(gamma_cooled(sigma, GM0, ttd, A_RHO, Q_C))
+    gM = float(gamma_cooled(sigma, GMA_M0, ttd, A_RHO, Q_C))
     print(f'  log10 tt_eff = {ls:+.0f}: sigma={sigma:9.3e}  A={A:9.3e}  '
           f'S={S:9.3e}  '
           f'gma_m={gm:9.3e}  gma_M={gM:9.3e}  width={gM/gm:8.4f}'
