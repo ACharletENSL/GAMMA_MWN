@@ -10,15 +10,15 @@ one figure per quantity, three panels side by side, one per physics case. The pa
 ORDER is the same in both figures, so panel (b) of one is panel (b) of the other.
 
     cooling_tracks.png    gma_m(t') and gma_M(t') against t'/t'_c,i
-    cooling_shapes.png    N(gma,t') at sampled log10(t'/t'_c,i)
+    cooling_shapes.png    dN_e/dgma_e at sampled log10(t'/t'_c,i)
 
 THE THREE PANELS, and what each assumes.
 
   (a) SYNCHROTRON ONLY, constant t'_c. No expansion, so the field has no reason to
       change and tt = int dt'/t'_c IS t'/t'_c,i exactly. This is the panel that carries
       the COOLING REGIMES: they are defined by the two injected edges burning, at
-      tilde{t}_M = 1/gma_M0 and tilde{t}_m = 1/gma_m0, and in these units they need no
-      reference C at all. Physics from cooling_shape_figure.
+      t'_M = 1/gma_M,i and t'_m = 1/gma_m,i, and in these units they need no reference
+      C at all. Physics from cooling_shape_figure.
 
   (b) SYNCHROTRON + ADIABATIC, fast cooling, bar{gma}_c/gma_m,i = 1e-2.
   (c) the same, slow cooling, bar{gma}_c/gma_m,i = 1e+2.
@@ -44,10 +44,15 @@ C-independent and slides down 1/tt_eff in every panel; in t'/t'_c,i it is not, w
 exactly why the two regimes need panels of their own instead of one shared pair of axes.
 For (b) and (c), sigma = (t'/t'_c,i)/tt_dyn does the conversion.
 
-NEITHER FIGURE IS TITLED: the panels are identified by the caption, so nothing competes
-with the curves for the top strip. For the same reason each repeated mark is LABELLED
-ONCE and drawn bare elsewhere: the injected bounds are labelled in panel (a) of the
-shapes, and the two knees are named in the tracks' legend instead of in any panel.
+EVERY VERTICAL IS NAMED ON ITS OWN LINE rather than in the legend, which leaves the
+legend for the curves alone. The tracks put their names along the FLOOR, in the gutter
+the gma_e = 1 cut leaves empty; the shapes put theirs along the top, where the curves
+have already fallen away. Each panel is titled with the case it shows.
+
+THE TRACKS ARE CUT AT gma_e = 1. Below it the ultra-relativistic trajectory is not the
+physical one, and continuing it only asserts where a model that no longer holds would
+point. The shapes still draw into the shaded region, because their curves END there
+rather than passing through.
 
 The two figures share: the sampled times (cooling_shape_figure.LOGTT_SAMPLES, the same
 log10 t'/t'_c,i in every panel), the viridis ramp ordered by time, the injected bounds
@@ -156,10 +161,10 @@ def tt_knee(gma0, ttd, a_rho=A_RHO, q=Q_C):
 
       S = ttd[(1+sigma)^e - 1]/e = 1/gma0   =>   1 + sigma = [1 + e/(gma0 ttd)]^(1/e)
 
-  None when that bracket is <= 0. With e < 0 the burn saturates at S_inf = ttd/|e|, so
-  an edge with gma0*ttd < |e| NEVER burns and the knee does not exist -- the C < 1/s
-  threshold seen from the other side, and the reason panel (c) has a tt_M but no tt_m.
-  At gma0*ttd >> |e| the bracket -> 1 and the knee returns to its synchrotron value
+  None when that bracket is <= 0. With s > 0 the burn saturates at S_inf = ttd/s, so
+  an edge with gma0*ttd < s NEVER burns and the knee does not exist -- the C < 1/s
+  threshold seen from the other side, and the reason panel (c) has a t'_M but no t'_m.
+  At gma0*ttd >> s the bracket -> 1 and the knee returns to its synchrotron value
   1/gma0, which is why the two tt_M verticals line up across the three panels.
   '''
   _, s = _exps(a_rho, q)
@@ -216,8 +221,8 @@ SYN_REF = '0.62'            # lighter than the tracks, and solid/dashed rather t
 def lab_adrift(a_rho=A_RHO):
   '''
   Legend entry for the frozen-burn guide, as a POWER of the abscissa. Once the burn has
-  frozen gma ~ A = (1+sigma)^alpha, and past a few t'_dyn that is sigma^alpha, i.e. a
-  straight line of index alpha = a_rho/3 in t'/t'_c,i. Rendered as a fraction, so -2/3
+  frozen gma ~ A = (1+sigma)^-d, and past a few t'_dyn that is sigma^-d, i.e. a
+  straight line of index -d = a_rho/3 in t'/t'_c,i. Rendered as a fraction, so -2/3
   reads as -2/3 and not as -0.667.
   '''
   fr = Fraction(a_rho/3.).limit_denominator(100)
@@ -247,10 +252,10 @@ def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_C, frac=GUIDE_FRAC):
   per electron, so EVERY trajectory becomes gma ~ A(t'): cooling is purely adiabatic from
   there on. An edge that burnt (gma_0 S_inf >> 1) forgets gma_0 and lands on A/S_inf
   itself; one that never burnt -- panel (c)'s gma_m -- runs PARALLEL to it at A gma_0,
-  the offset between them being the 1 + |e| C the width law stalls at.
+  the offset between them being the 1 + s C the width law stalls at.
 
-  A = (1+sigma)^alpha, so the line drawn is |e|/tt_dyn * sigma^alpha -- the large-sigma
-  form, a straight |e|-normalised power of the abscissa rather than the exact A/S_inf
+  A = (1+sigma)^-d, so the line drawn is s/tt_dyn * sigma^-d -- the large-sigma form, a
+  straight s-normalised power of the abscissa rather than the exact A/S_inf
   (the two agree to 0.07% by the right-hand edge; main() prints it). It runs from the
   GUIDE_FRAC handover to the right-hand edge, taking over from the 1/tt guide exactly
   where that one gives out, so the two together span the whole cooled track.

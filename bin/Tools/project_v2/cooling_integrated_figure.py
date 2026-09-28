@@ -359,7 +359,8 @@ def plot_integrated(p=P_SYN, gm0=GM0, gM0=GMA_M0, logC=LOGC_SAMPLES, sigma_end=S
   # the injected bounds are labelled along the top of (a); gma = 1 cannot go there --
   # the fastest-cooling curve peaks in that corner -- so it is labelled in (b) instead,
   # where the bottom left is empty
-  for v, lab in ((gm0, '$\\gamma_\\mathrm{m}$'), (gM0, '$\\gamma_\\mathrm{M}$')):
+  for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'),
+                 (gM0, '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$')):
     axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))

@@ -4,31 +4,43 @@
 '''
 The time-integrated electron distribution WITH adiabatic cooling, over t_dyn.
 
-APPENDIX ILLUSTRATION on the SHELL FIDUCIAL SCALINGS: rho' ~ R^-1.2 and B' ~ R^-1, i.e.
-a_rho = -1.2 (matching this run's measured -1.205, a SPREADING shell) and q = 1. Earlier
-drafts held t'_c constant (q = 0) to isolate the adiabatic drag; the field now decays
-too, and that is not a cosmetic difference -- see THE BURN SATURATES below.
+APPENDIX ILLUSTRATION on a FREELY EXPANDING SHELL at constant eps_B: rho' ~ R^-2, so
+a_rho = -2, and the field follows from it rather than being chosen -- see THE
+HYDRODYNAMICS below. Earlier drafts held t'_c constant (q = 0) to isolate the adiabatic
+drag; the field decays too, and that is not a cosmetic difference -- see THE BURN
+SATURATES.
+
+THE EXPONENTS ARE DEFINED POSITIVE, the signs carried by the definitions. With
+tau = t'/t'_i,
+
+    A = tau^-d          d = -a_rho/3 = 2/3          the adiabatic drag
+    t'_c = t'_c,i tau^q   q = -a_rho*gma_ad = 10/3   the clock stretching
+    s = d + q - 1 = 3                                the one combination that matters
+
+and s > 0 is exactly the saturating case: S = (t'_i/t'_c,i)(1 - tau^-s)/s, bounded by
+S_inf = (t'_i/t'_c,i)/s. Nothing in the module needs |.| or a sign test any more.
 
 sigma_end is a PARAMETER and the figure is meant to be re-run at several values; the
-numbers below are at the current default, 100 t_dyn, on the shell fiducial (a_rho = -2,
-gma_ad = 4/3, hence q = 4/3, alpha = -2/3, e = -7/3):
+numbers below are at the current default, 100 t_dyn, with gma_ad = 5/3:
 
-    A(100) = 0.0461 (drag x21.7)      S/tt_dyn = 0.4286 (SATURATED)
-    tt_end/tt_dyn = 0.5997            edge drops x0.065 below synchrotron-only
-    deep-tail ratio 0.513             1 of 7 regimes under gma = 1 (C = 1e-3, to 0.107)
-    low-energy index +1.49            against -1.93 when integrating to ONE t_dyn
+    A(100) = 0.0461 (drag x21.7)      S/tt_dyn = 0.3333 (SATURATED, = 1/s)
+    tt_end/tt_dyn = 0.4286            edge drops x0.059 below synchrotron-only
+    deep-tail ratio 0.571             1 of 7 regimes under gma = 1 (C = 1e-3, to 0.138)
+    low-energy index +2.50            against -1.45 when integrating to ONE t_dyn
 
-THE LOW-ENERGY INDEX IS POSITIVE HERE, at +3/2, and that is the headline rather than a
+THE LOW-ENERGY INDEX IS POSITIVE HERE, at +5/2, and that is the headline rather than a
 detail. Once the burn has frozen every trajectory collapses onto gma ~ A, so essentially
 the whole population passes a given low gma together and the integral is just its dwell
-time. With gma ~ (1+sigma)^alpha and dtt = tt_dyn (1+sigma)^-2q dsigma,
+time. With gma ~ tau^-d and dtt = (t'_i/t'_c,i) tau^-q dtau,
 
-    dtt/dgma ~ gma^((1-2q)/alpha - 1)   =>   index = (1-2q)/alpha - 1 = +3/2
+    dtt/dgma ~ gma^((q-1)/d - 1)   =>   index = (q-1)/d - 1 = +5/2
 
-on the shell fiducial (alpha = -2/3, q = 4/3). Measured +1.494 on the plateau, and the
-prediction tracks a_rho: -1.2 -> +1/2, -2 -> +3/2, -2.5 -> +1.8.
+at a_rho = -2, gma_ad = 5/3. Measured +2.499 on the plateau, and the prediction tracks
+a_rho: -2 -> +5/2, -2.5 -> +2.8, -2.9 -> +2.97 (check_index_is_robust prints them).
+NOTE the singular law: s = 0 at a_rho = -3/(1+3*gma_ad), which is -0.5 at gma_ad = 5/3,
+where the burn is logarithmic and there is no power form at all.
 
-So the time-integrated distribution PEAKS at gma_c and falls away below it as gma^+3/2,
+So the time-integrated distribution PEAKS at gma_c and falls away below it as gma^+5/2,
 instead of holding a gma^-2 plateau down to a sharp cut-off. tt is the right weight for a
 fluence (dt'*P ~ dt'*B'^2 ~ dtt), so this is a statement about the emitted spectrum and
 not only about the electrons. The gma_c markers sit on those peaks. Integrating to one
@@ -36,14 +48,14 @@ t_dyn instead returns the old picture, which is why sigma_end stays a parameter.
 
   MEASUREMENT TRAP, and it cost a wrong number in two earlier versions of this file:
   measure_low_slope's window used to be 3x-30x above the cut-off, which STRADDLES the
-  turnover toward gma_c and averages the +3/2 plateau with the decline beyond it. It
-  reported +0.33. The plateau runs from the cut-off to about 3x above it, so the window
-  is 1.2x-3x now. The same mistake sized the slope panel: its top was +1.5, which cut
-  the plateau off at exactly its own value and made it look like an edge spike.
+  turnover toward gma_c and averages the plateau with the decline beyond it. The plateau
+  runs from the cut-off to about 3x above it, so the window is 1.2x-3x now. The same
+  mistake sized the slope panel, whose top was set at the plateau's own value and so cut
+  it off and made it look like an edge spike.
 
 THE EQUATION IS LINEAR IN u = 1/gma. With the adiabatic term the cooling equation is
 
-    dgma/dtt = (dlnA/dtt) gma - gma^2,     A = (rho/rho_0)^(1/3),
+    dgma/dtt = (dlnA/dtt) gma - gma^2,     A = (rho'/rho'_i)^(1/3),
 
 which in u = 1/gma is LINEAR -- du/dtt + (dlnA/dtt) u = 1 -- the same structure
 working_cooling.evolve_gma_bounds_edges telescopes over. With A as integrating factor:
@@ -58,25 +70,29 @@ Number conservation (dgma_0/dgma = A/(A - S*gma)^2) then gives
 
 the synchrotron form with 1 -> A and tt -> S. Both edges follow the same trajectory.
 
-THE HYDRODYNAMICS: coasting, on the shell fiducial. R/R_0 = 1 + sigma with
+THE HYDRODYNAMICS: coasting, freely expanding shell. R/R_0 = 1 + sigma with
 sigma = t'/t'_dyn (t_dyn = the comoving radius-doubling time R/(Gamma c),
 cooling_distribution.get_tdbl_cell), and
 
-    a_rho = dln rho/dln R = -1.2,    alpha = a_rho/3 = -0.4,    B' ~ R^-1  (q = 1).
+    a_rho = dln rho'/dln R = -2,    d = -a_rho/3 = 2/3    (fixed comoving width).
 
-A shell of FIXED comoving width would give a_rho = -2; -1.2 is the spread shell this run
-actually has.
+B' IS NOT FREE. A constant fraction of the energy density goes to the field,
+B'^2/8pi = eps_B e', and e' ~ rho'^gma_ad along an adiabat, so B' ~ rho'^(gma_ad/2) and
+t'_c ~ B'^-2 gives q = -a_rho*gma_ad = 10/3 at gma_ad = 5/3. It is DERIVED, not chosen,
+and a_rho and gma_ad are the only two dials.
 
-With B' ~ R^-q and e = alpha - 2q + 1,  S(sigma) = tt_dyn [(1+sigma)^e - 1]/e, so
-(1 + e*S/tt_dyn) = (1+sigma)^e and A can be written as a function of S alone,
+With s = d + q - 1,  S(sigma) = tt_dyn (1 - (1+sigma)^-s)/s, so (1 - s*S/tt_dyn) =
+(1+sigma)^-s and A can be written as a function of S alone,
 
-    A(S) = (1 + e*S/tt_dyn)^(alpha/e),
+    A(S) = (1 - s*S/tt_dyn)^(d/s),
 
-which is what the code uses -- it is valid for BOTH signs of e, where a (1+tau)^b
-parameterisation is not. a_rho is free too; the run's own measured value is -1.205
+which is what the code uses -- valid for BOTH signs of s, where a (1+tau)^b
+parameterisation is not; at s > 0 the bracket runs from 1 down to 0, hitting 0 exactly
+at S_inf. a_rho is free too; the run's own measured value is -1.205
 (prerar_cell_evolution alpha_D = -0.795 through dlnrho/dlnR = -2 - alpha_D, the shell
-being spread rather than of fixed width). At q = 0, e > 0 iff a_rho > -3; at e <= 0 the
-burn saturates and synchrotron cooling freezes out at a finite total.
+being spread rather than of fixed width), and at gma_ad = 5/3 that gives s = 1.41.
+At q = 0, s = d - 1 > 0 iff a_rho < -3; wherever s > 0 the burn saturates and
+synchrotron cooling freezes out at a finite total.
 
 THE TIME INTEGRAL. Since dS = A dtt, the integral collapses to one smooth quadrature in S:
 
@@ -95,42 +111,40 @@ is the one with gma_0 S ~ 1, and what survives the drag is
     gma_c = A/S = 1/tt_eff(sigma_end),
 
 which reduces to 1/tt_end when A = 1 and S = tt. The difference is not cosmetic: at the
-shell fiducial A/S = 1.708/tt_dyn, and marking 1/tt_dyn instead put gma_c BELOW the
-support in every fast-cooling regime (1.0 against a cut-off at 1.705 at log10 C = -3), so
-no marker was drawn there at all. A/S lands on the cut-off, which is where the break
+shell values A/S = 0.138/tt_dyn against 1/tt_dyn, a factor 7 apart. A/S lands on the
+cut-off -- 0.1383 against a measured 0.1379 at log10 C = -3 -- which is where the break
 really is, because gma_m -> A/S once gma_m0 S >> 1.
 
-THE BURN SATURATES, and it decides which regimes can cool at all. With e = alpha - 2q + 1
-= -1.4 < 0 the geometric sum in S turns around: instead of growing without bound,
+THE BURN SATURATES, and it decides which regimes can cool at all. With s = d + q - 1 = 3
+the integral in S converges: instead of growing without bound,
 
-    S -> S_inf = tt_dyn/|e| = 0.714 tt_dyn,      and tt itself -> tt_dyn.
+    S -> S_inf = tt_dyn/s = 0.333 tt_dyn,     and tt itself -> tt_dyn/(q-1) = 0.429 tt_dyn.
 
 An electron can therefore only ever accumulate a FINITE synchrotron burn, however long
 you wait. The bottom edge cools only if that finite budget covers it, S_inf > 1/gma_m0,
 which is a condition on the regime alone:
 
-    C < 1/|e| = 0.714     (log10 C < -0.146)
+    C < 1/s = 0.333     (log10 C < -0.477)
 
-Verified by direct scan: C = 1e-3, 0.1 and 0.5 cool, C = 0.714, 1, 10 and 1e3 never do.
 Of the seven regimes drawn, only log10 C = -3, -2 and -1 ever reach fast cooling; the
 other four stay slow-cooling FOREVER, not merely within the integration window. At q = 0
-that statement does not exist -- S grows without bound and every regime gets there
-eventually. It is the single sharpest consequence of the field decaying.
+and a_rho > -3 that statement does not exist -- S grows without bound and every regime
+gets there eventually. It is the single sharpest consequence of the field decaying.
 
 It also makes the tt_eff clock crawl (cooling_shape_adiabatic's abscissa): tt_eff grows
-only as sigma^|alpha|, so tt_eff = 1 needs sigma = 7.3e7 at C = 1 and 2.3e15 at C = 1e3.
-Late tt_eff on that panel is not a time this system reaches.
+only as sigma^d, so tt_eff = 1 needs sigma = 1.6e5 at C = 1 and 5.2e9 at C = 1e3. Late
+tt_eff on that panel is not a time this system reaches.
 
 WHAT ADIABATIC COOLING CHANGES -- AND THE gma^-1 THAT DOES NOT HAPPEN HERE. The synchrotron-only gma^-2 segment is a dwell time, dtt = dgma/gma^2. With
 expansion the loss rate is gma^2 + a*gma, and the tempting reading -- that the tail
 flattens toward gma^-1 wherever a > gma -- is WRONG at q = 0. It treats a as fixed while
-gma falls; they fall TOGETHER. At q = 0, e = 1 + alpha, so alpha - e = -1 identically and
-the bottom edge gma_m ~ A/S ~ sigma^(alpha-e) = 1/sigma decays at exactly the rate
-a ~ 1/sigma does. Hence a/gma -> |alpha|/e, CONSTANT (2.0 for coasting), the loss rate is
-gma^2 (1 + |alpha|/e) and the dwell time is e*dgma/gma^2 -- gma^-2 again, index untouched,
-only the normalisation moved. Checked over a_rho = -0.5 .. -2.9: index -2.00 .. -1.87,
-never near -1 (check_index_is_robust). THIS ARGUMENT IS SPECIFIC TO q = 0: the identity
-alpha - e = -1 needs e = 1 + alpha, and at q > 0 it fails.
+gma falls; they fall TOGETHER. At q = 0, s = d - 1, so s - d = -1 identically and the
+bottom edge gma_m ~ A/S ~ sigma^(s-d) = 1/sigma decays at exactly the rate
+a ~ 1/sigma does. Hence a/gma -> d/|s|, CONSTANT (2.0 for coasting), the loss rate is
+gma^2 (1 + d/|s|) and the dwell time is dgma/[gma^2 (1 + d/|s|)] -- gma^-2 again, index
+untouched, only the normalisation moved. main()'s q-scan row shows it: at q = 0 the index
+is -1.94 at sigma_end = 100 and -1.97 at 1e3, never near -1. THIS ARGUMENT IS SPECIFIC TO
+q = 0: the identity s - d = -1 needs s = d - 1, and at q > 0 it fails.
 
 So at constant t'_c the effect is a renormalisation, not a new segment:
   - the tail keeps index ~ -2: -1.932 at one t_dyn, and -1.98 .. -1.90 across
@@ -348,7 +362,7 @@ def check_trajectory(logC=0., sigma_end=SIGMA_END, gm0=GM0, a_rho=A_RHO, q=Q_C, 
   from scipy.integrate import solve_ivp
   ttd = tt_dyn_of_C(logC, gm0)
   d_, _ = _exps(a_rho, q)
-  # dgma/dtau = alpha*gma/(1+tau) - ttd*gma^2   (dtt = ttd dtau)
+  # dgma/dtau = -d*gma/(1+tau) - ttd*(1+tau)^-q*gma^2   (dtt = ttd (1+tau)^-q dtau)
   rhs = lambda sg, y: -d_*y/(1.+sg) - ttd*(1.+sg)**(-q)*y*y
   dev = 0.
   for gma0 in np.geomspace(gm0, GMA_M0, n):
@@ -552,10 +566,13 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
   levels = ((float(fr), lo_lab), (-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
   for lev, _ in levels:
     axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-  # the low-energy plateau sits at (1-2q)/alpha - 1 = +3/2 on the shell fiducial,
-  # so a top of +1.5 cut it off exactly; +2.5 shows it with headroom. The much
+  # the low-energy plateau sits at (q-1)/d - 1, which is +5/2 at gma_ad = 5/3. A top
+  # set AT the plateau cuts it off exactly and makes it read as an edge spike -- that
+  # is how it was got wrong twice -- so the top clears it by a full index. The much
   # larger spikes right at the cut-off are the edge singularity and do clip.
-  axS.set_ylim(-(p+2.6), 2.5)
+  # the top is DERIVED from the plateau, never hard-coded: set at its own value it
+  # clips it into what looks like an edge spike, which has happened twice
+  axS.set_ylim(-(p+2.6), float(fr) + 1.)
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axS.set_ylabel("${\\rm d}\\ln({\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e})"
                  "/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
@@ -574,7 +591,8 @@ def plot_integrated_adiab(logC=LOGC_SAMPLES, sigma_end=SIGMA_END, p=P_SYN, gm0=G
     ax.grid(alpha=.25, lw=.4)
     ax.tick_params(which='both', labelsize=FS_TICK)
   axN.set_xlim(.3*lo_edge, 4.*gM0)
-  for v, lab in ((gm0, '$\\gamma_\\mathrm{m}$'), (gM0, '$\\gamma_\\mathrm{M}$')):
+  for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'),
+                 (gM0, '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$')):
     axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))

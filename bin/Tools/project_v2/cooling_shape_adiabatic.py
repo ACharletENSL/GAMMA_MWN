@@ -2,180 +2,78 @@
 # @Author: acharlet
 
 '''
-How a power-law electron distribution is reshaped by synchrotron AND adiabatic cooling.
+The instantaneous distribution under synchrotron AND adiabatic cooling: the physics,
+not a figure.
 
-APPENDIX ILLUSTRATION, the fourth corner of the family that shares figures/
-cooling_distributions:
-
-                          synchrotron only          + adiabatic
-    instantaneous N     cooling_shape_figure      THIS MODULE
-    time-integrated     cooling_integrated_figure cooling_integrated_adiabatic
-
-Same hydrodynamics as cooling_integrated_adiabatic: the SHELL FIDUCIAL, rho' ~ R^-1.2
-and B' ~ R^-1. The field decays too now, so unlike cooling_shape_figure this is not a
-constant-t'_c picture, and the consequences are large -- see THE BURN SATURATES there. The physics functions are imported from
-that module rather than restated, so the two adiabatic figures cannot drift apart.
-
-THE SCALINGS, IN ONE PLACE. Three are put in, one combination controls everything.
-
-  PUT IN, all against radius, with R/R_0 = 1 + sigma and sigma = t'/t'_dyn (coasting):
-      rho' ~ R^-1.2      a_rho = -1.2   ->  A = (rho/rho_0)^(1/3) = (1+sigma)^alpha,
-                                            alpha = a_rho/3 = -0.4
-      B'   ~ R^-1        q = 1          ->  t'_c ~ 1/B'^2 ~ R^2q, so the CLOCK stretches:
-                                            dtt = dt'/t'_c ~ (1+sigma)^-2q dsigma
-
-  THE ONE COMBINATION. S = int A dtt has integrand (1+sigma)^(alpha-2q), so everything
-  turns on
-
-      e = alpha - 2q + 1 = -1.4,     S(sigma) = tt_dyn [(1+sigma)^e - 1]/e.
-
-  e > 0 and the burn grows without bound; e < 0 and it SATURATES at S_inf = tt_dyn/|e|.
-  At the shell fiducial it saturates. Three consequences, each measured:
-
-    1. WHICH REGIMES CAN COOL. The bottom edge needs S > 1/gma_m0, so only
-       C < 1/|e| = 0.714 ever reaches fast cooling. C = 1 and above never do, however
-       long you wait -- which is why LOGC is -3 and not the marginal case.
-    2. THE FINAL WIDTH is closed-form. gma_M/gma_m depends on S alone (the A cancels),
-       so once S freezes so does the width, at
-           gma_M/gma_m -> 1 + |e| C
-       -- exact to six figures over C = 1e-3 .. 10. Mono-energetic needs |e| C << 1,
-       the SAME threshold as (1). At C = 1e-3 it is 1.0014; at C = 1 it stalls at 2.40.
-    3. THE CLOCK CRAWLS. tt itself saturates at tt_dyn, and tt_eff = S/A grows only as
-       (1+sigma)^|alpha|, so tt_eff = 1e2 is sigma ~ 2e5 at the reference C. The top
-       panel's right-hand end is asymptotic behaviour, not a time a shell reaches.
-
-  THE TWO ASYMPTOTES on the top panel follow from the same algebra. gma_M -> 1/tt_eff
-  always. For the adiabatic track, substitute S and A into tt_eff = S/A:
-
-      tt_eff = (ttd/e) [ (1+sigma)^(1-2q) - (1+sigma)^|alpha| ]
-
-  -- two competing powers, and the larger wins. Write m for it. Since e > 0 is the same
-  statement as 1-2q > |alpha|, m = max(1-2q, |alpha|) is not a trick: it is just asking
-  WHICH MECHANISM is advancing the clock.
-
-      e > 0, burn-driven.  S still grows, tt_eff rides it, m = 1-2q, and inverting gives
-                           A ~ tt_eff^(alpha/(1-2q)) -- at q = 0 that is alpha = a_rho/3.
-      e < 0, drag-driven.  S has frozen at S_inf, so tt_eff = S_inf/A and therefore
-                           A = S_inf/tt_eff IDENTICALLY. Slope -1, for any a_rho, and
-                           not as an asymptote -- it is the definition of tt_eff once S
-                           is constant. Verified: A*tt_eff/S_inf = 0.9984, 0.999997, 1.0
-                           at sigma = 1e2, 1e4, 1e6.
-
-  The shell fiducial is the second case, so both guides are tt_eff^-1 and they are
-  labelled by mechanism rather than by index. They differ only in normalisation --
-  1/tt_eff for gma_M against S_inf/tt_eff for the drag.
+This module used to draw cooling_shape_adiabatic.png. That figure is retired --
+cooling_shape_panels now draws the whole family, three panels per quantity -- so what is
+left here is the adiabatic half of the shape problem and its checks, imported by
+cooling_shape_panels. The hydrodynamic constants and the trajectory live one level down,
+in cooling_integrated_adiabatic (A_RHO, GMA_AD, Q_C, _exps, A_of_sigma, S_of_sigma,
+gamma_cooled), so nothing is restated here and the two cannot drift apart.
 
 THE SOLUTION. The cooling equation dgma/dtt = (dlnA/dtt) gma - gma^2 is linear in
-u = 1/gma and integrates with A = (rho/rho_0)^(1/3) as the integrating factor:
+u = 1/gma and integrates with A = (rho'/rho'_i)^(1/3) as the integrating factor:
 
-    gma(sigma) = A gma_0/(1 + gma_0 S),    S = int_0^tt A dtt',   sigma = t'/t'_dyn,
+    gma(sigma) = A gma_0/(1 + gma_0 S),    S = int_0^tt A dtt',    sigma = t'/t'_dyn,
 
 and number conservation turns the injected power law into
 
-    N(gma,sigma) = K0 A gma^-p (A - S gma)^(p-2)   on [gma_m(sigma), gma_M(sigma)].
+    dN_e/dgma_e = K0 A gma^-p (A - S gma)^(p-2)   on [gma_m(sigma), gma_M(sigma)].
 
-THE TIME AXIS IS A GENERALISED NORMALISED TIME. cooling_shape_figure plots against
-tt = int dt'/t'_c, in which the synchrotron solution is gma = gma_0/(1 + gma_0 tt) and
-1/tt is the burn-off asymptote. Plotting the adiabatic problem against tt (or against
-sigma) loses that. The variable that keeps it is
+THE EXPONENTS ARE POSITIVE, the signs carried by the definitions (_exps). With
+tau = 1 + sigma,
 
-    tt_eff = (1/A(t')) int_{t'_i}^{t'} A(s)/t'_c(s) ds  =  S/A,
+    A = tau^-d    d = -a_rho/3 = 2/3      t'_c = t'_c,i tau^q    q = -a_rho*gma_ad = 10/3
+    s = d + q - 1 = 3                     S = tt_dyn (1 - tau^-s)/s
+
+so s > 0 saturates the burn at S_inf = tt_dyn/s. Three consequences, each checked:
+
+  1. WHICH REGIMES CAN COOL. The bottom edge needs S > 1/gma_m,i, so only C < 1/s = 1/3
+     reaches fast cooling. C = 1 and above never do, however long you wait.
+  2. THE FINAL WIDTH is closed-form. gma_M/gma_m depends on S alone (the A cancels), so
+     once S freezes so does the width, at
+
+         gma_M/gma_m -> 1 + s C
+
+     -- check_width_law holds it to 2e-16. Mono-energetic needs s*C << 1, the SAME
+     threshold as (1). At C = 1e-2 it is 1.03; at C = 1e2 it stalls at 301.
+  3. THE CLOCK CRAWLS. tt itself saturates at tt_dyn/(q-1), and tt_eff = S/A grows only
+     as tau^d, so late tt_eff is asymptotic behaviour, not a time a shell reaches.
+
+THE GENERALISED NORMALISED TIME. cooling_shape_figure plots against tt = int dt'/t'_c,
+in which the synchrotron solution is gma = gma_0/(1 + gma_0 tt) and 1/tt is the burn-off
+asymptote. Plotting the adiabatic problem against tt (or against sigma) loses that. The
+variable that keeps it is
+
+    tt_eff = (1/A) int_{t'_i}^{t'} A/t'_c ds  =  S/A,
 
 because u = (u_0 + S)/A can be rewritten 1/gma = 1/(A gma_0) + tt_eff: an electron
 injected with gma_0 -> inf therefore sits at gma = 1/tt_eff, so 1/tt_eff IS the asymptote
-the top edge slides down, exactly as 1/tt is in the synchrotron figure. Measured,
-gma_M * tt_eff = 1.000 at every sample once the edge has burnt.
+the top edge slides down, exactly as 1/tt is without expansion. It is strictly increasing
+(S grows while A falls), so it is a valid abscissa, and tt_eff -> tt as A -> 1.
 
-The ADIABATIC track has an asymptote of its own on the same axis, and the panel draws
-it: the same identity tt_eff = (ttd/e)[(1+sigma) - (1+sigma)^|alpha|] leaves
-(1+sigma) -> e*tt_eff/ttd for any a_rho > -3, so
+cooling_shape_panels does NOT use it: its abscissa is the physical t'/t'_c,i, in which
+gma_M is C-dependent and each regime needs its own panel. tt_eff is kept here because it
+is what makes the adiabatic and the synchrotron problem the same problem.
 
-    A -> (|e| tt_eff/ttd)^(alpha/m),   m = max(1-2q, |alpha|),
-
-which is slope alpha = a_rho/3 at q = 0 but alpha/|alpha| = -1 once q > 1/2 -- the SAME
-slope as the synchrotron asymptote, differing only in normalisation. At the shell
-fiducial (q = 1) that is the case, which is why the panel carries two parallel guides
-labelled 'syn.' and 'adiab.' rather than two different indices. Measured local slopes converge on alpha for every law tried
-(a_rho = -0.5, -1.205, -2, -2.9 give -0.167, -0.402, -0.665, -0.914 by tt_eff = 1e4
-against -0.167, -0.402, -0.667, -0.967 predicted). TWO WAYS it is unlike tt_eff^-1:
-it converges far more slowly, because the dropped term dies only as (1+sigma)^(|alpha|-1)
--- over the drawn range the coasting track reads about -0.63, not -0.667 -- and it is
-C-DEPENDENT, its normalisation carrying tt_dyn, so it is a guide for this panel's
-reference C and not a universal line the way tt_eff^-1 is.
-
-The guide is normalised on gma_m0 and the SLOWEST-cooling C in LOGC_M, because that is
-the curve pure adiabatic drag describes: gma_m = A gma_m0/(1 + gma_m0 A tt_eff), and at
-large C the burn term stays small, so gma_m ~ A gma_m0. Measured against log10 C = +3 the
-guide is within 20% over tt_eff = 1e-4 .. 1 and sits on the curve to the eye. It leaves
-at both ends -- early the curve has not entered the asymptotic regime (A is still ~1 and
-gma_m is still gma_m0), late the burn term grows as tt_eff^e and turns the curve over
-toward tt_eff^-1. So the -2/3 stretch is a TRANSIENT, not the end state.
-
-Three properties make the pair directly comparable:
-  - tt_eff is strictly increasing (S grows while A falls), so it is a valid abscissa;
-  - tt_eff -> tt as A -> 1, agreeing to 3e-8 at sigma = 1e-8, so the two figures share
-    one clock at early times and the panels can be laid side by side;
-  - the samples are therefore the SAME log10 values cooling_shape_figure uses, and the
-    last of them, tt_eff = 1, lands exactly on gma_M = 1 -- the same end-of-validity
-    coincidence the synchrotron figure has, and for the same reason.
-The knees keep the sibling's names: tt_M and tt_m are where S reaches 1/gma_M0 and
-1/gma_m0. In tt_eff they sit a little RIGHT of 1/gma_M0 and 1/gma_m0, by whatever 1/A
-has grown to by then -- tt_m at 1.8e-3 rather than 1e-3.
-
-THE POINT OF THE FIGURE: ADIABATIC COOLING ADDS NO NEW SHAPE. Substituting x = gma/A
-collapses the expression above to
+ADIABATIC COOLING ADDS NO NEW SHAPE. Substituting x = gma/A collapses the distribution to
 
     N_adiab(gma, sigma) = (1/A) * N_syn(gma/A, S),
 
 an exact SIMILARITY transform of the synchrotron-only solution -- slide the whole
-distribution down the gamma axis by A, up in amplitude by 1/A (so int N dgma stays 1),
-and relabel the clock tt -> S. Nothing bends, nothing breaks, no segment is created or
-destroyed. check_similarity verifies it to ~1e-14.
+distribution down the gamma axis by A, up in amplitude by 1/A (so int N dgma is
+conserved), and relabel the clock tt -> S. Nothing bends, nothing breaks, no segment is
+created or destroyed; check_similarity verifies it to ~1e-9. Two things follow:
 
-Three consequences worth reading off the panels:
+  - the WIDTH evolution is untouched, gma_M/gma_m = (gma_M,i/gma_m,i)(1 + gma_m,i S)
+    /(1 + gma_M,i S), which is the synchrotron collapse law with tt -> S. Since S grows
+    more slowly than tt, expansion DELAYS the collapse when it is clocked in real time;
+  - and the time-integrated distribution cannot acquire a new index from adiabatic
+    cooling either, which is why cooling_integrated_adiabatic's change is a new
+    LOW-ENERGY segment -- the dwell time once the burn freezes -- and not a new tail.
 
-  - The WIDTH evolution is untouched. A cancels out of the ratio,
-    gma_M/gma_m = (gma_M0/gma_m0)(1 + gma_m0 S)/(1 + gma_M0 S), which is exactly
-    cooling_shape_figure's collapse law with tt -> S. So the population still ends up
-    MONO-ENERGETIC, on the same schedule measured in S -- just at a lower gamma.
-    check_width_law.
-  - The two knees still sit where the edges burn, but in S, not in tt: the top edge
-    starts burning at S = 1/gma_M0 and the power law is gone by S = 1/gma_m0. Since
-    S grows more slowly than tt (S/tt_dyn = 27.0 after 1e3 t_dyn, against tt/tt_dyn =
-    1e3), expansion DELAYS the collapse when it is clocked in real time.
-  - And it explains the companion figure: if the instantaneous shape is only ever slid,
-    the time-integrated one cannot acquire a new index from adiabatic cooling either.
-    That is why cooling_integrated_adiabatic finds the tail still at ~ -2.
-
-WHY THIS FIGURE NEEDS A PARAMETER THE SYNCHROTRON ONE DID NOT. cooling_shape_figure is
-a one-parameter family: everything is a function of tt alone, because tt = int dt'/t_c1
-absorbs the field history. Here A is a function of RADIUS, so the tt <-> sigma map has to
-be fixed, and that map carries tt_dyn = 1/gma_c. The figure therefore has to choose a
-cooling regime; LOGC = 0 (the marginal case gma_c = gma_m) is the default and is stated
-inside panel (a). Other regimes only stretch the sigma axis, they do not change the
-shapes -- which is the similarity result again.
-
-THE COOLING REGIMES ARE NOT DRAWN HERE any more. They are defined by synchrotron
-cooling, and on this abscissa they would be C-dependent: the saturating burn moves t_m,
-and for C above 1/|e| there is no t_m at all. They live on cooling_shape_figure's
-pure-synchrotron panel instead, where t_M = 1/gma_M,0 and t_m = 1/gma_m,0 need no
-reference C.
-
-THE ABSCISSA IS t'/t'_c,i -- the comoving time in units of the cooling time at injection,
-which is just sigma*tt_dyn (sigma = t'/t'_dyn, tt_dyn = t'_dyn/t'_c,i). It is NOT
-tt = int dt'/t'_c, which lags it once the field decays, and not the tt_eff = S/A this
-figure used before. Both columns share one t'/t'_c,i range, so they can be read across.
-The cost, and the reason for the 2x2: gma_M is C-independent in tt_eff but not here, so
-each regime needs both of its edges and they cannot share a panel.
-
-VALIDITY. As everywhere in this family, gma_synCooled's ultra-relativistic trajectory is
-not physical below gma = 1 (marked in crimson): the real loss rate goes as gma^2 - 1 and
-electrons stall near 1 instead of continuing down. With the adiabatic drag the population
-gets there SOONER. The last sampled time, tt_eff = 1, puts gma_M exactly on the floor
-(and gma_m just under it at 0.95), so as in the synchrotron figure that sample IS the end
-of the model's validity, not a time it can be pushed past.
-
-Run:  python cooling_shape_adiabatic.py
+Run:  python cooling_shape_adiabatic.py     -- prints the checks, draws nothing
 '''
 
 import os
@@ -192,7 +90,7 @@ from cooling_integrated_adiabatic import (A_RHO, Q_C, _exps, A_of_sigma, S_of_si
 # --- defaults -------------------------------------------------------------------------
 LOGC = -3.                  # the reference C for the tt <-> sigma map and the checks
                             # below. NOT the marginal case: with the burn saturating the
-                            # bottom edge cools only for C < 1/|e|, so C = 1 never
+                            # bottom edge cools only for C < 1/s, so C = 1 never
                             # reaches fast cooling however long you wait.
 # the sampled log10 t'/t'_c,i the checks are run at -- the same values cooling_shape_
 # panels draws, so the numbers main() prints are the ones on the figures
