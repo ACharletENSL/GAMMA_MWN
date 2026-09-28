@@ -105,18 +105,36 @@ GUIDE_FRAC = .2             # the HANDOVER, as a fraction of S_inf: synchrotron 
                             # visibly leaving it.
 FIGSIZE_TRACKS, FIGSIZE_SHAPES = (7.1, 2.75), (7.1, 3.15)
 FN_TRACKS, FN_SHAPES = 'cooling_tracks.png', 'cooling_shapes.png'
+FN_NODRAG = 'cooling_tracks_nodrag.png'
 # what each panel is, said on the panel rather than left to the caption
 PANEL_LABS = ('syn. only', 'syn. + adiab. \u2013 FC', 'syn. + adiab. \u2013 SC')
 
 
-def panel_specs(gm0=GM0, logC_m=LOGC_PANELS):
+def _frac_tex(v, sign=True):
+  'Render v as a signed (or unsigned) TeX fraction: -2/3 rather than -0.667.'
+  fr = Fraction(v).limit_denominator(100)
+  n = f'{fr.numerator:+d}' if sign else f'{fr.numerator:d}'
+  return n if fr.denominator == 1 else f'{n}/{fr.denominator}'
+
+
+def panel_specs(gm0=GM0, logC_m=LOGC_PANELS, labs=PANEL_LABS):
   '''
-  (kind, tt_dyn, label) for the three panels, in the order BOTH figures use. tt_dyn is
-  None for the synchrotron panel, which has no C to set one.
+  (kind, tt_dyn, label) for the three panels, in the order the figures use. tt_dyn is
+  None for the first panel, which has no C to set one. `labs` names them; the no-drag
+  figure passes its own.
   '''
-  return ([('syn', None, PANEL_LABS[0])]
+  return ([('syn', None, labs[0])]
           + [('adiab', tt_dyn_of_C(lc, gm0), lab)
-             for lc, lab in zip(logC_m, PANEL_LABS[1:])])
+             for lc, lab in zip(logC_m, labs[1:])])
+
+
+def nodrag_labs(q=Q_C):
+  '''
+  Panel names for the no-drag figure. All three panels are synchrotron only; what
+  changes across them is the CLOCK, so that is what the titles say.
+  '''
+  pw = "$t'_{\\rm c}\\propto R^{" + _frac_tex(q, sign=False) + "}$"
+  return ("$t'_{\\rm c}$ const.", pw + ' \u2013 FC', pw + ' \u2013 SC')
 
 
 def _row(figsize, n=3, wspace=.10):
@@ -225,10 +243,9 @@ def lab_adrift(a_rho=A_RHO):
   straight line of index -d = a_rho/3 in t'/t'_c,i. Rendered as a fraction, so -2/3
   reads as -2/3 and not as -0.667.
   '''
-  fr = Fraction(a_rho/3.).limit_denominator(100)
-  ix = (f'{fr.numerator:+d}' if fr.denominator == 1
-        else f'{fr.numerator:+d}/{fr.denominator}')
-  return "$(t'/t'_{\\rm c,i})^{" + ix + "}$"
+  if abs(a_rho) < 1e-12:      # no drag: once the burn freezes gma_e simply STOPS
+    return 'const.'
+  return "$(t'/t'_{\\rm c,i})^{" + _frac_tex(a_rho/3.) + "}$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
 LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
@@ -269,7 +286,8 @@ def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_C, frac=GUIDE_FRAC):
 
 
 def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
-    logC_m=LOGC_PANELS, outdir=OUTDIR, fname=FN_TRACKS, show=False):
+    logC_m=LOGC_PANELS, labs=PANEL_LABS, ref_lab=None, outdir=OUTDIR, fname=FN_TRACKS,
+    show=False):
   '''
   gma_m and gma_M against t'/t'_c,i, one panel per physics case (see module docstring).
   The regime bands are drawn on panel (a) only: that is where they are defined. The
@@ -291,7 +309,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
            ('FC',  t_m*MFC_FAC, 1.,         '#67a9cf'),
            ('VFC', 1.,         x[-1],      '#2166ac'))
 
-  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m)):
+  ref_lab = ref_lab or LAB_SYN
+  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m, labs)):
     if kind == 'syn':
       for lab, a_, b_, col in bands:
         a_, b_ = max(a_, x[0]), min(b_, x[-1])
@@ -313,7 +332,7 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
       # it is what panel (a) shows, so the drag is read off the gap rather than by
       # looking across the figure
       ax.loglog(x, _cut1(gamma_synCooled(x, gM0)), color=SYN_REF, lw=.9, zorder=2,
-                label=LAB_SYN)
+                label=ref_lab)
       ax.loglog(x, _cut1(gamma_synCooled(x, gm0)), color=SYN_REF, lw=.9, ls='--',
                 zorder=2)
       knees = tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0))
@@ -357,8 +376,26 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   # the scalings last: the tracks and the times that mark them first, then what they
   # tend to -- 1/tt while synchrotron still bites, A(t') once the burn has frozen
   _legend_above(fig, axs, ncol=5,
-                order=(LAB_GMM, LAB_GM, LAB_SYN, LAB_GUIDE, lab_adrift(a_rho)))
+                order=(LAB_GMM, LAB_GM, ref_lab, LAB_GUIDE, lab_adrift(a_rho)))
   return _save(fig, axs, outdir, fname, show)
+
+
+def plot_cooling_tracks_nodrag(q=Q_C, fname=FN_NODRAG, **kw):
+  '''
+  The same tracks with the ADIABATIC DRAG SWITCHED OFF but the clock left alone:
+  synchrotron only, t'_c still stretching as tau^q. a_rho = 0 gives exactly that
+  through the shared machinery -- A == 1, S == tt, and s = d + q - 1 collapses to
+  q - 1 -- so nothing here is a second implementation of the physics.
+
+  It isolates what the DECAYING FIELD does on its own. The burn still saturates, at
+  S_inf = tt_dyn/(q-1), but with no drag to carry gma_e down afterwards each edge simply
+  STOPS, at gma_0/(1 + gma_0 S_inf), and the tracks run flat instead of turning onto
+  A(t'). The frozen-burn guide is therefore horizontal, at 1/S_inf, and its legend entry
+  reads 'const.' rather than a power. The cooling threshold moves with it: the bottom
+  edge burns only for C < 1/(q-1) = 3/7, against 1/s = 1/3 with the drag on.
+  '''
+  return plot_cooling_tracks(a_rho=0., q=q, labs=nodrag_labs(q),
+                             ref_lab="$t'_{\\rm c}$ const.", fname=fname, **kw)
 
 
 # --- (2) the distribution shapes ---------------------------------------------------------
@@ -458,8 +495,19 @@ def main(show=False):
           f'   power/exact = {pw/gA:.4f}'
           f'   gma_m/(A gma_m,i) = {gm/(float(A_of_sigma(x_end/ttd, A_RHO))*GM0):.4f}'
           f'   gma_M/gma_m = {gM/gm:8.3f}  (1+sC = {1. + abs(_exps(A_RHO, Q_C)[1])*10.**lc:8.3f})')
+  # the no-drag variant: same clock, no A. s collapses to q - 1, and with nothing to
+  # carry gma_e down after the burn freezes each edge simply stops at 1/S_inf
+  s_nd = _exps(0., Q_C)[1]
+  print(f'no drag (a_rho = 0): s = q-1 = {s_nd:.4f}, threshold C < 1/s = {1./s_nd:.4f}')
+  for lc in LOGC_PANELS:
+    ttd = tt_dyn_of_C(lc, GM0)
+    s_inf = ttd/s_nd
+    print(f'  C = 10^{lc:+.0f}   1/S_inf = {1./s_inf:.3e}   '
+          f'gma_m,i*S_inf = {GM0*s_inf:9.3g} -> '
+          f'{"cools" if GM0*s_inf > 1. else "never burns"}')
   plot_cooling_tracks(show=show)
   plot_cooling_shapes(show=show)
+  plot_cooling_tracks_nodrag(show=show)
 
 
 if __name__ == '__main__':
