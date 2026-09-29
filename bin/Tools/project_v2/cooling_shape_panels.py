@@ -340,11 +340,14 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
 
     # 1/tt is the asymptote the top edge slides down, never a place it bends. It
     # starts a little before the knee where the edge begins to burn -- there is nothing
-    # for it to describe while the edge still sits at gma_M,i -- and then RUNS ON to the
-    # gma_e = 1 cut rather than stopping at the handover. Cut at the handover it was
-    # indistinguishable from gma_M everywhere it was drawn; carried on, it separates
-    # visibly once the burn freezes, which is the thing worth seeing.
+    # for it to describe while the edge still sits at gma_M,i -- and runs on past the
+    # handover to 2 t'_dyn. Cut AT the handover it was indistinguishable from gma_M
+    # everywhere it was drawn; two dynamical times leaves it about a factor 3 clear of
+    # the track, enough to read the departure without a long tail of dead line. Panel
+    # (a) has no t'_dyn and nothing to depart from, so there it runs the full range.
     xs = x if knees[0] is None else x[x >= knees[0]/GUIDE_PAD]
+    if ttd is not None:
+      xs = xs[xs <= 2.*ttd]
     ax.loglog(xs, _cut1(1./xs), color=MUTED, ls='-.', lw=GUIDE_LW, zorder=5,
               label=LAB_GUIDE)
 
