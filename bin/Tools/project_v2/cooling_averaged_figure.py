@@ -66,7 +66,7 @@ range of gma_e. That is the mono-energetic collapse, seen in a normalised quanti
 
 THE MARKER is gma_M(tt), the running top edge, which is the break between the cooled
 middle and the gma^-(p+1) tail -- the same landmark the segments table uses. It is drawn
-in both panels, where the amplitude turns over and where the slope steps, and tends to
+on the distribution panel only, where the amplitude turns over, and tends to
 gma_c = 1/tt once the top edge has burnt. The other landmark, gma_m(tt), needs no marker:
 the curve ends there.
 
@@ -196,15 +196,14 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT, outdir=OUTDIR,
     axN.loglog(g, a, color=c, lw=1.1, solid_capstyle='round', zorder=3)
     axS.semilogx(g, sl, color=c, lw=1.1, zorder=3)
     lo_g, hi_N = min(lo_g, float(g[0])), max(hi_N, float(np.max(a)))
-    # gma_M(tt), the BREAK between the cooled middle and the gma^-(p+1) tail. Marked
-    # in BOTH panels: it is where the amplitude turns over and where the slope steps,
-    # and the two readings are easier to pair up than to infer from one another. It
-    # tends to gma_c = 1/tt once the top edge has burnt. gma_m(tt) is not marked -- the
-    # curve already ENDS there, visibly, and NN vanishes so no point would sit on it.
+    # gma_M(tt), the BREAK between the cooled middle and the gma^-(p+1) tail, where
+    # the amplitude turns over. It tends to gma_c = 1/tt once the top edge has burnt.
+    # Marked on the DISTRIBUTION panel only: the slope panel already shows the break as
+    # a step, and a marker on a step lands wherever the numerical derivative smears it.
+    # gma_m(tt) is not marked either -- the curve already ENDS there, visibly.
     gM_t = 1./(tt + 1./gM0)
-    for ax, y in ((axN, N_averaged(gM_t, tt, p, gm0, gM0)), (axS, np.interp(gM_t, g, sl))):
-      ax.scatter([gM_t], [y], s=11, facecolors='none', edgecolors=INK, linewidths=.7,
-                 zorder=6)
+    axN.scatter([gM_t], [N_averaged(gM_t, tt, p, gm0, gM0)], s=11, facecolors='none',
+                edgecolors=INK, linewidths=.7, zorder=6)
 
   # the expected indices, on the right-hand spine rather than as in-panel labels
   levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
