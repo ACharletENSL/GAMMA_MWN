@@ -286,8 +286,8 @@ def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_C, frac=GUIDE_FRAC):
 
 
 def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
-    logC_m=LOGC_PANELS, labs=PANEL_LABS, ref_lab=None, outdir=OUTDIR, fname=FN_TRACKS,
-    show=False):
+    logC_m=LOGC_PANELS, labs=PANEL_LABS, ref_lab=None, ref_q=None, outdir=OUTDIR,
+    fname=FN_TRACKS, show=False):
   '''
   gma_m and gma_M against t'/t'_c,i, one panel per physics case (see module docstring).
   The regime bands are drawn on panel (a) only: that is where they are defined. The
@@ -310,6 +310,12 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
            ('VFC', 1.,         x[-1],      '#2166ac'))
 
   ref_lab = ref_lab or LAB_SYN
+  # THE REFERENCE TRACK is synchrotron only -- a_rho = 0, so A = 1 and S = tt -- but on
+  # the SAME clock as the panel by default, q. That isolates the adiabatic drag: the gap
+  # between black and grey is A, nothing else. Passing ref_q = 0 instead gives the
+  # constant-t'_c synchrotron, which is what the no-drag figure wants for its reference.
+  # gamma_cooled at a_rho = 0, q = 0 reduces to gamma_synCooled exactly.
+  ref_q = q if ref_q is None else ref_q
   for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m, labs)):
     if kind == 'syn':
       for lab, a_, b_, col in bands:
@@ -328,13 +334,13 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
       sg = x/ttd                                   # sigma = (t'/t'_c,i)/tt_dyn
       gM = gamma_cooled(sg, gM0, ttd, a_rho, q)
       gm = gamma_cooled(sg, gm0, ttd, a_rho, q)
-      # the SAME population with the expansion switched off, drawn thin underneath:
-      # it is what panel (a) shows, so the drag is read off the gap rather than by
-      # looking across the figure
-      ax.loglog(x, _cut1(gamma_synCooled(x, gM0)), color=SYN_REF, lw=.9, zorder=2,
-                label=ref_lab)
-      ax.loglog(x, _cut1(gamma_synCooled(x, gm0)), color=SYN_REF, lw=.9, ls='--',
-                zorder=2)
+      # the SAME population with the adiabatic drag switched off, drawn thin
+      # underneath, so the drag is read off the gap rather than by looking across the
+      # figure. The 1/tt guide is kept alongside and is the CONSTANT-t'_c case, which
+      # both tracks follow until the clock starts to stretch.
+      for g0, ls in ((gM0, '-'), (gm0, '--')):
+        ax.loglog(x, _cut1(gamma_cooled(sg, g0, ttd, 0., ref_q)), color=SYN_REF,
+                  lw=.9, ls=ls, zorder=2, label=(ref_lab if g0 == gM0 else None))
       knees = tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0))
       # the second asymptote. Before the burn freezes A is still ~1 and S is still
       # ~t'/t'_c,i, so the top edge runs down the same 1/tt it does in (a); after, it
@@ -394,7 +400,7 @@ def plot_cooling_tracks_nodrag(q=Q_C, fname=FN_NODRAG, **kw):
   reads 'const.' rather than a power. The cooling threshold moves with it: the bottom
   edge burns only for C < 1/(q-1) = 3/7, against 1/s = 1/3 with the drag on.
   '''
-  return plot_cooling_tracks(a_rho=0., q=q, labs=nodrag_labs(q),
+  return plot_cooling_tracks(a_rho=0., q=q, labs=nodrag_labs(q), ref_q=0.,
                              ref_lab="$t'_{\\rm c}$ const.", fname=fname, **kw)
 
 
