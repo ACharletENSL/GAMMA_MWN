@@ -10,15 +10,18 @@ a NORMALISED quantity:
     dNN_e/dgma_e (t') = 1/(t'-t'_0) INT_{t'_0}^{t'} dN_e/dgma_e (that; t'_0) dthat,
 
 with t'_0 the initial collision time. At constant t'_c the clock is linear,
-tt = (t'-t'_0)/t'_c,i, so dthat = t'_c,i dtt and t'-t'_0 = t'_c,i tt: the two factors
-cancel and the average is simply the time INTEGRAL over the elapsed clock,
+
+    tt = (t'-t'_0)/t'_c,0,
+
+so dthat = t'_c,0 dtt and t'-t'_0 = t'_c,0 tt: the two factors cancel and the average is
+simply the time INTEGRAL over the elapsed clock,
 
     dNN_e/dgma_e = N(gma_e; tt)/tt.
 
 Everything in cooling_integrated_figure therefore carries over with a 1/tt prefactor:
 
     dNN_e/dgma_e = K0/[(p-1) tt] gma_e^-(p+1) [A^(p-1) - B^(p-1)],
-    A = min(1, gma_e/gma_m,i),   B = max(1 - gma_e tt, gma_e/gma_M,i).
+    A = min(1, gma_e/gma_m,0),   B = max(1 - gma_e tt, gma_e/gma_M,0).
 
 EVERY SLOPE IS UNCHANGED -- dividing by a gma-independent number leaves dln/dln gma
 alone -- so the segments, the breaks and the hard edges are exactly the integrated
@@ -37,25 +40,25 @@ WHY AVERAGE AT ALL. Two things follow that the integrated form does not have.
   2. THE REGIME LABEL STOPS BEING AMBIGUOUS. The window ends at the current time, so
      gma_c = 1/tt is at once the break AND the label. cooling_integrated's
      sigma_end/C subtlety -- where C = 1e2 still gives a fast-cooled shape because the
-     integral runs past t_dyn -- simply does not arise. The branch is gma_c vs gma_m,i.
+     integral runs past t_dyn -- simply does not arise. The branch is gma_c vs gma_m,0.
 
 THE TWO MIDDLES COME OUT CLEAN.
 
-    slow, gma_m,i < gma_e < gma_c :  K0 gma_e^-p          the INJECTED law, exactly
-    fast, gma_c < gma_e < gma_m,i :  N_e gma_c gma_e^-2   gma_c = 1/tt, bounds gone
+    slow, gma_m,0 < gma_e < gma_c :  K0 gma_e^-p          the INJECTED law, exactly
+    fast, gma_c < gma_e < gma_m,0 :  N_e gma_c gma_e^-2   gma_c = 1/tt, bounds gone
 
   The first is a real statement, not a triviality: while nothing has cooled the time
   average IS the injected distribution, with no t' dependence at all, so the average
-  carries no information about elapsed time until gma_c drops through gma_m,i. Measured
+  carries no information about elapsed time until gma_c drops through gma_m,0. Measured
   ratio 0.9995 well below gma_c, drifting to 0.975 by gma_e/gma_c = 0.1 through the
   usual (p-2)/2 gma_e/gma_c tilt (check_slow_limit).
 
-  The second holds to eight digits (check_fast_limit) and has no trace of gma_m,i or
-  gma_M,i in it: it is the dwell time dtt = dgma/gma^2 times the WHOLE population, and
+  The second holds to eight digits (check_fast_limit) and has no trace of gma_m,0 or
+  gma_M,0 in it: it is the dwell time dtt = dgma/gma^2 times the WHOLE population, and
   gma_c enters only as the amplitude.
 
 THE EVOLUTION, which is what the figure draws. The average starts as the injected power
-law, grows a gma_e^-2 foot as gma_c descends through gma_M,i, and ends as a narrowing,
+law, grows a gma_e^-2 foot as gma_c descends through gma_M,0, and ends as a narrowing,
 GROWING spike at gma_c: measured peak at gma_e = 1/tt and height N_e tt = N_e/gma_c,
 both to three decimals over tt = 10 .. 1e3 (check_peak). Height x width ~ N_e tt x 1/tt
 is the normalisation showing through -- the whole population piling into a shrinking
@@ -64,6 +67,12 @@ range of gma_e. That is the mono-energetic collapse, seen in a normalised quanti
 VALIDITY. Below gma_e = 1 the ultra-relativistic trajectory is not the physical one
 (shaded in both panels). tt = 1 puts gma_c there exactly, which is why the samples stop
 at tt = 1.
+
+SUBSCRIPTS. Elsewhere in the family `i` is the injection epoch OF A GIVEN FLUID
+ELEMENT -- gma_m,i, t'_c,i. The average here is a SHELL-level quantity, so its initial
+values carry 0 instead: t'_0, t'_c,0, gma_m,0, gma_M,0, and tt measured from t'_0. The
+integrated figures keep `i`; the two are the same functions of different reference
+epochs, not different physics.
 
 Run:  python cooling_averaged_figure.py
 '''
@@ -80,11 +89,11 @@ from cooling_shape_figure import LOGTT_SAMPLES
 
 # --- defaults -------------------------------------------------------------------------
 # the SAME sampled times the shape figure uses, so the two are read together: gma_c runs
-# from gma_M,i (nothing has cooled) down to 1 (the end of the model's validity)
+# from gma_M,0 (nothing has cooled) down to 1 (the end of the model's validity)
 LOGTT = LOGTT_SAMPLES
 NG = 3000                   # points per curve, log-spaced over the support
 FNAME = 'cooling_averaged.png'
-TT_LABEL = "$\\log_{10}[(t'-t'_0)/t'_{\\rm c,i}]$"
+TT_LABEL = '$\\log_{10}\\tilde{t}$'
 
 
 def N_averaged(gma, tt, p=P_SYN, gm0=GM0, gM0=GMA_M0):
@@ -96,7 +105,7 @@ def N_averaged(gma, tt, p=P_SYN, gm0=GM0, gM0=GMA_M0):
 
 
 def averaged_distrib(tt, p=P_SYN, gm0=GM0, gM0=GMA_M0, Ng=NG):
-  '(gma, dNN/dgma) over the support [gma_m(tt), gma_M,i].'
+  '(gma, dNN/dgma) over the support [gma_m(tt), gma_M,0].'
   gma = np.geomspace(gamma_synCooled(tt, gm0), gM0, Ng)
   return gma, N_averaged(gma, tt, p, gm0, gM0)
 
@@ -115,7 +124,7 @@ def check_normalisation(tts=(1e-9, 1e-6, 1e-3, 1e-1, 1., 1e2), p=P_SYN, gm0=GM0,
 def check_slow_limit(tt=1e-6, p=P_SYN, gm0=GM0, gM0=GMA_M0, hi=.03):
   '''
   Slow cooling: the average IS the injected law. Returns the worst ratio over
-  gma_m,i .. hi*gma_c, staying clear of the (p-2)/2 gma/gma_c tilt near the break.
+  gma_m,0 .. hi*gma_c, staying clear of the (p-2)/2 gma/gma_c tilt near the break.
   '''
   K0 = norm_plaw_distrib(gm0, gM0, p)
   g = np.geomspace(2.*gm0, hi/tt, 40)
@@ -212,8 +221,8 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT, outdir=OUTDIR,
   axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
   axR.grid(False)
 
-  for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'),
-                 (gM0, '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$')):
+  for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'),
+                 (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
     axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                  fontsize=FS_ANN, ha='center', va='top',
                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
