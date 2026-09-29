@@ -64,6 +64,11 @@ both to three decimals over tt = 10 .. 1e3 (check_peak). Height x width ~ N_e tt
 is the normalisation showing through -- the whole population piling into a shrinking
 range of gma_e. That is the mono-energetic collapse, seen in a normalised quantity.
 
+THE MARKERS are the two running edges gma_m(tt) and gma_M(tt), the same landmarks the
+segments table uses. gma_M is the break between the cooled middle and the gma^-(p+1)
+tail and tends to gma_c = 1/tt once the top edge has burnt; gma_m is the cut-off, where
+the curve ends.
+
 VALIDITY. Below gma_e = 1 the ultra-relativistic trajectory is not the physical one
 (shaded in both panels). tt = 1 puts gma_c there exactly, which is why the samples stop
 at tt = 1.
@@ -92,6 +97,7 @@ from cooling_shape_figure import LOGTT_SAMPLES
 # from gma_M,0 (nothing has cooled) down to 1 (the end of the model's validity)
 LOGTT = LOGTT_SAMPLES
 NG = 3000                   # points per curve, log-spaced over the support
+N_LO = 1e-14                # floor of the distribution panel; the gma_m ticks sit on it
 FNAME = 'cooling_averaged.png'
 TT_LABEL = '$\\log_{10}\\tilde{t}$'
 
@@ -188,11 +194,20 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT, outdir=OUTDIR,
     axN.loglog(g, a, color=c, lw=1.1, solid_capstyle='round', zorder=3)
     axS.semilogx(g, log_slope(g, a), color=c, lw=1.1, zorder=3)
     lo_g, hi_N = min(lo_g, float(g[0])), max(hi_N, float(np.max(a)))
-    # gma_c = 1/tt, clipped into the support: in fast cooling it IS the cut-off, which
-    # is where the peak sits, and in slow cooling it is the break
-    gc = min(max(1./tt, float(g[0])), float(g[-1]))
-    axN.scatter([gc], [N_averaged(gc, tt, p, gm0, gM0)], s=11, facecolors='none',
+    # THE TWO RUNNING EDGES, which are the table's landmarks. They are marked
+    # differently because they sit differently on the curve: gma_M(tt) is the BREAK
+    # between the cooled middle and the gma^-(p+1) tail, an interior point with a finite
+    # value, so it goes on the curve; gma_m(tt) is where the curve ENDS and NN vanishes
+    # there, so a point on the curve would be at zero -- it is ticked on the floor
+    # instead. gma_M -> 1/tt = gma_c once the top edge has burnt, which is what the
+    # single gma_c marker used to show.
+    gM_t = 1./(tt + 1./gM0)
+    axN.scatter([gM_t], [N_averaged(gM_t, tt, p, gm0, gM0)], s=11, facecolors='none',
                 edgecolors=INK, linewidths=.7, zorder=6)
+    # an INK triangle on the floor, not a coloured tick: the curve already plunges
+    # to the floor at gma_m, so a mark in the curve's own colour is invisible on it
+    axN.scatter([g[0]], [N_LO*2.2], marker='^', s=13, facecolors='none',
+                edgecolors=INK, linewidths=.7, zorder=7)
 
   # the expected indices, on the right-hand spine rather than as in-panel labels
   levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
@@ -208,7 +223,7 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT, outdir=OUTDIR,
     ax.grid(alpha=.25, lw=.4)
     ax.tick_params(which='both', labelsize=FS_TICK)
   axN.set_xlim(.3*lo_g, 4.*gM0)
-  axN.set_ylim(1e-14, 10.*hi_N)
+  axN.set_ylim(N_LO, 10.*hi_N)
   axN.set_ylabel('${\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$',
                  fontsize=FS_LAB)
   axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
@@ -231,7 +246,9 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT, outdir=OUTDIR,
                fontsize=FS_ANN, ha='left', va='bottom',
                bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axN.scatter([], [], s=11, facecolors='none', edgecolors=INK, linewidths=.7,
-              label='$\\gamma_\\mathrm{c}=1/\\tilde{t}$')
+              label='$\\gamma_\\mathrm{M}(\\tilde{t}\\,)$')
+  axN.scatter([], [], marker='^', s=13, facecolors='none', edgecolors=INK,
+              linewidths=.7, label='$\\gamma_\\mathrm{m}(\\tilde{t}\\,)$')
   axN.legend(fontsize=FS_LEG, loc='lower left', framealpha=.9, handletextpad=.4,
              borderpad=.4, labelspacing=.3)
 
