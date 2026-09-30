@@ -350,14 +350,15 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
                        fontsize=FS_LAB)
   axs[1, 0].set_ylabel("${\\rm d}\\ln({\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_"
                        "{\\rm e})/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
-  # PROXY handles: the frozen line lives in (b) and (c), the legend in (a), so the
-  # entries cannot be collected from the panel that carries them
-  axs[0, 0].legend(handles=[
+  # In the LAST panel: the slow-cooling curves only start at gma_m,0, so its upper left
+  # is the one large empty patch in the figure. Proxy handles, because the entries are
+  # spread over panels -- the frozen line is not in every one.
+  axs[0, -1].legend(handles=[
       plt.Line2D([], [], color='k', lw=2.6, label='injected'),
       plt.Line2D([], [], color='crimson', ls='--', lw=1.1, label='frozen'),
       plt.Line2D([], [], color=INK, lw=0, marker='o', mfc='none', ms=3.5,
                  label='$\\gamma_\\mathrm{M}$')],
-      fontsize=FS_LEG, loc='upper center', framealpha=.9, handletextpad=.3,
+      fontsize=FS_LEG, loc='upper left', framealpha=.9, handletextpad=.3,
       borderpad=.3, ncol=3, columnspacing=.9, handlelength=1.3)
   p1 = axs[0, -1].get_position()
   cax = fig.add_axes([p1.x1 + .014, p1.y0, .016, p1.height])
