@@ -30,7 +30,9 @@ set -u
 WORK="${SLURM_SUBMIT_DIR:-$PWD}"
 T=${SLURM_ARRAY_TASK_ID:?run as an array job}
 LA=$(awk -v t="$T" 'BEGIN{printf "%.1f", (t-20)/10}')
-KEY="sweep_Th5e-7_log_au=$LA"
+# THETA0 overrides the template's 5e-7 (e.g. 5e-5 for warm controls); it names the key
+THETA0=${THETA0:-5e-7}
+KEY="sweep_Th${THETA0}_log_au=$LA"
 DEST="$WORK/results/$KEY"
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-1}
 export OMP_PROC_BIND=close OMP_PLACES=cores
@@ -53,7 +55,7 @@ cd "$LOC" || exit 1
 export GAMMA_DIR="$LOC"
 
 U4=$(awk -v la="$LA" 'BEGIN{printf "%.10g", 10*(1+10^la)}')
-sed -e "s/@U4@/$U4/" -e "s/@TSTOP@/0/" "$WORK/hpc/phys_input_sweep_au_cold.ini" > phys_input.ini
+sed -e "s/@U4@/$U4/" -e "s/@TSTOP@/0/" -e "s/^Theta0 .*/Theta0      $THETA0/" "$WORK/hpc/phys_input_sweep_au_cold.ini" > phys_input.ini
 TSTOP=$(python3 -c "
 import sys; sys.path.insert(1, 'bin/Tools/project_v2')
 from environment import MyEnv
