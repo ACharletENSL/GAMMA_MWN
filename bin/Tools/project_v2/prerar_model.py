@@ -1959,13 +1959,16 @@ def _sampling_panel(ax, test_key, z, starts):
   ax.set_ylabel(rf'$\rho/\rho_{z}$')
   P._style(ax)
   ax.grid(False)
+  # Labels sit in boxes of the background grey, so the cell lines crossing them are masked
+  # without a white patch standing out of the shaded shell.
+  lab_box = dict(fc=PHASE_GREY[0], ec='none', pad=0.6)
   # the two shells, shaded in the phase-strip grey and named with their proper velocity
   for zz, u in ((4, env.u4), (1, env.u1)):
     lo, hi, _ = shell_cell_range(test_key, zz)
     a, b = xi[lo] - 0.5*(xi[lo+1] - xi[lo]), xi[hi] + 0.5*(xi[hi] - xi[hi-1])
     ax.axvspan(a, b, color=PHASE_GREY[0], lw=0, zorder=0)
-    ax.text(0.5*(a + b), 12., rf'S{zz}, $u={u:.0f}$', ha='center', va='center', fontsize=7.5,
-            color='0.2')
+    ax.text(0.5*(a + b), 12., rf'S{zz}, $u_{zz}={u:.0f}$', ha='center', va='center',
+            fontsize=7.5, color='0.2', zorder=4, bbox=lab_box)
   ax.axvline(0., color='0.4', lw=0.8, ls=(0, (3, 2)), zorder=1)
   ax.text(0.02, 0.05, 'CD', fontsize=7, color='0.35', ha='left', va='bottom', zorder=4,
           transform=ax.get_xaxis_transform())
@@ -1973,11 +1976,11 @@ def _sampling_panel(ax, test_key, z, starts):
   ax.annotate('', xy=(sgn*0.95, 0.045), xytext=(sgn*0.05, 0.045),
               arrowprops=dict(arrowstyle='->', color='0.35', lw=0.9), zorder=4)
   ax.text(sgn*0.5, 0.075, 'RS' if z == 4 else 'FS', fontsize=7, color='0.35', ha='center',
-          va='bottom', zorder=4)
+          va='bottom', zorder=4, bbox=lab_box)
   for f_req, f_got, k, col in starts:
     ax.axvline(xi[k], color=col, lw=1.6, zorder=2)
     ax.text(xi[k], 2.2, rf'${100*f_req:.0f}\%$', color=col, fontsize=7.5, ha='center',
-            va='bottom', zorder=4, bbox=dict(fc='white', ec='none', pad=0.6, alpha=0.85))
+            va='bottom', zorder=4, bbox=lab_box)
 
 
 # --- wave tracks ----------------------------------------------------------------------
