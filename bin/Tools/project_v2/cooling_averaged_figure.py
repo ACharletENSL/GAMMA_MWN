@@ -441,8 +441,10 @@ def plot_averaged_decay(p=P_SYN, gm0=GM0, gM0=GMA_M0, q=Q_C, logsig=LOGSIG,
                        fontsize=FS_LAB)
   axs[1, 0].set_ylabel("${\\rm d}\\ln({\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_"
                        "{\\rm e})/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
-  axs[0, 0].legend(fontsize=FS_LEG, loc='lower left', framealpha=.9, handletextpad=.4,
-                   borderpad=.4, labelspacing=.3)
+  # upper centre of (a): the curves all run upper-left to lower-right, so that is the
+  # one patch of the panel no line crosses
+  axs[0, 0].legend(fontsize=FS_LEG, loc='upper center', framealpha=.9,
+                   handletextpad=.4, borderpad=.4, labelspacing=.3)
   p0, p1 = axs[0, 0].get_position(), axs[0, 1].get_position()
   cax = fig.add_axes([p1.x1 + .015, p1.y0, .018, p1.height])
   cb = fig.colorbar(sm, cax=cax)
