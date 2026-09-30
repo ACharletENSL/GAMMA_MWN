@@ -107,8 +107,11 @@ FNAME = 'cooling_averaged.png'
 _QF = Fraction(Q_C).limit_denominator(100)
 _QT = (f'{_QF.numerator}' if _QF.denominator == 1
        else f'{_QF.numerator}/{_QF.denominator}')
-PANEL_LABS_D = tuple(f"$t'_{{\\rm c}}\\propto t'^{{{_QT}}}$ \u2013 {w}"
-                     for w in ('FC', 'SC'))
+# (title, log10 C, q). (a) and (b) share kappa and differ ONLY in the clock; (b) and
+# (c) share the clock and differ only in the regime
+CASES = (f"$t'_{{\\rm c}}=\\,$cst \u2013 FC", -2., 0.), \
+        (f"$t'_{{\\rm c}}\\propto t'^{{{_QT}}}$ \u2013 FC", -2., Q_C), \
+        (f"$t'_{{\\rm c}}\\propto t'^{{{_QT}}}$ \u2013 SC", 2., Q_C)
 TT_LABEL = '$\\log_{10}\\tilde{t}$'
 
 
@@ -167,116 +170,10 @@ def check_peak(tts=(1e1, 1e2, 1e3), p=P_SYN, gm0=GM0, gM0=GMA_M0, Ng=400001):
   return out
 
 
-# --- the figure -------------------------------------------------------------------------
-def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT, outdir=OUTDIR,
-    fname=FNAME, show=False):
-  '''
-  Two-panel view, the family's layout for a distribution against gma_e: the averaged
-  distributions over the sampled times, and the local slope underneath where the
-  gma^-p / gma^-2 / gma^-(p+1) segments can be read off. The injected law is the black
-  anchor -- the early curves lie ON it, which is the slow-cooling statement.
-  '''
-  logtt = np.asarray(logtt, dtype=float)
-  norm = plt.Normalize(vmin=logtt.min(), vmax=logtt.max())
-  # the ramp is TRUNCATED at .85 to keep clear of viridis's brightest yellow, and the
-  # bar is built from the same truncated map -- taking the lines from one and the bar
-  # from the other leaves a colour key that does not match the curves
-  cmap = mcolors.LinearSegmentedColormap.from_list(
-      'viridis85', plt.cm.viridis(np.linspace(0., .85, 256)))
-  colors = cmap(norm(logtt))
-  sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-  K0 = norm_plaw_distrib(gm0, gM0, p)
-
-  fig, (axN, axS) = plt.subplots(2, 1, figsize=FIGSIZE, sharex=True,
-      gridspec_kw=dict(height_ratios=[1.9, 1.], hspace=.08))
-
-  # the injected law UNDER everything: at the earliest times the curves sit on it, and
-  # drawn on top the black would hide exactly the agreement the panel is making
-  # WIDER than the curves, so where one lies on it the black still shows either side.
-  # At lw 1.4 the earliest curve covered it exactly and the agreement was invisible.
-  gg = np.geomspace(gm0, gM0, 400)
-  axN.loglog(gg, K0*gg**-p, color='k', lw=2.6, zorder=1, solid_capstyle='butt',
-             label='injected')
-  lo_g, hi_N = np.inf, 0.
-  for lt, c in zip(logtt, colors):
-    tt = 10.**lt
-    g, a = averaged_distrib(tt, p, gm0, gM0)
-    sl = log_slope(g, a)
-    axN.loglog(g, a, color=c, lw=1.1, solid_capstyle='round', zorder=3)
-    axS.semilogx(g, sl, color=c, lw=1.1, zorder=3)
-    lo_g, hi_N = min(lo_g, float(g[0])), max(hi_N, float(np.max(a)))
-    # gma_M(tt), the BREAK between the cooled middle and the gma^-(p+1) tail, where
-    # the amplitude turns over. It tends to gma_c = 1/tt once the top edge has burnt.
-    # Marked on the DISTRIBUTION panel only: the slope panel already shows the break as
-    # a step, and a marker on a step lands wherever the numerical derivative smears it.
-    # gma_m(tt) is not marked either -- the curve already ENDS there, visibly.
-    gM_t = 1./(tt + 1./gM0)
-    axN.scatter([gM_t], [N_averaged(gM_t, tt, p, gm0, gM0)], s=11, facecolors='none',
-                edgecolors=INK, linewidths=.7, zorder=6)
-
-  # the expected indices, on the right-hand spine rather than as in-panel labels
-  levels = ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$'))
-  for lev, _ in levels:
-    axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-  axS.set_ylim(-(p + 2.6), .4)
-
-  for ax in (axN, axS):
-    ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
-    for v in (gm0, gM0):
-      ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-    ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
-    ax.grid(alpha=.25, lw=.4)
-    ax.tick_params(which='both', labelsize=FS_TICK)
-  axN.set_xlim(.3*lo_g, 4.*gM0)
-  axN.set_ylim(N_LO, 10.*hi_N)
-  axN.set_ylabel('${\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$',
-                 fontsize=FS_LAB)
-  axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
-  axS.set_ylabel("${\\rm d}\\ln({\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_{\\rm e})"
-                 "/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
-  axR = axS.twinx()
-  axR.set_ylim(axS.get_ylim())
-  axR.set_yticks([lev for lev, _ in levels])
-  axR.set_yticklabels([lab for _, lab in levels])
-  axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
-  axR.grid(False)
-
-  for v, lab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'),
-                 (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
-    axN.annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
-                 fontsize=FS_ANN, ha='center', va='top',
-                 bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axS.annotate('$\\gamma_{\\rm e}=1$', (1., .10), xycoords=('data', 'axes fraction'),
-               textcoords='offset points', xytext=(3, 0), color='crimson',
-               fontsize=FS_ANN, ha='left', va='bottom',
-               bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  axN.scatter([], [], s=11, facecolors='none', edgecolors=INK, linewidths=.7,
-              label='$\\gamma_\\mathrm{M}(\\tilde{t}\\,)$')
-  axN.legend(fontsize=FS_LEG, loc='lower left', framealpha=.9, handletextpad=.4,
-             borderpad=.4, labelspacing=.3)
-
-  # the colour bar beside the TOP panel only, on an explicit cax: stealing space from
-  # one of two stacked shared-x panels leaves them different widths
-  pN = axN.get_position()
-  cax = fig.add_axes([pN.x1 + .015, pN.y0, .022, pN.height])
-  cb = fig.colorbar(sm, cax=cax)
-  cb.set_label(TT_LABEL, fontsize=FS_LAB)
-  cb.ax.tick_params(labelsize=FS_TICK)
-
-  os.makedirs(outdir, exist_ok=True)
-  path = os.path.join(outdir, fname)
-  fig.savefig(path, dpi=300, bbox_inches='tight')
-  print(f'saved {path}')
-  if show:
-    plt.show()
-  return fig, (axN, axS)
-
-
 # --- the decaying field: t'_c ~ tau^q ----------------------------------------------------
 LOGSIG = (-3., -2., -1., 0., 1., 2., 3.)   # sampled log10 sigma, sigma = t'/t'_0 - 1
 LOGC_FS = (-2., 2.)                        # the fast- and slow-cooling columns
 NG_D = 500                                 # points per curve
-FN_DECAY = 'cooling_averaged_decay.png'
 _GL_X, _GL_W = np.polynomial.legendre.leggauss(64)
 
 
@@ -373,49 +270,58 @@ def check_decay_freeze(kap, sigmas=(1e1, 1e2, 1e3), p=P_SYN, gm0=GM0, gM0=GMA_M0
           for sg in sigmas]
 
 
-def plot_averaged_decay(p=P_SYN, gm0=GM0, gM0=GMA_M0, q=Q_C, logsig=LOGSIG,
-    logC=LOGC_FS, outdir=OUTDIR, fname=FN_DECAY, show=False):
+def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
+    outdir=OUTDIR, fname=FNAME, show=False):
   '''
-  The time-averaged distribution with a DECAYING field, fast and slow cooling. Two
-  columns, distributions above and their local slope below, with the frozen state drawn
-  as the limit both columns are heading for.
+  The whole time-averaged family in one figure: three cases across, distributions above
+  and their local slope below, on one log10 sigma colour axis.
+
+  Column (a) is the constant-t'_c case and (b) the SAME system with the field decaying,
+  so the pair isolates the CLOCK -- same kappa, same sampled times, nothing else
+  different. (b) against (c) then isolates the regime. Panels (b) and (c) carry the
+  frozen state as a dashed line, which (a) has none of: with a constant field the clock
+  never saturates and the average never settles.
   '''
+  cases = CASES if cases is None else cases
   logsig = np.asarray(logsig, dtype=float)
   norm = plt.Normalize(vmin=logsig.min(), vmax=logsig.max())
   cmap = mcolors.LinearSegmentedColormap.from_list(
       'viridis85', plt.cm.viridis(np.linspace(0., .85, 256)))
   colors, sm = cmap(norm(logsig)), plt.cm.ScalarMappable(cmap=cmap, norm=norm)
   K0 = norm_plaw_distrib(gm0, gM0, p)
-  _, s = _exps(0., q)
 
-  # sharey BY ROW, so the two cases are read on one scale and only the left column
-  # carries tick labels; sharex across the whole grid keeps the gamma axis common
-  fig, axs = plt.subplots(2, 2, figsize=(7.1, 5.2), sharex=True, sharey='row',
+  fig, axs = plt.subplots(2, len(cases), figsize=(7.1, 4.8), sharex=True, sharey='row',
                           squeeze=False,
                           gridspec_kw=dict(height_ratios=[1.9, 1.], hspace=.08,
                                            wspace=.06))
   lo_g, hi_N = np.inf, 0.
-  for k, lc in enumerate(logC):
+  for k, (lab, lc, q) in enumerate(cases):
     axN, axS = axs[0, k], axs[1, k]
     kap = tt_dyn_of_C(lc, gm0)
-    u_i = kap/s
+    _, s = _exps(0., q)
     gg = np.geomspace(gm0, gM0, 400)
-    axN.loglog(gg, K0*gg**-p, color='k', lw=2.6, zorder=1, solid_capstyle='butt',
-               label='injected')
+    axN.loglog(gg, K0*gg**-p, color='k', lw=2.6, zorder=1, solid_capstyle='butt')
     for ls, c in zip(logsig, colors):
       sg = 10.**ls
-      g = np.geomspace(gm0/(1. + gm0*float(u_of_sigma(sg, kap, q))), gM0, NG_D)
+      u = float(u_of_sigma(sg, kap, q))
+      g = np.geomspace(gm0/(1. + gm0*u), gM0, NG_D)
       a = N_averaged_decay(g, sg, kap, p, gm0, gM0, q)
       m = a > 0.
+      if not m.any():
+        continue
       axN.loglog(g[m], a[m], color=c, lw=1.1, zorder=3)
       axS.semilogx(g[m], log_slope(g[m], a[m]), color=c, lw=1.1, zorder=3)
       lo_g, hi_N = min(lo_g, float(g[m][0])), max(hi_N, float(np.max(a)))
-    # the FROZEN state: where the average is heading inside its support, and what every
-    # curve above that support is falling away from as 1/sigma
-    gf = np.geomspace(1./(u_i + 1./gm0), 1./(u_i + 1./gM0), 600)
-    axN.loglog(gf, N_frozen(gf, kap, p, gm0, gM0, q), color='crimson', ls='--', lw=1.1,
-               zorder=5, label='frozen')
-    axN.set_title(f'{PANEL_LABS_D[k]}', fontsize=FS_LAB, pad=3.)
+      # gma_M(u), the break between the cooled middle and the gma^-(p+1) tail
+      gM_u = 1./(u + 1./gM0)
+      axN.scatter([gM_u], N_averaged_decay(gM_u, sg, kap, p, gm0, gM0, q), s=11,
+                  facecolors='none', edgecolors=INK, linewidths=.7, zorder=6)
+    if s > 0.:        # the burn saturates: draw the state everything is heading for
+      u_i = kap/s
+      gf = np.geomspace(1./(u_i + 1./gm0), 1./(u_i + 1./gM0), 600)
+      axN.loglog(gf, N_instant(gf, u_i, p, gm0, gM0), color='crimson', ls='--', lw=1.1,
+                 zorder=5)
+    axN.set_title(lab, fontsize=FS_LAB, pad=3.)
     for ax in (axN, axS):
       ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
       for v in (gm0, gM0):
@@ -424,29 +330,33 @@ def plot_averaged_decay(p=P_SYN, gm0=GM0, gM0=GMA_M0, q=Q_C, logsig=LOGSIG,
       ax.grid(alpha=.25, lw=.4)
       ax.tick_params(which='both', labelsize=FS_TICK)
     axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
-    for lev, lab in ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$')):
+    for lev in (-2., -p, -(p+1.)):
       axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
     axS.set_ylim(-(p + 2.6), .4)
-    if k:
-      axR = axS.twinx()
-      axR.set_ylim(axS.get_ylim())
-      axR.set_yticks([-2., -p, -(p+1.)])
-      axR.set_yticklabels(['$-2$', '$-p$', '$-(p+1)$'])
-      axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
-      axR.grid(False)
-  for k in (0, 1):
+  axR = axs[1, -1].twinx()
+  axR.set_ylim(axs[1, -1].get_ylim())
+  axR.set_yticks([-2., -p, -(p+1.)])
+  axR.set_yticklabels(['$-2$', '$-p$', '$-(p+1)$'])
+  axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
+  axR.grid(False)
+  for k in range(len(cases)):
     axs[0, k].set_xlim(.3*lo_g, 4.*gM0)
     axs[0, k].set_ylim(1e-14, 10.*hi_N)
   axs[0, 0].set_ylabel('${\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$',
                        fontsize=FS_LAB)
   axs[1, 0].set_ylabel("${\\rm d}\\ln({\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_"
                        "{\\rm e})/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
-  # upper centre of (a): the curves all run upper-left to lower-right, so that is the
-  # one patch of the panel no line crosses
-  axs[0, 0].legend(fontsize=FS_LEG, loc='upper center', framealpha=.9,
-                   handletextpad=.4, borderpad=.4, labelspacing=.3)
-  p0, p1 = axs[0, 0].get_position(), axs[0, 1].get_position()
-  cax = fig.add_axes([p1.x1 + .015, p1.y0, .018, p1.height])
+  # PROXY handles: the frozen line lives in (b) and (c), the legend in (a), so the
+  # entries cannot be collected from the panel that carries them
+  axs[0, 0].legend(handles=[
+      plt.Line2D([], [], color='k', lw=2.6, label='injected'),
+      plt.Line2D([], [], color='crimson', ls='--', lw=1.1, label='frozen'),
+      plt.Line2D([], [], color=INK, lw=0, marker='o', mfc='none', ms=3.5,
+                 label='$\\gamma_\\mathrm{M}$')],
+      fontsize=FS_LEG, loc='upper center', framealpha=.9, handletextpad=.4,
+      borderpad=.4, labelspacing=.3)
+  p1 = axs[0, -1].get_position()
+  cax = fig.add_axes([p1.x1 + .014, p1.y0, .016, p1.height])
   cb = fig.colorbar(sm, cax=cax)
   cb.set_label("$\\log_{10}[(t'-t'_0)/t'_0]$", fontsize=FS_LAB)
   cb.ax.tick_params(labelsize=FS_TICK)
@@ -463,27 +373,46 @@ def _save_fig(fig, axs, outdir, fname, show):
   return fig, axs
 
 
+def check_reduces_to_closed(logC=-2., sigmas=(1e-3, 1e-1, 1e1, 1e3), p=P_SYN,
+    gm0=GM0, gM0=GMA_M0):
+  '''
+  At q = 0 the clock is linear and the average has the CLOSED FORM N(gma;tt)/tt of
+  cooling_integrated_figure. The quadrature must reproduce it -- that is what keeps the
+  three columns one implementation rather than two. Returns the worst deviation.
+  '''
+  kap = tt_dyn_of_C(logC, gm0)
+  dev = 0.
+  for sg in sigmas:
+    u = float(u_of_sigma(sg, kap, 0.))
+    g = np.geomspace(1.02*gm0/(1. + gm0*u), .9*gM0, 60)
+    dev = max(dev, float(np.max(np.abs(
+        N_averaged_decay(g, sg, kap, p, gm0, gM0, 0.)/N_averaged(g, u, p, gm0, gM0)
+        - 1.))))
+  return dev
+
+
 def main(show=False):
-  print(f'normalisation  : max |int (N/tt) dgma_e - 1| = {check_normalisation():.2e}'
-        '   (the integral itself grows as tt; the average does not)')
-  print(f'slow limit     : max |avg/(K0 gma^-p) - 1| = {check_slow_limit():.2e}'
-        '   -- the average IS the injected law')
-  print(f'fast limit     : max |avg/(N_e gma_c gma^-2) - 1| = {check_fast_limit():.2e}')
+  print(f'q = 0 vs the closed form N/tt : max rel dev = '
+        f'{check_reduces_to_closed():.2e}   (one implementation, not two)')
+  print(f'normalisation, q = 0         : max |int - 1| = {check_normalisation():.2e}')
+  print(f'slow limit  -> injected law  : {check_slow_limit():.2e}')
+  print(f'fast limit  -> N_e gma_c/gma^2: {check_fast_limit():.2e}')
   print('peak, deep fast cooling (both ratios -> 1):')
   for tt, xr, yr in check_peak():
     print(f'    tt={tt:7.0e}:  gma_peak*tt = {xr:.4f}   height/(N_e tt) = {yr:.4f}')
-  plot_averaged(show=show)
-  print("\nDECAYING FIELD, t'_c ~ tau^q with q = %.4f (s = q-1 = %.4f):" % (Q_C, Q_C-1.))
-  for lc, tag in zip(LOGC_FS, ('FC', 'SC')):
+  print(f"\nDECAYING FIELD, t'_c ~ tau^q, q = {Q_C:.4f} (s = q-1 = {Q_C-1.:.4f}):")
+  for lab, lc, q in CASES:
+    if q == 0.:
+      continue
     kap = tt_dyn_of_C(lc, GM0)
-    u_i = kap/_exps(0., Q_C)[1]
-    frz = check_decay_freeze(kap)
+    u_i = kap/_exps(0., q)[1]
+    tag = 'FC' if lc < 0 else 'SC'
     print(f'  {tag} (C = 10^{lc:+.0f}): kappa={kap:.3e}  u_inf={u_i:.4e}  '
           f'frozen support [{1./(u_i+1./GM0):.4g}, {1./(u_i+1./GMA_M0):.4g}]')
     print(f'     normalisation : max |int dgma - 1| = {check_decay_norm(kap):.2e}')
-    print('     -> frozen state: '
-          + '  '.join(f'sigma={s:.0e}: {d:.3e}' for s, d in frz))
-  plot_averaged_decay(show=show)
+    print('     -> frozen state: ' + '  '.join(
+        f'sigma={s:.0e}: {d:.3e}' for s, d in check_decay_freeze(kap)))
+  plot_averaged(show=show)
 
 
 if __name__ == '__main__':
