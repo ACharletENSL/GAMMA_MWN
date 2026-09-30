@@ -24,9 +24,10 @@ def extract_all_withlogau(withHydro=True, nCD=1, nSH=5, noPrint=True):
     extract_fittingData(key, withHydro=withHydro, nCD=nCD, nSH=nSH, noPrint=noPrint)
   join_extracted(keys)
 
-def extract_fittingData(key, withHydro=True, nCD=1, nSH=5, noPrint=True):
+def extract_fittingData(key, withHydro=True, nCD=1, nSH=5, noPrint=True, consistent_vx_u=False):
   '''
   Extract data behind shock fronts from a sim, save in files
+  consistent_vx_u: see fits_hydro.cellsBehindShock_fromFit; needed near a_u = 1
   '''
   
   print('Analyzing run ' + key)
@@ -36,10 +37,10 @@ def extract_fittingData(key, withHydro=True, nCD=1, nSH=5, noPrint=True):
         nCD=nCD, nSH=nSH, noOut=True, noPrint=noPrint)
   env = MyEnv(key)
   log_au = np.round(np.log10(env.a_u - 1.), 1)
-  extract_fits(key, log_au, noPrint=noPrint)
+  extract_fits(key, log_au, noPrint=noPrint, consistent_vx_u=consistent_vx_u)
 
 
-def extract_fits(key, logau, output=False, noPks=False, noPrint=False):
+def extract_fits(key, logau, output=False, noPks=False, noPrint=False, consistent_vx_u=False):
   env = MyEnv(key)
   outs = []
   for z, front in zip([1, 4], ['FS', 'RS']):
@@ -53,7 +54,7 @@ def extract_fits(key, logau, output=False, noPks=False, noPrint=False):
       analyzed = get_hydrofits_shell_new(data)
     else:
       analyzed = get_anglefits(data, NT=2*N, Nnu=300,
-        returnAll=True, noPrint=noPrint)
+        returnAll=True, noPrint=noPrint, consistent_vx_u=consistent_vx_u)
     outs.append(analyzed)
     out = np.hstack(analyzed)
     out = np.insert(out, 0, logau)
@@ -62,7 +63,8 @@ def extract_fits(key, logau, output=False, noPks=False, noPrint=False):
     return outs
 
 # get the fits for xi (effective angle approx)
-def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False, noPrint=False):
+def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False, noPrint=False,
+  consistent_vx_u=False):
 
   nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], NT=NT, Nnu=Nnu)
   t_max = data.iloc[-1].t
@@ -76,7 +78,8 @@ def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False, noPrint=Fals
   if not noPrint:
     print('Fitting procedure')
   popt_lfac, popt_ShSt, popt_nu, popt_L = get_hydrofits_shell_new(data)
-  d_fit = cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max, fastshell=fastshell)
+  d_fit = cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max, fastshell=fastshell,
+    consistent_vx_u=consistent_vx_u)
 
   # break time
   Tmax0 = Tmax

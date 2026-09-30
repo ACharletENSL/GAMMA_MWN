@@ -67,15 +67,30 @@ def cellsBehindShock_fromData(data, N_in=None):
 
 
 def cellsBehindShock_fromFit(key, popt_lfac, popt_ShSt, t_max,
-  N_in=None, fastshell=True, attrs={}):
+  N_in=None, fastshell=True, attrs={}, consistent_vx_u=False):
   '''
   same as _fromData but using the extracted fitting values
   attrs is a dictionnary of attributes
+  consistent_vx_u: set the upstream velocity so that the cell's relative Lorentz factor
+    Gamma_ud(vx, vx_u) equals the ShSt fit, instead of the analytic beta4 (beta1).
+    With beta4, Gamma_ud - 1 (hence gma_m, and nu_m ~ gma_m^2) comes from the difference
+    of two nearly equal velocities, one of them the lfac FIT: its error is amplified by
+    ~2/(rapidity difference), ~400x at a_u = 1.01. There a 0.05% offset in the fitted
+    lfac put Gamma_ud - 1 at 0.815x the ShSt fit and nu_m at 0.66x, and the xi fit
+    degenerated onto its bound to absorb it.
   '''
   env = MyEnv(key)
 
   t_hit, cells_i, R, dx, rho, vx, lfac, p, trac = reconstruct_data(t_max, env, fastshell, popt_lfac, popt_ShSt, N_in)
-  vx_u = np.full(t_hit.shape, (env.beta4 if fastshell else env.beta1))
+  if consistent_vx_u:
+    # rapidities add along x: the upstream of the RS (fast shell) is faster than the
+    # shocked cell, the upstream of the FS slower
+    ShSt0 = (env.lfac34 if fastshell else env.lfac21) - 1.
+    Gma_ud = 1. + ShSt0 * smooth_bpl0_apy(R*c_/env.R0, *popt_ShSt)
+    sgn = 1. if fastshell else -1.
+    vx_u = np.tanh(np.arctanh(vx) + sgn*np.arccosh(Gma_ud))
+  else:
+    vx_u = np.full(t_hit.shape, (env.beta4 if fastshell else env.beta1))
 
   # create dataframe
   keys = ['t', 'i', 'x', 'dx', 'rho', 'vx', 'lfac', 'p', 'vx_u', 'trac']
