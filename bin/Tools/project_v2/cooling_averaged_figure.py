@@ -84,13 +84,15 @@ Run:  python cooling_averaged_figure.py
 '''
 
 import os
+from fractions import Fraction
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
 from cooling_distribution import gamma_synCooled, norm_plaw_distrib
 from cooling_integrated_figure import (P_SYN, GM0, GMA_M0, OUTDIR, INK, MUTED, FIGSIZE,
-    FS_LAB, FS_TICK, FS_ANN, FS_LEG, GMA_LABEL, N_integrated, log_slope)
+    FS_LAB, FS_TICK, FS_ANN, FS_LEG, GMA_LABEL, N_integrated, log_slope, tt_dyn_of_C)
+from cooling_integrated_adiabatic import Q_C, _exps, S_of_sigma
 from cooling_shape_figure import LOGTT_SAMPLES
 
 # --- defaults -------------------------------------------------------------------------
@@ -100,6 +102,13 @@ LOGTT = LOGTT_SAMPLES
 NG = 3000                   # points per curve, log-spaced over the support
 N_LO = 1e-14                # floor of the distribution panel; the gma_m ticks sit on it
 FNAME = 'cooling_averaged.png'
+# the decaying-field panels name the clock they run on; q is rendered from Q_C so the
+# titles follow the constant rather than being written in
+_QF = Fraction(Q_C).limit_denominator(100)
+_QT = (f'{_QF.numerator}' if _QF.denominator == 1
+       else f'{_QF.numerator}/{_QF.denominator}')
+PANEL_LABS_D = tuple(f"$t'_{{\\rm c}}\\propto t'^{{{_QT}}}$ \u2013 {w}"
+                     for w in ('FC', 'SC'))
 TT_LABEL = '$\\log_{10}\\tilde{t}$'
 
 
@@ -263,6 +272,195 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT, outdir=OUTDIR,
   return fig, (axN, axS)
 
 
+# --- the decaying field: t'_c ~ tau^q ----------------------------------------------------
+LOGSIG = (-3., -2., -1., 0., 1., 2., 3.)   # sampled log10 sigma, sigma = t'/t'_0 - 1
+LOGC_FS = (-2., 2.)                        # the fast- and slow-cooling columns
+NG_D = 500                                 # points per curve
+FN_DECAY = 'cooling_averaged_decay.png'
+_GL_X, _GL_W = np.polynomial.legendre.leggauss(64)
+
+
+def u_of_sigma(sigma, kap, q=Q_C):
+  '''
+  The normalised clock u = int dt'/t'_c with t'_c = t'_c,0 tau^q, tau = 1 + sigma. With
+  no adiabatic drag A = 1, so the burn IS the clock and S_of_sigma at a_rho = 0 gives it:
+  u = (kappa/s)(1 - tau^-s), s = q - 1. It SATURATES at u_inf = kappa/s.
+  '''
+  return S_of_sigma(sigma, kap, 0., q)
+
+
+def sigma_of_u(u, kap, q=Q_C):
+  'Inverse of u_of_sigma, in closed form: tau = (1 - s u/kappa)^(-1/s).'
+  _, s = _exps(0., q)
+  return (1. - s*np.asarray(u, dtype=float)/kap)**(-1./s) - 1.
+
+
+def N_instant(gma, u, p=P_SYN, gm0=GM0, gM0=GMA_M0):
+  "K0 gma^-p (1 - gma u)^(p-2) on [gma_m(u), gma_M(u)], zero off it."
+  gma = np.asarray(gma, dtype=float)
+  gm, gM = gm0/(1. + gm0*u), gM0/(1. + gM0*u)
+  return np.where((gma >= gm) & (gma <= gM),
+                  norm_plaw_distrib(gm0, gM0, p)*gma**-p*np.abs(1. - gma*u)**(p - 2.), 0.)
+
+
+def N_frozen(gma, kap, p=P_SYN, gm0=GM0, gM0=GMA_M0, q=Q_C):
+  'The state the distribution freezes into, N_instant at the saturated clock u_inf.'
+  return N_instant(gma, kap/_exps(0., q)[1], p, gm0, gM0)
+
+
+def N_averaged_decay(gma, sigma, kap, p=P_SYN, gm0=GM0, gM0=GMA_M0, q=Q_C):
+  '''
+  The time average AS DEFINED, over physical time:
+
+      dNN_e/dgma_e = 1/(t'-t'_0) INT dN_e/dgma_e dthat = 1/sigma INT_0^sigma ... dshat,
+
+  since dthat = t'_0 dshat. With a decaying field this is NOT N/u: dthat = t'_c,0 tau^q du,
+  so the average over t' is no longer the average over the clock, and the weight tau^q
+  diverges as u -> u_inf. There is no closed form (two binomials in the integrand give a
+  2F1), so it is quadrature -- but over the SOLVED window, never the full range.
+
+  At fixed gma_e the population sweeps past once, so the integrand is supported on
+  u in [max(0, 1/gma - 1/gma_m,0), min(u(sigma), 1/gma - 1/gma_M,0)], which maps to a
+  sigma window through sigma_of_u. Handed [0, sigma] instead, an adaptive rule misses
+  that window whenever it is a small fraction of the range and silently returns 0 --
+  the same trap cooling_integrated_figure documents. Inside the window the integrand is
+  smooth and bounded (it does not vanish at either end), so fixed-order Gauss-Legendre
+  is exact to ~5e-6 against scipy.quad on the same window.
+  '''
+  gma = np.atleast_1d(np.asarray(gma, dtype=float))
+  out = np.zeros_like(gma)
+  u_end = float(u_of_sigma(sigma, kap, q))
+  ua = np.maximum(0., 1./gma - 1./gm0)
+  ub = np.minimum(u_end, 1./gma - 1./gM0)
+  ok = ua < ub
+  if not ok.any():
+    return out
+  a, b = sigma_of_u(ua[ok], kap, q), sigma_of_u(ub[ok], kap, q)
+  sh = .5*(b - a)[:, None]*_GL_X[None, :] + .5*(a + b)[:, None]
+  g = gma[ok][:, None]
+  integ = (norm_plaw_distrib(gm0, gM0, p)*g**-p
+           * np.abs(1. - g*u_of_sigma(sh, kap, q))**(p - 2.))
+  out[ok] = .5*(b - a)*np.sum(_GL_W[None, :]*integ, axis=1)/sigma
+  return out
+
+
+def check_decay_norm(kap, sigmas=(1e-3, 1e-1, 1e1, 1e3), p=P_SYN, gm0=GM0, gM0=GMA_M0,
+    q=Q_C, Ng=400001):
+  '''
+  int (dNN/dgma) dgma = N_e still, at every t': the average is over a set of instantaneous
+  distributions each carrying N_e, so exchanging the integrations gives N_e whatever the
+  weight. Returns the worst deviation.
+  '''
+  dev = 0.
+  for sg in sigmas:
+    lo = gm0/(1. + gm0*float(u_of_sigma(sg, kap, q)))
+    g = np.geomspace(lo*(1. - 1e-12), gM0, Ng)
+    dev = max(dev, abs(np.trapezoid(N_averaged_decay(g, sg, kap, p, gm0, gM0, q), g) - 1.))
+  return dev
+
+
+def check_decay_freeze(kap, sigmas=(1e1, 1e2, 1e3), p=P_SYN, gm0=GM0, gM0=GMA_M0, q=Q_C):
+  '''
+  Inside the frozen support the average tends to the FROZEN distribution; the residual
+  falls as 1/sigma. Returns [(sigma, worst |avg/N_frozen - 1|)].
+  '''
+  _, s = _exps(0., q)
+  u_i = kap/s
+  lo, hi = 1./(u_i + 1./gm0), 1./(u_i + 1./gM0)
+  g = np.geomspace(lo*1.02, hi*.98, 9)
+  ref = N_frozen(g, kap, p, gm0, gM0, q)
+  return [(sg, float(np.max(np.abs(N_averaged_decay(g, sg, kap, p, gm0, gM0, q)/ref - 1.))))
+          for sg in sigmas]
+
+
+def plot_averaged_decay(p=P_SYN, gm0=GM0, gM0=GMA_M0, q=Q_C, logsig=LOGSIG,
+    logC=LOGC_FS, outdir=OUTDIR, fname=FN_DECAY, show=False):
+  '''
+  The time-averaged distribution with a DECAYING field, fast and slow cooling. Two
+  columns, distributions above and their local slope below, with the frozen state drawn
+  as the limit both columns are heading for.
+  '''
+  logsig = np.asarray(logsig, dtype=float)
+  norm = plt.Normalize(vmin=logsig.min(), vmax=logsig.max())
+  cmap = mcolors.LinearSegmentedColormap.from_list(
+      'viridis85', plt.cm.viridis(np.linspace(0., .85, 256)))
+  colors, sm = cmap(norm(logsig)), plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+  K0 = norm_plaw_distrib(gm0, gM0, p)
+  _, s = _exps(0., q)
+
+  # sharey BY ROW, so the two cases are read on one scale and only the left column
+  # carries tick labels; sharex across the whole grid keeps the gamma axis common
+  fig, axs = plt.subplots(2, 2, figsize=(7.1, 5.2), sharex=True, sharey='row',
+                          squeeze=False,
+                          gridspec_kw=dict(height_ratios=[1.9, 1.], hspace=.08,
+                                           wspace=.06))
+  lo_g, hi_N = np.inf, 0.
+  for k, lc in enumerate(logC):
+    axN, axS = axs[0, k], axs[1, k]
+    kap = tt_dyn_of_C(lc, gm0)
+    u_i = kap/s
+    gg = np.geomspace(gm0, gM0, 400)
+    axN.loglog(gg, K0*gg**-p, color='k', lw=2.6, zorder=1, solid_capstyle='butt',
+               label='injected')
+    for ls, c in zip(logsig, colors):
+      sg = 10.**ls
+      g = np.geomspace(gm0/(1. + gm0*float(u_of_sigma(sg, kap, q))), gM0, NG_D)
+      a = N_averaged_decay(g, sg, kap, p, gm0, gM0, q)
+      m = a > 0.
+      axN.loglog(g[m], a[m], color=c, lw=1.1, zorder=3)
+      axS.semilogx(g[m], log_slope(g[m], a[m]), color=c, lw=1.1, zorder=3)
+      lo_g, hi_N = min(lo_g, float(g[m][0])), max(hi_N, float(np.max(a)))
+    # the FROZEN state: where the average is heading inside its support, and what every
+    # curve above that support is falling away from as 1/sigma
+    gf = np.geomspace(1./(u_i + 1./gm0), 1./(u_i + 1./gM0), 600)
+    axN.loglog(gf, N_frozen(gf, kap, p, gm0, gM0, q), color='crimson', ls='--', lw=1.1,
+               zorder=5, label='frozen')
+    axN.set_title(f'{PANEL_LABS_D[k]}', fontsize=FS_LAB, pad=3.)
+    for ax in (axN, axS):
+      ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
+      for v in (gm0, gM0):
+        ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+      ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
+      ax.grid(alpha=.25, lw=.4)
+      ax.tick_params(which='both', labelsize=FS_TICK)
+    axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
+    for lev, lab in ((-2., '$-2$'), (-p, '$-p$'), (-(p+1.), '$-(p+1)$')):
+      axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
+    axS.set_ylim(-(p + 2.6), .4)
+    if k:
+      axR = axS.twinx()
+      axR.set_ylim(axS.get_ylim())
+      axR.set_yticks([-2., -p, -(p+1.)])
+      axR.set_yticklabels(['$-2$', '$-p$', '$-(p+1)$'])
+      axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
+      axR.grid(False)
+  for k in (0, 1):
+    axs[0, k].set_xlim(.3*lo_g, 4.*gM0)
+    axs[0, k].set_ylim(1e-14, 10.*hi_N)
+  axs[0, 0].set_ylabel('${\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$',
+                       fontsize=FS_LAB)
+  axs[1, 0].set_ylabel("${\\rm d}\\ln({\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_"
+                       "{\\rm e})/{\\rm d}\\ln\\gamma_{\\rm e}$", fontsize=FS_LAB)
+  axs[0, 0].legend(fontsize=FS_LEG, loc='lower left', framealpha=.9, handletextpad=.4,
+                   borderpad=.4, labelspacing=.3)
+  p0, p1 = axs[0, 0].get_position(), axs[0, 1].get_position()
+  cax = fig.add_axes([p1.x1 + .015, p1.y0, .018, p1.height])
+  cb = fig.colorbar(sm, cax=cax)
+  cb.set_label("$\\log_{10}[(t'-t'_0)/t'_0]$", fontsize=FS_LAB)
+  cb.ax.tick_params(labelsize=FS_TICK)
+  return _save_fig(fig, axs, outdir, fname, show)
+
+
+def _save_fig(fig, axs, outdir, fname, show):
+  os.makedirs(outdir, exist_ok=True)
+  path = os.path.join(outdir, fname)
+  fig.savefig(path, dpi=300, bbox_inches='tight')
+  print(f'saved {path}')
+  if show:
+    plt.show()
+  return fig, axs
+
+
 def main(show=False):
   print(f'normalisation  : max |int (N/tt) dgma_e - 1| = {check_normalisation():.2e}'
         '   (the integral itself grows as tt; the average does not)')
@@ -273,6 +471,17 @@ def main(show=False):
   for tt, xr, yr in check_peak():
     print(f'    tt={tt:7.0e}:  gma_peak*tt = {xr:.4f}   height/(N_e tt) = {yr:.4f}')
   plot_averaged(show=show)
+  print("\nDECAYING FIELD, t'_c ~ tau^q with q = %.4f (s = q-1 = %.4f):" % (Q_C, Q_C-1.))
+  for lc, tag in zip(LOGC_FS, ('FC', 'SC')):
+    kap = tt_dyn_of_C(lc, GM0)
+    u_i = kap/_exps(0., Q_C)[1]
+    frz = check_decay_freeze(kap)
+    print(f'  {tag} (C = 10^{lc:+.0f}): kappa={kap:.3e}  u_inf={u_i:.4e}  '
+          f'frozen support [{1./(u_i+1./GM0):.4g}, {1./(u_i+1./GMA_M0):.4g}]')
+    print(f'     normalisation : max |int dgma - 1| = {check_decay_norm(kap):.2e}')
+    print('     -> frozen state: '
+          + '  '.join(f'sigma={s:.0e}: {d:.3e}' for s, d in frz))
+  plot_averaged_decay(show=show)
 
 
 if __name__ == '__main__':
