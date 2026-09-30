@@ -1712,10 +1712,20 @@ def _frac_cells(test_key, z, fracs, ncells=NCELLS, half_window=8):
 
 def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
     frac_targets=ARTICLE_FRACS, test_key='cooling_g100', dex_max=1.7, show_model=False,
-    phases=None):
+    phases=None, xunit='inj', sampling=True):
   """
   Article figure: the hydro evolution of a few representative cells, simulation versus
   semi-analytic reconstruction.
+
+  xunit = 'inj' puts every cell on its own log10(R/R_inj), so all histories start at 0 and the
+  phases are compared cell to cell; 'R0' puts them on the common log10(R/R_0), so each starts
+  at its own injection radius and the boundaries are compared in radius. The y quantities are
+  the same in both (normalised at injection), only the abscissa moves. The R0 version is
+  written to article_cells_z{z}_R0.png and runs to dex_max past the LAST injection radius.
+
+  sampling = True adds a top panel with the initial (t_0) density profile across both shells,
+  the sampled cells marked on it in their curve colours: where in the shell the three
+  histories come from.
 
   Cells are picked at fractions of the shell's initial width measured from the CD
   (ARTICLE_FRACS), and the SIMULATION is the emphasised curve -- solid, full weight -- with the
@@ -1769,28 +1779,42 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
   # Stacked, shared radius axis: one row per quantity, all three cells in each, under a thin
   # strip carrying the phase boundaries.
   show_phases = (z == 4) if phases is None else bool(phases)
-  if show_phases:
-    fig, axf = plt.subplots(4, 1, figsize=(5.9, 8.4), sharex=True, layout='constrained',
-                            height_ratios=[0.62, 3, 3, 3])
-    strip, axes = axf[0], axf[1:]
-  else:
-    fig, axes = plt.subplots(3, 1, figsize=(5.9, 7.8), sharex=True, layout='constrained')
-    strip = None
+  # Optional rows above the three quantities: the sampling panel (own abscissa, the initial
+  # shell) and the phase strip (the shared radius axis).
+  hr = ([1.5] if sampling else []) + ([0.62] if show_phases else []) + [3, 3, 3]
+  fig, axf = plt.subplots(len(hr), 1, figsize=(5.9, 4.6 + 1.1*sum(hr[:-3]) + 0.9*len(hr[:-3])),
+                          layout='constrained', height_ratios=hr)
+  samp = axf[0] if sampling else None
+  strip = axf[int(sampling)] if show_phases else None
+  axes = axf[-3:]
+  for ax in axf[int(sampling):-1]:
+    ax.sharex(axes[-1])
+    ax.tick_params(labelbottom=False)
   # Linear inset on rho and p, top right, over the PRE-CRASH window only: on the log main
   # axes the plateau is a few pixels of a 4-decade span, and it is the plateau that carries
   # the causal-contact law (a flat line at 1) the scaling was chosen to expose.
-  ins, dex_seen = {}, [0.]
+  ins, dex_seen = {}, [0., np.inf]     # inset window: (last handover, first injection)
   for jj, (key, lab, pw, sc) in enumerate(cols):
     if key in ('rho', 'p'):
       ins[jj] = axes[jj].inset_axes([0.575, 0.575, 0.40, 0.40])
+
+  # Abscissa offset per cell: 0 on log10(R/R_inj), log10(R_inj/R_0) on log10(R/R_0). In the
+  # R0 version every cell runs to the same RADIUS, dex_max past the last injection.
+  if xunit not in ('inj', 'R0'):
+    raise ValueError(f'xunit must be inj or R0, not {xunit!r}')
+  offs = [np.log10(c[-1]) if xunit == 'R0' else 0. for c in cells]
+  x_end = None if dex_max is None else max(offs) + dex_max
+  starts = []          # (colour, abscissa of the cell's first plotted point)
 
   for ci, (f_req, f_got, k, s_, h, dex, Ri) in enumerate(cells):
     # FULL measured history -- past the handover too, so the rarefaction CRASH is shown. That
     # crash is the whole point of the counterfactual: it is what the reconstruction is being
     # asked to replace.
+    off = offs[ci]
+    L_lim = None if x_end is None else x_end - off     # dex_max on this cell's own R/R_inj
     cf = P._cols(s_)
     Lf = np.log10(cf[0]/cf[0][0])
-    mf = (Lf >= P.INJ_SAFE) if dex_max is None else ((Lf >= P.INJ_SAFE) & (Lf <= dex_max))
+    mf = (Lf >= P.INJ_SAFE) if L_lim is None else ((Lf >= P.INJ_SAFE) & (Lf <= L_lim))
     # rarefaction-free window: where the comparison is meaningful
     m = (Lf >= P.INJ_SAFE) & (Lf <= dex - P.EDGE_EXCL)
     if m.sum() < 10 or mf.sum() < 10:
@@ -1807,9 +1831,10 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
     Lr = Lf[mf]
     col = ccol[ci % len(ccol)]
     dex_h = dex - P.EDGE_EXCL
-    ph = cell_phases(s_, dex=dex, env=env, L_max=dex_max) if show_phases else None
+    ph = cell_phases(s_, dex=dex, env=env, L_max=L_lim) if show_phases else None
     if ph is not None:
-      bounds.append((f_req, col, ph))
+      bounds.append((f_req, col, ph, off))
+    starts.append((f_req, f_got, k, col))
     print(f'  {100*f_req:.0f}% of shell -> cell k={k} (achieved {100*f_got:.1f}%), '
           f'R_i/R_0 = {Ri:.3f}, handover at log10(R/R_inj) = {dex_h:.3f}')
     for nm in ('head', 'tail', 'wave') if ph is not None else ():
@@ -1821,11 +1846,11 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
       ym = yf[mf]
       nm = ym[0]
       if rec is not None:
-        axes[jj].plot(Lr, rec[key]*10.**(pw*Lr)/nm, color=col, lw=1.0, ls='--', alpha=0.55,
+        axes[jj].plot(Lr + off, rec[key]*10.**(pw*Lr)/nm, color=col, lw=1.0, ls='--', alpha=0.55,
                       dash_capstyle='round', zorder=2)
       # DATA ONLY by default: the figure is about the measured evolution, and the
       # reconstruction is a separate argument made elsewhere (validate_model).
-      axes[jj].plot(Lr, ym/nm, color=col, lw=1.9, solid_capstyle='round', zorder=4,
+      axes[jj].plot(Lr + off, ym/nm, color=col, lw=1.9, solid_capstyle='round', zorder=4,
                     label=rf'${100*f_req:.0f}\%$' if key == 'G' else None)
       if jj in ins:
         # DISPLAY smoothing, inset only: the plateau is flat to a couple of percent and the
@@ -1835,15 +1860,16 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
         wsm = min(INSET_SMOOTH, (len(yi)//4)*2 + 1)
         if wsm >= 7:
           yi = savgol_smooth(yi, window=wsm)
-        ins[jj].plot(Lf[m], yi, color=col, lw=1.3, solid_capstyle='round')
-        dex_seen[0] = max(dex_seen[0], dex_h)
+        ins[jj].plot(Lf[m] + off, yi, color=col, lw=1.3, solid_capstyle='round')
+        dex_seen[0] = max(dex_seen[0], dex_h + off)
+        dex_seen[1] = min(dex_seen[1], off)
 
   for jj, (key, lab, pw, sc) in enumerate(cols):
     axes[jj].set(ylabel=lab, yscale=sc)
     P._style(axes[jj])
     if jj in ins:
       a = ins[jj]
-      a.set_xlim(0., dex_seen[0]*1.04)
+      a.set_xlim(dex_seen[1], dex_seen[1] + (dex_seen[0] - dex_seen[1])*1.04)
       a.tick_params(labelsize=7, length=2.5, pad=1.5)
       a.grid(True, color='0.93', lw=0.5)
       a.set_axisbelow(True)
@@ -1859,48 +1885,99 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
       axes[jj].legend(title=rf'$|R_i-R_0|/\Delta_{{0,{z}}}$', fontsize=9,
                       title_fontsize=9, frameon=True, framealpha=0.9, edgecolor='0.85',
                       loc='lower right', handlelength=1.6)
-  axes[-1].set_xlabel(r'$\log_{10}(R/R_{\rm inj})$')
+  axes[-1].set_xlabel(r'$\log_{10}(R/R_{\rm inj})$' if xunit == 'inj'
+                     else r'$\log_{10}(R/R_0)$')
 
   # --- phase strip. One row per cell, four segments per row, boundaries from cell_phases.
   # Greys, not the cell colours: the ROW is the cell (labelled at its left, in the cell's
   # colour) and the SHADE is the phase, so the two readings never compete.
-  def _edges(ph, x0, x1):
-    return [x0, ph['head']['L'], ph['tail']['L'],
-            ph['wave']['L'] if ph['wave'] else x1, x1]
+  def _edges(ph, x0, x1, off):
+    return [x0 + off, ph['head']['L'] + off, ph['tail']['L'] + off,
+            ph['wave']['L'] + off if ph['wave'] else x1, x1]
 
   if bounds:
     x0 = P.INJ_SAFE
-    x1 = dex_max if dex_max is not None else max(b[2]['wave']['L'] for b in bounds
-                                                 if b[2]['wave'])
-    strip.set(xlim=(x0, x1), ylim=(0., 1.))
+    x1 = x_end if x_end is not None else max(b[2]['wave']['L'] + b[3] for b in bounds
+                                             if b[2]['wave'])
+    xa = x0 + min(b[3] for b in bounds)       # the strip's left end: the first injection
+    strip.set(xlim=(xa, x1), ylim=(0., 1.))
     strip.set_axis_off()
     h, gap = 0.19, 0.035
-    for r, (f_req, col, ph) in enumerate(bounds):
-      edges, y0 = _edges(ph, x0, x1), 0.60 - r*(h + gap)
+    for r, (f_req, col, ph, off) in enumerate(bounds):
+      edges, y0 = _edges(ph, x0, x1, off), 0.60 - r*(h + gap)
       for q in range(4):
         a, b = edges[q], min(edges[q + 1], x1)
         if b <= a:
           continue
         strip.add_patch(plt.Rectangle((a, y0), b - a, h, facecolor=PHASE_GREY[q],
                                       edgecolor='white', lw=0.8, zorder=2, clip_on=True))
-      strip.text(x0 - 0.012*(x1 - x0), y0 + 0.5*h, rf'${100*f_req:.0f}\%$', color=col,
+      strip.text(xa - 0.012*(x1 - xa), y0 + 0.5*h, rf'${100*f_req:.0f}\%$', color=col,
                  fontsize=7.5, ha='right', va='center', zorder=3, clip_on=False)
       for nm in ('head', 'tail', 'wave'):
         if ph[nm] is None:
           continue
         for ax in axes:
-          ax.axvline(ph[nm]['L'], color=col, ls=PHASE_LS[nm], lw=0.9, alpha=0.5, zorder=1)
+          ax.axvline(ph[nm]['L'] + off, color=col, ls=PHASE_LS[nm], lw=0.9, alpha=0.5, zorder=1)
     # Names over the 25% row, the one that separates all four phases widely enough to hold them.
-    ed = _edges(bounds[0][2], x0, x1)
+    ed = _edges(bounds[0][2], x0, x1, bounds[0][3])
     for q, lab in enumerate(PHASE_NAME):
       strip.text(0.5*(ed[q] + min(ed[q + 1], x1)), 0.88, lab, fontsize=7.5, ha='center',
                  va='center', color='0.2')
 
-  path = os.path.join(outdir, f'article_cells_z{z}.png')
+  if samp is not None:
+    _sampling_panel(samp, test_key, z, starts)
+
+  path = os.path.join(outdir, f'article_cells_z{z}' + ('_R0' if xunit == 'R0' else '')
+                      + '.png')
   fig.savefig(path, dpi=200, bbox_inches='tight')
   plt.close(fig)
   print(f'saved {path}')
   return path
+
+
+def _sampling_panel(ax, test_key, z, starts):
+  '''
+  Where the plotted cells sit in the shell: the t_0 proper density across both shells and a
+  sliver of external medium, on (R - R_0)/Delta_{0,z} so the CD is at 0 and shell z spans
+  one unit. Each sampled cell is a vertical line in its curve colour, labelled by the same
+  percentage the curves are keyed with. The reverse shock enters shell 4 at the CD and runs
+  out to the external interface, which the arrow shows.
+  '''
+  from IO import openData
+  env = MyEnv(test_key)
+  d = openData(test_key, 0)
+  D0 = env.D04 if z == 4 else env.D01
+  xi = (d.x.to_numpy(dtype=float)*c_ - env.R0)/D0
+  rho = d.rho.to_numpy(dtype=float)
+  kmin, kmax, kCD = shell_cell_range(test_key, z)
+  rho_z = rho[kCD]
+  ax.step(xi, rho/rho_z, where='mid', color='0.25', lw=1.3, zorder=3)
+  ax.set_yscale('log')
+  ax.set_ylim(0.02, 30.)
+  ax.set_xlim(xi[0], xi[-1])
+  ax.set_xlabel(rf'$(R-R_0)/\Delta_{{0,{z}}}$ at $t_0$', labelpad=1)
+  ax.set_ylabel(rf'$\rho/\rho_{z}$')
+  P._style(ax)
+  ax.grid(False)
+  # the two shells, shaded in the phase-strip grey and named with their proper velocity
+  for zz, u in ((4, env.u4), (1, env.u1)):
+    lo, hi, _ = shell_cell_range(test_key, zz)
+    a, b = xi[lo] - 0.5*(xi[lo+1] - xi[lo]), xi[hi] + 0.5*(xi[hi] - xi[hi-1])
+    ax.axvspan(a, b, color=PHASE_GREY[0], lw=0, zorder=0)
+    ax.text(0.5*(a + b), 12., rf'S{zz}, $u={u:.0f}$', ha='center', va='center', fontsize=7.5,
+            color='0.2')
+  ax.axvline(0., color='0.4', lw=0.8, ls=(0, (3, 2)), zorder=1)
+  ax.text(0.02, 0.05, 'CD', fontsize=7, color='0.35', ha='left', va='bottom', zorder=4,
+          transform=ax.get_xaxis_transform())
+  sgn = -1 if z == 4 else 1
+  ax.annotate('', xy=(sgn*0.95, 0.045), xytext=(sgn*0.05, 0.045),
+              arrowprops=dict(arrowstyle='->', color='0.35', lw=0.9), zorder=4)
+  ax.text(sgn*0.5, 0.075, 'RS' if z == 4 else 'FS', fontsize=7, color='0.35', ha='center',
+          va='bottom', zorder=4)
+  for f_req, f_got, k, col in starts:
+    ax.axvline(xi[k], color=col, lw=1.6, zorder=2)
+    ax.text(xi[k], 2.2, rf'${100*f_req:.0f}\%$', color=col, fontsize=7.5, ha='center',
+            va='bottom', zorder=4, bbox=dict(fc='white', ec='none', pad=0.6, alpha=0.85))
 
 
 # --- wave tracks ----------------------------------------------------------------------
@@ -2071,6 +2148,7 @@ def main(table_key=TABLE_KEY, z_list=(4, 1), ncells=NCELLS):
   for z in z_list:
     plot_three_way(table_key, z, ncells)
     plot_article(table_key, z, ncells)
+    plot_article(table_key, z, ncells, xunit='R0')
     for tk in ('cooling_g100', table_key):
       plot_model_validation(table_key, tk, z, ncells)
   return out
