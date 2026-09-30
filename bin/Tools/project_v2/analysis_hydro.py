@@ -263,6 +263,21 @@ def extract_data_thinshell(key, itmin=0, itmax=None,
         values = np.concatenate([[it, t, 0.], cell_vals])  # values[1]=t, values[2]=0 (dt placeholder)
       datas[i, j] += values
 
+  # pjump finder: once a front is lost after being found, the shell has been crossed.
+  # Blank anything found later -- a leftover compression at the shell edge, a few dumps
+  # after the crossing, would otherwise push t_max (the last row found) past it. Sd's
+  # series are left alone: its RS series have genuine internal gaps at log10(a_u-1) >= 1.2.
+  import IO
+  if IO.SHOCK_FINDER == 'pjump':
+    ix = varlist.index('x')
+    for i in range(Nc):
+      found = (datas[i,:,ix] != 0.)
+      if found.any():
+        j0 = np.argmax(found)
+        lost = np.where(~found[j0:])[0]
+        if len(lost):
+          datas[i, j0+lost[0]:, 2:] = 0.
+
   # add dt
   for i, z in enumerate(cells):
     t = datas[i,:,1]

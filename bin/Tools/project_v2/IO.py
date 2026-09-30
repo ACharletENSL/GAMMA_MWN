@@ -256,11 +256,84 @@ def df_get_cellBehindShock(df, shFront, n=5, m=1, up=3):
     return front
 
    
-def df_to_shocks(df):
+# Shock front finder used by df_to_shocks: 'Sd' reads GAMMA's own flag, 'pjump' finds the
+# fronts from the pressure profile. GAMMA's Rezzolla-Zanotti detector never fires below
+# a_u ~ 1.1 (tested at a_u = 1.01, warm AND cold shells: Sd == 0 everywhere although the
+# shocks are sharp), so the low-a_u runs need 'pjump'. Read at import, so set it in the
+# shell before launching: pool workers inherit it.
+SHOCK_FINDER = os.environ.get('SHOCK_FINDER', 'Sd')
+PJUMP_EPS = 0.01    # |dln p| below this is plateau noise, not part of a front
+PJUMP_MIN = 0.2     # smallest total ln(p_down/p_up) accepted as a front (ratio ~1.22)
+PJUMP_STEEP = 0.2   # flag interfaces carrying >= this fraction of the front's largest step
+
+def pjump_shock_mask(df, eps=PJUMP_EPS, jmin=PJUMP_MIN, steep=PJUMP_STEEP):
+  '''
+  Boolean Series flagging shocked cells from the pressure profile, mimicking GAMMA's Sd:
+    the DOWNSTREAM cell of each steep compressive interface is flagged (right cell for
+    the RS, left cell for the FS). A front is a run of consecutive compressive
+    interfaces (vx converging, p rising towards the CD by more than eps); on each side
+    of the CD the run with the largest total jump is kept if that jump exceeds jmin, and
+    its interfaces carrying >= steep x its largest step are flagged. The threshold is
+    relative to the front, so the same rule holds for a 2.4x weak shock smeared over
+    3 cells and a 100x strong one. Runs lying entirely in the external medium are
+    ignored: its edge disturbances outweigh a weak collision shock early on (a_u = 1.01,
+    Theta0 = 5e-5). A run that touches the shell is kept even where it extends outside,
+    so a front is followed through the edge and df_to_shocks' crossed-front test ends it
+    as it does with Sd. Two simpler rules failed on the a_u = 1.1 run: searching the
+    shell alone left a stale remnant at the edge ~5 dumps after the crossing, and
+    declaring a crossing once a run reaches the edge interface dropped the fronts up to
+    1200 iterations early, as their compressive tails reach the edge first.
+  On the a_u = 1.1 sweep point the downstream samples match Sd's in >95% of dumps (median
+    difference 0); the rest sit in the last ~20% of the crossing, where the two differ by
+    one cell and the density gradient near the shell edge makes that <= 8% in rho, <= 3%
+    in p. The front cell itself may sit one cell further upstream, which only moves x by
+    dx/R ~ 1e-5. Through extract_fittingData, the C25 peak tracks from the two finders
+    differ by <= 5e-4 (RS) and <= 7e-3 (FS), against ~5e-2 between that Sd rerun and the
+    original sweep's fit (code evolution since).
+  '''
+  p = df['p'].to_numpy()
+  trac = df['trac'].to_numpy()
+  i4 = np.where((trac > 0.99) & (trac < 1.01))[0]
+  i1 = np.where((trac > 1.99) & (trac < 2.01))[0]
+  dlnp = np.diff(np.log(p))
+  dv = np.diff(df['vx'].to_numpy())
+  mask = np.zeros(len(df), dtype=bool)
+
+  # interface k joins cells k and k+1; sgn makes the jump positive towards the CD;
+  # interfaces in [k_in0, k_in1] have at least one cell in the shell
+  for k0, k1, k_in0, k_in1, sgn, down in [(0, i4.max()-1, i4.min()-1, i4.max()-1, 1., 1),
+                                          (i1.min(), len(df)-2, i1.min(), i1.max(), -1., 0)]:
+    k = np.arange(k0, k1+1)
+    jump = sgn*dlnp[k]
+    comp = k[(jump > eps) & (dv[k] < 0.)]
+    if len(comp) == 0:
+      continue
+    runs = [np.array(list(g)) for g in mit.consecutive_groups(comp)]
+    runs = [r for r in runs if (r.max() >= k_in0) and (r.min() <= k_in1)]
+    if len(runs) == 0:
+      continue
+    totals = [(sgn*dlnp[r]).sum() for r in runs]
+    run = runs[int(np.argmax(totals))]
+    if max(totals) < jmin:
+      continue
+    steps = sgn*dlnp[run]
+    mask[run[steps >= steep*steps.max()] + down] = True
+  return pd.Series(mask, index=df.index)
+
+def df_to_shocks(df, finder=None):
   '''
   Extract the shocked part of data
   Cleans 'false' shock at wave onset when resolution is not high enough
+  finder: 'Sd' (GAMMA's flag) or 'pjump' (pjump_shock_mask), default SHOCK_FINDER
   '''
+
+  finder = finder or SHOCK_FINDER
+  if finder == 'Sd':
+    shocked = (df['Sd'] == 1.)
+  elif finder == 'pjump':
+    shocked = pjump_shock_mask(df)
+  else:
+    raise ValueError(f"finder must be 'Sd' or 'pjump', got {finder!r}")
 
   out = []
   S4 = df.loc[(df['trac'] > 0.99) & (df['trac'] < 1.01)]
@@ -270,12 +343,12 @@ def df_to_shocks(df):
   i1f = S1.index.max()
 
   # separate into blocks of consecutive indices
-  RSsh = df.loc[(df['Sd']==1.) & (df.index <= icd)]
+  RSsh = df.loc[shocked & (df.index <= icd)]
   iterable = RSsh.index.to_list()
   RSilist = [list(group) for group in mit.consecutive_groups(iterable)]
   RSlist = [df.iloc[iarr] for iarr in RSilist]
 
-  FSsh = df.loc[(df['Sd']==1.) & (df.index > icd)]
+  FSsh = df.loc[shocked & (df.index > icd)]
   iterable = FSsh.index.to_list()
   FSilist = [list(group) for group in mit.consecutive_groups(iterable)]
   FSlist = [df.iloc[iarr] for iarr in FSilist]
