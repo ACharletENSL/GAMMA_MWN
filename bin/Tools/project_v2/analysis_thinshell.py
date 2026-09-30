@@ -14,7 +14,7 @@ from radiation_thinshell import *
 from phys_constants import *
 from fits_hydro import *
 from analysis_hydro import extract_data_thinshell
-from peak_modeling import build_peaks_functions_xi
+from peak_modeling import build_peaks_functions_xi, compute_Tf
 
 ### Extract peaks and save
 def extract_all_withlogau(withHydro=True, nCD=1, nSH=5, noPrint=True):
@@ -24,7 +24,8 @@ def extract_all_withlogau(withHydro=True, nCD=1, nSH=5, noPrint=True):
     extract_fittingData(key, withHydro=withHydro, nCD=nCD, nSH=nSH, noPrint=noPrint)
   join_extracted(keys)
 
-def extract_fittingData(key, withHydro=True, nCD=1, nSH=5, noPrint=True, consistent_vx_u=False):
+def extract_fittingData(key, withHydro=True, nCD=1, nSH=5, noPrint=True, consistent_vx_u=False,
+  model_Tf=False):
   '''
   Extract data behind shock fronts from a sim, save in files
   consistent_vx_u: see fits_hydro.cellsBehindShock_fromFit; needed near a_u = 1
@@ -37,10 +38,11 @@ def extract_fittingData(key, withHydro=True, nCD=1, nSH=5, noPrint=True, consist
         nCD=nCD, nSH=nSH, noOut=True, noPrint=noPrint)
   env = MyEnv(key)
   log_au = np.round(np.log10(env.a_u - 1.), 1)
-  extract_fits(key, log_au, noPrint=noPrint, consistent_vx_u=consistent_vx_u)
+  extract_fits(key, log_au, noPrint=noPrint, consistent_vx_u=consistent_vx_u, model_Tf=model_Tf)
 
 
-def extract_fits(key, logau, output=False, noPks=False, noPrint=False, consistent_vx_u=False):
+def extract_fits(key, logau, output=False, noPks=False, noPrint=False, consistent_vx_u=False,
+  model_Tf=False):
   env = MyEnv(key)
   outs = []
   for z, front in zip([1, 4], ['FS', 'RS']):
@@ -54,7 +56,7 @@ def extract_fits(key, logau, output=False, noPks=False, noPrint=False, consisten
       analyzed = get_hydrofits_shell_new(data)
     else:
       analyzed = get_anglefits(data, NT=2*N, Nnu=300,
-        returnAll=True, noPrint=noPrint, consistent_vx_u=consistent_vx_u)
+        returnAll=True, noPrint=noPrint, consistent_vx_u=consistent_vx_u, model_Tf=model_Tf)
     outs.append(analyzed)
     out = np.hstack(analyzed)
     out = np.insert(out, 0, logau)
@@ -64,7 +66,16 @@ def extract_fits(key, logau, output=False, noPks=False, noPrint=False, consisten
 
 # get the fits for xi (effective angle approx)
 def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False, noPrint=False,
-  consistent_vx_u=False):
+  consistent_vx_u=False, model_Tf=False):
+  '''
+  model_Tf: fit xi with the break time the model itself uses when applied,
+    peak_modeling.compute_Tf(tau, a_u, popt_lfac), rather than the onset of the last
+    reconstructed cell snapped UP to the T grid (0.18-0.31% steps). The two differ
+    systematically, the RS by up to -2% and the FS by up to +2% at large a_u, and
+    applying xi at the other Tf moved the peak tracks near the break by up to 13%
+    (RS nuF, log10(a_u-1) >= 1.2). The T grid is also extended past this Tf: at
+    large a_u the default grid ended at T = 6, before the model's RS break.
+  '''
 
   nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], NT=NT, Nnu=Nnu)
   t_max = data.iloc[-1].t
@@ -84,6 +95,12 @@ def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False, noPrint=Fals
   # break time
   Tmax0 = Tmax
   Tobsf = get_variable(d_fit.iloc[-1], 'Ton', env)
+  if model_Tf:
+    tau = (env.t4 if fastshell else env.t1)/env.toff
+    Tf_mod, xf = compute_Tf(tau, env.a_u, popt_lfac, reverse=fastshell)
+    Tobsf = max(Tobsf, env.Ts + (Tf_mod - 1.)*(env.T0 if fastshell else env.T0FS))
+  else:
+    xf = None
   i_f = np.searchsorted(Tobs, Tobsf)
   # in case chosen Tmax is too low
   while i_f == len(Tobs):
@@ -91,10 +108,10 @@ def get_anglefits(data, Tmax=10, NT=1000, Nnu=200, returnAll=False, noPrint=Fals
     nuobs, Tobs, env = obs_arrays_peakcentred(data.attrs['key'], Tmax=Tmax, NT=NT, Nnu=Nnu)
     i_f = np.searchsorted(Tobs, Tobsf)
   T = 1 + (Tobs - env.Ts)/(env.T0 if fastshell else env.T0FS)
-  Tf = T[i_f]
+  Tf = Tf_mod if model_Tf else T[i_f]
   
   # peaks function
-  func_peaks = build_peaks_functions_xi(Tf, g2, popt_lfac, popt_nu, popt_L)
+  func_peaks = build_peaks_functions_xi(Tf, g2, popt_lfac, popt_nu, popt_L, xf=xf)
 
   # get peaks
   tnu = nuobs/(env.nu0 if fastshell else env.nu0FS)
