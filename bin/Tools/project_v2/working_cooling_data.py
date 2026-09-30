@@ -868,7 +868,7 @@ def load_shockfront_states(key, z, env, source='shockfit', t_max_fac=3., nproc=1
       fit-based pipeline anchors on.
     source='au': fits_from_au(env.a_u) -- lfac(x), ShSt(x) profiles
       interpolated in log10(a_u-1) from the peak-modeling sweep tables
-      (extracted_data/fullsweep_au_{RS,FS}.csv), no fit of this run needed.
+      (extracted_data/<IO.SWEEP_TABLE>_{RS,FS}.csv), no fit of this run needed.
       Table popts are used un-normalized (reconstruct_data convention).
       t_max = t_max_fac * planar crossing time (must cover the actual,
       slower spherical crossing; only early cells are consumed anyway).

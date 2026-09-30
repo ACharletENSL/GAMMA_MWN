@@ -612,9 +612,15 @@ def join_extracted(keys, noPks=False):
     np.savetxt(folder + "fullsweep_au_"+front+".csv",
       table, delimiter='\t', header=header, comments='')
 
+# The a_u sweep table read by open_sweep and peak_modeling: extracted_data/<SWEEP_TABLE>_{RS,FS}.csv.
+# Default: the cold sweep (Theta0 = 5e-7, log10(a_u-1) in [-2, 2], hpc/sweep_au_cold.sh, xi fitted
+# with consistent_vx_u + model_Tf). SWEEP_TABLE=fullsweep_au gives the original sweep
+# (Theta0 = 5e-5, [-1, 1.5]), which join_extracted still writes. Read at import.
+SWEEP_TABLE = os.environ.get('SWEEP_TABLE', 'fullsweep_au_Th5e-7')
+
 def open_sweep(front):
   path = GAMMA_dir+'/extracted_data/'
-  fname = path + 'fullsweep_au_' + front +'.csv'
+  fname = path + SWEEP_TABLE + '_' + front +'.csv'
   df = pd.read_csv(fname, sep='\t')
   return df
 

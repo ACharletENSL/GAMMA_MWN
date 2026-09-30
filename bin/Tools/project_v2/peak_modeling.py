@@ -7,7 +7,7 @@ import pandas as pd
 from functools import lru_cache
 from scipy.optimize import brentq
 from scipy.integrate import cumulative_trapezoid
-from IO import GAMMA_dir
+from IO import GAMMA_dir, SWEEP_TABLE
 
 ##### a_u dependent quantities
 def relLfac_from_au(au):
@@ -107,12 +107,13 @@ def smooth_bpl0(x, A, x_b, alpha, s, a_tol=1e-4, s_tol=1e-3):
   return A * low * high
 
 @lru_cache(maxsize=None)
-def _load_fittable(front):
+def _load_fittable(front, table=SWEEP_TABLE):
   '''
   Fit table parsed once per front, columns as numpy arrays
+  table: extracted_data/<table>_{RS,FS}.csv, default IO.SWEEP_TABLE (the cold sweep)
   '''
   folder = GAMMA_dir + '/extracted_data/'
-  filename = folder + f'fullsweep_au_{front}.csv'
+  filename = folder + f'{table}_{front}.csv'
   df = pd.read_csv(filename, sep='\t')
   todrop = ['Tf', 't_max'] + [f'ShSt_{s}' for s in ['A', 'x_b', 'alpha', 's']]
   df = df.drop(columns=todrop)
