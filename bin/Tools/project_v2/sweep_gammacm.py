@@ -2617,7 +2617,7 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
         ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
-      labels.append(f"{l:+.0f}: {(ident['regime'] or '?') if ident else '?'}")
+      labels.append(f"{l:+.0f}: {disp_class(ident['regime'] or '?') if ident else '?'}")
     ax.set_ylim(ylo, 3.)
     # clip x to where the (y-clipped) spectra are actually visible, +half a decade
     with np.errstate(invalid='ignore'):
@@ -3232,7 +3232,9 @@ def build_gs02_table(results, detections, outdir=OUTDIR):
     w = csv.writer(fcsv); w.writerow(cols); w.writerows(rows)
 
   fig, ax = plt.subplots(figsize=(12, 0.32*len(rows)+1.4)); ax.axis('off')
-  tbl = ax.table(cellText=rows, colLabels=cols, loc='center', cellLoc='center')
+  ireg = cols.index('regime')   # the PNG spells the class as the figures do; the csv keeps it
+  rows_disp = [rw[:ireg] + [disp_class(rw[ireg])] + rw[ireg+1:] for rw in rows]
+  tbl = ax.table(cellText=rows_disp, colLabels=cols, loc='center', cellLoc='center')
   tbl.auto_set_font_size(False); tbl.set_fontsize(8); tbl.scale(1, 1.25)
   ax.set_title('Granot & Sari (2002) shape vs computed spectra\n' + note, fontsize=8)
   fig.savefig(os.path.join(outdir, 'gs02_fits_table.png'), dpi=200, bbox_inches='tight')

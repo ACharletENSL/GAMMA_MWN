@@ -774,7 +774,10 @@ def _write_table(rows, cols, path, note, outdir, title):
     print(fmt_row(b))
   print('\n' + note)
   fig, ax = plt.subplots(figsize=(0.13*sum(wd) + 2., 0.32*len(body) + 2.4)); ax.axis('off')
-  tbl = ax.table(cellText=body, colLabels=head, loc='center', cellLoc='center')
+  # the PNG spells the shape class as the figures do; the csv keeps the stored name
+  icls = [i for i, (_, k, _) in enumerate(cols) if k.startswith('cls')]
+  body_disp = [[swp.disp_class(v) if i in icls else v for i, v in enumerate(b)] for b in body]
+  tbl = ax.table(cellText=body_disp, colLabels=head, loc='center', cellLoc='center')
   tbl.auto_set_font_size(False); tbl.set_fontsize(6.5); tbl.scale(1, 1.25)
   ax.set_title(note, fontsize=6.5)
   fig.savefig(path.replace('.csv', '.png'), dpi=200, bbox_inches='tight')

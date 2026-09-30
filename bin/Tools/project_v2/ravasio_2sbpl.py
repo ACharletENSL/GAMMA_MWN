@@ -1331,7 +1331,7 @@ def plot_example(key=KEY, method=METHOD, z=Z_RS, logr=0., logt=0., config='ancho
         m = two_sbpl(xf, br['b_lo'], None, a1, f['beta_mid'] - 1., beta, n1=f['s1'],
                      n2=f['s2'], A=f['F_ext'], nuFnu=True, E_j=bh)
       fits[sh], mods[sh] = dict(f, a_mid=f['beta_mid'] + 1.), m
-    sub = (f"class {br['regime']}, breaks held at "
+    sub = (f"class {swp.disp_class(br['regime'])}, breaks held at "
            f"$b_{{lo}}={br['b_lo']:.3g}$, sep {np.log10(br['b_hi']/br['b_lo']):.2f} dex")
   else:
     prep = prepare_spectrum(x, sp, psyn)
