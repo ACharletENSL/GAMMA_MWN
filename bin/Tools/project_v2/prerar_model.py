@@ -1983,6 +1983,174 @@ def _sampling_panel(ax, test_key, z, starts):
             va='bottom', zorder=4, bbox=lab_box)
 
 
+# --- phase IV: sound-speed-regulated spreading ------------------------------------------
+# Behind the trailing shock, S4 coasts as one block (Gamma uniform to ~0.1%), each cell keeps
+# its entropy, and the pressure profile keeps its shape while its level falls. The cells then
+# follow rho ~ R^-2.2 and p ~ R^-3.7, steeper than the R^-2 / R^-10/3 of a shell coasting at
+# constant width. The excess is the shell WIDENING, and it widens at a fixed fraction of its
+# own sound speed:
+#
+#     mass              rho Gamma R^2 dR = const,  Delta' = Gamma dR   ->  rho ~ R^-2 Delta'^-1
+#     adiabat           p ~ rho^(5/3)                                   (entropy frozen)
+#     sound speed       c_s'^2 = gma p/(rho h) ~ rho^(2/3)  (Theta ~ 1e-4) -> c_s' ~ rho^(1/3)
+#     spreading         dDelta'/dt' = k c_s',   dt' = dR/(Gamma c)
+#
+# With Gamma constant and Delta' ~ R^a: a - 1 = -(2 + a)/3, so a = 1/4, i.e.
+#     Delta' ~ R^(1/4),  rho ~ R^(-9/4),  p ~ R^(-15/4),  c_s' ~ R^(-3/4).
+#
+# PER CELL the spreading is 1e-4..1e-3 of c_s' and looks passive; PER SLAB it adds up (k is
+# proportional to slab mass: a linear velocity profile across the region), so it has to be
+# measured on fixed-mass slabs of the shell from the snapshots, not on single cell histories.
+# k is NOT derived: it drifts up 20-50% over the range, which is why the slopes wobble about
+# the 1/4 law instead of sitting on it.
+#
+# DO NOT measure it on the whole of S4: the part ahead of the trailing shock is still being
+# compressed, and S4's total width SHRINKS after log R/R_0 ~ 1.8 (the shock reaches the CD at
+# ~2.2-2.3). And the dumps are dense early: subsample the snapshots geometrically in ITERATION,
+# not in file index, or nothing past log R/R_0 ~ 0.4 is read.
+SPREAD_SLABS = ((0.75, 1.00), (0.50, 0.75), (0.25, 0.50), (0.50, 1.00))
+                               # fixed-mass slabs, as fractions of the initial width from the
+                               # CD (the ARTICLE_FRACS convention): the back quarter first
+SPREAD_NSNAP = 700             # geometric draws in iteration number (duplicates dropped)
+SPREAD_BIN   = 0.15            # dex of R/R_0 per local-slope bin
+SPREAD_L1    = 2.3             # log10(R/R_0) where the slabs stop being usable: the trailing
+                               # shock enters S1 at ~2.3, and past it the slopes jump by O(1)
+                               # from bin to bin (pressure floor, late-time density noise)
+SPREAD_LAW   = {'Dc': 0.25, 'rho': -2.25, 'p': -3.75, 'cs': -0.75}
+
+
+def measure_shell_spreading(test_key='cooling_g100', z=4, slabs=SPREAD_SLABS,
+    nsnap=SPREAD_NSNAP):
+  '''
+  Width and thermodynamics of fixed-mass slabs of shell z, per snapshot. Returns a dict with
+  t, R (the CD, in light-seconds), LR = log10(R/R_0) and, per slab (keyed by its fractions),
+  the arrays
+      Dc   comoving width sum(Gamma dx)          G    mass-weighted Gamma
+      rho, p, cs   mass-weighted, cs = sqrt(gma p/(rho h)) with h = 1 + 2.5 Theta
+      dv   beta difference between the slab's two edge cells
+      k    (dDelta'/dt')/c_s' = Gamma dDc/dt / cs, from the width
+      kv   Gamma^2 dv/cs, the same from the edge velocities (independent check)
+  plus 'wave', log10(R/R_0) at which the trailing shock reaches the slab's CD-side cell
+  (cell_phases), after which the slab is wholly behind it.
+  '''
+  import glob, re
+  env = MyEnv(test_key)
+  R0 = env.R0/c_
+  kmin, kmax, kCD = shell_cell_range(test_key, z)
+  span, sgn = kmax - kmin, (-1 if z == 4 else 1)
+  kr = {sl: tuple(sorted(int(round(kCD + sgn*f*span)) for f in sl)) for sl in slabs}
+  rdir = os.path.join(GAMMA_dir, 'results', test_key)
+  its = np.array(sorted(int(re.findall(r'phys(\d+)\.out', f)[0])
+                        for f in glob.glob(os.path.join(rdir, 'phys*.out'))))
+  pick = np.unique(its[np.clip(np.searchsorted(its, np.geomspace(1, its[-1], nsnap)),
+                               0, len(its) - 1)])
+  kCDside = kCD if z == 4 else kCD
+  t, R, rec = [], [], {sl: [] for sl in slabs}
+  for it in pick:
+    d = pd.read_csv(os.path.join(rdir, f'phys{it:010d}.out'), sep=' ',
+                    usecols=['t', 'i', 'x', 'dx', 'rho', 'vx', 'p']).set_index('i')
+    t.append(float(d.t.iloc[0]))
+    R.append(float(d.x.loc[kCDside] + (0.5 if z == 4 else -0.5)*d.dx.loc[kCDside]))
+    for sl, (a, b) in kr.items():
+      q = d.loc[a:b]
+      G = 1./np.sqrt(1. - q.vx.to_numpy()**2)
+      x, dx, rho, p = (q[c].to_numpy() for c in ('x', 'dx', 'rho', 'p'))
+      m = rho*G*x**2*dx
+      th = p/rho
+      cs = np.sqrt(GMA_REF*th/(1. + GMA_REF/(GMA_REF - 1.)*th))
+      rec[sl].append((np.sum(G*dx), np.sum(m*G)/m.sum(), np.sum(m*rho)/m.sum(),
+                      np.sum(m*p)/m.sum(), np.sum(m*cs)/m.sum(), q.vx.iloc[-1] - q.vx.iloc[0]))
+  t, R = np.array(t), np.array(R)
+  out = dict(t=t, R=R, LR=np.log10(R/R0), slabs=slabs)
+  for sl in slabs:
+    Dc, G, rho, p, cs, dv = np.array(rec[sl]).T
+    a, b = kr[sl]
+    kside = b if z == 4 else a                    # the slab's CD-side cell
+    cell = _test_cells(test_key, z, NCELLS, ks=[kside])
+    wave = None
+    if cell:
+      _, s_, _, dex, _ = cell[0]
+      ph = cell_phases(s_, dex=dex, L_max=1.7)    # the article's window: past it the
+                                                  # dlnGamma/dlnR bumps are late-time noise
+      if ph['wave'] is not None:
+        wave = float(np.log10(ph['wave']['R']/env.R0))
+    out[sl] = dict(Dc=Dc, G=G, rho=rho, p=p, cs=cs, dv=dv, k=G*np.gradient(Dc, t)/cs,
+                   kv=G**2*dv/cs, wave=wave)
+  return out
+
+
+def spreading_slopes(S, sl, keys=('Dc', 'rho', 'p', 'cs', 'G'), dbin=SPREAD_BIN, L0=None,
+    L1=SPREAD_L1):
+  '''Local d ln X/d ln R per dbin of log10(R/R_0), plus the median k and kv per bin.'''
+  LR, lnR = S['LR'], np.log(S['R'])
+  L0 = LR[1] if L0 is None else L0
+  rows = []
+  for a in np.arange(L0, min(L1, LR[-1]) - 0.5*dbin, dbin):
+    m = (LR >= a) & (LR < a + dbin)
+    if m.sum() < 5:
+      continue
+    r = dict(L=a + 0.5*dbin, k=float(np.median(S[sl]['k'][m])),
+             kv=float(np.median(S[sl]['kv'][m])))
+    for q in keys:
+      r[q] = float(np.polyfit(lnR[m], np.log(S[sl][q][m]), 1)[0])
+    rows.append(r)
+  return {q: np.array([r[q] for r in rows]) for q in rows[0]}
+
+
+def plot_shell_spreading(test_key='cooling_g100', z=4, outdir=OUTDIR, S=None):
+  '''
+  Phase IV explained: the local slopes of Delta', rho, p, c_s' of each fixed-mass slab against
+  the 1/4 law (top), and the spreading rate in units of the sound speed, k, which the law needs
+  to be constant (bottom). Each slab is drawn only once the trailing shock has crossed all of
+  it (its CD-side cell, dotted line in its colour); the widths before that mix pre- and
+  post-shock gas. Crosses on k are kv, the same rate from the edge velocities. Prints the
+  slope table for the article text.
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  S = measure_shell_spreading(test_key, z) if S is None else S
+  scol = ('#0072B2', '#D55E00', '#009E73', '0.2')
+  lab = {'Dc': r"$\Delta'$", 'rho': r'$\rho$', 'p': r'$p$', 'cs': r"$c_{\rm s}'$"}
+  fig, axes = plt.subplots(5, 1, figsize=(5.9, 10.), sharex=True, layout='constrained',
+                           height_ratios=[2, 2, 2, 2, 2.4])
+  for sl, col in zip(S['slabs'], scol):
+    tab = spreading_slopes(S, sl, L0=S[sl]['wave'])
+    name = rf'${100*sl[0]:.0f}$-${100*sl[1]:.0f}\%$'
+    ls = '-' if sl[1] - sl[0] < 0.3 else '--'
+    print(f'\nslab {name} (from the CD), trailing shock through it at log R/R0 = '
+          f'{S[sl]["wave"]}')
+    print('  logR/R0   Delta\'    rho      p       cs     Gamma  |   k     kv')
+    for i in range(len(tab['L'])):
+      print(f'  {tab["L"][i]:.3f}   ' + '  '.join(f'{tab[q][i]:+.3f}' for q in
+            ('Dc', 'rho', 'p', 'cs', 'G')) + f'  | {tab["k"][i]:+.3f} {tab["kv"][i]:+.3f}')
+    for ax, q in zip(axes[:4], ('Dc', 'rho', 'p', 'cs')):
+      ax.plot(tab['L'], tab[q], color=col, lw=1.4, ls=ls, marker='o', ms=2.5)
+    axes[4].plot(tab['L'], tab['k'], color=col, lw=1.4, ls=ls, marker='o', ms=2.5, label=name)
+    axes[4].plot(tab['L'], tab['kv'], color=col, lw=0, marker='x', ms=3.5)
+    if S[sl]['wave'] is not None and sl[1] - sl[0] < 0.3:
+      for ax in axes:
+        ax.axvline(S[sl]['wave'], color=col, lw=0.9, ls=(0, (1, 1.8)), alpha=0.7)
+  for ax, q in zip(axes[:4], ('Dc', 'rho', 'p', 'cs')):
+    law = SPREAD_LAW[q]
+    ax.axhline(law, color='0.35', lw=1., ls=(0, (5, 2)), zorder=1)
+    ax.set_ylabel(rf'${{\rm d}}\ln$ {lab[q]}$/{{\rm d}}\ln R$')
+    ax.set_ylim(law - 0.6, law + 0.6)
+    ax.text(0.99, 0.9, rf'${law:+.2f}$', transform=ax.transAxes, ha='right', va='top',
+            fontsize=8, color='0.35')
+    P._style(ax)
+  axes[4].axhline(0., color='0.6', lw=0.7)
+  axes[4].set_ylabel(r"$k = ({\rm d}\Delta'/{\rm d}t')/c_{\rm s}'$")
+  axes[4].set_ylim(-0.15, 0.2)
+  axes[4].legend(title='slab (from the CD)', fontsize=8, title_fontsize=8, ncol=2,
+                 loc='lower right', frameon=True, framealpha=0.9, edgecolor='0.85')
+  P._style(axes[4])
+  axes[-1].set_xlabel(r'$\log_{10}(R/R_0)$')
+  path = os.path.join(outdir, f'shell_spreading_z{z}.png')
+  fig.savefig(path, dpi=200, bbox_inches='tight')
+  plt.close(fig)
+  print(f'saved {path}')
+  return path
+
+
 # --- wave tracks ----------------------------------------------------------------------
 # The shell carries TWO waves out of its external interface, not one. The rarefaction head
 # is the first (the crash every cell history shows); a COMPRESSION follows it, steepens into
@@ -2152,6 +2320,8 @@ def main(table_key=TABLE_KEY, z_list=(4, 1), ncells=NCELLS):
     plot_three_way(table_key, z, ncells)
     plot_article(table_key, z, ncells)
     plot_article(table_key, z, ncells, xunit='R0')
+    if z == 4:
+      plot_shell_spreading('cooling_g100', z)
     for tk in ('cooling_g100', table_key):
       plot_model_validation(table_key, tk, z, ncells)
   return out
