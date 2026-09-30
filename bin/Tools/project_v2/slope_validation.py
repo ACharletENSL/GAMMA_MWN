@@ -988,7 +988,7 @@ def plot_prescription(sides_by_z, summary, outdir=OUTDIR, cases=PRESC_CASES):
       if np.isfinite(rms) and rms > wr:
         worst, wr = (s, i), rms
     if worst is not None:
-      panels.append((f'{rg} {lab}', worst, wr, (p1, p2, pg), rg))
+      panels.append((f'{swp.disp_class(rg)} {lab}', worst, wr, (p1, p2, pg), rg))
   if not panels:
     return None
   ncol = 3
@@ -1011,7 +1011,7 @@ def plot_prescription(sides_by_z, summary, outdir=OUTDIR, cases=PRESC_CASES):
     ax.set_ylim(10**-3.6, 3.)
     ax.set_xlim(max(x.min(), 1e-7), x.max())
     ax.grid(alpha=.2, lw=.5)
-    ax.set_title(f"{swp.disp_class(rg)}: worst bin, rms = {wr:.3f}\n"
+    ax.set_title(f"{rg}: worst bin, rms = {wr:.3f}\n"
                  f"z={s['z']}, log$_{{10}}\\mathcal{{C}}$={s['logr']:+.0f}, "
                  f"$\\bar{{T}}$={s['fs']['barT'][i]:.2f}",
                  fontsize=8, color=('#b00' if wr > PRESC_RMS_MAX else 'k'))
