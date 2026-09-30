@@ -773,6 +773,18 @@ def _write_table(rows, cols, path, note, outdir, title):
   for b in body:
     print(fmt_row(b))
   print('\n' + note)
+  render_table(body, cols, path, note)
+  return path
+
+
+def render_table(body, cols, path, note):
+  '''
+  The png form of a _write_table table, from its cell strings -- split out so a label-only
+  change can be redrawn from the csv (read_table_csv) without re-measuring the sweep.
+  '''
+  head = [c[0] for c in cols]
+  wd = [max(len(head[i]), max((len(b[i]) for b in body), default=0))
+        for i in range(len(head))]
   fig, ax = plt.subplots(figsize=(0.13*sum(wd) + 2., 0.32*len(body) + 2.4)); ax.axis('off')
   # the PNG spells the shape class as the figures do; the csv keeps the stored name
   icls = [i for i, (_, k, _) in enumerate(cols) if k.startswith('cls')]
@@ -780,9 +792,23 @@ def _write_table(rows, cols, path, note, outdir, title):
   tbl = ax.table(cellText=body_disp, colLabels=head, loc='center', cellLoc='center')
   tbl.auto_set_font_size(False); tbl.set_fontsize(6.5); tbl.scale(1, 1.25)
   ax.set_title(note, fontsize=6.5)
-  fig.savefig(path.replace('.csv', '.png'), dpi=200, bbox_inches='tight')
+  png = path.replace('.csv', '.png')
+  fig.savefig(png, dpi=200, bbox_inches='tight')
   plt.close(fig)
-  return path
+  return png
+
+
+def replot_tables(outdir):
+  'Redraw both table pngs from the csvs build_tables wrote, measuring nothing.'
+  pngs = []
+  for name, cols, note in ((SHAPE_CSV, _COLS, _NOTE), (RATIO_CSV, _RCOLS, _RNOTE)):
+    path = os.path.join(outdir, name)
+    with open(path, newline='') as f:
+      rd = csv.reader(f)
+      head = next(rd); body = [row for row in rd]
+    assert head == [c[0] for c in cols], f'{path}: columns differ from the code\'s'
+    pngs.append(render_table(body, cols, path, note))
+  return pngs
 
 
 def build_tables(rows, outdir):
