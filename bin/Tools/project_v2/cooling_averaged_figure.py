@@ -109,7 +109,7 @@ _QT = (f'{_QF.numerator}' if _QF.denominator == 1
        else f'{_QF.numerator}/{_QF.denominator}')
 # (title, log10 C, q). (a) and (b) share kappa and differ ONLY in the clock; (b) and
 # (c) share the clock and differ only in the regime
-CASES = (f"$t'_{{\\rm c}}=\\,$cst \u2013 FC", -2., 0.), \
+CASES = (f"$t'_{{\\rm c}}=\\,$cst", -2., 0.), \
         (f"$t'_{{\\rm c}}\\propto t'^{{{_QT}}}$ \u2013 FC", -2., Q_C), \
         (f"$t'_{{\\rm c}}\\propto t'^{{{_QT}}}$ \u2013 SC", 2., Q_C)
 TT_LABEL = '$\\log_{10}\\tilde{t}$'
@@ -174,6 +174,10 @@ def check_peak(tts=(1e1, 1e2, 1e3), p=P_SYN, gm0=GM0, gM0=GMA_M0, Ng=400001):
 LOGSIG = (-3., -2., -1., 0., 1., 2., 3.)   # sampled log10 sigma, sigma = t'/t'_0 - 1
 LOGC_FS = (-2., 2.)                        # the fast- and slow-cooling columns
 NG_D = 500                                 # points per curve
+DEC_SPAN = 1e-21                           # how far below the tallest peak the panels
+                                           # reach. The three span 20-29 decades of
+                                           # their own, so a fixed floor cut the
+                                           # slow-cooling column off half way across
 _GL_X, _GL_W = np.polynomial.legendre.leggauss(64)
 
 
@@ -341,7 +345,7 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
   axR.grid(False)
   for k in range(len(cases)):
     axs[0, k].set_xlim(.3*lo_g, 4.*gM0)
-    axs[0, k].set_ylim(1e-14, 10.*hi_N)
+    axs[0, k].set_ylim(10.*hi_N*DEC_SPAN, 10.*hi_N)
   axs[0, 0].set_ylabel('${\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$',
                        fontsize=FS_LAB)
   axs[1, 0].set_ylabel("${\\rm d}\\ln({\\rm d}\\mathcal{N}_{\\rm e}/{\\rm d}\\gamma_"
@@ -353,8 +357,8 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
       plt.Line2D([], [], color='crimson', ls='--', lw=1.1, label='frozen'),
       plt.Line2D([], [], color=INK, lw=0, marker='o', mfc='none', ms=3.5,
                  label='$\\gamma_\\mathrm{M}$')],
-      fontsize=FS_LEG, loc='upper center', framealpha=.9, handletextpad=.4,
-      borderpad=.4, labelspacing=.3)
+      fontsize=FS_LEG, loc='upper center', framealpha=.9, handletextpad=.3,
+      borderpad=.3, ncol=3, columnspacing=.9, handlelength=1.3)
   p1 = axs[0, -1].get_position()
   cax = fig.add_axes([p1.x1 + .014, p1.y0, .016, p1.height])
   cb = fig.colorbar(sm, cax=cax)
