@@ -552,9 +552,10 @@ def plot_lightcurve_shape_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TA
   The comparison twin of sweep_gammacm.plot_lightcurve_shape: the SAME three panels per
   nu_t -- flux on a linear time axis, eps_rad-scaled flux on a log one, the local temporal
   index on the log one -- with both sides overlaid (dashed A / solid B), so a comparison
-  figure reads panel for panel against the single-method one. The B/A ratio sits under
-  the log-log panel only, which is where the decay the two sides differ on is spread out;
-  the linear and index panels run the full height.
+  figure reads panel for panel against the single-method one. Under each, the difference
+  between the sides on that panel's own time axis: B/A under both flux panels (linear in
+  y), and the index difference a_B - a_A under the index panel -- where the cut's effect
+  on the DECAY shape shows.
 
   Normalisation: both curves of a pair are divided by the norm_side peak, so that side
   peaks at 1 on the linear panel exactly as the single-method curves do, and the other
@@ -595,13 +596,10 @@ def plot_lightcurve_shape_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TA
   ylo_log = min(lo)/swp.YPAD_LOG if lo else 1e-8
 
   for nu_t in nu_targets:
-    fig = plt.figure(figsize=(15.5, 5.6))
-    gs = fig.add_gridspec(2, 3, height_ratios=[2.2, 1])
-    ax_lin = fig.add_subplot(gs[:, 0])
-    ax_log = fig.add_subplot(gs[0, 1])
-    ax_r = fig.add_subplot(gs[1, 1], sharex=ax_log)
-    ax_idx = fig.add_subplot(gs[:, 2])
-    ratios = []
+    fig, axs = plt.subplots(2, 3, figsize=(15.5, 6.6), sharex='col',
+                            gridspec_kw={'height_ratios': [2.2, 1]})
+    (ax_lin, ax_log, ax_idx), (ax_rlin, ax_rlog, ax_d) = axs
+    ratios, dmax = [], 0.
     for (rf, rd), c, eff in _draw_order(zip(pairs, colors, effs)):
       x = (rf['Tb'] - 1.)/barT_f
       lf, ld = _lc_at(rf, nu_t), _lc_at(rd, nu_t)
@@ -615,44 +613,58 @@ def plot_lightcurve_shape_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TA
       if np.isfinite(eff) and eff > 0.:
         ax_log.loglog(x, eff*yf, color=c, lw=1.1, ls='--')
         ax_log.loglog(x, eff*yd, color=c, lw=1.1)
-      ax_idx.semilogx(x, local_index(x, yf), color=c, lw=.9, ls='--')
-      ax_idx.semilogx(x, local_index(x, yd), color=c, lw=.9)
+      sf, sd = local_index(x, yf), local_index(x, yd)
+      ax_idx.semilogx(x, sf, color=c, lw=.9, ls='--')
+      ax_idx.semilogx(x, sd, color=c, lw=.9)
       with np.errstate(divide='ignore', invalid='ignore'):
         rr = np.where(lf > 1e-6*pk_b, ld/lf, np.nan)   # only where side A has flux
       ratios.append((x, rr))
-      ax_r.semilogx(x, rr, color=c, lw=.9)
-    for ax in (ax_lin, ax_log, ax_r, ax_idx):
+      ax_rlin.plot(x, rr, color=c, lw=.9)
+      ax_rlog.semilogx(x, rr, color=c, lw=.9)
+      ds = sd - sf
+      ax_d.semilogx(x, ds, color=c, lw=.9)
+      win = (x >= XLIM_LOG[0]) & (x <= XLIM_LOG[1]) & np.isfinite(ds)
+      if win.any():
+        dmax = max(dmax, float(np.max(np.abs(ds[win]))))
+    for ax in axs.flat:
       ax.axvline(1., color='grey', ls=':', lw=.7)
       if xoff is not None:
         ax.axvspan(xoff[0], xoff[1], color='grey', alpha=0.15, lw=0, zorder=0)
     for ax in (ax_lin, ax_log):
       ax.axhline(1., color='grey', ls=':', lw=.7)
-    ax_r.axhline(1., color='grey', ls=':', lw=.9)
+    for ax in (ax_rlin, ax_rlog):
+      ax.axhline(1., color='grey', ls=':', lw=.9)
+    ax_d.axhline(0., color='grey', ls=':', lw=.9)
     _index_panel(ax_idx, a_hle)
     ax_lin.set_xlim(*xlim_lin)
     ax_log.set_xlim(*XLIM_LOG); ax_idx.set_xlim(*XLIM_LOG)
     ax_log.set_ylim(ymin=ylo_log)
-    ax_log.tick_params(labelbottom=False)
     ax_lin.set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm max}$')
     ax_log.set_ylabel('$\\varepsilon_{\\rm rad}\\,\\nu F_\\nu/(\\nu F_\\nu)_{\\rm max}$')
-    # linear y, scaled to the window: the ratios stay within tens of percent, which a
-    # log axis spends most of its height not showing
-    rw = [r[(x >= XLIM_LOG[0]) & (x <= XLIM_LOG[1]) & np.isfinite(r)] for x, r in ratios]
-    rmax = max([float(r.max()) for r in rw if r.size] + [1.001])
-    rmin = min([float(r.min()) for r in rw if r.size] + [.999])
-    span = rmax - rmin
-    ax_r.set_ylim(rmin - .05*span, rmax + .1*span)
-    ax_r.set_ylabel(f'{lb} / {la}')
-    for ax in (ax_lin, ax_r, ax_idx):
+    # both ratio panels on a LINEAR y, each scaled to its own time window: the ratios
+    # stay within tens of percent, which a log axis spends most of its height not showing
+    for ax, xl in ((ax_rlin, xlim_lin), (ax_rlog, XLIM_LOG)):
+      rw = [r[(x >= xl[0]) & (x <= xl[1]) & np.isfinite(r)] for x, r in ratios]
+      rmax = max([float(r.max()) for r in rw if r.size] + [1.001])
+      rmin = min([float(r.min()) for r in rw if r.size] + [.999])
+      span = rmax - rmin
+      ax.set_ylim(rmin - .05*span, rmax + .1*span)
+    # symmetric about zero, capped: where one side switches off its index dives and the
+    # difference would otherwise set the scale for everything else
+    dmax = min(max(dmax, .05), 2.)
+    ax_d.set_ylim(-1.1*dmax, 1.1*dmax)
+    ax_rlin.set_ylabel(f'{lb} / {la}')
+    # (the middle ratio panel shares the left one's label: same quantity, other clock)
+    ax_d.set_ylabel(f'$\\Delta a$  ({lb} $-$ {la})')
+    for ax in axs[1]:
       ax.set_xlabel('$\\bar{T}/\\bar{T}_f$')
-    ax_lin.text(0.97, 0.92, _nu_0_label(nu_t), transform=ax_lin.transAxes,
+    ax_lin.text(0.97, 0.89, _nu_0_label(nu_t), transform=ax_lin.transAxes,
                 ha='right', va='top', fontsize=12)
-    # the side key on the ratio panel, upper left: the two sides agree until the
+    # the side key on the linear ratio panel, upper left: the two sides agree until the
     # crossing, so that corner holds only the flat unity line
-    ax_r.plot([], [], 'k--', label=la); ax_r.plot([], [], 'k-', label=lb)
-    ax_r.legend(loc='upper left', fontsize=9, framealpha=.9)
-    fig.colorbar(sm, ax=[ax_lin, ax_log, ax_r, ax_idx], pad=0.012, fraction=0.035,
-                 label='log$_{10}\\mathcal{C}$')
+    ax_rlin.plot([], [], 'k--', label=la); ax_rlin.plot([], [], 'k-', label=lb)
+    ax_rlin.legend(loc='upper left', fontsize=9, framealpha=.9)
+    fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035, label='log$_{10}\\mathcal{C}$')
     fig.savefig(os.path.join(outdir, f'lightcurve_shape_cmp_nu={nu_t:g}.png'), dpi=300)
     plt.close(fig)
   print(f'lightcurve shape comparison ({len(nu_targets)} frequencies) saved to {outdir}')
