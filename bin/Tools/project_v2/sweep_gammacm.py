@@ -1886,6 +1886,124 @@ def track_breaks_gs02(r, flux_floor=TRACK_FLUX_FLOOR, rms_max=GS02_TRACK_RMSMAX,
               nu_win=(float(x.min()), float(x.max())), Fpk=Fpk)
 
 
+ROUTE_FAST = ('FC', 'FC*', 'VFC')   # shape classes whose lower break, if any, is nu_c
+ROUTE_SLOW = ('SC', 'VSC')          # ... and those whose lower break is nu_m
+
+
+def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None):
+  '''
+  The break tracks from the SEGMENT ROUTE (spectral_breaks.track_segment_route, cached by
+  segment_route.load_side), in the contract of track_breaks_gs02 so every break panel and
+  table takes it unchanged. This is what the break figures are drawn from: the GS02 fit
+  over the whole band invents a lower break where the spectrum no longer shows one (the
+  reference method past ~40 bar{T}_f, where the nu^(4/3) segment has left the band and the
+  fit's nu_c/nu_m turns over for no physical reason).
+
+  WHERE EACH BREAK COMES FROM, by the shape class the route identified:
+    SC, FC     the crossings of the identified segments              both breaks
+    MFC        route class 'MC': ONE apparent break, the two having   both breaks, FITTED
+               merged -- no mid segment survives. No crossing can     (fit_gs02_spectrum,
+               place two breaks there, so the GS02 fit does, gated    free mid slope)
+               on its rms and its bounds exactly as in track_breaks_gs02
+    VFC, FC*   nu_c below / at the band bottom: one break, nu_m       nu_m only
+    VSC        nu_c above the band                                    nu_m only
+    None       no segment set identified (the reference method's      nothing
+               tail once the 4/3 segment has left the band)
+  MFC is therefore reserved for MERGED breaks. A break that has merely dropped out of the
+  data is VFC/FC*, and a spectrum with no identifiable segments is not a measurement --
+  neither is ever drawn as MFC.
+
+  NAMING BY CONTINUITY, the rule track_breaks_gs02 uses: monotone in time, at most one
+  slow -> fast switch, at the first fast-class bin (FC, FC*, VFC) inside barT_swap_max.
+  Every two-break bin before it is named slow, every one after it fast -- MFC included,
+  and also a stray SC bin after the switch (counted in n_sc_after_swap). The MFC bins
+  between the last slow-class bin and the switch are the crossing itself: their ratio is
+  drawn (named by continuity, dashed), their nu_c and nu_m are not.
+  '''
+  x = nu_over_num(r); env = r['env']
+  barT = np.asarray(tk['barT'], float)
+  if len(barT) != len(r['Tb']) or not np.allclose(barT, r['Tb'] - 1.):
+    raise ValueError(f"route track and sweep point disagree on the time grid "
+                     f"(log10ratio={r['log10ratio']:+.1f}) -- stale route cache?")
+  n = len(barT)
+  nuFnu = r['nuFnu']
+  nuM_nom = nu_M_over_num(r)
+  nu_B = 1./env.gma_m**2
+  reg = np.array([q for q in tk['regime']], dtype=object)
+  is_ = lambda *c: np.array([q in c for q in reg])
+  b_lo = np.full(n, np.nan); b_hi = np.full(n, np.nan); rms = np.full(n, np.nan)
+  src = np.array([None]*n, dtype=object)
+  br_ok = np.asarray(tk['br_ok'], bool)
+
+  two = is_('SC', 'FC') & br_ok
+  b_lo[two], b_hi[two] = np.asarray(tk['b_lo'], float)[two], np.asarray(tk['b_hi'], float)[two]
+  src[two] = 'cross'
+  mfc = is_('MC')
+  for i in np.flatnonzero(mfc):
+    f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_B)
+    # the fit may still find ONE break (its VFC verdict): no separation, no ratio
+    if f is None or f['at_bound'] or f['rms'] > rms_max or f['regime'] == 'VFC':
+      continue
+    b_lo[i], b_hi[i], rms[i] = f['b_lo'], f['b_hi'], f['rms']
+    src[i] = 'fit'
+  two = np.isfinite(b_lo) & np.isfinite(b_hi)
+
+  # the single-break classes: route b_hi is the mid x hi crossing (nu_m) in VFC / FC*, and
+  # route b_lo the lo x mid one (nu_m) in VSC
+  one_fast = is_('VFC', 'FC*') & br_ok
+  one_slow = is_('VSC') & br_ok
+  nu_m1 = np.where(one_fast, np.asarray(tk['b_hi'], float),
+                   np.where(one_slow, np.asarray(tk['b_lo'], float), np.nan))
+
+  in_win = (barT <= barT_swap_max) if barT_swap_max is not None else np.ones(n, bool)
+  fast_bins = np.flatnonzero(is_(*ROUTE_FAST) & br_ok & in_win)
+  fast = np.zeros(n, bool); ambig = np.zeros(n, bool)
+  i_swap = None
+  if fast_bins.size:
+    i_swap = int(fast_bins[0])
+    fast[i_swap:] = True
+    slow_before = np.flatnonzero(is_(*ROUTE_SLOW) & (np.arange(n) < i_swap))
+    i_sl = int(slow_before[-1]) if slow_before.size else -1
+    ambig[i_sl+1:i_swap] = mfc[i_sl+1:i_swap]   # the crossing: named neither way
+  n_sc_after = int((is_(*ROUTE_SLOW) & fast).sum())
+
+  nu_c = np.where(two & ~ambig, np.where(fast, b_lo, b_hi), np.nan)
+  nu_m = np.where(two & ~ambig, np.where(fast, b_hi, b_lo), nu_m1)
+  with np.errstate(invalid='ignore'):
+    inwin = (np.minimum(nu_c, nu_m) > EDGE_FAC*x.min()) \
+            & (np.maximum(nu_c, nu_m) < x.max()/EDGE_FAC)
+    inwin_m = (nu_m > EDGE_FAC*x.min()) & (nu_m < x.max()/EDGE_FAC)
+    inwin_b = (b_lo > EDGE_FAC*x.min()) & (b_hi < x.max()/EDGE_FAC)
+  valid = two & ~ambig & inwin
+  valid_m = np.isfinite(nu_m) & inwin_m & (valid | one_fast | one_slow)
+  with np.errstate(divide='ignore', invalid='ignore'):
+    ratio_shape = np.where(two & inwin_b, np.where(fast, b_lo/b_hi, b_hi/b_lo), np.nan)
+  return dict(barT=barT, nu_lo=b_lo, nu_hi=b_hi, nu_c=nu_c, nu_m=nu_m, sep=b_hi/b_lo,
+              ratio=nu_c/nu_m, s_mid=rms, off=~(two | one_fast | one_slow), unres=ambig,
+              valid=valid, valid_m=valid_m, is_vfc=is_('VFC'), ambig=ambig,
+              beta_mid=np.asarray(tk['a_mid'], float) - 1., mc_shape=mfc, fast=fast,
+              ratio_shape=ratio_shape, sep_unres=np.nan, i_swap=i_swap,
+              nu_M=nuM_nom, nu_Mt=np.asarray(tk['nuM'], float), nu_B=nu_B,
+              nu_win=(float(x.min()), float(x.max())), Fpk=np.asarray(tk['Fpk'], float),
+              regime=reg, src=src, n_sc_after_swap=n_sc_after)
+
+
+def route_break_tracks(results, key, method, z, barT_off=None, barT_f=None, nproc=None):
+  '''
+  track_breaks_route for every point of a sweep. The route tracks come from
+  segment_route.load_side, whose per-point cache makes a warm call cheap (a cold side is
+  ~7 min on 3 workers at the fiducial); only the MFC bins are fitted here.
+  barT_swap_max is the same bound main has always given track_breaks_gs02.
+  '''
+  import segment_route as S        # it imports this module, so not at the top
+  tks = {round(float(t['logr']), 1): t
+         for t in S.load_side(z=z, key=key, method=method, nproc=nproc,
+                              outdir=figdir(S.OUTDIR_NAME, key))}
+  swap = barT_off[1] if barT_off else barT_f
+  return [track_breaks_route(r, tks[round(float(r['log10ratio']), 1)], barT_swap_max=swap)
+          for r in results]
+
+
 def _fit_slope(barT, y, valid, lo, hi, nmin=4):
   '''log-log slope of y(bar{T}) over [lo, hi], on the valid bins only. NaN if the
   window holds fewer than nmin points -- the correct answer deep in fast cooling,
@@ -3608,15 +3726,17 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   # reported by plot_gs02_rms (its residual against time, every regime on one axis) and
   # build_gs02_table, which is where its numbers were read from anyway
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir, annotate=False)
-  # breaks from the Granot & Sari shape fit rather than the knee scan (track_breaks):
-  # unbiased break positions, a fitted nu_M, and a regime label the fit chooses
+  # breaks from the SEGMENT ROUTE (track_breaks_route): crossings of the identified
+  # segments, a GS02 fit only where the two breaks have merged into one (MFC), names by
+  # continuity. The whole-band GS02 fit used here before invents a lower break once the
+  # nu^(4/3) segment leaves the band (the reference method past ~40 bar{T}_f).
   # barT_off[1] bounds where the SC -> FC swap may be DETECTED, deliberately the same
   # bound for both methods: it is where the shell's on-axis emission ends under the
   # modelled cut, and for the reference method (which keeps emitting on-axis to
   # bar{T} ~ 650) it is still well past the peak, so the transition is inside it either
   # way. Sharing the bound keeps the two methods' tracks directly comparable.
-  tracks = [track_breaks_gs02(r, barT_swap_max=(barT_off[1] if barT_off else barT_f))
-            for r in results]
+  tracks = route_break_tracks(results, key, method, z, barT_off=barT_off, barT_f=barT_f,
+                              nproc=nproc)
   fits = [fit_break_evolution(r, tr, barT_f, barT_off) for r, tr in zip(results, tracks)]
   # thin-shell reference for nu_m: one curve for the whole sweep (a_u, tau are invariant
   # under the alpha rescaling). Table-only now -- the figure no longer carries the C25

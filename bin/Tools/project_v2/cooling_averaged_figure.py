@@ -257,7 +257,7 @@ def plot_averaged_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logtt=LOGTT, outdir=OUTDI
                fontsize=FS_ANN, ha='left', va='bottom',
                bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
   axN.scatter([], [], s=11, facecolors='none', edgecolors=INK, linewidths=.7,
-              label='$\\gamma_\\mathrm{M}(\\tilde{t}\\,)$')
+              label="$\\gamma_\\mathrm{M}(t')$")
   axN.legend(fontsize=FS_LEG, loc='lower left', framealpha=.9, handletextpad=.4,
              borderpad=.4, labelspacing=.3)
 
@@ -524,7 +524,7 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
     # a SHAPE reference, offset so it claims no amplitude: the slow-cooling curves are
     # tt K0 gma^-p and so are parallel to it, each at its own height
     gg = np.geomspace(gm0, gM0, 3)
-    axN.loglog(gg, 12.*K0*gg**-p*kap*10.**logsig.max(), color=MUTED, ls=':', lw=.9,
+    axN.loglog(gg, 12.*K0*gg**-p*kap*10.**logsig.max(), color=MUTED, ls='--', lw=.9,
                zorder=2)
     axN.annotate('$\\propto\\gamma_{\\rm e}^{-p}$',
                  (gg[1], 12.*K0*gg[1]**-p*kap*10.**logsig.max()),
@@ -534,6 +534,11 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
       ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
       for v in (gm0, gM0):
         ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+    for v, vlab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'),
+                    (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
+      axN.annotate(vlab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
+                   fontsize=FS_ANN, ha='center', va='top',
+                   bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
       ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
       ax.grid(alpha=.25, lw=.4)
       ax.tick_params(which='both', labelsize=FS_TICK)
@@ -552,15 +557,17 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
     # the floor follows the DATA here: the tails run to zero at gma_M,0, so a fixed
     # window clipped the last four decades of them
     axs[0, k].set_ylim(lo_N/3., 10.*hi_N)
-  axs[0, 0].set_ylabel("$N_{\\rm e}^{-1}\\,\\tilde{t}\\;{\\rm d}\\mathcal{N}_{\\rm e}"
+  axs[0, 0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
                        "/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
-  axs[1, 0].set_ylabel("${\\rm d}\\ln(\\tilde{t}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
+  axs[1, 0].set_ylabel("${\\rm d}\\ln({\\rm d}\\mathcal{N}_{\\rm e}"
                        "/{\\rm d}\\gamma_{\\rm e})/{\\rm d}\\ln\\gamma_{\\rm e}$",
                        fontsize=FS_LAB)
   axs[0, -1].legend(handles=[
       plt.Line2D([], [], color=INK, lw=0, marker='o', mfc='none', ms=3.5,
-                 label='$\\gamma_\\mathrm{M}(\\tilde{t}\\,)$')],
-      fontsize=FS_LEG, loc='upper left', framealpha=.9, handletextpad=.3, borderpad=.3)
+                 label="$\\gamma_\\mathrm{M}(t')$")],
+      fontsize=FS_LEG, loc='upper left', bbox_to_anchor=(.01, .93), framealpha=.9,
+      handletextpad=.3, borderpad=.3)   # BELOW the gma_m,0 label row: flush with the
+                                        # top it cleared that label by only 4 px
   p1 = axs[0, -1].get_position()
   cax = fig.add_axes([p1.x1 + .016, p1.y0, .019, p1.height])
   cb = fig.colorbar(sm, cax=cax)

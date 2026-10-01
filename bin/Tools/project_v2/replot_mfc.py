@@ -36,8 +36,7 @@ def main():
       barT_off = swp.rarefaction_off_barT(KEY, z=z)
       swp.plot_spectra_per_regime(res, barT_f, outdir=d)
       # the same swap bound as sweep_gammacm.main, so the tracks are the ones drawn there
-      tracks = [swp.track_breaks_gs02(r, barT_swap_max=(barT_off[1] if barT_off else barT_f))
-                for r in res]
+      tracks = swp.route_break_tracks(res, KEY, m, z, barT_off=barT_off, barT_f=barT_f)
       fits = [swp.fit_break_evolution(r, tr, barT_f, barT_off) for r, tr in zip(res, tracks)]
       swp.plot_break_ratio(res, tracks, barT_f, barT_off=barT_off, outdir=d)
       swp.plot_break_panels(res, tracks, fits, barT_f, barT_off=barT_off, outdir=d)
