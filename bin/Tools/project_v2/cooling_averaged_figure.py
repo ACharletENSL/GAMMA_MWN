@@ -471,6 +471,7 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
 
 
 # --- the steady window, integrated rather than averaged -----------------------------------
+GUIDE_INSET = .08                                 # white space at each end of the -p guide
 LOGSIG_S = (-3., -2.5, -2., -1.5, -1., -.5, 0.)   # t' in [t'_0, 2t'_0], so sigma <= 1
 FN_INT_STEADY = 'cooling_integrated_steady.png'
 STEADY_CASES = ((f"$t'_{{\\rm c}}=\\,$cst – FC", -2.),
@@ -530,10 +531,11 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
     env = np.max([[float(N_integrated(x, kap*10.**ls, p, gm0, gM0)) for x in gref]
                   for ls in logsig], axis=0)
     y_g = 12.*env[0]*(gref/gm0)**-p
-    # and STOPPED where it has drifted 2 decades off: in slow cooling the curves are
-    # tt K0 gma^-p so the ratio never moves and the guide spans the decade; in fast
-    # cooling the tail is gma^-(p+1), so a full-span guide would end three decades high.
-    keep = gref <= gref[np.argmax(y_g > 1e2*env)] if np.any(y_g > 1e2*env) else gref > 0.
+    # drawn over MOST of the gma_m,0 -> gma_M,0 decade, inset at both ends so the
+    # guide reads as a reference and not as an envelope. It is anchored, not fitted:
+    # the fast-cooling tail is gma^-(p+1), so the gap to it widens along the span.
+    lg = np.log10(gref/gm0)/np.log10(gM0/gm0)
+    keep = (lg > GUIDE_INSET) & (lg < 1. - GUIDE_INSET)
     gg, yy = gref[keep], y_g[keep]
     axN.loglog(gg, yy, color=MUTED, ls='--', lw=.9, zorder=2)
     j = len(gg)//2
