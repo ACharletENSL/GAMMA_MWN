@@ -20,6 +20,12 @@ THE THREE PANELS, and what each assumes.
       t'_M = 1/gma_M,i and t'_m = 1/gma_m,i, and in these units they need no reference
       C at all. Physics from cooling_shape_figure.
 
+      Those two times are used in EVERY panel, as the naive estimate t'_c,0/gma_X,i.
+      The exact knees, where the integrated burn reaches 1/gma_X,i, are later by
+      1 + (1+s)/(2 gma_X,i tt_dyn) -- a line width at these values -- and the one thing
+      the naive form cannot express, that an edge may never burn, is read off the
+      figure: the knee happens only where t'_dyn lies to its right.
+
   (b) SYNCHROTRON + ADIABATIC, fast cooling, bar{gma}_c/gma_m,i = 1e-2.
   (c) the same, slow cooling, bar{gma}_c/gma_m,i = 1e+2.
 
@@ -321,8 +327,6 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
                     color=INK, fontsize=FS_ANN, ha='center', va='top',
                     bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
       gM, gm = gamma_synCooled(x, gM0), gamma_synCooled(x, gm0)
-      knees = (t_M, t_m)                           # A = 1, so S = tt and S = 1/gma_0
-                                                   # is reached at exactly 1/gma_0
       x0 = None                                    # nothing freezes: 1/tt runs on
     else:
       sg = x/ttd                                   # sigma = (t'/t'_c,i)/tt_dyn
@@ -335,12 +339,20 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
       for g0, ls in ((gM0, '-'), (gm0, '--')):
         ax.loglog(x, _cut1(gamma_cooled(sg, g0, ttd, 0., ref_q)), color=SYN_REF,
                   lw=.9, ls=ls, zorder=2, label=(ref_lab if g0 == gM0 else None))
-      knees = tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0))
       # the second asymptote. Before the burn freezes A is still ~1 and S is still
       # ~t'/t'_c,i, so the top edge runs down the same 1/tt it does in (a); after, it
       # turns onto A. The two hand over at GUIDE_FRAC, overlapping by GUIDE_PAD.
       x0 = freeze_x(ttd, a_rho, q, GUIDE_FRAC)
       _frozen_guide(ax, x, ttd, a_rho, q, GUIDE_FRAC)
+
+    # THE KNEES ARE THE NAIVE ONES, t'_X = t'_c,0/gma_X,i, i.e. 1/gma_X,i on this
+    # abscissa -- the time to cool at the INJECTION rate -- and the same in every panel.
+    # Integrating the rate properly puts them at S(t') = 1/gma_X,i instead, which is
+    # later by 1 + (1+s)/(2 gma_X,i tt_dyn): 0.002% for t'_M, 2% for t'_m in (b), both
+    # a line width here. main() prints the comparison. What the naive definition cannot
+    # say is that an edge may never burn at all, which is read off the figure instead:
+    # the knee happens only if t'_dyn lies to the RIGHT of it, as t'_m does not in (c).
+    knees = (t_M, t_m)
 
     # 1/tt is the asymptote the top edge slides down, never a place it bends. It
     # starts a little before the knee where the edge begins to burn -- there is nothing
@@ -486,6 +498,14 @@ def main(show=False):
   # tracks run flat while the black ones keep falling as A(t')
   s_nd = _exps(0., Q_C)[1]
   print(f'no drag (a_rho = 0): s = q-1 = {s_nd:.4f}, threshold C < 1/s = {1./s_nd:.4f}')
+  print("naive knees t'_X = 1/gma_X,i against the integrated ones (S = 1/gma_X,i):")
+  for lc in LOGC_PANELS:
+    ttd = tt_dyn_of_C(lc, GM0)
+    for g0, nm in ((GMA_M0, "t'_M"), (GM0, "t'_m")):
+      ex = tt_knee(g0, ttd, A_RHO, Q_C)
+      r = f'{ex/(1./g0):.4f}' if ex is not None else 'NEVER BURNS'
+      print(f"  C = 10^{lc:+.0f}  {nm}: naive {1./g0:.3e}   exact/naive {r:>11s}"
+            f"   (gma_0 tt_dyn/s = {g0*ttd/_exps(A_RHO, Q_C)[1]:.3g})")
   for lc in LOGC_PANELS:
     ttd = tt_dyn_of_C(lc, GM0)
     s_inf = ttd/s_nd
