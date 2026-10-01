@@ -505,7 +505,7 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
                           squeeze=False,
                           gridspec_kw=dict(height_ratios=[1.9, 1.], hspace=.08,
                                            wspace=.06))
-  lo_g, hi_N = np.inf, 0.
+  lo_g, hi_N, lo_N = np.inf, 0., np.inf
   for k, (lab, lc) in enumerate(cases):
     axN, axS = axs[0, k], axs[1, k]
     kap = tt_dyn_of_C(lc, gm0)
@@ -517,6 +517,7 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
       axN.loglog(g[m], a[m], color=c, lw=1.1, zorder=3)
       axS.semilogx(g[m], log_slope(g[m], a[m]), color=c, lw=1.1, zorder=3)
       lo_g, hi_N = min(lo_g, float(g[m][0])), max(hi_N, float(np.max(a)))
+      lo_N = min(lo_N, float(np.min(a[m])))
       gM_t = 1./(tt + 1./gM0)
       axN.scatter([gM_t], [N_averaged(gM_t, tt, p, gm0, gM0)*tt], s=11,
                   facecolors='none', edgecolors=INK, linewidths=.7, zorder=6)
@@ -548,8 +549,10 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
   axR.grid(False)
   for k in range(len(cases)):
     axs[0, k].set_xlim(.3*lo_g, 4.*gM0)
-    axs[0, k].set_ylim(10.*hi_N*DEC_SPAN, 10.*hi_N)
-  axs[0, 0].set_ylabel("$N_{\\rm e}^{-1}\\,\\tilde{t}\;{\\rm d}\\mathcal{N}_{\\rm e}"
+    # the floor follows the DATA here: the tails run to zero at gma_M,0, so a fixed
+    # window clipped the last four decades of them
+    axs[0, k].set_ylim(lo_N/3., 10.*hi_N)
+  axs[0, 0].set_ylabel("$N_{\\rm e}^{-1}\\,\\tilde{t}\\;{\\rm d}\\mathcal{N}_{\\rm e}"
                        "/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
   axs[1, 0].set_ylabel("${\\rm d}\\ln(\\tilde{t}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
                        "/{\\rm d}\\gamma_{\\rm e})/{\\rm d}\\ln\\gamma_{\\rm e}$",
