@@ -222,9 +222,9 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
   cmp.plot_lightcurve_compare(pairs, barT_f, barT_off=barT_off, outdir=outdir,
       labels=labels, barT_end=barT_end, scale='lin', norm_side=norm_side)
   # the same three panels as the rarcut-only plot_lightcurve_shape (linear flux,
-  # eps_rad-scaled log flux, temporal index), both sides overlaid, differences underneath
+  # eps_rad-scaled log flux, temporal index), both sides overlaid, ratio under the log one
   cmp.plot_lightcurve_shape_compare(pairs, barT_f, barT_off=barT_off, outdir=outdir,
-      labels=labels, barT_end=barT_end, norm_side=norm_side)
+      labels=labels, norm_side=norm_side)
   # the same three frequencies on ONE figure, flux over ratio, both rows sharing their y
   # across the columns: what the discarded material is worth ACROSS THE BAND, which three
   # separately scaled files cannot show
