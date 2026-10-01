@@ -470,6 +470,102 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
   return _save_fig(fig, axs, outdir, fname, show)
 
 
+# --- the steady window, integrated rather than averaged -----------------------------------
+LOGSIG_S = (-3., -2.5, -2., -1.5, -1., -.5, 0.)   # t' in [t'_0, 2t'_0], so sigma <= 1
+FN_INT_STEADY = 'cooling_integrated_steady.png'
+STEADY_CASES = ((f"$t'_{{\\rm c}}=\\,$cst – FC", -2.),
+                (f"$t'_{{\\rm c}}=\\,$cst – SC", 2.))
+
+
+def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
+    cases=None, outdir=OUTDIR, fname=FN_INT_STEADY, show=False):
+  '''
+  The time-INTEGRATED distribution over the steady window, t' in [t'_0, 2t'_0].
+
+  Same system and same sampling as the averaged figure, without the 1/(t'-t'_0): the
+  curves are tt x dNN_e/dgma_e, which is cooling_integrated_figure's N(gma_e;tt) with
+  tt = kappa*sigma. Dropping the normalisation costs the property that made the average
+  a distribution -- int dgma_e = N_e tt grows with time rather than staying at N_e -- so
+  the curves FAN instead of converging, each slow-cooling one lying on tt K0 gma_e^-p.
+  The shapes are identical to the average's at the same tt; only the amplitudes move.
+
+  sigma = (t'-t'_0)/t'_0 needs a kappa = t'_0/t'_c,0 to become tt, and kappa IS the
+  regime: C = 1/(kappa gma_m,0). Hence two columns rather than one, fast and slow
+  cooling, the same pair the rest of the family uses.
+  '''
+  cases = STEADY_CASES if cases is None else cases
+  logsig = np.asarray(logsig, dtype=float)
+  norm = plt.Normalize(vmin=logsig.min(), vmax=logsig.max())
+  cmap = mcolors.LinearSegmentedColormap.from_list(
+      'viridis85', plt.cm.viridis(np.linspace(0., .85, 256)))
+  colors, sm = cmap(norm(logsig)), plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+  K0 = norm_plaw_distrib(gm0, gM0, p)
+
+  fig, axs = plt.subplots(2, len(cases), figsize=(6.4, 4.8), sharex=True, sharey='row',
+                          squeeze=False,
+                          gridspec_kw=dict(height_ratios=[1.9, 1.], hspace=.08,
+                                           wspace=.06))
+  lo_g, hi_N = np.inf, 0.
+  for k, (lab, lc) in enumerate(cases):
+    axN, axS = axs[0, k], axs[1, k]
+    kap = tt_dyn_of_C(lc, gm0)
+    for ls, c in zip(logsig, colors):
+      tt = kap*10.**ls                       # tt = kappa sigma, the integration limit
+      g, a = averaged_distrib(tt, p, gm0, gM0)
+      a = a*tt                               # average -> integral
+      m = a > 0.
+      axN.loglog(g[m], a[m], color=c, lw=1.1, zorder=3)
+      axS.semilogx(g[m], log_slope(g[m], a[m]), color=c, lw=1.1, zorder=3)
+      lo_g, hi_N = min(lo_g, float(g[m][0])), max(hi_N, float(np.max(a)))
+      gM_t = 1./(tt + 1./gM0)
+      axN.scatter([gM_t], [N_averaged(gM_t, tt, p, gm0, gM0)*tt], s=11,
+                  facecolors='none', edgecolors=INK, linewidths=.7, zorder=6)
+    # a SHAPE reference, offset so it claims no amplitude: the slow-cooling curves are
+    # tt K0 gma^-p and so are parallel to it, each at its own height
+    gg = np.geomspace(gm0, gM0, 3)
+    axN.loglog(gg, 12.*K0*gg**-p*kap*10.**logsig.max(), color=MUTED, ls=':', lw=.9,
+               zorder=2)
+    axN.annotate('$\\propto\\gamma_{\\rm e}^{-p}$',
+                 (gg[1], 12.*K0*gg[1]**-p*kap*10.**logsig.max()),
+                 textcoords='offset points', xytext=(3, 3), color=MUTED, fontsize=FS_ANN)
+    axN.set_title(lab, fontsize=FS_LAB, pad=3.)
+    for ax in (axN, axS):
+      ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
+      for v in (gm0, gM0):
+        ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+      ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
+      ax.grid(alpha=.25, lw=.4)
+      ax.tick_params(which='both', labelsize=FS_TICK)
+    axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
+    for lev in (-2., -p, -(p+1.)):
+      axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
+    axS.set_ylim(-(p + 2.6), .4)
+  axR = axs[1, -1].twinx()
+  axR.set_ylim(axs[1, -1].get_ylim())
+  axR.set_yticks([-2., -p, -(p+1.)])
+  axR.set_yticklabels(['$-2$', '$-p$', '$-(p+1)$'])
+  axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
+  axR.grid(False)
+  for k in range(len(cases)):
+    axs[0, k].set_xlim(.3*lo_g, 4.*gM0)
+    axs[0, k].set_ylim(10.*hi_N*DEC_SPAN, 10.*hi_N)
+  axs[0, 0].set_ylabel("$N_{\\rm e}^{-1}\\,\\tilde{t}\;{\\rm d}\\mathcal{N}_{\\rm e}"
+                       "/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
+  axs[1, 0].set_ylabel("${\\rm d}\\ln(\\tilde{t}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
+                       "/{\\rm d}\\gamma_{\\rm e})/{\\rm d}\\ln\\gamma_{\\rm e}$",
+                       fontsize=FS_LAB)
+  axs[0, -1].legend(handles=[
+      plt.Line2D([], [], color=INK, lw=0, marker='o', mfc='none', ms=3.5,
+                 label='$\\gamma_\\mathrm{M}(\\tilde{t}\\,)$')],
+      fontsize=FS_LEG, loc='upper left', framealpha=.9, handletextpad=.3, borderpad=.3)
+  p1 = axs[0, -1].get_position()
+  cax = fig.add_axes([p1.x1 + .016, p1.y0, .019, p1.height])
+  cb = fig.colorbar(sm, cax=cax)
+  cb.set_label("$\\log_{10}[(t'-t'_0)/t'_0]$", fontsize=FS_LAB)
+  cb.ax.tick_params(labelsize=FS_TICK)
+  return _save_fig(fig, axs, outdir, fname, show)
+
+
 def _save_fig(fig, axs, outdir, fname, show):
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
@@ -520,6 +616,7 @@ def main(show=False):
     print('     -> frozen state: ' + '  '.join(
         f'sigma={s:.0e}: {d:.3e}' for s, d in check_decay_freeze(kap)))
   plot_averaged_steady(show=show)
+  plot_integrated_steady(show=show)
   plot_averaged(show=show)
 
 
