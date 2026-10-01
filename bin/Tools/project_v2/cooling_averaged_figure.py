@@ -465,7 +465,7 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
   p1 = axs[0, -1].get_position()
   cax = fig.add_axes([p1.x1 + .014, p1.y0, .016, p1.height])
   cb = fig.colorbar(sm, cax=cax)
-  cb.set_label("$\\log_{10}[(t'-t'_0)/t'_0]$", fontsize=FS_LAB)
+  cb.set_label("$\\log_{10}(\\Delta t'/t'_0)$", fontsize=FS_LAB)
   cb.ax.tick_params(labelsize=FS_TICK)
   return _save_fig(fig, axs, outdir, fname, show)
 
@@ -583,7 +583,7 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
   p1 = axs[0, -1].get_position()
   cax = fig.add_axes([p1.x1 + .016, p1.y0, .019, p1.height])
   cb = fig.colorbar(sm, cax=cax)
-  cb.set_label("$\\log_{10}[(t'-t'_0)/t'_0]$", fontsize=FS_LAB)
+  cb.set_label("$\\log_{10}(\\Delta t'/t'_0)$", fontsize=FS_LAB)
   cb.ax.tick_params(labelsize=FS_TICK)
   return _save_fig(fig, axs, outdir, fname, show)
 
