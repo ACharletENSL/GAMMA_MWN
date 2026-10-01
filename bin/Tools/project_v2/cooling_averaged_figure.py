@@ -521,13 +521,23 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
       gM_t = 1./(tt + 1./gM0)
       axN.scatter([gM_t], [N_averaged(gM_t, tt, p, gm0, gM0)*tt], s=11,
                   facecolors='none', edgecolors=INK, linewidths=.7, zorder=6)
-    # a SHAPE reference, offset so it claims no amplitude: the slow-cooling curves are
-    # tt K0 gma^-p and so are parallel to it, each at its own height
-    gg = np.geomspace(gm0, gM0, 3)
-    axN.loglog(gg, 12.*K0*gg**-p*kap*10.**logsig.max(), color=MUTED, ls='--', lw=.9,
-               zorder=2)
-    axN.annotate('$\\propto\\gamma_{\\rm e}^{-p}$',
-                 (gg[1], 12.*K0*gg[1]**-p*kap*10.**logsig.max()),
+    # a SHAPE reference, offset so it claims no amplitude. ANCHORED TO THE CURVES at
+    # gma_m,0 rather than to K0 gma^-p: in fast cooling the drawn segments are gma^-2
+    # and gma^-(p+1), so a guide pinned to the injected law floated three decades above
+    # them. gma_m,0 is where the two branches meet and the gap to a -p line is smallest,
+    # so anchoring there puts it just clear of the envelope in both panels.
+    gref = np.geomspace(gm0, gM0, 200)
+    env = np.max([[float(N_integrated(x, kap*10.**ls, p, gm0, gM0)) for x in gref]
+                  for ls in logsig], axis=0)
+    y_g = 12.*env[0]*(gref/gm0)**-p
+    # and STOPPED where it has drifted 2 decades off: in slow cooling the curves are
+    # tt K0 gma^-p so the ratio never moves and the guide spans the decade; in fast
+    # cooling the tail is gma^-(p+1), so a full-span guide would end three decades high.
+    keep = gref <= gref[np.argmax(y_g > 1e2*env)] if np.any(y_g > 1e2*env) else gref > 0.
+    gg, yy = gref[keep], y_g[keep]
+    axN.loglog(gg, yy, color=MUTED, ls='--', lw=.9, zorder=2)
+    j = len(gg)//2
+    axN.annotate('$\\propto\\gamma_{\\rm e}^{-p}$', (gg[j], yy[j]),
                  textcoords='offset points', xytext=(3, 3), color=MUTED, fontsize=FS_ANN)
     axN.set_title(lab, fontsize=FS_LAB, pad=3.)
     for ax in (axN, axS):
