@@ -471,13 +471,16 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
 
 
 # --- the steady window, integrated rather than averaged -----------------------------------
-GUIDE_INSET = .08       # white space at each end of a guide, as a fraction of its run
+GUIDE_INSET = .08       # white space at the LOW end of a guide, as a fraction of its run
+GUIDE_INSET_HI = .01    # and at the high end, where the segments die out gradually
 GUIDE_OFF = 8.          # how far a guide sits above the curves it labels
-GUIDE_TOL = .12         # |slope - level| still counted as that segment
+GUIDE_TOL = .2          # |slope - level| still counted as that segment; it sets how
+                        # far a guide follows a segment into its rounded-off end
 GUIDE_DEC = .6          # decades of gma_e a segment must span to earn a guide
 
 
-def _guide_span(g, y, lev, tol=GUIDE_TOL, dec=GUIDE_DEC, inset=GUIDE_INSET):
+def _guide_span(g, y, lev, tol=GUIDE_TOL, dec=GUIDE_DEC, inset=GUIDE_INSET,
+    inset_hi=GUIDE_INSET_HI):
   '''
   Where a curve y(g) actually carries the log-slope `lev`, as (gma_e, y at the middle).
 
@@ -499,7 +502,7 @@ def _guide_span(g, y, lev, tol=GUIDE_TOL, dec=GUIDE_DEC, inset=GUIDE_INSET):
   if n < 2 or np.log10(g[i0+n-1]/g[i0]) < dec:
     return None
   lg = np.log10(g[i0:i0+n]/g[i0])/np.log10(g[i0+n-1]/g[i0])
-  keep = (lg > inset) & (lg < 1. - inset)
+  keep = (lg > inset) & (lg < 1. - inset_hi)
   gg = g[i0:i0+n][keep]
   return (gg, float(y[i0:i0+n][keep][len(gg)//2])) if len(gg) > 1 else None
 
@@ -571,7 +574,8 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
                          # up to gma_m,0 and a centred label hit that line's label
       axN.annotate(f'$\\propto\\gamma_{{\\rm e}}^{{{llab}}}$', (gg[j], yy[j]),
                    textcoords='offset points', xytext=(3, 3), color=MUTED,
-                   fontsize=FS_ANN)
+                   fontsize=FS_ANN,
+                   bbox=dict(fc='w', ec='none', alpha=.8, pad=1.))
     axN.set_title(lab, fontsize=FS_LAB, pad=3.)
     axN.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
     for v in (gm0, gM0):
@@ -589,7 +593,8 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
     axs[0, k].set_xlim(.3*lo_g, 4.*gM0)
     # the floor follows the DATA here: the tails run to zero at gma_M,0, so a fixed
     # window clipped the last four decades of them
-    axs[0, k].set_ylim(lo_N/3., 10.*hi_N)
+    axs[0, k].set_ylim(lo_N/3., 1e3*hi_N)   # headroom: the -2 guide sits a decade
+                                           # above the curves and ran into the frame
   axs[0, 0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
                        "/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
   axs[0, -1].legend(handles=[
