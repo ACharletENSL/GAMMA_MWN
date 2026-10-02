@@ -1256,14 +1256,24 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   # and the mid window, accepted if it clears the mid slope by slope_tol and does not exceed
   # 4/3 + slope_tol; it then REPLACES the held 4/3 window, whose own run (when one exists
   # lower down, as at 20-40 bar{T}_f) belongs to that softer component, not to this break.
-  # Off by default: the paper route holds 4/3.
+  # With NO mid segment (free_lo >= 2) the run is sought below the peak instead, and must
+  # clear the fast mid window (0.5 + fc_tol_hi) so a short 1/2 segment cannot be taken for
+  # it: the late spectra of the marginal points (reference method, log10(C) = 0 / -1 past
+  # 34 / 15 bar{T}_f) are a ~0.93 plateau, one merged knee, then 1-p/2 -- MFC with a soft
+  # low side -- and without this they were declined outright once the last 4/3 sliver left
+  # the band bottom. Off by default: the paper route holds 4/3.
   if free_lo:
     mid = 'fc' if 'fc' in segs else ('sc' if 'sc' in segs else None)
+    lk, yk = lx[keep], ly[keep]
+    fr, a_min = None, None
     if mid is not None:
-      lk, yk = lx[keep], ly[keep]
       fr = flat_run(lk, yk, float(lk.min()), float(np.log10(segs[mid]['x0'])))
-      if fr is not None and fr['dex'] >= min_dex \
-         and segs[mid]['a'] + slope_tol < fr['slope'] <= 4./3. + slope_tol:
+      a_min = segs[mid]['a'] + slope_tol
+    elif free_lo >= 2 and 'hi' in segs and i_pk > 0:
+      fr = flat_run(lk, yk, float(lk.min()), float(lx[i_pk]))
+      a_min = 0.5 + fc_tol_hi
+    if fr is not None:
+      if fr['dex'] >= min_dex and a_min < fr['slope'] <= 4./3. + slope_tol:
         m = (lk >= fr['x0']) & (lk <= fr['x1'])
         c = float(np.mean(yk[m] - fr['slope']*lk[m]))
         segs['lo'] = dict(a=fr['slope'], c=c, a_fit=fr['slope'], c_fit=c,
@@ -2225,8 +2235,11 @@ def three_break_from(method, barT_f):
   return barT_f if method == 'data' else None
 
 
-ROUTE_KW = {'free_lo': True}   # the route variant the break tracks use: low segment at its
-                               # own slope (identify_segments); cached apart from the paper's
+ROUTE_KW = {'free_lo': 2}      # the route variant the break tracks use: low segment at its
+                               # own slope (identify_segments), also with no mid segment; cached
+                               # apart from the paper's. The VALUE is the cache key: the route
+                               # cache is stamped by spectral_breaks.py alone, so any change to
+                               # free_lo here must bump it or stale classes are reused
 
 
 def route_break_tracks(results, key, method, z, barT_off=None, barT_f=None, nproc=None):
