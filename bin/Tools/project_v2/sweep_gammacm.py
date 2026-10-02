@@ -39,7 +39,7 @@ from environment import (MyEnv, rescale_hydro, GAMMA_dir, field_correction_tag,
     FIELD_CORR_TAG)
 from phys_functions import granot_sari_syn, syn_cutoff_R, derive_obsOnTime
 from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, edge_slope,
-    edge_slope_drift, flat_core,
+    edge_slope_drift, flat_core, sliding_slopes, CORE_TOL, CORE_WIN_DEX,
     SLOPE_SMOOTH, SLOPE_TOL, MIN_PTS, MIN_DEX, FIT_DEC, CUT_FAC, EDGE_VFC_TOL)
 from working_cooling import (get_shell_nuFnu, open_rundata, cellsBehindShock_fromData,
     load_shell_rarefaction_offT, check_extracted_cells, open_celldata)
@@ -1083,9 +1083,35 @@ def _seg_cross(l1, l2):
   return (l1[1] - l2[1])/(l2[0] - l1[0])
 
 
+def flat_run(lx, ly, lo, hi, tol=CORE_TOL):
+  '''
+  The widest straight run of [lo, hi] at a FREE slope: the longest chain of consecutive
+  sliding windows (spectral_breaks.sliding_slopes) whose slopes span <= tol -- the same
+  criterion as spectral_breaks.flat_core, which this repeats only to also return WHERE the
+  run is. dict(x0, x1, dex, slope) in log10 x, or None if no two windows agree.
+  '''
+  w = sliding_slopes(lx, ly, lo=lo, hi=hi)
+  if w['n'] < 2:
+    return None
+  sl, x0 = w['slopes'], w['x0']
+  best = None
+  for i in range(len(sl)):
+    j = i
+    while j + 1 < len(sl) and np.ptp(sl[i:j+2]) <= tol:
+      j += 1
+    if j > i and (best is None or x0[j] - x0[i] > x0[best[1]] - x0[best[0]]):
+      best = (i, j)
+  if best is None:
+    return None
+  i, j = best
+  win = CORE_WIN_DEX
+  return dict(x0=float(x0[i]), x1=float(x0[j] + win), dex=float(x0[j] - x0[i] + win),
+              slope=float(np.mean(sl[i:j+1])))
+
+
 def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
     min_mid_dex=SEG_MIN_MID_DEX, fc_tol_hi=SEG_FC_TOL_HI, sc_tol_lo=SEG_SC_TOL_LO,
-    smooth=SLOPE_SMOOTH, min_pts=MIN_PTS, cut=None, cutfac=CUT_FAC):
+    smooth=SLOPE_SMOOTH, min_pts=MIN_PTS, cut=None, cutfac=CUT_FAC, free_lo=False):
   '''
   Which synchrotron power-law segments one nuFnu spectrum sp(x) actually shows, and the
   cooling regime that follows from the answer.
@@ -1222,6 +1248,27 @@ def identify_segments(x, sp, psyn, slope_tol=SLOPE_TOL, min_dex=MIN_DEX,
   # 0.24-0.46 and 0.27-0.36 dex where they coexist, i.e. both are rejected anyway)
   if 'fc' in segs and 'sc' in segs:
     segs.pop('sc' if segs['fc']['dex'] >= segs['sc']['dex'] else 'fc')
+  # free_lo: the LOW segment at its own slope. In the reference method's slow-cooling tail
+  # the cells still radiating after the rarefaction fill the band below nu_m with a softer
+  # component, and the straight run under the mid segment settles at ~0.93 instead of 4/3
+  # (flat to +-0.01 over 2-4 decades, 40-300 bar{T}_f) -- a real segment ending in a real
+  # break that the 4/3 window cannot see. It is the widest flat run between the band bottom
+  # and the mid window, accepted if it clears the mid slope by slope_tol and does not exceed
+  # 4/3 + slope_tol; it then REPLACES the held 4/3 window, whose own run (when one exists
+  # lower down, as at 20-40 bar{T}_f) belongs to that softer component, not to this break.
+  # Off by default: the paper route holds 4/3.
+  if free_lo:
+    mid = 'fc' if 'fc' in segs else ('sc' if 'sc' in segs else None)
+    if mid is not None:
+      lk, yk = lx[keep], ly[keep]
+      fr = flat_run(lk, yk, float(lk.min()), float(np.log10(segs[mid]['x0'])))
+      if fr is not None and fr['dex'] >= min_dex \
+         and segs[mid]['a'] + slope_tol < fr['slope'] <= 4./3. + slope_tol:
+        m = (lk >= fr['x0']) & (lk <= fr['x1'])
+        c = float(np.mean(yk[m] - fr['slope']*lk[m]))
+        segs['lo'] = dict(a=fr['slope'], c=c, a_fit=fr['slope'], c_fit=c,
+                          x0=float(10**fr['x0']), x1=float(10**fr['x1']), dex=fr['dex'],
+                          core=np.nan, a_core=np.nan, dep=np.nan, free=True)
   # VFC is the one verdict that rests on a segment being ABSENT, so it is gated on the band
   # bottom actually being converged to the 1/2 it claims. The other classes have their 4/3
   # window identified -- that IS the evidence -- and must NOT be gated the same way: the same
@@ -1528,6 +1575,123 @@ def gs02_model(x, fit, psyn):
                          nuM=fit['nuM'], F_ext=fit['F_ext'], nuFnu=True,
                          cutoff=fit.get('cutoff', GS02_CUTOFF),
                          beta_mid=fit.get('beta_mid'))
+
+
+THREE_S0_BOUNDS = (-0.5, 1.3)   # log10 bounds on the plateau break's free smoothing
+THREE_BP_BOUNDS = (-0.3, 1/3.)  # F_nu index of the plateau, up to the 1/3 asymptote where
+                                # the model IS gs02's. The floor keeps it off both mid slopes
+                                # (-1/2, -(p-1)/2): at -0.6 the plateau stood in for the fast
+                                # 1/2 segment and merged nu_c into nu_m (log10(C) = -2 at
+                                # 0.3-1 bar{T}_f, beta_p -0.53). Measured plateaus: -0.06..1/3
+THREE_MIN_PLATEAU_DEX = 1.0     # the plateau must span at least this (b2/b1 >= 10): narrower,
+                                # b1 is not a segment's edge but a spare knee, spent reshaping
+                                # the lower break (log10(C) = -2 at 3.5e-3 bar{T}_f put b1, b2,
+                                # b3 within 0.7 dex and drifted +-0.2 dex bin to bin)
+NU_S_MIN_DEP = SLOPE_TOL        # nu_s is reported only where the plateau sits this far (in
+                                # F_nu index) below 1/3 -- the route's own segment tolerance
+
+
+def three_break_syn(nu, b1, b2, b3, psyn, beta_p, beta_mid, s0, s1, s2, nuM, F_ext=1.,
+    cutoff=GS02_CUTOFF):
+  '''
+  nuFnu with TWO lower breaks: F_nu indices 1/3 -> beta_p at b1 (smoothing s0), beta_p ->
+  beta_mid at b2 (s1), beta_mid -> -p/2 at b3 (s2), then the cut-off at nuM. b2 and b3 are
+  granot_sari_syn's two breaks; beta_p = 1/3 makes b1 vanish and the shape IS
+  granot_sari_syn's, which is what lets one model cover both cases continuously.
+
+  The extra segment is the reference method's: cells still radiating after the rarefaction
+  add a soft component below nu_m, which the shell-integrated spectrum shows as a plateau
+  of its own slope (nuFnu ~0.93 by 40 bar{T}_f, flat to +-0.01 over 2-4 decades) between a
+  4/3 run at the band bottom and the mid segment. b1 is that component's lower edge.
+  Same GS02 two-term form at b1, multiplicative corrections at b2 and b3, in log space.
+  '''
+  nu = np.asarray(nu, float)
+  l1 = np.log(nu/b1)
+  ln_F = (np.log(F_ext) - np.logaddexp(-s0*(1/3.)*l1, -s0*beta_p*l1)/s0
+          - np.logaddexp(0., s1*(beta_p - beta_mid)*np.log(nu/b2))/s1
+          - np.logaddexp(0., s2*(beta_mid + psyn/2.)*np.log(nu/b3))/s2)
+  F = np.exp(ln_F + np.log(nu))
+  if nuM is not None and cutoff == 'R':
+    F = F*syn_cutoff_R(nu/nuM)
+  elif nuM is not None and cutoff == 'exp':
+    F = F*np.exp(-nu/nuM)
+  return F
+
+
+THREE_TIE_TOL = 0.02   # relative rms within which two starts count as the same fit
+
+def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
+    s=(GS02_S1, GS02_S2), cutoff=GS02_CUTOFF, prefer=None, tie_tol=THREE_TIE_TOL):
+  '''
+  Fit three_break_syn to one nuFnu spectrum: b1 < b2 < b3, beta_p, beta_mid (between the
+  fast and slow asymptotes, as in fit_gs02_spectrum(free_bmid=True)), s0, F_ext and nuM
+  free; s1, s2 held at the GS02 values. Same window as fit_gs02_spectrum (top fit_dec
+  decades, nu_B gate).
+
+  seeds: list of (b1, b2, b3, beta_p, beta_mid) starts; the lowest-rms fit wins. A
+  multi-start is NOT optional here: the model contains granot_sari_syn (beta_p = 1/3), so
+  its best rms can never exceed the two-break fit's, yet a single start from the previous
+  bin returned a WORSE rms in some bins (log10(C) = -2 at 0.1-0.3 bar{T}_f) -- a local
+  minimum. Callers pass the two-break solution as one seed, which guarantees the nested
+  answer is reachable.
+
+  prefer=(b2, b3) BREAKS TIES BY CONTINUITY: among the starts within tie_tol (relative) of
+  the best rms, the one whose (b2, b3) lies closest in log to `prefer` wins. Without it the
+  fit chattered between two equally good solutions bin to bin (log10(C) = -2 at
+  3e-3-1e-2 bar{T}_f: nu_lo +-0.2 dex alternating, beta_p ~0.22, rms equal).
+
+  Returns dict(b1, b2, b3, beta_p, beta_mid, s0, nuM, rms, at_bound_b1) or None.
+  '''
+  x = np.asarray(x, float); sp = np.asarray(sp, float)
+  good = np.isfinite(sp) & (sp > 0.) & np.isfinite(x) & (x > 0.)
+  xg, yg = x[good], np.log10(sp[good])
+  keep = yg > yg.max() - fit_dec
+  if nu_B is not None:
+    keep &= xg >= GS02_NUB_FAC*nu_B
+  xg, yg = xg[keep], yg[keep]
+  if len(xg) < 12:
+    return None
+  yg = yg - yg.max()
+  lo, hi = np.log10(xg.min()) - .5, np.log10(xg.max()) + .5
+  bm_sc, bm_fc = -(psyn - 1.)/2., -0.5
+
+  def unpack(q):
+    b1 = 10**q[0]; b2 = b1*10**q[1]; b3 = b2*10**q[2]
+    return b1, b2, b3, q[3], q[4], 10**q[5], 10**q[6], 10**q[7]
+
+  def resid(q):
+    b1, b2, b3, bp, bm, s0, A, nM = unpack(q)
+    mod = three_break_syn(xg, b1, b2, b3, psyn, bp, bm, s0, s[0], s[1], nM, A, cutoff)
+    return np.log10(np.maximum(mod, 1e-300)) - yg
+
+  lb = np.array([lo, THREE_MIN_PLATEAU_DEX, 0., THREE_BP_BOUNDS[0], bm_sc,
+                 THREE_S0_BOUNDS[0], -12., lo])
+  ub = np.array([hi, hi - lo, hi - lo, THREE_BP_BOUNDS[1], bm_fc, THREE_S0_BOUNDS[1], 12.,
+                 hi + 2.])
+  sols = []
+  for b1, b2, b3, bp, bm in seeds:
+    if not all(np.isfinite([b1, b2, b3, bp, bm])) or not (0. < b1 <= b2 <= b3):
+      continue
+    q0 = np.clip([np.log10(b1), np.log10(b2/b1), np.log10(b3/b2), bp, bm,
+                  np.log10(s[0]), 0., np.log10(nuM)], lb + 1e-6, ub - 1e-6)
+    try:
+      r = least_squares(resid, q0, bounds=(lb, ub))
+    except ValueError:
+      continue
+    sols.append((float(np.sqrt(np.mean(r.fun**2))), r.x))
+  if not sols:
+    return None
+  rmin = min(r for r, _ in sols)
+  tied = [(r, q) for r, q in sols if r <= rmin*(1. + tie_tol)]
+  if prefer is not None and len(tied) > 1:
+    def dist(q):
+      return abs(q[0] + q[1] - np.log10(prefer[0])) + abs(q[0] + q[1] + q[2] - np.log10(prefer[1]))
+    rms, q = min(tied, key=lambda t: dist(t[1]))
+  else:
+    rms, q = min(tied, key=lambda t: t[0])
+  b1, b2, b3, bp, bm, s0, A, nM = unpack(q)
+  return dict(b1=b1, b2=b2, b3=b3, beta_p=float(bp), beta_mid=float(bm), s0=s0, nuM=nM,
+              rms=rms, at_bound_b1=bool(q[0] - lo < GS02_BOUND_TOL))
 
 
 # FC (mid-segment slope 1/2) vs SC ((3-p)/2) divide, empirically shifted below the
@@ -1890,12 +2054,27 @@ ROUTE_FAST = ('FC', 'FC*', 'VFC')   # shape classes whose lower break, if any, i
 ROUTE_SLOW = ('SC', 'VSC')          # ... and those whose lower break is nu_m
 
 
-def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None):
+def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
+    three_from=None):
   '''
   The break tracks the break figures are drawn from, in the contract of track_breaks_gs02
   so every panel and table takes them unchanged. The SEGMENT ROUTE (spectral_breaks.
   track_segment_route, cached by segment_route.load_side) decides WHICH breaks a spectrum
-  shows; the GS02 fit (fit_gs02_spectrum, free mid slope) says WHERE they are.
+  shows; the GS02 fit (fit_gs02_spectrum, free mid slope) says WHERE they are -- or, in the
+  bins past `three_from` (three_break_from: the reference method after crossing), the
+  three-break fit (fit_three_break), which adds the soft plateau the post-rarefaction
+  emission builds under the lower break.
+
+  WHY THE THREE-BREAK FIT ONLY THERE. Held at 4/3, the lower break slid 6-90x too low
+  wherever that plateau exists, dragging the upper one 2-3.5x (log10(C) = +2 at 20-300
+  bar{T}_f), and the plateau only exists in the reference method after the rarefaction. Used
+  everywhere instead, the fit (i) staircased the fast and MFC tracks before crossing, where
+  a weak plateau (beta_p 0.2-0.3) comes and goes, and (ii) moved the rarcut slow nu_m by a
+  uniform +0.033 dex, beta_p absorbing part of the template's knee asymmetry where no
+  plateau exists. Before crossing the two methods' spectra are identical, so restricting
+  the fit to after it leaves the rarcut tracks exactly as they were. In slow cooling the
+  handover is seamless (beta_p is still ~1/3 at crossing); the fast and MFC points step
+  there (+0.3 dex on nu_c at log10(C) = -2), and end soon after.
 
   WHY THE ROUTE GATES. Fitted over the whole band, GS02 places two breaks in every bin,
   including bins that no longer show a lower one: in the reference method past ~40
@@ -1943,10 +2122,20 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None):
   is_ = lambda *c: np.array([q in c for q in reg])
   br_ok = np.asarray(tk['br_ok'], bool)
 
-  # the fit, on every bin the route identified a segment set in
+  # the fits, on every bin the route identified a segment set in. GS02 (one lower break)
+  # gives the verdicts -- its own FC/SC call, whether it found one break (VFC), its rms gate
+  # -- and the single-break classes' nu_m. The POSITIONS of the two main breaks come from
+  # the three-break fit (fit_three_break), which adds the soft plateau below the lower one:
+  # held at 4/3, the lower break slid 6-90x too low wherever that plateau exists (the
+  # reference method from ~2 bar{T}_f), dragging the upper one 2-3.5x with it. Where there
+  # is no plateau the fit returns beta_p = 1/3 and GS02's breaks (rarcut log10(C)=+2:
+  # b2/b_lo = 1.00 from 0.01 to 100 bar{T}_f).
   f_lo = np.full(n, np.nan); f_hi = np.full(n, np.nan); rms = np.full(n, np.nan)
   nu_Mt = np.full(n, np.nan); f_one = np.zeros(n, bool); f_ok = np.zeros(n, bool)
   f_reg = np.array([None]*n, dtype=object)
+  t_lo = np.full(n, np.nan); t_hi = np.full(n, np.nan); t_s = np.full(n, np.nan)
+  beta_p = np.full(n, np.nan); rms3 = np.full(n, np.nan); s_bound = np.zeros(n, bool)
+  prev = None
   for i in np.flatnonzero(np.array([q is not None for q in reg])):
     f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_B)
     if f is None:
@@ -1955,10 +2144,32 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None):
     f_one[i] = (f['regime'] == 'VFC')        # the fit itself found one break
     f_reg[i] = f['regime']
     f_ok[i] = (not f['at_bound']) and f['rms'] <= rms_max
+    if reg[i] in ('SC', 'FC', 'MC') and not f_one[i] and three_from is not None \
+       and barT[i] > three_from:
+      seeds = [(x.min()/10., f['b_lo'], f['b_hi'], 1/3. - 1e-3, f['beta_mid']),
+               (f['b_lo']/30., f['b_lo'], f['b_hi'], 0., f['beta_mid'])]
+      if prev is not None:
+        seeds.append(prev)
+      t = fit_three_break(x, nuFnu[i, :], env.psyn, f['nuM'], seeds, nu_B=nu_B,
+                          prefer=None if prev is None else prev[1:3])
+      if t is not None:
+        t_lo[i], t_hi[i], t_s[i], beta_p[i], rms3[i] = t['b2'], t['b3'], t['b1'], \
+          t['beta_p'], t['rms']
+        s_bound[i] = t['at_bound_b1']
+        prev = (t['b1'], t['b2'], t['b3'], t['beta_p'], t['beta_mid'])
+        f_ok[i] = f_ok[i] or t['rms'] <= rms_max     # the better shape may pass where GS02 did not
 
   mfc = is_('MC')
-  two = is_('SC', 'FC', 'MC') & f_ok & ~f_one
-  b_lo = np.where(two, f_lo, np.nan); b_hi = np.where(two, f_hi, np.nan)
+  # GS02's breaks wherever the three-break fit was not run
+  t_lo = np.where(np.isfinite(t_lo), t_lo, f_lo); t_hi = np.where(np.isfinite(t_hi), t_hi, f_hi)
+  two = is_('SC', 'FC', 'MC') & f_ok & ~f_one & np.isfinite(t_lo)
+  b_lo = np.where(two, t_lo, np.nan); b_hi = np.where(two, t_hi, np.nan)
+  # nu_s, the soft plateau's lower edge: only where the plateau really departs from 1/3 and
+  # the edge sits inside the band rather than on the fit's lower bound
+  with np.errstate(invalid='ignore'):
+    valid_s = two & (beta_p < 1/3. - NU_S_MIN_DEP) & ~s_bound \
+              & (t_s > EDGE_FAC*x.min()) & (t_s < b_lo)
+  nu_s = np.where(valid_s, t_s, np.nan)
   # single-break classes: nu_m is the fit's UPPER break when it found two (FC*, whose
   # lower one is the band edge), its only break when it found one
   one_fast = is_('VFC', 'FC*') & f_ok
@@ -2001,9 +2212,21 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None):
               ratio_shape=ratio_shape, sep_unres=np.nan, i_swap=i_swap,
               nu_M=nuM_nom, nu_Mt=nu_Mt, nu_B=nu_B,
               nu_win=(float(x.min()), float(x.max())), Fpk=np.asarray(tk['Fpk'], float),
-              regime=reg, n_sc_after_swap=n_sc_after,
+              regime=reg, n_sc_after_swap=n_sc_after, nu_s=nu_s, valid_s=valid_s,
+              beta_p=beta_p, rms3=rms3, nu_lo_gs02=np.where(two, f_lo, np.nan),
+              nu_hi_gs02=np.where(two, f_hi, np.nan),
               nu_lo_cross=np.asarray(tk['b_lo'], float),
               nu_hi_cross=np.asarray(tk['b_hi'], float))
+
+
+def three_break_from(method, barT_f):
+  '''bar{T} past which track_breaks_route locates the breaks with the three-break fit: the
+  crossing, for the reference method only (see track_breaks_route). None -> never.'''
+  return barT_f if method == 'data' else None
+
+
+ROUTE_KW = {'free_lo': True}   # the route variant the break tracks use: low segment at its
+                               # own slope (identify_segments); cached apart from the paper's
 
 
 def route_break_tracks(results, key, method, z, barT_off=None, barT_f=None, nproc=None):
@@ -2016,10 +2239,17 @@ def route_break_tracks(results, key, method, z, barT_off=None, barT_f=None, npro
   import segment_route as S        # it imports this module, so not at the top
   tks = {round(float(t['logr']), 1): t
          for t in S.load_side(z=z, key=key, method=method, nproc=nproc,
-                              outdir=figdir(S.OUTDIR_NAME, key))}
+                              outdir=figdir(S.OUTDIR_NAME, key), route_kw=ROUTE_KW)}
   swap = barT_off[1] if barT_off else barT_f
-  return [track_breaks_route(r, tks[round(float(r['log10ratio']), 1)], barT_swap_max=swap)
+  three = three_break_from(method, barT_f if barT_f is not None else exit_onset_barT(key, z=z))
+  jobs = [(r, tks[round(float(r['log10ratio']), 1)], GS02_TRACK_RMSMAX, swap, three)
           for r in results]
+  # the three-break fit costs ~5 min a point at the fiducial; points are independent
+  np_ = cell_pool.resolve_nproc(nproc, cap=len(jobs))
+  if np_ > 1:
+    with cell_pool.pool_context().Pool(np_) as pool:
+      return pool.starmap(track_breaks_route, jobs)
+  return [track_breaks_route(*j) for j in jobs]
 
 
 def _fit_slope(barT, y, valid, lo, hi, nmin=4):
