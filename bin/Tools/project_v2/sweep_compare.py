@@ -603,7 +603,7 @@ def plot_lightcurve_shape_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TA
     for (rf, rd), c, eff in _draw_order(zip(pairs, colors, effs)):
       x = (rf['Tb'] - 1.)/barT_f
       lf, ld = _lc_at(rf, nu_t), _lc_at(rd, nu_t)
-      pk_b = ld.max()        # the ratio mask's scale, independent of norm_side
+      pk_b = ld.max()
       pk = lf.max() if norm_side == 'A' else pk_b
       if pk <= 0. or pk_b <= 0.:
         continue
@@ -617,7 +617,10 @@ def plot_lightcurve_shape_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TA
       ax_idx.semilogx(x, sf, color=c, lw=.9, ls='--')
       ax_idx.semilogx(x, sd, color=c, lw=.9)
       with np.errstate(divide='ignore', invalid='ignore'):
-        rr = np.where(lf > 1e-6*pk_b, ld/lf, np.nan)   # only where side A has flux
+        # wherever side A has ANY flux: a relative floor (1e-6 of B's peak, as on the
+        # other comparison figures) blanks the last ~0.6-0.9 decades of the decay, where
+        # A is still positive down to ~1e-9 of the peak and the ratio well defined
+        rr = np.where(lf > 0., ld/lf, np.nan)
       ratios.append((x, rr))
       ax_rlin.plot(x, rr, color=c, lw=.9)
       ax_rlog.semilogx(x, rr, color=c, lw=.9)
