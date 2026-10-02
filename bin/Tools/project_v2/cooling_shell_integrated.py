@@ -64,6 +64,8 @@ LOGC_ROWS = (-2., 2.)
 X_SAMPLES = (1.1, 1.5, 2., 3., 10., 30., 100.)
 CASES = (('internal shocks', '$\\Delta t\'_{\\rm inj}=t\'_0$', 1.),
          ('afterglow', '$\\Delta t\'_{\\rm inj}\\gg t\'_0$', np.inf))
+# the injected law is the same for every population, so its bounds carry the article's
+# collision subscript ,0 (Sect. 2.3) rather than the per-population ,i
 NG, NQ, NBIS = 900, 96, 80
 
 INK, MUTED = '0.25', '0.55'
@@ -200,8 +202,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
       top = 0.
       for x in X_SAMPLES:
         g, N = shell_curve(x, lc, dinj)
-        ls = '--' if (np.isfinite(dinj) and x > 1. + dinj) else '-'
-        ax.loglog(g, N, color=col(x), lw=1.2, ls=ls, zorder=3)
+        ax.loglog(g, N, color=col(x), lw=1.2, zorder=3)
         top = max(top, N.max())
       ax.set_ylim(top*1e-12, top*8.)
       ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
@@ -210,12 +211,12 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
         ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
       ax.grid(alpha=.25, lw=.4)
       ax.tick_params(which='both', labelsize=FS_TICK)
-      ax.annotate(f'$\\bar{{\\gamma}}_{{\\rm c,0}}/\\gamma_{{\\rm m,i}}=10^{{{lc:+.0f}}}$',
+      ax.annotate(f'$\\bar{{\\gamma}}_{{\\rm c,0}}/\\gamma_{{\\rm m,0}}=10^{{{lc:+.0f}}}$',
                   (.03, .05), xycoords='axes fraction', fontsize=FS_ANN, color=INK,
                   ha='left', va='bottom',
                   bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
       if i == 0:
-        ax.annotate(f'{name}, {lab}', (.5, 1.02), xycoords='axes fraction',
+        ax.annotate(lab, (.5, 1.02), xycoords='axes fraction',
                     fontsize=FS_LAB, color=INK, ha='center', va='bottom')
       if j == 0:
         ax.set_ylabel('$(\\dot N t\'_0)^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}'
@@ -223,17 +224,11 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
       if i == 1:
         ax.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axs[0, 0].set_xlim(.05, 3.*GMA_M0)
-  for v, lab in ((GM0, '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'),
-                 (GMA_M0, '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$')):
+  for v, lab in ((GM0, '$\\gamma_{\\mathrm{m},\\!0}$'),
+                 (GMA_M0, '$\\gamma_{\\mathrm{M},\\!0}$')):
     axs[0, 1].annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                        fontsize=FS_ANN, ha='center', va='top',
                        bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  # line style key: after the crossing the internal-shock curves are dashed
-  axs[1, 0].plot([], [], color=INK, ls='-', lw=1.,
-                 label='$t\'\\leq t\'_0+\\Delta t\'_{\\rm inj}$')
-  axs[1, 0].plot([], [], color=INK, ls='--', lw=1., label='after injection')
-  axs[1, 0].legend(fontsize=FS_LEG, loc='upper right', framealpha=.9)
-
   fig.subplots_adjust(right=.88)
   p0, p1 = axs[0, 1].get_position(), axs[1, 1].get_position()
   cax = fig.add_axes([.9, p1.y0, .018, p0.y1 - p1.y0])
