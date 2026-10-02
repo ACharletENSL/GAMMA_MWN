@@ -1892,33 +1892,43 @@ ROUTE_SLOW = ('SC', 'VSC')          # ... and those whose lower break is nu_m
 
 def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None):
   '''
-  The break tracks from the SEGMENT ROUTE (spectral_breaks.track_segment_route, cached by
-  segment_route.load_side), in the contract of track_breaks_gs02 so every break panel and
-  table takes it unchanged. This is what the break figures are drawn from: the GS02 fit
-  over the whole band invents a lower break where the spectrum no longer shows one (the
-  reference method past ~40 bar{T}_f, where the nu^(4/3) segment has left the band and the
-  fit's nu_c/nu_m turns over for no physical reason).
+  The break tracks the break figures are drawn from, in the contract of track_breaks_gs02
+  so every panel and table takes them unchanged. The SEGMENT ROUTE (spectral_breaks.
+  track_segment_route, cached by segment_route.load_side) decides WHICH breaks a spectrum
+  shows; the GS02 fit (fit_gs02_spectrum, free mid slope) says WHERE they are.
 
-  WHERE EACH BREAK COMES FROM, by the shape class the route identified:
-    SC, FC     the crossings of the identified segments              both breaks
-    MFC        route class 'MC': ONE apparent break, the two having   both breaks, FITTED
-               merged -- no mid segment survives. No crossing can     (fit_gs02_spectrum,
-               place two breaks there, so the GS02 fit does, gated    free mid slope)
-               on its rms and its bounds exactly as in track_breaks_gs02
-    VFC, FC*   nu_c below / at the band bottom: one break, nu_m       nu_m only
-    VSC        nu_c above the band                                    nu_m only
-    None       no segment set identified (the reference method's      nothing
-               tail once the 4/3 segment has left the band)
-  MFC is therefore reserved for MERGED breaks. A break that has merely dropped out of the
-  data is VFC/FC*, and a spectrum with no identifiable segments is not a measurement --
-  neither is ever drawn as MFC.
+  WHY THE ROUTE GATES. Fitted over the whole band, GS02 places two breaks in every bin,
+  including bins that no longer show a lower one: in the reference method past ~40
+  bar{T}_f the nu^(4/3) segment has left the band (route class None), and the fitted
+  nu_c/nu_m there turns over for no physical reason. A break exists here only where the
+  route identified the segments that define it:
+    SC, FC     both breaks
+    MFC        route class 'MC': ONE apparent break, the two having merged (no mid
+               segment survives). Both breaks, from the fit, which still separates them
+    VFC, FC*   nu_c below / at the band bottom: nu_m only
+    VSC        nu_c above the band: nu_m only
+    None       nothing -- no segment set identified
+  MFC is therefore reserved for MERGED breaks; a break that has dropped out of the data is
+  VFC/FC*, and neither VFC nor a None bin is ever drawn as MFC.
+
+  WHY THE FIT LOCATES, AND NOT THE CROSSINGS. MFC has no mid segment, so no crossing can
+  place its two breaks and the fit has to. Switching estimator at the SC/FC -> MFC
+  boundary is then discontinuous: the SC crossings drift away from the fit as their mid
+  window narrows (dex_mid 0.88 -> 0.64 over the last decade before MFC) and reach it
+  0.28 dex (x1.9) HIGH on b_hi at the boundary, the curved knee tilting the mid line --
+  the same crossing bias segment_route's validation measures, at its worst there. The fit
+  and the tangent-anchored crossings agree to 0.02 dex straight through the boundary. One
+  estimator throughout keeps the tracks continuous; the crossings are kept beside them
+  (nu_lo_cross, nu_hi_cross) for comparison, never drawn.
 
   NAMING BY CONTINUITY, the rule track_breaks_gs02 uses: monotone in time, at most one
-  slow -> fast switch, at the first fast-class bin (FC, FC*, VFC) inside barT_swap_max.
-  Every two-break bin before it is named slow, every one after it fast -- MFC included,
-  and also a stray SC bin after the switch (counted in n_sc_after_swap). The MFC bins
-  between the last slow-class bin and the switch are the crossing itself: their ratio is
-  drawn (named by continuity, dashed), their nu_c and nu_m are not.
+  slow -> fast switch, at the first fast bin inside barT_swap_max -- a fast route class
+  (FC, FC*, VFC), or an MFC bin whose fitted mid slope the fit itself calls FC (MFC has no
+  mid segment for the route to read the ordering off; the fit's free mid slope is the
+  only evidence there is). Every two-break bin before the switch is named slow, every one
+  after it fast, and a stray SC bin after it is counted in n_sc_after_swap. The MFC bins
+  between the last slow bin and the switch are the crossing itself: their ratio is drawn
+  (named by continuity, dashed), their nu_c and nu_m are not.
   '''
   x = nu_over_num(r); env = r['env']
   barT = np.asarray(tk['barT'], float)
@@ -1931,38 +1941,44 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None):
   nu_B = 1./env.gma_m**2
   reg = np.array([q for q in tk['regime']], dtype=object)
   is_ = lambda *c: np.array([q in c for q in reg])
-  b_lo = np.full(n, np.nan); b_hi = np.full(n, np.nan); rms = np.full(n, np.nan)
-  src = np.array([None]*n, dtype=object)
   br_ok = np.asarray(tk['br_ok'], bool)
 
-  two = is_('SC', 'FC') & br_ok
-  b_lo[two], b_hi[two] = np.asarray(tk['b_lo'], float)[two], np.asarray(tk['b_hi'], float)[two]
-  src[two] = 'cross'
-  mfc = is_('MC')
-  for i in np.flatnonzero(mfc):
+  # the fit, on every bin the route identified a segment set in
+  f_lo = np.full(n, np.nan); f_hi = np.full(n, np.nan); rms = np.full(n, np.nan)
+  nu_Mt = np.full(n, np.nan); f_one = np.zeros(n, bool); f_ok = np.zeros(n, bool)
+  f_reg = np.array([None]*n, dtype=object)
+  for i in np.flatnonzero(np.array([q is not None for q in reg])):
     f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_B)
-    # the fit may still find ONE break (its VFC verdict): no separation, no ratio
-    if f is None or f['at_bound'] or f['rms'] > rms_max or f['regime'] == 'VFC':
+    if f is None:
       continue
-    b_lo[i], b_hi[i], rms[i] = f['b_lo'], f['b_hi'], f['rms']
-    src[i] = 'fit'
-  two = np.isfinite(b_lo) & np.isfinite(b_hi)
+    f_lo[i], f_hi[i], rms[i], nu_Mt[i] = f['b_lo'], f['b_hi'], f['rms'], f['nuM']
+    f_one[i] = (f['regime'] == 'VFC')        # the fit itself found one break
+    f_reg[i] = f['regime']
+    f_ok[i] = (not f['at_bound']) and f['rms'] <= rms_max
 
-  # the single-break classes: route b_hi is the mid x hi crossing (nu_m) in VFC / FC*, and
-  # route b_lo the lo x mid one (nu_m) in VSC
-  one_fast = is_('VFC', 'FC*') & br_ok
-  one_slow = is_('VSC') & br_ok
-  nu_m1 = np.where(one_fast, np.asarray(tk['b_hi'], float),
-                   np.where(one_slow, np.asarray(tk['b_lo'], float), np.nan))
+  mfc = is_('MC')
+  two = is_('SC', 'FC', 'MC') & f_ok & ~f_one
+  b_lo = np.where(two, f_lo, np.nan); b_hi = np.where(two, f_hi, np.nan)
+  # single-break classes: nu_m is the fit's UPPER break when it found two (FC*, whose
+  # lower one is the band edge), its only break when it found one
+  one_fast = is_('VFC', 'FC*') & f_ok
+  one_slow = is_('VSC') & f_ok & ~f_one
+  nu_m1 = np.where(one_fast, np.where(f_one, f_lo, f_hi),
+                   np.where(one_slow, f_lo, np.nan))
 
   in_win = (barT <= barT_swap_max) if barT_swap_max is not None else np.ones(n, bool)
-  fast_bins = np.flatnonzero(is_(*ROUTE_FAST) & br_ok & in_win)
+  # an MFC bin carries its ordering in the FIT's mid slope (fit_gs02_spectrum's own
+  # FC/SC verdict), which is what names it: at log10(C) = -1 the route never resolves a
+  # 1/2 segment, yet the fitted mid slope sits on -1/2 in 1390 of its 1653 MFC bins
+  fit_fast = mfc & f_ok & (f_reg == 'FC')
+  fit_slow = mfc & f_ok & (f_reg == 'SC')
+  fast_bins = np.flatnonzero(((is_(*ROUTE_FAST) & br_ok) | fit_fast) & in_win)
   fast = np.zeros(n, bool); ambig = np.zeros(n, bool)
   i_swap = None
   if fast_bins.size:
     i_swap = int(fast_bins[0])
     fast[i_swap:] = True
-    slow_before = np.flatnonzero(is_(*ROUTE_SLOW) & (np.arange(n) < i_swap))
+    slow_before = np.flatnonzero((is_(*ROUTE_SLOW) | fit_slow) & (np.arange(n) < i_swap))
     i_sl = int(slow_before[-1]) if slow_before.size else -1
     ambig[i_sl+1:i_swap] = mfc[i_sl+1:i_swap]   # the crossing: named neither way
   n_sc_after = int((is_(*ROUTE_SLOW) & fast).sum())
@@ -1983,16 +1999,18 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None):
               valid=valid, valid_m=valid_m, is_vfc=is_('VFC'), ambig=ambig,
               beta_mid=np.asarray(tk['a_mid'], float) - 1., mc_shape=mfc, fast=fast,
               ratio_shape=ratio_shape, sep_unres=np.nan, i_swap=i_swap,
-              nu_M=nuM_nom, nu_Mt=np.asarray(tk['nuM'], float), nu_B=nu_B,
+              nu_M=nuM_nom, nu_Mt=nu_Mt, nu_B=nu_B,
               nu_win=(float(x.min()), float(x.max())), Fpk=np.asarray(tk['Fpk'], float),
-              regime=reg, src=src, n_sc_after_swap=n_sc_after)
+              regime=reg, n_sc_after_swap=n_sc_after,
+              nu_lo_cross=np.asarray(tk['b_lo'], float),
+              nu_hi_cross=np.asarray(tk['b_hi'], float))
 
 
 def route_break_tracks(results, key, method, z, barT_off=None, barT_f=None, nproc=None):
   '''
   track_breaks_route for every point of a sweep. The route tracks come from
   segment_route.load_side, whose per-point cache makes a warm call cheap (a cold side is
-  ~7 min on 3 workers at the fiducial); only the MFC bins are fitted here.
+  ~7 min on 3 workers at the fiducial); the GS02 fits are redone here, ~30 s a point.
   barT_swap_max is the same bound main has always given track_breaks_gs02.
   '''
   import segment_route as S        # it imports this module, so not at the top
@@ -3726,10 +3744,11 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   # reported by plot_gs02_rms (its residual against time, every regime on one axis) and
   # build_gs02_table, which is where its numbers were read from anyway
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir, annotate=False)
-  # breaks from the SEGMENT ROUTE (track_breaks_route): crossings of the identified
-  # segments, a GS02 fit only where the two breaks have merged into one (MFC), names by
-  # continuity. The whole-band GS02 fit used here before invents a lower break once the
-  # nu^(4/3) segment leaves the band (the reference method past ~40 bar{T}_f).
+  # breaks GATED by the segment route and LOCATED by the GS02 fit (track_breaks_route):
+  # a break is drawn only where the route identified the segments that define it, and
+  # the names follow by continuity. The ungated fit used here before invents a lower
+  # break once the nu^(4/3) segment leaves the band (the reference method past ~40
+  # bar{T}_f).
   # barT_off[1] bounds where the SC -> FC swap may be DETECTED, deliberately the same
   # bound for both methods: it is where the shell's on-axis emission ends under the
   # modelled cut, and for the reference method (which keeps emitting on-axis to
