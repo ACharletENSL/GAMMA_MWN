@@ -471,7 +471,39 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
 
 
 # --- the steady window, integrated rather than averaged -----------------------------------
-GUIDE_INSET = .08                                 # white space at each end of the -p guide
+GUIDE_INSET = .08       # white space at each end of a guide, as a fraction of its run
+GUIDE_OFF = 8.          # how far a guide sits above the curves it labels
+GUIDE_TOL = .12         # |slope - level| still counted as that segment
+GUIDE_DEC = .6          # decades of gma_e a segment must span to earn a guide
+
+
+def _guide_span(g, y, lev, tol=GUIDE_TOL, dec=GUIDE_DEC, inset=GUIDE_INSET):
+  '''
+  Where a curve y(g) actually carries the log-slope `lev`, as (gma_e, y at the middle).
+
+  The longest contiguous run within `tol` of the level, inset at both ends and dropped
+  altogether if it is shorter than `dec` decades -- that last test is what keeps -p out
+  of the fast-cooling panel and -2 out of the slow one, rather than a hand-written list
+  of which guide belongs where.
+  '''
+  ok = y > 0.
+  g, y = g[ok], y[ok]
+  m = np.abs(log_slope(g, y) - lev) < tol
+  best, run = (0, 0), None
+  for i, v in enumerate(np.append(m, False)):
+    if v and run is None:
+      run = i
+    elif not v and run is not None:
+      best, run = max(best, (i - run, run), key=lambda t: t[0]), None
+  n, i0 = best
+  if n < 2 or np.log10(g[i0+n-1]/g[i0]) < dec:
+    return None
+  lg = np.log10(g[i0:i0+n]/g[i0])/np.log10(g[i0+n-1]/g[i0])
+  keep = (lg > inset) & (lg < 1. - inset)
+  gg = g[i0:i0+n][keep]
+  return (gg, float(y[i0:i0+n][keep][len(gg)//2])) if len(gg) > 1 else None
+
+
 LOGSIG_S = (-3., -2.5, -2., -1.5, -1., -.5, 0.)   # t' in [t'_0, 2t'_0], so sigma <= 1
 FN_INT_STEADY = 'cooling_integrated_steady.png'
 STEADY_CASES = ((f"$t'_{{\\rm c}}=\\,$cst – FC", -2.),
@@ -493,6 +525,10 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
   sigma = (t'-t'_0)/t'_0 needs a kappa = t'_0/t'_c,0 to become tt, and kappa IS the
   regime: C = 1/(kappa gma_m,0). Hence two columns rather than one, fast and slow
   cooling, the same pair the rest of the family uses.
+
+  The slopes are shown as GUIDES rather than in a slope panel, each one located by
+  _guide_span: which of -2, -p, -(p+1) appears, and over what gma_e, is the regime,
+  so the guide set differs between the two columns and is read off the curves.
   '''
   cases = STEADY_CASES if cases is None else cases
   logsig = np.asarray(logsig, dtype=float)
@@ -500,70 +536,55 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
   cmap = mcolors.LinearSegmentedColormap.from_list(
       'viridis85', plt.cm.viridis(np.linspace(0., .85, 256)))
   colors, sm = cmap(norm(logsig)), plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-  K0 = norm_plaw_distrib(gm0, gM0, p)
 
-  fig, axs = plt.subplots(2, len(cases), figsize=(6.4, 4.8), sharex=True, sharey='row',
-                          squeeze=False,
-                          gridspec_kw=dict(height_ratios=[1.9, 1.], hspace=.08,
-                                           wspace=.06))
+  fig, axs = plt.subplots(1, len(cases), figsize=(6.4, 3.4), sharey=True, squeeze=False,
+                          gridspec_kw=dict(wspace=.06))
   lo_g, hi_N, lo_N = np.inf, 0., np.inf
   for k, (lab, lc) in enumerate(cases):
-    axN, axS = axs[0, k], axs[1, k]
+    axN = axs[0, k]
     kap = tt_dyn_of_C(lc, gm0)
-    for ls, c in zip(logsig, colors):
-      tt = kap*10.**ls                       # tt = kappa sigma, the integration limit
+    tts = kap*10.**logsig
+    for tt, c in zip(tts, colors):
       g, a = averaged_distrib(tt, p, gm0, gM0)
       a = a*tt                               # average -> integral
       m = a > 0.
       axN.loglog(g[m], a[m], color=c, lw=1.1, zorder=3)
-      axS.semilogx(g[m], log_slope(g[m], a[m]), color=c, lw=1.1, zorder=3)
       lo_g, hi_N = min(lo_g, float(g[m][0])), max(hi_N, float(np.max(a)))
       lo_N = min(lo_N, float(np.min(a[m])))
       gM_t = 1./(tt + 1./gM0)
       axN.scatter([gM_t], [N_averaged(gM_t, tt, p, gm0, gM0)*tt], s=11,
                   facecolors='none', edgecolors=INK, linewidths=.7, zorder=6)
-    # a SHAPE reference, offset so it claims no amplitude. ANCHORED TO THE CURVES at
-    # gma_m,0 rather than to K0 gma^-p: in fast cooling the drawn segments are gma^-2
-    # and gma^-(p+1), so a guide pinned to the injected law floated three decades above
-    # them. gma_m,0 is where the two branches meet and the gap to a -p line is smallest,
-    # so anchoring there puts it just clear of the envelope in both panels.
-    gref = np.geomspace(gm0, gM0, 200)
-    env = np.max([[float(N_integrated(x, kap*10.**ls, p, gm0, gM0)) for x in gref]
-                  for ls in logsig], axis=0)
-    y_g = 12.*env[0]*(gref/gm0)**-p
-    # drawn over MOST of the gma_m,0 -> gma_M,0 decade, inset at both ends so the
-    # guide reads as a reference and not as an envelope. It is anchored, not fitted:
-    # the fast-cooling tail is gma^-(p+1), so the gap to it widens along the span.
-    lg = np.log10(gref/gm0)/np.log10(gM0/gm0)
-    keep = (lg > GUIDE_INSET) & (lg < 1. - GUIDE_INSET)
-    gg, yy = gref[keep], y_g[keep]
-    axN.loglog(gg, yy, color=MUTED, ls='--', lw=.9, zorder=2)
-    j = len(gg)//2
-    axN.annotate('$\\propto\\gamma_{\\rm e}^{-p}$', (gg[j], yy[j]),
-                 textcoords='offset points', xytext=(3, 3), color=MUTED, fontsize=FS_ANN)
+    # SHAPE references, offset so they claim no amplitude. Each one is drawn only where
+    # the curves actually carry that slope, so fast cooling gets -2 then -(p+1) and slow
+    # cooling -p then -(p+1); none of them spans the panel.
+    gref = np.geomspace(gm0/(1. + gm0*tts.max()), gM0, 400)
+    env = np.max([[float(N_integrated(x, tt, p, gm0, gM0)) for x in gref]
+                  for tt in tts], axis=0)
+    for lev, llab in ((-2., '-2'), (-p, '-p'), (-(p+1.), '-(p+1)')):
+      sp = _guide_span(gref, env, lev)
+      if sp is None:
+        continue
+      gg, y0 = sp
+      yy = GUIDE_OFF*y0*(gg/gg[len(gg)//2])**lev
+      axN.loglog(gg, yy, color=MUTED, ls='--', lw=.9, zorder=2)
+      j = len(gg)//5     # a FIFTH of the way along, not the middle: the -2 guide runs
+                         # up to gma_m,0 and a centred label hit that line's label
+      axN.annotate(f'$\\propto\\gamma_{{\\rm e}}^{{{llab}}}$', (gg[j], yy[j]),
+                   textcoords='offset points', xytext=(3, 3), color=MUTED,
+                   fontsize=FS_ANN)
     axN.set_title(lab, fontsize=FS_LAB, pad=3.)
-    for ax in (axN, axS):
-      ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
-      for v in (gm0, gM0):
-        ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+    axN.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
+    for v in (gm0, gM0):
+      axN.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
     for v, vlab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'),
                     (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
       axN.annotate(vlab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                    fontsize=FS_ANN, ha='center', va='top',
                    bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-      ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
-      ax.grid(alpha=.25, lw=.4)
-      ax.tick_params(which='both', labelsize=FS_TICK)
-    axS.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
-    for lev in (-2., -p, -(p+1.)):
-      axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-    axS.set_ylim(-(p + 2.6), .4)
-  axR = axs[1, -1].twinx()
-  axR.set_ylim(axs[1, -1].get_ylim())
-  axR.set_yticks([-2., -p, -(p+1.)])
-  axR.set_yticklabels(['$-2$', '$-p$', '$-(p+1)$'])
-  axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
-  axR.grid(False)
+    axN.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
+    axN.grid(alpha=.25, lw=.4)
+    axN.tick_params(which='both', labelsize=FS_TICK)
+    axN.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   for k in range(len(cases)):
     axs[0, k].set_xlim(.3*lo_g, 4.*gM0)
     # the floor follows the DATA here: the tails run to zero at gma_M,0, so a fixed
@@ -571,9 +592,6 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
     axs[0, k].set_ylim(lo_N/3., 10.*hi_N)
   axs[0, 0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
                        "/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
-  axs[1, 0].set_ylabel("${\\rm d}\\ln({\\rm d}\\mathcal{N}_{\\rm e}"
-                       "/{\\rm d}\\gamma_{\\rm e})/{\\rm d}\\ln\\gamma_{\\rm e}$",
-                       fontsize=FS_LAB)
   axs[0, -1].legend(handles=[
       plt.Line2D([], [], color=INK, lw=0, marker='o', mfc='none', ms=3.5,
                  label="$\\gamma_\\mathrm{M}(t')$")],
