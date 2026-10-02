@@ -472,9 +472,9 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
 
 # --- the steady window, integrated rather than averaged -----------------------------------
 GUIDE_INSET = .08       # white space at the LOW end of a guide, as a fraction of its run
-GUIDE_INSET_HI = .01    # and at the high end, where the segments die out gradually
+GUIDE_INSET_HI = .12    # and at the high end, so a guide never hugs the next break
 GUIDE_OFF = 8.          # how far a guide sits above the curves it labels
-GUIDE_TOL = .2          # |slope - level| still counted as that segment; it sets how
+GUIDE_TOL = .3          # |slope - level| still counted as that segment; it sets how
                         # far a guide follows a segment into its rounded-off end
 GUIDE_DEC = .6          # decades of gma_e a segment must span to earn a guide
 
