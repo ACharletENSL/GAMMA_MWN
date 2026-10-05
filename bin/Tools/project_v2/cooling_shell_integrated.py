@@ -206,6 +206,8 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
                            (-(p + 1.), '$-(p+1)$')),
             LOGC_ROWS[1]: ((1./D_AD - 1., '$+1/2$'), (-p, '$-p$'),
                            (-(p + 1.), '$-(p+1)$'))}
+  # continuous injection turns slow after t'_tr, so its fast-cooling panel ends on -p
+  extra = {(LOGC_ROWS[0], 1): ((-p, '$-p$'),)}
   SL_LIM = (-(p + 2.4), 1.6)
   fig, axs = plt.subplots(5, 2, figsize=FIGSIZE, sharex=True,
       gridspec_kw=dict(height_ratios=[1.9, 1., .22, 1.9, 1.], hspace=.08, wspace=.06))
@@ -226,7 +228,8 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
         sl[~np.isfinite(sl) | (sl > SL_LIM[1]) | (sl < SL_LIM[0])] = np.nan
         axS.semilogx(g, sl, color=col(x), lw=1.1, zorder=3)
         top = max(top, N.max())
-      for lev, _ in levels[lc]:
+      lev_ij = tuple(sorted(levels[lc] + extra.get((lc, j), ()), reverse=True))
+      for lev, _ in lev_ij:
         axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
       axS.set_ylim(*SL_LIM)
       for ax in (axN, axS):
@@ -254,8 +257,14 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
         # the expected indices are reference VALUES: label them on the right spine
         axR = axS.twinx()
         axR.set_ylim(axS.get_ylim())
-        axR.set_yticks([lev for lev, _ in levels[lc]])
-        axR.set_yticklabels([t for _, t in levels[lc]])
+        axR.set_yticks([lev for lev, _ in lev_ij])
+        axR.set_yticklabels([t for _, t in lev_ij])
+        # -2 and -p are half an index apart: lift the upper label, drop the lower one
+        tl = axR.get_yticklabels()
+        for k in range(len(lev_ij) - 1):
+          if lev_ij[k][0] - lev_ij[k + 1][0] < .8:
+            tl[k].set_va('bottom')
+            tl[k + 1].set_va('top')
         axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
         axR.grid(False)
     for ax in axN_row:
