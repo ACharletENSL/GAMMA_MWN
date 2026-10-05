@@ -34,7 +34,8 @@ def main():
       _step(f'{m} z={z}: {len(res)} points')
       barT_f = swp.exit_onset_barT(KEY, z=z)
       barT_off = swp.rarefaction_off_barT(KEY, z=z)
-      swp.plot_spectra_per_regime(res, barT_f, outdir=d)
+      swp.plot_spectra_per_regime(res, barT_f, outdir=d,
+                                  three_from=swp.three_break_from(m, barT_f))
       # the same swap bound as sweep_gammacm.main, so the tracks are the ones drawn there
       tracks = swp.route_break_tracks(res, KEY, m, z, barT_off=barT_off, barT_f=barT_f)
       fits = [swp.fit_break_evolution(r, tr, barT_f, barT_off) for r, tr in zip(res, tracks)]

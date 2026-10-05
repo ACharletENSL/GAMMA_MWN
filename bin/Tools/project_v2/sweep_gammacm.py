@@ -1631,7 +1631,8 @@ def three_break_syn(nu, b1, b2, b3, psyn, beta_p, beta_mid, s0, s1, s2, nuM, F_e
 THREE_TIE_TOL = 0.02   # relative rms within which two starts count as the same fit
 
 def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
-    s=(GS02_S1, GS02_S2), cutoff=GS02_CUTOFF, prefer=None, tie_tol=THREE_TIE_TOL):
+    s=(GS02_S1, GS02_S2), cutoff=GS02_CUTOFF, prefer=None, tie_tol=THREE_TIE_TOL,
+    merged=False):
   '''
   Fit three_break_syn to one nuFnu spectrum: b1 < b2 < b3, beta_p, beta_mid (between the
   fast and slow asymptotes, as in fit_gs02_spectrum(free_bmid=True)), s0, F_ext and nuM
@@ -1650,6 +1651,11 @@ def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
   fit chattered between two equally good solutions bin to bin (log10(C) = -2 at
   3e-3-1e-2 bar{T}_f: nu_lo +-0.2 dex alternating, beta_p ~0.22, rms equal).
 
+  merged=True holds b3 = b2: ONE break above the plateau, for an MFC spectrum, which by
+  definition shows no mid segment and so cannot constrain a separation. Left free there the
+  fit flipped between a separated and a merged solution of equal rms (log10(C) = 0 at 1.53
+  bar{T}_f: nu_c/nu_m 6.7 -> 1.0 in one bin, rms 0.020 both).
+
   Returns dict(b1, b2, b3, beta_p, beta_mid, s0, nuM, rms, at_bound_b1) or None.
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
@@ -1661,7 +1667,7 @@ def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
   xg, yg = xg[keep], yg[keep]
   if len(xg) < 12:
     return None
-  yg = yg - yg.max()
+  y0 = yg.max(); yg = yg - y0
   lo, hi = np.log10(xg.min()) - .5, np.log10(xg.max()) + .5
   bm_sc, bm_fc = -(psyn - 1.)/2., -0.5
 
@@ -1678,6 +1684,8 @@ def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
                  THREE_S0_BOUNDS[0], -12., lo])
   ub = np.array([hi, hi - lo, hi - lo, THREE_BP_BOUNDS[1], bm_fc, THREE_S0_BOUNDS[1], 12.,
                  hi + 2.])
+  if merged:
+    ub[2] = 1e-3     # b3 = b2 to 0.001 dex; a bound of exactly 0 leaves no feasible start
   sols = []
   for b1, b2, b3, bp, bm in seeds:
     if not all(np.isfinite([b1, b2, b3, bp, bm])) or not (0. < b1 <= b2 <= b3):
@@ -1701,7 +1709,27 @@ def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
     rms, q = min(tied, key=lambda t: t[0])
   b1, b2, b3, bp, bm, s0, A, nM = unpack(q)
   return dict(b1=b1, b2=b2, b3=b3, beta_p=float(bp), beta_mid=float(bm), s0=s0, nuM=nM,
-              rms=rms, at_bound_b1=bool(q[0] - lo < GS02_BOUND_TOL))
+              rms=rms, F_ext=A*10**y0, at_bound_b1=bool(q[0] - lo < GS02_BOUND_TOL))
+
+
+def three_break_segments(t, psyn, xlim):
+  '''
+  The four asymptotes of a fit_three_break result as plot_spectra_per_regime's segment
+  dicts (nuFnu slope a, log10 intercept c, window x0-x1): 4/3 below b1, the plateau, the mid
+  segment, 1-p/2 above b3. GS02's form puts each pair of neighbouring asymptotes crossing
+  exactly AT its break, so the drawn crossings are nu_s, the lower main break and the upper.
+  '''
+  slopes = [4./3., t['beta_p'] + 1., t['beta_mid'] + 1., 1. - psyn/2.]
+  breaks = [t['b1'], t['b2'], t['b3']]
+  # value of the lowest asymptote at b1 is F_ext*b1 (nuFnu); walk up through the breaks
+  lb = np.log10(breaks)
+  c = [np.log10(t['F_ext']*t['b1']) - slopes[0]*lb[0]]
+  for k in range(3):
+    c.append(c[k] + (slopes[k] - slopes[k+1])*lb[k])
+  edges = [np.log10(xlim[0])] + list(lb) + [np.log10(xlim[1])]
+  names = ('lo43', 'lo', 'sc', 'hi')
+  return {nm: dict(a=a, c=cc, a_fit=a, c_fit=cc, x0=10**edges[k], x1=10**edges[k+1])
+          for k, (nm, a, cc) in enumerate(zip(names, slopes, c))}
 
 
 # FC (mid-segment slope 1/2) vs SC ((3-p)/2) divide, empirically shifted below the
@@ -2075,16 +2103,23 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
   three-break fit (fit_three_break), which adds the soft plateau the post-rarefaction
   emission builds under the lower break.
 
-  WHY THE THREE-BREAK FIT ONLY THERE. Held at 4/3, the lower break slid 6-90x too low
-  wherever that plateau exists, dragging the upper one 2-3.5x (log10(C) = +2 at 20-300
-  bar{T}_f), and the plateau only exists in the reference method after the rarefaction. Used
-  everywhere instead, the fit (i) staircased the fast and MFC tracks before crossing, where
-  a weak plateau (beta_p 0.2-0.3) comes and goes, and (ii) moved the rarcut slow nu_m by a
-  uniform +0.033 dex, beta_p absorbing part of the template's knee asymmetry where no
-  plateau exists. Before crossing the two methods' spectra are identical, so restricting
-  the fit to after it leaves the rarcut tracks exactly as they were. In slow cooling the
-  handover is seamless (beta_p is still ~1/3 at crossing); the fast and MFC points step
-  there (+0.3 dex on nu_c at log10(C) = -2), and end soon after.
+  WHY THE THREE-BREAK FIT ONLY THERE, AND ONLY ON SC BINS. Held at 4/3, the lower break
+  slid 6-90x too low wherever that plateau exists, dragging the upper one 2-3.5x
+  (log10(C) = +2 at 20-300 bar{T}_f), and the plateau only exists in the reference method
+  after the rarefaction. Before crossing the two methods' spectra are identical, so the
+  restriction leaves the rarcut tracks exactly as they were. Used everywhere instead, the
+  fit staircased the fast and MFC tracks, where a weak plateau (beta_p 0.2-0.3) comes and
+  goes, and moved the rarcut slow nu_m by +0.033 dex. It is not used on FC bins even after
+  crossing: there nu_c is SPREAD over ~a decade (a plateau with beta_p ~ 0 already before
+  crossing), GS02 puts its single nu_c inside the spread and the three-break b2 at its top,
+  ~3x higher, so switching at crossing stepped nu_c by that factor (log10(C) = -2, -1).
+  The extra component itself is SLOW-cooling (F_uncut - F_rarcut at log10(C) = +2: 4/3, a
+  +0.20-0.24 (3-p)/2 segment over 2-3 decades, a turnover near the main nu_c, no 1/2
+  segment), and the slow-cooling handover at crossing is seamless (beta_p ~1/3 there).
+  MFC bins past three_from are measured as ONE merged break above the plateau
+  (fit_three_break(merged=True), nu_mrg) and carry no ratio: an MFC spectrum shows no mid
+  segment, so nothing constrains a separation -- left free, the fit flipped between a
+  separated and a merged solution of equal rms (log10(C) = 0 at 1.53 bar{T}_f).
 
   WHY THE ROUTE GATES. Fitted over the whole band, GS02 places two breaks in every bin,
   including bins that no longer show a lower one: in the reference method past ~40
@@ -2145,6 +2180,7 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
   f_reg = np.array([None]*n, dtype=object)
   t_lo = np.full(n, np.nan); t_hi = np.full(n, np.nan); t_s = np.full(n, np.nan)
   beta_p = np.full(n, np.nan); rms3 = np.full(n, np.nan); s_bound = np.zeros(n, bool)
+  t_mrg = np.full(n, np.nan)
   prev = None
   for i in np.flatnonzero(np.array([q is not None for q in reg])):
     f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_B)
@@ -2154,15 +2190,21 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
     f_one[i] = (f['regime'] == 'VFC')        # the fit itself found one break
     f_reg[i] = f['regime']
     f_ok[i] = (not f['at_bound']) and f['rms'] <= rms_max
-    if reg[i] in ('SC', 'FC', 'MC') and not f_one[i] and three_from is not None \
+    if reg[i] in ('SC', 'MC') and not f_one[i] and three_from is not None \
        and barT[i] > three_from:
       seeds = [(x.min()/10., f['b_lo'], f['b_hi'], 1/3. - 1e-3, f['beta_mid']),
                (f['b_lo']/30., f['b_lo'], f['b_hi'], 0., f['beta_mid'])]
       if prev is not None:
         seeds.append(prev)
+      mrg = reg[i] == 'MC'
       t = fit_three_break(x, nuFnu[i, :], env.psyn, f['nuM'], seeds, nu_B=nu_B,
-                          prefer=None if prev is None else prev[1:3])
-      if t is not None:
+                          prefer=None if prev is None else prev[1:3], merged=mrg)
+      if t is not None and mrg:
+        # MFC: one merged break above the plateau, reported as such; no separation
+        t_mrg[i], t_s[i], beta_p[i], rms3[i] = t['b2'], t['b1'], t['beta_p'], t['rms']
+        s_bound[i] = t['at_bound_b1']
+        f_ok[i] = f_ok[i] or t['rms'] <= rms_max
+      elif t is not None:
         t_lo[i], t_hi[i], t_s[i], beta_p[i], rms3[i] = t['b2'], t['b3'], t['b1'], \
           t['beta_p'], t['rms']
         s_bound[i] = t['at_bound_b1']
@@ -2170,15 +2212,17 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
         f_ok[i] = f_ok[i] or t['rms'] <= rms_max     # the better shape may pass where GS02 did not
 
   mfc = is_('MC')
-  # GS02's breaks wherever the three-break fit was not run
+  # GS02's breaks wherever the three-break fit was not run; a merged MFC bin has no pair
+  merged = np.isfinite(t_mrg) & f_ok
   t_lo = np.where(np.isfinite(t_lo), t_lo, f_lo); t_hi = np.where(np.isfinite(t_hi), t_hi, f_hi)
-  two = is_('SC', 'FC', 'MC') & f_ok & ~f_one & np.isfinite(t_lo)
+  two = is_('SC', 'FC', 'MC') & f_ok & ~f_one & np.isfinite(t_lo) & ~np.isfinite(t_mrg)
   b_lo = np.where(two, t_lo, np.nan); b_hi = np.where(two, t_hi, np.nan)
   # nu_s, the soft plateau's lower edge: only where the plateau really departs from 1/3 and
   # the edge sits inside the band rather than on the fit's lower bound
   with np.errstate(invalid='ignore'):
-    valid_s = two & (beta_p < 1/3. - NU_S_MIN_DEP) & ~s_bound \
-              & (t_s > EDGE_FAC*x.min()) & (t_s < b_lo)
+    valid_s = (two | merged) & (beta_p < 1/3. - NU_S_MIN_DEP) & ~s_bound \
+              & (t_s > EDGE_FAC*x.min()) & (t_s < np.where(merged, t_mrg, b_lo))
+    valid_mrg = merged & (t_mrg > EDGE_FAC*x.min()) & (t_mrg < x.max()/EDGE_FAC)
   nu_s = np.where(valid_s, t_s, np.nan)
   # single-break classes: nu_m is the fit's UPPER break when it found two (FC*, whose
   # lower one is the band edge), its only break when it found one
@@ -2223,6 +2267,7 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
               nu_M=nuM_nom, nu_Mt=nu_Mt, nu_B=nu_B,
               nu_win=(float(x.min()), float(x.max())), Fpk=np.asarray(tk['Fpk'], float),
               regime=reg, n_sc_after_swap=n_sc_after, nu_s=nu_s, valid_s=valid_s,
+              nu_mrg=np.where(valid_mrg, t_mrg, np.nan), valid_mrg=valid_mrg,
               beta_p=beta_p, rms3=rms3, nu_lo_gs02=np.where(two, f_lo, np.nan),
               nu_hi_gs02=np.where(two, f_hi, np.nan),
               nu_lo_cross=np.asarray(tk['b_lo'], float),
@@ -2898,7 +2943,7 @@ def _series_colors(logt=SPEC_LOGT, cmap=plt.cm.viridis):
   return cmap(np.linspace(0., 0.88, len(np.atleast_1d(logt))))
 
 
-def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
+def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, three_from=None):
   '''
   One figure per gamma_c/gamma_m, overlaying the instantaneous spectra of a series of
   observed times vs nu/nu_m. The times are SPEC_LOGT, logarithmically spaced bins of
@@ -2943,6 +2988,16 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
   need not agree. Read down the legend and the regime's own evolution is the column of
   labels, one per time bin.
 
+  three_from (three_break_from: the reference method after crossing) switches the bins past
+  it to the identification the break tracks use there, identify_segments(free_lo): the low
+  segment at its own slope, i.e. the soft plateau the post-rarefaction emission builds below
+  nu_m. Where track_breaks_route's three breaks exist (an SC bin whose three-break fit
+  resolves the plateau, same acceptance as its nu_s) the FOUR segments drawn are that fit's
+  asymptotes -- 4/3, plateau, mid, 1-p/2 -- crossing at nu_s and the two main breaks: the
+  identification's flatness test is stricter than the fit and still sees only the 4/3 run at
+  ~10 bar{T}_f, where the fit already resolves the plateau. Elsewhere past three_from the
+  identified segments are drawn, the plateau being the lowest once the 4/3 run has left.
+
   There is no unannotated '_plain' twin of this figure any more: the segment lines sit on
   the spectra they describe rather than over them, and one series is one thing to keep
   current. plot_lightcurve_shape keeps its '_plain' variant, whose annotation (the
@@ -2971,6 +3026,23 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT):
       (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
       sps.append(sp/pkmax)
       ident = identify_segments(x, sp, p)
+      if three_from is not None and r['Tb'][iT] - 1. > three_from:
+        identF = identify_segments(x, sp, p, free_lo=ROUTE_KW['free_lo'])
+        if identF is not None and identF['regime'] is not None:
+          ident = identF
+          # where the three breaks exist -- the same fit and the same acceptance as
+          # track_breaks_route's nu_s -- the four segments are that fit's asymptotes
+          if identF['regime'] == 'SC':
+            env = r['env']; nu_B = 1./env.gma_m**2
+            f = fit_gs02_spectrum(x, sp, p, nu_M_over_num(r), free_bmid=True, nu_B=nu_B)
+            t = None if f is None else fit_three_break(
+                x, sp, p, f['nuM'], [(x.min()/10., f['b_lo'], f['b_hi'], 1/3. - 1e-3,
+                                      f['beta_mid']),
+                                     (f['b_lo']/30., f['b_lo'], f['b_hi'], 0., f['beta_mid'])],
+                nu_B=nu_B)
+            if t is not None and t['beta_p'] < 1/3. - NU_S_MIN_DEP and not t['at_bound_b1'] \
+               and EDGE_FAC*x.min() < t['b1'] < t['b2']:
+              ident = dict(identF, segs=three_break_segments(t, p, (x.min(), x.max())))
       # each segment as the line it is DRAWN with (_seg_line: held slope for the asymptotes,
       # measured for the mid ones), steepest first = left to right, so consecutive entries
       # are the adjacent pairs and the crossings below are between the lines actually drawn
@@ -3232,6 +3304,12 @@ def _draw_break_evolution(ax, results, tracks, fits, barT_f, barT_off=None,
     u = tr['unres']
     if u.any():
       ax.loglog(x, _gap(nu_c, u), color=c, lw=1.2, ls=':')
+    # MFC bins measured as ONE merged break (track_breaks_route): drawn as one, on the nu_m
+    # normalisation, since neither name applies to it
+    if 'nu_mrg' in tr and tr['valid_mrg'].any():
+      mrg = tr['nu_mrg']/n_m
+      ax.loglog(x, _gap(mrg, tr['valid_mrg']), color=c, lw=1.2, ls=':')
+      vals.append(mrg[tr['valid_mrg']])
     vals.append(np.concatenate([nu_c[v], nu_m[v_m]]))
     nu_c_curves.append((x, _gap(nu_c, v)))
   # y-range from the MEASURED points only: the faint stretches are extrapolations of the
@@ -3259,12 +3337,51 @@ def _draw_break_evolution(ax, results, tracks, fits, barT_f, barT_off=None,
   u = '' if nu_unit == 1. else f'{nu_unit:g}'
   ax.set_ylabel(f'$\\nu_X/{u}\\nu_{{X,0}}$')
   if legend:
-    ax.legend(handles=[plt.Line2D([], [], color='k', lw=1.5, ls='-',
-                                  label='$\\nu_\\mathrm{c}$'),
-                       plt.Line2D([], [], color='k', lw=1.1, ls='--',
-                                  label='$\\nu_\\mathrm{m}$')],
-              loc='upper right', fontsize=11, framealpha=.9)
+    hs = [plt.Line2D([], [], color='k', lw=1.5, ls='-', label='$\\nu_\\mathrm{c}$'),
+          plt.Line2D([], [], color='k', lw=1.1, ls='--', label='$\\nu_\\mathrm{m}$')]
+    if any('nu_mrg' in tr and tr['valid_mrg'].any() for tr in tracks):
+      hs.append(plt.Line2D([], [], color='k', lw=1.2, ls=':', label='merged'))
+    ax.legend(handles=hs, loc='upper right', fontsize=11, framealpha=.9)
   return sm
+
+
+def plot_break_frequencies(results, tracks, barT_f, barT_off=None, outdir=OUTDIR):
+  '''
+  nu_m, nu_c and nu_s against bar{T}/bar{T}_f, all in units of the collision nu_m,0 -- the
+  tracks' own unit, so unlike plot_break_evolution nothing is renormalised per break and the
+  three can be read against each other directly. nu_s (dotted) is the lower edge of the soft
+  plateau the post-rarefaction emission builds below nu_m in the reference method
+  (track_breaks_route): it exists only there, and only where that plateau is resolved; an
+  MFC bin measured as one merged break is drawn dash-dotted.
+  '''
+  colors, sm = _sweep_colors(results)
+  fig, ax = plt.subplots(figsize=(7.5, 5.))
+  has = dict(s=False, mrg=False)
+  for r, tr, c in _draw_order(zip(results, tracks, colors)):
+    x = tr['barT']/barT_f
+    ax.loglog(x, _gap(tr['nu_c'], tr['valid']), color=c, lw=1.5)
+    ax.loglog(x, _gap(tr['nu_m'], tr.get('valid_m', tr['valid'])), color=c, lw=1.1, ls='--')
+    if 'nu_s' in tr and tr['valid_s'].any():
+      ax.loglog(x, _gap(tr['nu_s'], tr['valid_s']), color=c, lw=1.1, ls=':')
+      has['s'] = True
+    if 'nu_mrg' in tr and tr['valid_mrg'].any():
+      ax.loglog(x, _gap(tr['nu_mrg'], tr['valid_mrg']), color=c, lw=1.1, ls='-.')
+      has['mrg'] = True
+  _mark_hydro_times(ax, barT_f, barT_off, tnorm=barT_f)
+  ax.set_xlabel(TNORM_LABEL)
+  ax.set_ylabel(NU_M_LABEL)
+  hs = [plt.Line2D([], [], color='k', lw=1.5, ls='-', label='$\\nu_\\mathrm{c}$'),
+        plt.Line2D([], [], color='k', lw=1.1, ls='--', label='$\\nu_\\mathrm{m}$')]
+  if has['s']:
+    hs.append(plt.Line2D([], [], color='k', lw=1.1, ls=':', label='$\\nu_\\mathrm{s}$'))
+  if has['mrg']:
+    hs.append(plt.Line2D([], [], color='k', lw=1.1, ls='-.', label='merged'))
+  ax.legend(handles=hs, loc='upper right', fontsize=11, framealpha=.9)
+  fig.colorbar(sm, ax=ax, label='log$_{10}\\mathcal{C}$')
+  png = os.path.join(outdir, 'break_frequencies.png')
+  fig.savefig(png, dpi=300)
+  plt.close(fig)
+  return png
 
 
 def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None, legend=True):
@@ -3979,7 +4096,8 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
           f'stops) at {barT_off[1]:.4f}  -> bar_T/bar_T_f in '
           f'[{barT_off[0]/barT_f:.3f}, {barT_off[1]/barT_f:.3f}]')
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir)
-  plot_spectra_per_regime(results, barT_f, outdir=outdir)
+  plot_spectra_per_regime(results, barT_f, outdir=outdir,
+                          three_from=three_break_from(method, barT_f))
   # the lightcurves again unannotated, as a '_plain' series (see the docstring). Named so
   # that no existing glob picks them up -- ARTICLE_SERIES matches on
   # 'lightcurve_shape_nu=*', which '_plain' breaks by construction. The spectra have no
@@ -4006,6 +4124,7 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   c25 = c25_num_curve(key, z, results[0]['Tb'])
   plot_break_evolution(results, tracks, fits, barT_f, barT_off=barT_off, outdir=outdir)
   plot_break_ratio(results, tracks, barT_f, barT_off=barT_off, outdir=outdir)
+  plot_break_frequencies(results, tracks, barT_f, barT_off=barT_off, outdir=outdir)
   # the two of them fused, which is the one the article takes (ARTICLE_SERIES)
   plot_break_panels(results, tracks, fits, barT_f, barT_off=barT_off, outdir=outdir)
   build_break_evolution_table(results, fits, outdir=outdir, tracks=tracks, c25=c25)
