@@ -970,6 +970,41 @@ def _draw_slope_profile(ax, series, colors, labels):
   ax.legend(loc='lower left', fontsize=9)
 
 
+def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
+  '''
+  eps_rad against the Band low-energy index alpha = a - 2 of the time-integrated spectrum,
+  one point per regime, both sides. Line style = side (dashed A / solid B), marker = the
+  index estimator: circles for the asymptote below min(nu_m, nu_c) (fluence_low_slope's
+  a_inf), diamonds for the peak-anchored index band_dex decades below the nuFnu peak --
+  the one a fit around the peak would see. Both come from `series`, eps_rad from the
+  pairs' own energy budgets, so the panel describes the run the spectra come from.
+  '''
+  la, lb = labels
+  band = lambda f: next((v for d, v in f['a_band'].items() if float(d) == band_dex), np.nan)
+  est = {'asym': ('o', lambda f: f['a_inf'], 'asymptotic'),
+         'band': ('D', band, f'${band_dex:g}$ dex below $\\nu_{{\\rm pk}}$')}
+  for side, (i, fk, ls) in enumerate(((0, 'fa', '--'), (1, 'fb', '-'))):
+    eps = np.array([compute_efficiency(p[i]) for p in pairs])
+    for mk, get, _ in est.values():
+      al = np.array([get(e[fk]) for e in series]) - 2.
+      ax.plot(eps, al, color='k', ls=ls, lw=1, zorder=1)
+      ax.scatter(eps, al, c=colors, marker=mk, s=36, edgecolors='k', linewidths=.5,
+                 zorder=2)
+  for a, lab in ((A_LO_ASYMP - 2., '$-2/3$'), (-1.5, '$-3/2$')):
+    ax.axhline(a, color='grey', ls=':', lw=.8)
+    ax.annotate(lab, xy=(0.01, a), xycoords=transx(ax), fontsize=8, color='grey',
+                ha='left', va='bottom')
+  ax.set_xscale('log')
+  ax.set_xlim(1e-2, 1.5)
+  ax.set_ylim(-1.85, -0.55)
+  ax.set_xlabel('$\\varepsilon_{\\rm rad}$')
+  ax.set_ylabel('$\\alpha$')
+  ax.plot([], [], 'k--', lw=1, label=la); ax.plot([], [], 'k-', lw=1, label=lb)
+  for mk, _, lab in est.values():
+    ax.plot([], [], ls='none', marker=mk, mfc='0.7', mec='k', mew=.5, ms=6, label=lab)
+  ax.legend(loc='center left', fontsize=9, frameon=False)
+
+
 def plot_fluence_slope_profile(series, outdir=OUTDIR, labels=LABELS, fname=None,
     title_extra=''):
   '''
@@ -1161,18 +1196,16 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
 def plot_fluence_with_slope(pairs, series=None, outdir=OUTDIR, labels=LABELS,
     norm_side='B', mode='eff', fname=None):
   '''
-  The time-integrated spectra of both sides and, beside them, the local log-log slope that
-  measures what the difference between them IS.
+  The time-integrated spectra of both sides and, beside them, what their low-energy index
+  costs in radiative efficiency (_draw_efficiency_slope): eps_rad against alpha, per regime.
 
-  The two panels are the same curves differentiated: the left one shows the cut side
-  peeling away from the full one toward low frequency, the right one turns that into an
-  index and puts it against the asymptote it is heading for. Neither carries a ratio panel
-  -- both sides of a point are on ONE normalisation, so their vertical offset already IS
+  The left panel shows the cut side peeling away from the full one toward low frequency;
+  the right one turns that into an index and sets it against eps_rad, so the narrow range
+  of C that is both efficient and hard is read directly (the local-slope profile it
+  replaced, 2026-10-05, is still drawn on its own by plot_fluence_slope_profile).
+  Neither carries a ratio panel -- both sides of a point are on ONE normalisation, so their vertical offset already IS
   the ratio, and at this separation it is readable without a second axis (see
   plot_spectra_compare's `ratio`).
-
-  The slope panel stops at nu/nu_m = 2 and the spectral panel does not: the index is only
-  meaningful below the peak, while the spectra are worth showing whole.
 
   `series` defaults to fluence_series(pairs); pass one already built to avoid measuring
   the low-energy slopes twice.
@@ -1204,13 +1237,11 @@ def plot_fluence_with_slope(pairs, series=None, outdir=OUTDIR, labels=LABELS,
   # two linestyles (the cmp figures, where the choice is the subject, still say it)
   ax_s.set_ylabel(f'${pre}{sym}/{sub}$')
   ax_s.set_xlabel(NU_M_LABEL)
-  # no key here: the slope panel's legend carries the same two linestyles plus the break
-  # marker, and one key serves both panels of a single figure
-  _draw_slope_profile(ax_p, series, colors, labels)
-  # the slope label belongs to the RIGHT panel: at the default pad it floats in the gap
-  # between the two, nearer the left panel's frame than its own tick labels. Set here and
-  # not in _draw_slope_profile, whose standalone figure has no neighbour to be confused
-  # with and keeps the default.
+  # no key here: the right panel's legend carries the same two linestyles, and one key
+  # serves both panels of a single figure
+  _draw_efficiency_slope(ax_p, pairs, series, colors, labels)
+  # the label belongs to the RIGHT panel: at the default pad it floats in the gap between
+  # the two, nearer the left panel's frame than its own tick labels
   ax_p.yaxis.labelpad = 1.
   fig.colorbar(sm, ax=(ax_s, ax_p), pad=0.012, fraction=0.035,
                label='log$_{10}\\mathcal{C}$')
