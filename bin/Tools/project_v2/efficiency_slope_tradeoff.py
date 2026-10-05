@@ -50,9 +50,10 @@ def plot_tradeoff(z=4, band_dex=2, outdir=OUTDIR, fname='efficiency_slope_tradeo
   norm = colors.Normalize(vmin=df.index.min(), vmax=df.index.max())
   cmap = cm.jet
   fig, axs = plt.subplots(1, 2, figsize=(10, 4.2), sharey=True, layout='constrained')
-  panels = [('asym', r'asymptotic'),
-            ('band', rf'${band_dex}$ dex below $\nu_{{\rm pk}}$')]
-  for ax, (kind, txt) in zip(axs, panels):
+  # label corners chosen per panel to stay clear of the points
+  panels = [('asym', r'asymptotic', 0.04, 'left'),
+            ('band', rf'${band_dex}$ dex below $\nu_{{\rm pk}}$', 0.96, 'right')]
+  for ax, (kind, txt, tx, ha) in zip(axs, panels):
     # reference values: one-zone fast cooling, line of death, GBM means
     ax.axhspan(-1.1, -0.8, color='0.85', zorder=0)
     ax.axhline(-2/3, c='0.4', ls=':', lw=1)
@@ -69,7 +70,7 @@ def plot_tradeoff(z=4, band_dex=2, outdir=OUTDIR, fname='efficiency_slope_tradeo
     ax.set_xscale('log')
     ax.set_xlim(1e-2, 1.5)
     ax.set_xlabel(r'$\epsilon_{\rm rad}$')
-    ax.text(0.04, 0.04, txt, transform=ax.transAxes, va="bottom")
+    ax.text(tx, 0.04, txt, transform=ax.transAxes, va='bottom', ha=ha)
   axs[0].set_ylabel(r'low-energy photon index $\alpha$')
   axs[0].set_ylim(-1.85, -0.55)
   axs[0].legend(loc='lower right', frameon=False)
