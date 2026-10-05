@@ -68,7 +68,7 @@ def plot_tradeoff(z=4, band_dex=2, outdir=OUTDIR, fname='efficiency_slope_tradeo
   ax.set_xlim(1e-2, 1.5)
   ax.set_ylim(-1.85, -0.55)
   ax.set_xlabel(r'$\epsilon_{\rm rad}$')
-  ax.set_ylabel(r'low-energy photon index $\alpha$')
+  ax.set_ylabel(r'$\alpha$')
   handles = [Line2D([], [], c='k', ls=LS[key], lw=1, label=LAB[key]) for key in METHODS]
   handles += [Line2D([], [], ls='', marker=MK[kind], mfc='0.7', mec='k', mew=0.5,
                      ms=6, label=est[kind]) for kind in est]
