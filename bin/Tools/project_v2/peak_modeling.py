@@ -90,6 +90,56 @@ def offset_gcgm_from_au(au, breakdown=False):
   else:
     return offset
 
+##### dissipation efficiency
+def R24_eff_diss(au, reverse=True):
+  '''
+  Dissipation efficiency of the planar, constant-velocity collision (R24 hydro):
+    lab-frame internal energy of the shocked shell at its crossing / its initial kinetic
+    energy, i.e. env.eff_4 (RS, Ei3f/Ek4) and env.eff_1 (FS, Ei2f/Ek1) of
+    phys_functions_shells in the ultra-relativistic limit, on the fiducial family
+    Ek1 = Ek4, D01 = D04 (rho4/rho1 = a_u^-2), where it depends on a_u alone:
+      Gamma_0/Gamma_4 = K = sqrt(2/(1+a_u^2)),  Gamma_0/Gamma_1 = K a_u
+      eff_4 = K     (G34-1) (4 G34+1)/(3 G34)
+      eff_1 = K a_u (G21-1) (4 G21+1)/(3 G21)
+    Matches env.eff_4/eff_1 to 1e-3 at u1 = 1000; at u1 = 10 these are 1-9% higher
+    (Ek = (Gamma-1) M c^2).
+  The (4G+1)/(3G) factor is the pressure term of a moving hot gas, 5/3 as a_u -> 1: the
+    energy radiated in fast cooling, Gamma_0 x the comoving internal energy, is this
+    divided by (4G+1)/(3G).
+  reverse: True RS, False FS, None both shells together (equal energies, so the mean)
+  '''
+  K = np.sqrt(2. / (1. + au*au))
+  G34, G21 = relLfac_from_au(au)
+  eff_RS = K * (G34-1) * (4*G34+1)/(3*G34)
+  eff_FS = K * au * (G21-1) * (4*G21+1)/(3*G21)
+  if reverse is None:
+    return .5*(eff_RS + eff_FS)
+  return eff_RS if reverse else eff_FS
+
+@lru_cache(maxsize=None)
+def _load_efftable(table=SWEEP_TABLE):
+  '''
+  eps_diss table built by eff_diss_table.build, columns as numpy arrays
+  '''
+  df = pd.read_csv(GAMMA_dir + f'/extracted_data/{table}_eff.csv', sep='\t')
+  return {c: df[c].to_numpy() for c in df.columns}
+
+def C25_eff_diss(au, reverse=True):
+  '''
+  Dissipation efficiency from the a_u sweep: R24_eff_diss times the sweep's hydrodynamic
+    correction, each cell dissipating with the Gamma and shock strength it actually gets
+    (the table's lfac and ShSt fits) instead of the planar constant-velocity jump.
+    See eff_diss_table.py. Piecewise linear in log10(a_u-1), clamped at the table ends.
+  reverse: True RS, False FS, None both shells together (equal energies, so the mean)
+  '''
+  cols = _load_efftable()
+  x = np.log10(np.asarray(au, dtype=float) - 1.)
+  eff_RS = np.interp(x, cols['log_aum'], cols['eff_RS'])
+  eff_FS = np.interp(x, cols['log_aum'], cols['eff_FS'])
+  if reverse is None:
+    return .5*(eff_RS + eff_FS)
+  return eff_RS if reverse else eff_FS
+
 ##### fitted parameters and intermediate functions for C25 model
 def smooth_bpl0(x, A, x_b, alpha, s, a_tol=1e-4, s_tol=1e-3):
   '''
