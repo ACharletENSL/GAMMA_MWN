@@ -69,7 +69,7 @@ CASES = (('internal shocks', '$\\Delta t\'_{\\rm inj}=t\'_0$', 1.),
 NG, NQ, NBIS = 900, 96, 80
 
 INK, MUTED = '0.25', '0.55'
-FIGSIZE = (7.0, 5.4)
+FIGSIZE = (7.0, 8.4)
 FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 7.5, 7.
 GMA_LABEL = '$\\gamma_{\\rm e}$'
 
@@ -189,49 +189,88 @@ def check_slopes():
 
 
 # --- the figure -----------------------------------------------------------------------
-def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=False):
+def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=False,
+    p=P_SYN):
+  '''
+  Per regime (fast on top, slow below): the distributions, and their local slope
+  underneath, with the indices the text derives as guides. Columns are the two
+  injection cases. A blank spacer row separates the two regimes.
+  '''
   lx = np.log10(X_SAMPLES)
   norm = plt.Normalize(vmin=lx.min(), vmax=lx.max())
   cmap = plt.cm.Blues
   col = lambda x: cmap(.35 + .65*norm(np.log10(x)))
-  fig, axs = plt.subplots(2, 2, figsize=FIGSIZE, sharex=True, sharey='row',
-      gridspec_kw=dict(hspace=.08, wspace=.06))
-  for j, (name, lab, dinj) in enumerate(CASES):
-    for i, lc in enumerate(LOGC_ROWS):
-      ax = axs[i, j]
-      top = 0.
+  # expected indices per regime row: the steady-state ones and the two that need a
+  # spread of injection times (relics 1/s-1 in fast, smearing 1/d-1 in slow cooling)
+  levels = {LOGC_ROWS[0]: ((1./S_EXP - 1., '$-2/3$'), (-2., '$-2$'),
+                           (-(p + 1.), '$-(p+1)$')),
+            LOGC_ROWS[1]: ((1./D_AD - 1., '$+1/2$'), (-p, '$-p$'),
+                           (-(p + 1.), '$-(p+1)$'))}
+  SL_LIM = (-(p + 2.4), 1.6)
+  fig, axs = plt.subplots(5, 2, figsize=FIGSIZE, sharex=True,
+      gridspec_kw=dict(height_ratios=[1.9, 1., .22, 1.9, 1.], hspace=.08, wspace=.06))
+  for ax in axs[2]:
+    ax.set_visible(False)
+  rows = ((axs[0], axs[1]), (axs[3], axs[4]))
+  for i, lc in enumerate(LOGC_ROWS):
+    axN_row, axS_row = rows[i]
+    top = 0.
+    for j, (name, lab, dinj) in enumerate(CASES):
+      axN, axS = axN_row[j], axS_row[j]
       for x in X_SAMPLES:
         g, N = shell_curve(x, lc, dinj)
-        ax.loglog(g, N, color=col(x), lw=1.2, zorder=3)
+        axN.loglog(g, N, color=col(x), lw=1.2, zorder=3)
+        sl = log_slope(g, N)
+        # the support edges are hard, so the slope runs off to +-inf there: blank what
+        # leaves the panel instead of drawing the jump as a vertical line
+        sl[~np.isfinite(sl) | (sl > SL_LIM[1]) | (sl < SL_LIM[0])] = np.nan
+        axS.semilogx(g, sl, color=col(x), lw=1.1, zorder=3)
         top = max(top, N.max())
-      ax.set_ylim(top*1e-12, top*8.)
-      ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
-      ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
-      for v in (GM0, GMA_M0):
-        ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-      ax.grid(alpha=.25, lw=.4)
-      ax.tick_params(which='both', labelsize=FS_TICK)
-      ax.annotate(f'$\\bar{{\\gamma}}_{{\\rm c,0}}/\\gamma_{{\\rm m,0}}=10^{{{lc:+.0f}}}$',
-                  (.03, .05), xycoords='axes fraction', fontsize=FS_ANN, color=INK,
-                  ha='left', va='bottom',
-                  bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+      for lev, _ in levels[lc]:
+        axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
+      axS.set_ylim(*SL_LIM)
+      for ax in (axN, axS):
+        ax.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
+        ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
+        for v in (GM0, GMA_M0):
+          ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
+        ax.grid(alpha=.25, lw=.4)
+        ax.tick_params(which='both', labelsize=FS_TICK)
+      axN.annotate(f'$\\bar{{\\gamma}}_{{\\rm c,0}}/\\gamma_{{\\rm m,0}}=10^{{{lc:+.0f}}}$',
+                   (.03, .05), xycoords='axes fraction', fontsize=FS_ANN, color=INK,
+                   ha='left', va='bottom',
+                   bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
       if i == 0:
-        ax.annotate(lab, (.5, 1.02), xycoords='axes fraction',
-                    fontsize=FS_LAB, color=INK, ha='center', va='bottom')
+        axN.annotate(lab, (.5, 1.02), xycoords='axes fraction',
+                     fontsize=FS_LAB, color=INK, ha='center', va='bottom')
       if j == 0:
-        ax.set_ylabel('$(\\dot N t\'_0)^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}'
-                      '/{\\rm d}\\gamma_{\\rm e}$', fontsize=FS_LAB)
-      if i == 1:
-        ax.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
+        axN.set_ylabel('$(\\dot N t\'_0)^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}'
+                       '/{\\rm d}\\gamma_{\\rm e}$', fontsize=FS_LAB)
+        axS.set_ylabel('${\\rm d}\\ln\\mathcal{N}_{\\rm e}/{\\rm d}\\ln\\gamma_{\\rm e}$',
+                       fontsize=FS_LAB)
+      else:
+        axN.tick_params(labelleft=False)
+        axS.tick_params(labelleft=False)
+        # the expected indices are reference VALUES: label them on the right spine
+        axR = axS.twinx()
+        axR.set_ylim(axS.get_ylim())
+        axR.set_yticks([lev for lev, _ in levels[lc]])
+        axR.set_yticklabels([t for _, t in levels[lc]])
+        axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
+        axR.grid(False)
+    for ax in axN_row:
+      ax.set_ylim(top*1e-12, top*8.)
+  for ax in axs[4]:
+    ax.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axs[0, 0].set_xlim(.05, 3.*GMA_M0)
   for v, lab in ((GM0, '$\\gamma_{\\mathrm{m},\\!0}$'),
                  (GMA_M0, '$\\gamma_{\\mathrm{M},\\!0}$')):
     axs[0, 1].annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                        fontsize=FS_ANN, ha='center', va='top',
                        bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-  fig.subplots_adjust(right=.88)
-  p0, p1 = axs[0, 1].get_position(), axs[1, 1].get_position()
-  cax = fig.add_axes([.9, p1.y0, .018, p0.y1 - p1.y0])
+  fig.subplots_adjust(right=.84)
+  p0, p1 = axs[0, 1].get_position(), axs[4, 1].get_position()
+  cax = fig.add_axes([.935, p1.y0, .018, p0.y1 - p1.y0])
   sm = plt.cm.ScalarMappable(cmap=plt.cm.colors.ListedColormap(
       cmap(np.linspace(.35, 1., 256))), norm=norm)
   cb = fig.colorbar(sm, cax=cax)
