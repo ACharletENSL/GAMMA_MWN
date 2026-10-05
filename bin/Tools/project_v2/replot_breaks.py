@@ -35,7 +35,8 @@ def replot_side(method, z, nproc=None):
   swp.plot_break_frequencies(res, tracks, barT_f, barT_off=barT_off, outdir=d)
   # the spectra carry the same identification past crossing (four segments where they exist)
   swp.plot_spectra_per_regime(res, barT_f, outdir=d,
-                              three_from=swp.three_break_from(method, barT_f))
+                              three_from=swp.three_break_from(method, barT_f),
+                              ref=swp.post_rf_reference(method, KEY, z))
   swp.plot_break_panels(res, tracks, fits, barT_f, barT_off=barT_off, outdir=d)
   swp.build_break_evolution_table(res, fits, outdir=d, tracks=tracks, c25=c25)
   # trim the PATHS, then mirror: the mirror copies what is on disk

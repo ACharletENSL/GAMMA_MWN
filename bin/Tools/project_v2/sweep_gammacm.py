@@ -1629,10 +1629,17 @@ def three_break_syn(nu, b1, b2, b3, psyn, beta_p, beta_mid, s0, s1, s2, nuM, F_e
 
 
 THREE_TIE_TOL = 0.02   # relative rms within which two starts count as the same fit
+THREE_PRIOR_W = 0.2    # weight (per dex) of the continuity prior on log b1 and log s0: the
+                       # two parameters an UNRESOLVED plateau (beta_p ~0.26-0.32) leaves free.
+                       # Unpinned they hopped (b1 x3, s0 2.4 -> 20) and moved nu_m, nu_c by
+                       # 0.03-0.07 dex (log10(C) = +1 at 1.0, 1.32, 1.80 bar{T}_f). At 0.2 all
+                       # three steps go, the mean rms is unchanged (0.0276 -> 0.0275), and
+                       # bins with a RESOLVED plateau move by <= 0.001 dex; 0.05 was too weak
+                       # (the data prefer the hop by d chi2 ~0.015, the prior cost 0.0026)
 
 def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
     s=(GS02_S1, GS02_S2), cutoff=GS02_CUTOFF, prefer=None, tie_tol=THREE_TIE_TOL,
-    merged=False):
+    merged=False, prior=None, prior_w=THREE_PRIOR_W):
   '''
   Fit three_break_syn to one nuFnu spectrum: b1 < b2 < b3, beta_p, beta_mid (between the
   fast and slow asymptotes, as in fit_gs02_spectrum(free_bmid=True)), s0, F_ext and nuM
@@ -1645,6 +1652,10 @@ def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
   bin returned a WORSE rms in some bins (log10(C) = -2 at 0.1-0.3 bar{T}_f) -- a local
   minimum. Callers pass the two-break solution as one seed, which guarantees the nested
   answer is reachable.
+
+  prior=(log10 b1, log10 s0) of the previous bin adds a weak penalty prior_w*(q - prior) on
+  those two parameters (THREE_PRIOR_W): continuity where the data do not constrain them,
+  negligible where they do. The returned rms is the data's alone.
 
   prefer=(b2, b3) BREAKS TIES BY CONTINUITY: among the starts within tie_tol (relative) of
   the best rms, the one whose (b2, b3) lies closest in log to `prefer` wins. Without it the
@@ -1678,7 +1689,10 @@ def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
   def resid(q):
     b1, b2, b3, bp, bm, s0, A, nM = unpack(q)
     mod = three_break_syn(xg, b1, b2, b3, psyn, bp, bm, s0, s[0], s[1], nM, A, cutoff)
-    return np.log10(np.maximum(mod, 1e-300)) - yg
+    r = np.log10(np.maximum(mod, 1e-300)) - yg
+    if prior is not None:
+      r = np.append(r, prior_w*np.array([q[0] - prior[0], q[5] - prior[1]]))
+    return r
 
   lb = np.array([lo, THREE_MIN_PLATEAU_DEX, 0., THREE_BP_BOUNDS[0], bm_sc,
                  THREE_S0_BOUNDS[0], -12., lo])
@@ -1696,7 +1710,8 @@ def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
       r = least_squares(resid, q0, bounds=(lb, ub))
     except ValueError:
       continue
-    sols.append((float(np.sqrt(np.mean(r.fun**2))), r.x))
+    f = r.fun[:len(xg)]                   # the rms is the DATA's, never the prior's
+    sols.append((float(np.sqrt(np.mean(f**2))), r.x))
   if not sols:
     return None
   rmin = min(r for r, _ in sols)
@@ -1708,7 +1723,7 @@ def fit_three_break(x, sp, psyn, nuM, seeds, nu_B=None, fit_dec=GS02_FIT_DEC,
   else:
     rms, q = min(tied, key=lambda t: t[0])
   b1, b2, b3, bp, bm, s0, A, nM = unpack(q)
-  return dict(b1=b1, b2=b2, b3=b3, beta_p=float(bp), beta_mid=float(bm), s0=s0, nuM=nM,
+  return dict(b1=b1, b2=b2, b3=b3, beta_p=float(bp), beta_mid=float(bm), s0=float(s0), nuM=nM,
               rms=rms, F_ext=A*10**y0, at_bound_b1=bool(q[0] - lo < GS02_BOUND_TOL))
 
 
@@ -2181,7 +2196,7 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
   t_lo = np.full(n, np.nan); t_hi = np.full(n, np.nan); t_s = np.full(n, np.nan)
   beta_p = np.full(n, np.nan); rms3 = np.full(n, np.nan); s_bound = np.zeros(n, bool)
   t_mrg = np.full(n, np.nan)
-  prev = None
+  prev = None; prior = None
   for i in np.flatnonzero(np.array([q is not None for q in reg])):
     f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_B)
     if f is None:
@@ -2198,7 +2213,10 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
         seeds.append(prev)
       mrg = reg[i] == 'MC'
       t = fit_three_break(x, nuFnu[i, :], env.psyn, f['nuM'], seeds, nu_B=nu_B,
-                          prefer=None if prev is None else prev[1:3], merged=mrg)
+                          prefer=None if prev is None else prev[1:3], merged=mrg,
+                          prior=prior)
+      if t is not None:
+        prior = (np.log10(t['b1']), np.log10(t['s0']))
       if t is not None and mrg:
         # MFC: one merged break above the plateau, reported as such; no separation
         t_mrg[i], t_s[i], beta_p[i], rms3[i] = t['b2'], t['b1'], t['beta_p'], t['rms']
@@ -2943,7 +2961,25 @@ def _series_colors(logt=SPEC_LOGT, cmap=plt.cm.viridis):
   return cmap(np.linspace(0., 0.88, len(np.atleast_1d(logt))))
 
 
-def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, three_from=None):
+POSTRF_MIN_SHARE = 0.10   # a spectrum is labelled '+ post RF' where the post-rarefaction
+                          # emission (1 - F_rarcut/F) makes up at least this fraction of
+                          # nuFnu somewhere in its DRAWN range. Measured on cooling_g100: 0.00
+                          # in every bin up to bar{T}_f; 0.13-0.96 at 10 and 100 bar{T}_f for
+                          # log10(C) >= -3, and 0.00-0.07 at -5/-4 (except RS -4 at 10, 0.15)
+
+
+def post_rf_reference(method, key, z):
+  '''The sweep the post-RF share is measured against: the same run WITHOUT the emission past
+  the rarefaction (data_rarcut), for the reference method only. None otherwise, or if absent.'''
+  if method != 'data':
+    return None
+  d = method_outdir('data_rarcut', key, z)
+  res = load_sweep(d) if os.path.isdir(d) else None
+  return res or None
+
+
+def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, three_from=None,
+    ref=None):
   '''
   One figure per gamma_c/gamma_m, overlaying the instantaneous spectra of a series of
   observed times vs nu/nu_m. The times are SPEC_LOGT, logarithmically spaced bins of
@@ -2998,6 +3034,12 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
   ~10 bar{T}_f, where the fit already resolves the plateau. Elsewhere past three_from the
   identified segments are drawn, the plateau being the lowest once the 4/3 run has left.
 
+  ref (post_rf_reference: the rarcut sweep) marks the bins where the cells still radiating
+  after the rarefaction contribute: the legend entry reads '<class> + post RF' where
+  1 - F_ref/F reaches POSTRF_MIN_SHARE anywhere in the drawn range. The same cells and the
+  same history, only truncated at the rarefaction, so the difference is that population and
+  nothing else; it is exactly zero up to bar{T}_f.
+
   There is no unannotated '_plain' twin of this figure any more: the segment lines sit on
   the spectra they describe rather than over them, and one series is one thing to keep
   current. plot_lightcurve_shape keeps its '_plain' variant, whose annotation (the
@@ -3005,7 +3047,12 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
   '''
   ylo = 10.**(-SPEC_SERIES_YSPAN)
   cols = _series_colors(logt)
+  refs = {round(float(q['log10ratio']), 1): q for q in (ref or [])}
   for r in results:
+    rr = refs.get(round(float(r['log10ratio']), 1))
+    if rr is not None and (rr['nuFnu'].shape != r['nuFnu'].shape
+                           or not np.allclose(rr['Tb'], r['Tb'])):
+      rr = None                         # not the same grids: no share can be read
     x = nu_over_num(r)
     p = r['env'].psyn
     series = _spectra_series(r, barT_f, logt)
@@ -3068,7 +3115,14 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
         ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
-      labels.append(f"{l:+.0f}: {disp_class(ident['regime'] or '?') if ident else '?'}")
+      lab = f"{l:+.0f}: {disp_class(ident['regime'] or '?') if ident else '?'}"
+      if rr is not None:
+        with np.errstate(divide='ignore', invalid='ignore'):
+          share = 1. - rr['nuFnu'][iT, :]/sp
+        vis = np.isfinite(share) & (sp/pkmax > ylo)
+        if vis.any() and np.max(share[vis]) >= POSTRF_MIN_SHARE:
+          lab += ' + post RF'
+      labels.append(lab)
     ax.set_ylim(ylo, 3.)
     # clip x to where the (y-clipped) spectra are actually visible, +half a decade
     with np.errstate(invalid='ignore'):
@@ -4097,7 +4151,8 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
           f'[{barT_off[0]/barT_f:.3f}, {barT_off[1]/barT_f:.3f}]')
   plot_lightcurve_shape(results, barT_f, barT_off=barT_off, outdir=outdir)
   plot_spectra_per_regime(results, barT_f, outdir=outdir,
-                          three_from=three_break_from(method, barT_f))
+                          three_from=three_break_from(method, barT_f),
+                          ref=post_rf_reference(method, key, z))
   # the lightcurves again unannotated, as a '_plain' series (see the docstring). Named so
   # that no existing glob picks them up -- ARTICLE_SERIES matches on
   # 'lightcurve_shape_nu=*', which '_plain' breaks by construction. The spectra have no
