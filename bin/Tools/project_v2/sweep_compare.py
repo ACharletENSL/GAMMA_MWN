@@ -461,7 +461,8 @@ def plot_postrf_spectra(pairs, barT_f, outdir=OUTDIR, times=POSTRF_T, yspan=POST
              title=' ', title_fontsize=9)   # an empty title of the same height: rows align
   fig.legend(hs_t, [f'{t:g}' for t in times], loc='upper right', ncol=len(times),
              fontsize=9, frameon=False, title='$\\bar{T}/\\bar{T}_f$', title_fontsize=9,
-             bbox_to_anchor=(0.995, 1.0))
+             bbox_to_anchor=(0.96, 1.0))   # inset from the edge: trim_pngs crops to content,
+                                           # so the panels' right edge sets the margin
   path = os.path.join(outdir, 'postrf_spectra_all.png')
   fig.savefig(path, dpi=200); plt.close(fig); out.append(path)
   return out
