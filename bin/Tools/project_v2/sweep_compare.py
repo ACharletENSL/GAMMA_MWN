@@ -375,7 +375,7 @@ def _draw_postrf(ax, rf, rd, barT_f, times=POSTRF_T, yspan=POSTRF_YSPAN, legend=
       share = D/full
     D = np.where(np.isfinite(D) & (D > 0.) & (share > POSTRF_NOISE), D, np.nan)
     c = cols[k]
-    ax.loglog(x, full/norm, color=c, lw=0.7, ls=':', alpha=0.7)
+    ax.loglog(x, full/norm, color=c, lw=1.0, ls=':', alpha=0.95)
     (h,) = ax.loglog(x, D/norm, color=c, lw=1.4)
     vis = np.isfinite(D) & (full/norm > ylo)
     mx = float(np.nanmax(share[vis])) if vis.any() else 0.
@@ -432,14 +432,23 @@ def plot_postrf_spectra(pairs, barT_f, outdir=OUTDIR, times=POSTRF_T, yspan=POST
   fig, axs = plt.subplots(nr, nc, figsize=(4.2*nc, 3.6*nr), sharex=True, sharey=True,
                           squeeze=False)
   for ax, (rf, rd) in zip(axs.flat, pairs):
-    _draw_postrf(ax, rf, rd, barT_f, times=times, yspan=yspan, fontsize=7)
+    _draw_postrf(ax, rf, rd, barT_f, times=times, yspan=yspan, fontsize=7, legend=False)
+  # ONE legend for the composite: the sampled times (the per-panel max shares are in the
+  # single-regime figures) and the line-style key, along the top
+  cols = plt.cm.viridis(np.linspace(0.15, 0.95, len(times)))
+  hs = [plt.Line2D([], [], color=c, lw=1.4) for c in cols]
+  hs += [plt.Line2D([], [], color='k', lw=1.4), plt.Line2D([], [], color='k', lw=1.0, ls=':')]
+  labs = [f'{t:g}' for t in times] + ['post-RF component', 'full spectrum']
   for ax in axs.flat[n:]:
     ax.set_visible(False)
   for ax in axs[-1, :]:
     ax.set_xlabel(NU_M_LABEL)
   for ax in axs[:, 0]:
     ax.set_ylabel('$\\Delta\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}(\\bar{T}_f)$')
-  fig.tight_layout()
+  fig.tight_layout(rect=(0, 0, 1, 0.955))
+  fig.legend(hs, labs, loc='upper center', ncol=len(hs), fontsize=9, frameon=False,
+             title='$\\bar{T}/\\bar{T}_f$', title_fontsize=9,
+             bbox_to_anchor=(0.5, 1.0))
   path = os.path.join(outdir, 'postrf_spectra_all.png')
   fig.savefig(path, dpi=200); plt.close(fig); out.append(path)
   return out
