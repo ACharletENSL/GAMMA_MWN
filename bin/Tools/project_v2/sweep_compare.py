@@ -357,6 +357,8 @@ def _draw_postrf(ax, rf, rd, barT_f, times=POSTRF_T, yspan=POSTRF_YSPAN, legend=
   One panel of plot_postrf_spectra: D = nuFnu(full) - nuFnu(cut) at `times`, solid, over
   the full spectrum at the same time, dotted, both normalised to the full spectrum's peak
   at the crossing (the brightest instant of the burst, so D reads as an absolute amount).
+  The rf-cut spectrum is drawn too, dash-dotted, so each component sits between the two
+  spectra it is the difference of.
   Returns (handles, labels, drawn) with the legend entries and whether any D is visible.
   '''
   logt = np.log10(np.asarray(times, float))
@@ -376,6 +378,7 @@ def _draw_postrf(ax, rf, rd, barT_f, times=POSTRF_T, yspan=POSTRF_YSPAN, legend=
     D = np.where(np.isfinite(D) & (D > 0.) & (share > POSTRF_NOISE), D, np.nan)
     c = cols[k]
     ax.loglog(x, full/norm, color=c, lw=1.0, ls=':', alpha=0.95)
+    ax.loglog(x, cut/norm, color=c, lw=1.0, ls='-.', alpha=0.95)
     (h,) = ax.loglog(x, D/norm, color=c, lw=1.4)
     vis = np.isfinite(D) & (full/norm > ylo)
     mx = float(np.nanmax(share[vis])) if vis.any() else 0.
@@ -420,6 +423,11 @@ def plot_postrf_spectra(pairs, barT_f, outdir=OUTDIR, times=POSTRF_T, yspan=POST
   for rf, rd in pairs:
     fig, ax = plt.subplots(figsize=(7.5, 6.5))
     _draw_postrf(ax, rf, rd, barT_f, times=times, yspan=yspan)
+    ax.add_artist(ax.get_legend())
+    ax.legend([plt.Line2D([], [], color='k', lw=1.4),
+               plt.Line2D([], [], color='k', lw=1.0, ls=':'),
+               plt.Line2D([], [], color='k', lw=1.0, ls='-.')],
+              ['post-RF component', 'full', 'rf cut'], fontsize=9, loc='upper right')
     ax.set_xlabel(NU_M_LABEL)
     ax.set_ylabel('$\\Delta\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}(\\bar{T}_f)$')
     xs = nu_over_num(rd)
@@ -437,8 +445,9 @@ def plot_postrf_spectra(pairs, barT_f, outdir=OUTDIR, times=POSTRF_T, yspan=POST
   # single-regime figures) and the line-style key, along the top
   cols = plt.cm.viridis(np.linspace(0.15, 0.95, len(times)))
   hs = [plt.Line2D([], [], color=c, lw=1.4) for c in cols]
-  hs += [plt.Line2D([], [], color='k', lw=1.4), plt.Line2D([], [], color='k', lw=1.0, ls=':')]
-  labs = [f'{t:g}' for t in times] + ['post-RF component', 'full spectrum']
+  hs += [plt.Line2D([], [], color='k', lw=1.4), plt.Line2D([], [], color='k', lw=1.0, ls=':'),
+         plt.Line2D([], [], color='k', lw=1.0, ls='-.')]
+  labs = [f'{t:g}' for t in times] + ['post-RF component', 'full spectrum', 'rf-cut spectrum']
   for ax in axs.flat[n:]:
     ax.set_visible(False)
   for ax in axs[-1, :]:
