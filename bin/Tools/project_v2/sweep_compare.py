@@ -343,6 +343,108 @@ def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=
   plt.close(fig)
 
 
+POSTRF_T = (1.1, 1.5, 3., 10., 30., 100., 300.)   # bar{T}/bar{T}_f of the post-RF series:
+                          # the component is exactly zero up to bar{T}_f, appears in the
+                          # first bins after it at log10(C) = 0 / -1 and becomes a resolved
+                          # plateau from ~3 bar{T}_f in slow cooling
+POSTRF_NOISE = 1e-6       # D/F below this is subtraction round-off, not emission
+POSTRF_YSPAN = 10.        # decades below the crossing-time peak shown
+
+
+def _draw_postrf(ax, rf, rd, barT_f, times=POSTRF_T, yspan=POSTRF_YSPAN, legend=True,
+    fontsize=9):
+  '''
+  One panel of plot_postrf_spectra: D = nuFnu(full) - nuFnu(cut) at `times`, solid, over
+  the full spectrum at the same time, dotted, both normalised to the full spectrum's peak
+  at the crossing (the brightest instant of the burst, so D reads as an absolute amount).
+  Returns (handles, labels, drawn) with the legend entries and whether any D is visible.
+  '''
+  logt = np.log10(np.asarray(times, float))
+  cols = plt.cm.viridis(np.linspace(0.15, 0.95, len(logt)))
+  sa = {k: i for k, _, i in _spectra_series(rf, barT_f, logt)}
+  sb_ = {k: i for k, _, i in _spectra_series(rd, barT_f, logt)}
+  i_f = {k: i for k, _, i in _spectra_series(rd, barT_f, np.array([0.]))}
+  x = nu_over_num(rd)
+  norm = np.nanmax(rd['nuFnu'][i_f[0], :]) if i_f else np.nan
+  ylo = 10.**(-yspan)
+  handles, labs, drawn = [], [], False
+  for k in sorted(k for k in sa if k in sb_):
+    full, cut = rd['nuFnu'][sb_[k], :], rf['nuFnu'][sa[k], :]
+    with np.errstate(divide='ignore', invalid='ignore'):
+      D = full - cut
+      share = D/full
+    D = np.where(np.isfinite(D) & (D > 0.) & (share > POSTRF_NOISE), D, np.nan)
+    c = cols[k]
+    ax.loglog(x, full/norm, color=c, lw=0.7, ls=':', alpha=0.7)
+    (h,) = ax.loglog(x, D/norm, color=c, lw=1.4)
+    vis = np.isfinite(D) & (full/norm > ylo)
+    mx = float(np.nanmax(share[vis])) if vis.any() else 0.
+    drawn |= bool(np.any(D[np.isfinite(D)]/norm > ylo))
+    handles.append(h)
+    labs.append(f'{times[k]:g}: {100.*mx:.0f}%' if mx >= 0.005 else f'{times[k]:g}: <1%')
+  ax.set_ylim(ylo, 3.)
+  if legend:
+    ax.legend(handles, labs, title='$\\bar{T}/\\bar{T}_f$ : max share', ncol=2,
+              fontsize=fontsize, title_fontsize=fontsize, loc='lower right')
+  ax.text(0.03, 0.97, f'$\\log_{{10}}\\mathcal{{C}} = {rd["log10ratio"]:+.0f}$',
+          transform=ax.transAxes, ha='left', va='top', fontsize=fontsize + 3)
+  if not drawn:
+    ax.text(0.5, 0.55, 'no post-RF emission\nin the plotted range',
+            transform=ax.transAxes, ha='center', va='center', fontsize=fontsize + 1,
+            color='0.4')
+  return handles, labs, drawn
+
+
+def plot_postrf_spectra(pairs, barT_f, outdir=OUTDIR, times=POSTRF_T, yspan=POSTRF_YSPAN):
+  '''
+  The POST-RAREFACTION COMPONENT on its own: nuFnu(full) - nuFnu(cut), the emission of the
+  cells still radiating after the rarefaction has passed them, which the cut discards and
+  nothing else differs by (same cells, same history, same grids -- before bar{T}_f the
+  difference is exactly zero). One figure per sweep point, every regime included: in the
+  deepest fast cooling the electrons have radiated their energy before the rarefaction and
+  the panel is empty, which is itself the result. Solid = the component, dotted = the full
+  spectrum at the same time for reference, both on the full spectrum's crossing-time peak;
+  the legend gives, per time, the largest share 1 - F_cut/F_full the component reaches in
+  the drawn range (the quantity sweep_gammacm.POSTRF_MIN_SHARE thresholds for the '+ post
+  RF' labels).
+  The legend sits LOWER RIGHT: past every spectrum's nu_M cut-off and below the late
+  curves, the one corner empty in every regime (bottom centre sat on the 100-300 bar{T}_f
+  components). What it shows (cooling_g100): at log10(C) = -5 the component is a faint hump
+  at the band bottom, <= 2% and gone by ~30 bar{T}_f, rising to 10-45% at -4/-3. Slow-cooling (log10(C) >= 1) the component is itself slow-
+  cooling -- 4/3, a (3-p)/2 segment, a turnover near the main nu_c -- with its 4/3 -> mid
+  transition spread from nu_s up to the main nu_m; at log10(C) = 0 / -1 a single hump.
+  Also written as one 3x3 composite (postrf_spectra_all.png).
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  out = []
+  for rf, rd in pairs:
+    fig, ax = plt.subplots(figsize=(7.5, 6.5))
+    _draw_postrf(ax, rf, rd, barT_f, times=times, yspan=yspan)
+    ax.set_xlabel(NU_M_LABEL)
+    ax.set_ylabel('$\\Delta\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}(\\bar{T}_f)$')
+    xs = nu_over_num(rd)
+    ax.set_xlim(xs.min()/3., xs.max()*3.)
+    fig.tight_layout()
+    path = os.path.join(outdir, f'postrf_spectra_logr={rd["log10ratio"]:+.1f}.png')
+    fig.savefig(path, dpi=300); plt.close(fig); out.append(path)
+  n = len(pairs)
+  nc = 3; nr = int(np.ceil(n/nc))
+  fig, axs = plt.subplots(nr, nc, figsize=(4.2*nc, 3.6*nr), sharex=True, sharey=True,
+                          squeeze=False)
+  for ax, (rf, rd) in zip(axs.flat, pairs):
+    _draw_postrf(ax, rf, rd, barT_f, times=times, yspan=yspan, fontsize=7)
+  for ax in axs.flat[n:]:
+    ax.set_visible(False)
+  for ax in axs[-1, :]:
+    ax.set_xlabel(NU_M_LABEL)
+  for ax in axs[:, 0]:
+    ax.set_ylabel('$\\Delta\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}(\\bar{T}_f)$')
+  fig.tight_layout()
+  path = os.path.join(outdir, 'postrf_spectra_all.png')
+  fig.savefig(path, dpi=200); plt.close(fig); out.append(path)
+  return out
+
+
 def plot_spectral_evolution_compare(pairs, barT_f, outdir=OUTDIR, labels=LABELS,
     yspan=SPEC_SERIES_YSPAN, logt=SPEC_LOGT, norm_side='B'):
   '''

@@ -216,6 +216,9 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=True,
   # and from which bin on -- the discarded tail sits
   cmp.plot_spectral_evolution_compare(pairs, barT_f, outdir=outdir, labels=labels,
                                       norm_side=norm_side)
+  # the discarded emission ON ITS OWN, full - cut: the post-rarefaction component, every
+  # regime (empty in the deepest fast cooling, where nothing is left to radiate)
+  cmp.plot_postrf_spectra(pairs, barT_f, outdir=outdir)
   # the lin-lin variant ONLY: the cut-vs-full difference is all in the decay, a linear
   # clock is where it reads naturally, and the log / linlog views of the same curves were
   # two more files per frequency for a divergence the ratio panel already carries
