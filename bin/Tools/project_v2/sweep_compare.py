@@ -998,7 +998,7 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
   ax.set_xlim(1e-2, 1.5)
   ax.set_ylim(-1.85, -0.55)
   ax.set_xlabel('$\\varepsilon_{\\rm rad}$')
-  ax.set_ylabel('$\\alpha$')
+  ax.set_ylabel('$\\alpha = a - 2$')
   ax.plot([], [], 'k--', lw=1, label=la); ax.plot([], [], 'k-', lw=1, label=lb)
   for mk, _, lab in est.values():
     ax.plot([], [], ls='none', marker=mk, mfc='0.7', mec='k', mew=.5, ms=6, label=lab)
