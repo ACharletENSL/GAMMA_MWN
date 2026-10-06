@@ -441,23 +441,27 @@ def plot_postrf_spectra(pairs, barT_f, outdir=OUTDIR, times=POSTRF_T, yspan=POST
                           squeeze=False)
   for ax, (rf, rd) in zip(axs.flat, pairs):
     _draw_postrf(ax, rf, rd, barT_f, times=times, yspan=yspan, fontsize=7, legend=False)
-  # ONE legend for the composite: the sampled times (the per-panel max shares are in the
-  # single-regime figures) and the line-style key, along the top
-  cols = plt.cm.viridis(np.linspace(0.15, 0.95, len(times)))
-  hs = [plt.Line2D([], [], color=c, lw=1.4) for c in cols]
-  hs += [plt.Line2D([], [], color='k', lw=1.4), plt.Line2D([], [], color='k', lw=1.0, ls=':'),
-         plt.Line2D([], [], color='k', lw=1.0, ls='-.')]
-  labs = [f'{t:g}' for t in times] + ['post-RF component', 'full spectrum', 'rf-cut spectrum']
   for ax in axs.flat[n:]:
     ax.set_visible(False)
+  # no per-panel legends on the composite: the per-panel max shares are in the
+  # single-regime figures; the sampled times and the line styles are keyed once, on top
+  cols = plt.cm.viridis(np.linspace(0.15, 0.95, len(times)))
+  hs_t = [plt.Line2D([], [], color=c, lw=1.4) for c in cols]
+  hs_s = [plt.Line2D([], [], color='k', lw=1.4), plt.Line2D([], [], color='k', lw=1.0, ls=':'),
+          plt.Line2D([], [], color='k', lw=1.0, ls='-.')]
   for ax in axs[-1, :]:
     ax.set_xlabel(NU_M_LABEL)
   for ax in axs[:, 0]:
     ax.set_ylabel('$\\Delta\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}(\\bar{T}_f)$')
   fig.tight_layout(rect=(0, 0, 1, 0.955))
-  fig.legend(hs, labs, loc='upper center', ncol=len(hs), fontsize=9, frameon=False,
-             title='$\\bar{T}/\\bar{T}_f$', title_fontsize=9,
-             bbox_to_anchor=(0.5, 1.0))
+  # TWO legends along the top: the line styles (what each curve is) on the left, the
+  # colours (when) on the right
+  fig.legend(hs_s, ['post-RF component', 'full spectrum', 'rf-cut spectrum'],
+             loc='upper left', ncol=3, fontsize=9, frameon=False, bbox_to_anchor=(0.04, 1.0),
+             title=' ', title_fontsize=9)   # an empty title of the same height: rows align
+  fig.legend(hs_t, [f'{t:g}' for t in times], loc='upper right', ncol=len(times),
+             fontsize=9, frameon=False, title='$\\bar{T}/\\bar{T}_f$', title_fontsize=9,
+             bbox_to_anchor=(0.995, 1.0))
   path = os.path.join(outdir, 'postrf_spectra_all.png')
   fig.savefig(path, dpi=200); plt.close(fig); out.append(path)
   return out
