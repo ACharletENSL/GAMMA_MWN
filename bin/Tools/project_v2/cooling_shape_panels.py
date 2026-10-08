@@ -38,7 +38,7 @@ THE THREE PANELS, and what each assumes.
       only C < 1/s reaches fast cooling --
       which is why (b) and (c) sit either side of that threshold rather than either
       side of C = 1. Each carries the scale its regime is set by, as a dash-dotted
-      vertical: t'_dyn on the tracks, bar{gma}_c on the shapes -- one is the abscissa
+      vertical: t'_dyn on the tracks, bar{gma}_c,i on the shapes -- one is the abscissa
       reading of the other, since gma_c = 1/tt_dyn. The constants live in
       cooling_integrated_adiabatic (A_RHO, Q_C)
       and the trajectory in gamma_cooled / cooled_distrib_adiab, so nothing is
@@ -115,7 +115,7 @@ FN_TRACKS, FN_SHAPES = 'cooling_tracks.png', 'cooling_shapes.png'
 # panel (a) names its CLOCK as well: the grey reference tracks in (b) and (c) are also
 # synchrotron only, but on the panel's own decaying t'_c, so 'syn. only' alone would not
 # separate the two
-PANEL_LABS = ("$t'_{\\rm c}=t'_{\\rm c,i}$",
+PANEL_LABS = ("syn. only \u2013 $t'_{\\rm c}=t'_{\\rm c,i}$",
               'syn. + adiab. \u2013 FC', 'syn. + adiab. \u2013 SC')
 
 
@@ -230,7 +230,7 @@ LAB_GUIDE, LAB_TDYN = "$(t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
 LAB_SYN = 'syn. only'       # the same population with the expansion switched off
-LAB_GC = '$\\bar{\\gamma}_{\\rm c}$'
+LAB_GC = '$\\bar{\\gamma}_{\\rm c,i}$'   # c,i: set by the INJECTION t'_c, not the decayed one
 SYN_REF = '0.62'            # lighter than the tracks, and solid/dashed rather than the
                             # guides' dash-dot and dotted, so it reads as another CASE
 
@@ -403,7 +403,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   order as plot_cooling_tracks, and the SAME sampled times in every panel.
 
   Every vertical is named ON its line along the top strip: the two injected bounds in
-  all three panels, and bar{gma}_c = 1/tt_dyn on the adiabatic two, marked with the
+  all three panels, and bar{gma}_c,i = 1/tt_dyn on the adiabatic two, marked with the
   dash-dot the tracks give t'_dyn.
   '''
   fig, axs = _row(FIGSIZE_SHAPES)
@@ -438,7 +438,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
                   textcoords='offset points', xytext=(3, 3), color=MUTED,
                   fontsize=FS_ANN)
     else:
-      _vline(ax, 1./ttd, LAB_GC, '-.', lw=.9, top=True)   # bar{gma}_c = 1/tt_dyn
+      _vline(ax, 1./ttd, LAB_GC, '-.', lw=.9, top=True)   # bar{gma}_c,i = 1/tt_dyn
     for v, lab in ((gm0, LAB_GMI), (gM0, LAB_GMMI)):      # the injected bounds
       _vline(ax, v, lab, ':', top=True)
     _mark_gma1(ax, 'x')
