@@ -620,9 +620,11 @@ def compute_R_rar(cell_d0, exit_row, env, popts, R_fac=50., n_R=2000, fitfunc=sm
   return max(R_rar, R0*(1.+1e-6))
 
 
-_RAR_CACHE_VERSION = 4   # v2: caches carry n_shell (coverage); v3: + per-cell barT_off;
+_RAR_CACHE_VERSION = 5   # v2: caches carry n_shell (coverage); v3: + per-cell barT_off;
                          # v4: crossings solved in the observer lag on a log-radius grid
-                         # (the lab-time solver resolved the whole shell in ~4 steps)
+                         # (the lab-time solver resolved the whole shell in ~4 steps);
+                         # v5 (2026-10-08): cells and launch from the MEASURED injection
+                         # events (the emission's own), launch = last cell's exit
 _RAR_HEAD_MEM = {}    # (key, z) -> ({cell_i: R_rar/R_inj}, {cell_i: barT_off}), in-process reuse
 
 
@@ -675,6 +677,31 @@ def _head_chunk(span):
                         p0=float(get_variable(row, 'p', env)),
                         popts=popts)))
   return out
+
+
+def _shell_exit_event(key, z, env, exit_row):
+  '''
+  (t, x) at which the shock leaves shell z: the front crossing the FAR edge of the last
+  shocked cell. measured_injection_event gives that cell's front-at-centre time t_c and,
+  by backing off half its own crossing time T, the leading-edge injection t_e = exit_row.t;
+  the exit is the same distance on the other side, t_e + T = 2 t_c - t_e. Both events come
+  from the same cell history, so its time origin cancels in the difference. x is read off
+  the cell's own worldline at that time (its centre; the front sits half a cell width
+  further, ~1e-4 lt-s, i.e. ~1e-4 in barT, below anything this map resolves).
+  Falls back to the injection event itself when the crossing cannot be measured.
+  '''
+  from working_cooling_data import measured_injection_event
+  t_e = float(exit_row.t)
+  cd = open_celldata(key, int(exit_row.i))
+  if cd is False or not len(cd):
+    return t_e, float(exit_row.x)
+  t_c_raw, _ = measured_injection_event(cd, env, z, at='centre')
+  t_e_raw, _ = measured_injection_event(cd, env, z, at='edge')
+  if not (np.isfinite(t_c_raw) and np.isfinite(t_e_raw)) or t_c_raw <= t_e_raw:
+    return t_e, float(exit_row.x)
+  T = 2.*(t_c_raw - t_e_raw)                      # this cell's own crossing time
+  t_raw = cd.t.to_numpy(dtype=float); x_raw = cd.x.to_numpy(dtype=float)
+  return t_e + T, float(np.interp(t_e_raw + T, t_raw, x_raw))
 
 
 def compute_shell_rarefaction_head(key, z, env, R_fac=50., n_R=2000,
@@ -731,10 +758,21 @@ def compute_shell_rarefaction_head(key, z, env, R_fac=50., n_R=2000,
   the cells accumulate the lag separation that orders them) and the post-launch horizon
   up to R_fac*R_L. Converged: 500 -> 8000 moves the R_rar map by <0.1%.
   '''
-  sh = cellsBehindShock_fromData(open_rundata(key, z))
+  # THE CELLS AND THE LAUNCH ARE THE MEASURED ONES (v5, 2026-10-08). Each cell enters with the
+  # injection event the EMISSION starts it at (measured_shockfront_states = row 0 of every
+  # cell history), so its R_inj here is the R_inj the map is applied to (_truncate_at_ratio).
+  # The fitted table this used before put the last cell at 2.375 R0 instead of the measured
+  # 2.518 R0: the outermost cells were cut BEFORE the measured crossing barT_f.
+  # The head is launched when the shock LEAVES the shell, i.e. when it has crossed the last
+  # cell: that cell's leading-edge injection plus its own crossing time (_shell_exit_event).
+  # So the last cell radiates for one cell-crossing time and is then the first one cut.
+  from working_cooling_data import measured_shockfront_states
+  sh = measured_shockfront_states(key, z, env).sort_values('t').reset_index(drop=True)
   exit_row = sh.loc[sh.t.idxmax()]
-  R_L = float(exit_row.x*c_)
-  s_L = float(exit_row.t) + env.t0 - float(exit_row.x)   # lag of the launch event
+  t_L, x_L = _shell_exit_event(key, z, env, exit_row)
+  exit_i = int(exit_row.i)
+  R_L = float(x_L*c_)
+  s_L = float(t_L) + env.t0 - float(x_L)                 # lag of the launch event
   z_fwd = bool(exit_row.trac < 1.5)   # region 3 (forward RF) vs region 2; one shell,
                                       # one side of the CD, so one sign for all cells
   varlist = ['rho', 'lfac', 'p']
@@ -831,9 +869,14 @@ def compute_shell_rarefaction_head(key, z, env, R_fac=50., n_R=2000,
     if ok.sum() < 2:
       rrar[ci['i']] = np.inf; boff[ci['i']] = np.inf; continue
     Dv, Rv, sv = D[ok], Rg[ok], Sk[m][ok]
-    if abs(Dv[0]) < 1e-9*env.T0:                          # exit cell: head starts on it
+    # the EXIT cell: the head is launched on it, so it is cut at the launch. Identified by
+    # index, not by D ~ 0: with the MEASURED launch its FITTED worldline passes a hair to one
+    # side of the launch event, and a |D| ~ 0 test left it uncut (R_rar = inf, emitting
+    # forever). The sign of D cannot be used either -- in region 2 (FS) other cells also
+    # start at D < 0 and cross later.
+    if ci['i'] == exit_i or abs(Dv[0]) < 1e-9*env.T0:
       rrar[ci['i']] = max(R0*(1.+1e-6), Rv[0])/R0
-      boff[ci['i']] = _barT_off(sv[0]); continue
+      boff[ci['i']] = _barT_off(max(sv[0], Sh[i_L])); continue
     cross = np.flatnonzero(np.diff(np.signbit(Dv)))
     if not len(cross):
       rrar[ci['i']] = np.inf; boff[ci['i']] = np.inf; continue
