@@ -179,6 +179,25 @@ def step_view(cols, j):
 # energy budget (the analytic frequency integral in step_radiated_energy assumes the cut).
 SYN_LOWCUT = os.environ.get('SYN_NO_LOWCUT', '0') != '1'
 
+# SPECTRA BELOW THE PHYSICAL FLOOR (2026-10-08, the v3 recompute). The model stops at gamma = 1
+# and nu'_B; in very fast cooling the cooled population sits at gamma_c < 1 and the cooling
+# break nu_c,0 falls BELOW nu_B, so it could not be measured and VFC/FC*/FC had to be told
+# apart from the shape of an incomplete spectrum. With SPEC_BELOW_NUB the SPECTRA (get_epnu
+# and everything built on it) continue the synchrotron formulae formally below both floors --
+# electrons keep cooling past gamma = 1 down to GMA_FLOOR_EXT and emit below nu'_B -- so every
+# regime reads as fast cooling with a measurable nu_c, VFC being the case where it lies below
+# nu_B. It is a MEASUREMENT device: figures still draw only nu >= nu_B (the physical limit of
+# the model), and the ENERGY BUDGET (step_radiated_energy) keeps the physical gamma >= 1 cut,
+# so eps_rad is unaffected. Above nu_B the added emission is exponentially small (x > 2/(3
+# gma^2) > 1 for gma < 1). Read from the ENVIRONMENT at import, as SYN_NO_LOWCUT, because the
+# sweep pool is forkserver. ON by default; SPEC_BELOW_NUB=0 restores the floors (the _fc2
+# caches were computed that way).
+SPEC_BELOW_NUB = os.environ.get('SPEC_BELOW_NUB', '1') == '1'
+GMA_FLOOR_EXT = 1e-4      # lowest Lorentz factor the extended spectra follow electrons to: the
+                          # cooled population freezes at ~A gamma_c,0 ~ 1e-2 at log C = -5, so
+                          # this leaves two decades of margin in gamma (four in frequency)
+GMA_FLOOR = GMA_FLOOR_EXT if SPEC_BELOW_NUB else 1.   # the floor the SPECTRA use
+
 
 def syn_emiss_exact(gma, tnu):
   '''
@@ -203,7 +222,7 @@ def syn_emiss_exact(gma, tnu):
     x = (2.*tnu)/(3.*gma**2)
     # R(x) -> R_LOW_COEF x^(1/3) as x -> 0 and func_R is tabulated to x = 1e-6 (ratio to the
     # asymptote 1.000000 there), so the tail below nu'_B is exact, not an extrapolation.
-    out = func_R(x) if not SYN_LOWCUT else np.where(tnu < 1., 0., func_R(x))
+    out = func_R(x) if (not SYN_LOWCUT or SPEC_BELOW_NUB) else np.where(tnu < 1., 0., func_R(x))
   return out if out.ndim else float(out)
 
 # R(x), its tabulated fast path and the cut-off shape it defines now live in
@@ -229,7 +248,7 @@ def get_Fnu_cell(nuobs, Tobs, data, env,
   nu_B0 = get_variable(cell_0, 'nu_B', env)
 
   # no need to calculate contributions if nu_M outside of observed freqs 
-  gmax_cut = max(1., np.sqrt(nuobs.min()/nu_B0))
+  gmax_cut = max(GMA_FLOOR, np.sqrt(nuobs.min()/nu_B0))
   gmax_arr = data.gmax.to_numpy()
   N = gmax_arr.size
   # np.searchsorted works in ascending order
@@ -434,7 +453,7 @@ def get_epnu(tnu_arr, step, K0, env, Ng=NG_FLUX, width_tol=1.1,
   shape_in = tnu_arr.shape
   tnu_flat = tnu_arr.ravel()
   gmin, gmax = _sval(step, 'gmin', env), _sval(step, 'gmax', env)
-  if gmax <= 1.:
+  if gmax <= GMA_FLOOR:
     return np.zeros(shape_in)
   bsyn = _sval(step, 'bsyn', env)
   Pmax = _sval(step, "Pmax", env)
@@ -442,25 +461,41 @@ def get_epnu(tnu_arr, step, K0, env, Ng=NG_FLUX, width_tol=1.1,
   # K0 integrates to A^(1-p), not 1. Pmax*V3p supplies the (conserved) electron number,
   # so the shape must be renormalised here or the count is inflated by A^(1-p).
   K = K0 * _sval(step, 'Aad', env)**(env.psyn - 1.)
-  if gmin < 1.:
-    gmin = 1.               # see step_radiated_energy: bound truncation, no rescaling
-  if gmax/gmin <= width_tol:
-    K = 1
-    gma_mn = np.sqrt(gmin*gmax)
-    #gma_mn = gmin
-    enu = np.asarray(func_emiss(gma_mn, tnu_flat))
+  if use_fit is None:
+    use_fit = PNU_USE_FM26
+
+  def _shape(lo):
+    '''K x the electron integral over [lo, gmax] -- no frequency cut of its own when
+    SPEC_BELOW_NUB (syn_emiss_exact then does not cut), the physical one otherwise.'''
+    if gmax/lo <= width_tol:          # delta-function shortcut, number carried by Pmax
+      return np.asarray(func_emiss(np.sqrt(lo*gmax), tnu_flat), dtype=float)
+    if use_fit and gmax/lo >= FIT_ETA_MIN and bsyn == 0. and not SPEC_BELOW_NUB:
+      return K*Pnu_instant_fit(tnu_flat, lo, gmax, env)
+    return K*Pnu_instant(tnu_flat, lo, gmax, env, Ng, func_distrib, func_emiss, bsyn=bsyn)
+
+  if not SPEC_BELOW_NUB:
+    # the physical spectrum: electrons above gamma = 1 only (bound truncation, see
+    # step_radiated_energy), nothing below nu'_B (syn_emiss_exact cuts)
+    enu = _shape(max(gmin, 1.))
   else:
-    if use_fit is None:
-      use_fit = PNU_USE_FM26
-    if use_fit and gmax/gmin >= FIT_ETA_MIN and bsyn == 0.:
-      enu = Pnu_instant_fit(tnu_flat, gmin, gmax, env)
+    # PHYSICAL ABOVE THIS STEP'S OWN nu'_B, FORMAL BELOW IT. The formal continuation follows
+    # electrons below gamma = 1 (to GMA_FLOOR) and emits below nu'_B, which is what makes the
+    # VFC cooling break measurable; but the tail of those sub-relativistic electrons reaches
+    # just ABOVE nu_B (measured +33% at nu_B, +2.5% at 3 nu_B, on a logC = -5 cell), so it is
+    # used ONLY at tnu < 1. At tnu >= 1 the step emits exactly what the physical model does,
+    # and the figures, cut at nu_B, show the physical spectrum unchanged.
+    enu_ext = _shape(max(gmin, GMA_FLOOR))
+    if gmax <= 1.:
+      enu_phys = np.zeros_like(enu_ext)
+    elif gmin >= 1.:
+      enu_phys = enu_ext               # same bounds: the two differ only by the cut below
     else:
-      enu = Pnu_instant(tnu_flat, gmin, gmax, env, Ng, func_distrib, func_emiss,
-                        bsyn=bsyn)
+      enu_phys = _shape(1.)
+    enu = np.where(tnu_flat >= 1., enu_phys, enu_ext)
   # 1/norm_R_ is R(x)'s normalisation (syn_emiss_exact returns R itself): applied
   # ONCE here, as a scalar in the prefactor, for both the trapezoid and the FM26
   # branch -- never inside the per-element kernels.
-  enu *= K*_sval(step, 'dtp', env)*Pmax/norm_R_
+  enu = enu*_sval(step, 'dtp', env)*Pmax/norm_R_
   return enu.reshape(shape_in)
 
 

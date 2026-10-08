@@ -311,15 +311,17 @@ def _spectrum_figure(p, spectra, title, ylabel, fname, key, outdir, extra=None):
   ymax = max(np.nanmax(s) for _, s in spectra)
   ylo = ymax*10.**(-SPEC_YSPAN)
   fig, ax = plt.subplots(figsize=(6.6, 4.8))
+  flo = 1./p['env'].gma_m**2     # nu_B: the band may extend below it (SPEC_BELOW_NUB), the
+                                 # figure does not
   for tag, s in spectra:
-    ax.loglog(x, np.where(s > 0., s, np.nan), **STY[tag])
+    ax.loglog(x, np.where((s > 0.) & (x >= flo), s, np.nan), **STY[tag])
   for nu_m, tag in ((1., 'RS'), (e0.nu0FS/e0.nu0, 'FS')):
     ax.axvline(nu_m, color=STY[tag]['color'], ls='-.', lw=.8, alpha=.6)
     ax.annotate(f'$\\nu_{{m,\\rm {tag}}}$', (nu_m, ymax*1.5), color=STY[tag]['color'],
                 fontsize=9, ha='center', va='bottom')
-  vis = np.any(np.array([s for _, s in spectra]) > ylo, axis=0)
+  vis = np.any(np.array([s for _, s in spectra]) > ylo, axis=0) & (x >= flo)
   if vis.any():
-    ax.set_xlim(x[vis].min()/3., x[vis].max()*3.)
+    ax.set_xlim(max(x[vis].min()/3., flo), x[vis].max()*3.)
   ax.set_ylim(ylo, ymax*6.)
   ax.set_xlabel(NU_M_LABEL + '   (RS)')
   ax.set_ylabel(ylabel)
@@ -571,9 +573,10 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
     if sp is None:
       continue
     x, norm = p['x'], float(np.nanmax(sp['tot']))
+    flo = 1./p['env'].gma_m**2   # nu_B: drawn above it only (see _spectrum_figure)
     for tag, _ in _curves(p):
       y = sp[tag]/norm
-      ax_s.loglog(x, np.where(y > 0., y, np.nan), **STY[tag])
+      ax_s.loglog(x, np.where((y > 0.) & (x >= flo), y, np.nan), **STY[tag])
     m = {tag: peak_and_width(x, sp[tag]) for tag in ('RS', 'tot')}
     for tag in ('RS', 'tot'):     # the two crossings, ON the curve they were measured on
       lo, hi = m[tag][f'nu_lo_{level}'], m[tag][f'nu_hi_{level}']
@@ -586,14 +589,15 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
         ax_s.plot([lo, hi], [0.5*m[tag]['F_pk']/norm]*2, color=STY[tag]['color'],
                   ls='none', marker='|', ms=7, mew=1.3, alpha=.9, zorder=5)
     xd, da = slope_difference(x, sp['RS'], sp['tot'])
+    da = np.where(np.asarray(xd) >= flo, da, np.nan)
     ax_r.plot(xd, da, color=COL_TOT, lw=1.2)
     ax_r.set_xscale('log')
     ax_r.axhline(0., color='grey', ls=':', lw=.9)   # the FS reshapes nothing here
     if np.isfinite(da).any():
       dlo = min(dlo, float(np.nanmin(da))); dhi = max(dhi, float(np.nanmax(da)))
-    vis = np.any(np.array([sp[t] for t, _ in _curves(p)])/norm > ylo, axis=0)
+    vis = np.any(np.array([sp[t] for t, _ in _curves(p)])/norm > ylo, axis=0) & (x >= flo)
     if vis.any():
-      ax_s.set_xlim(x[vis].min()/3., x[vis].max()*3.)
+      ax_s.set_xlim(max(x[vis].min()/3., flo), x[vis].max()*3.)
     # 1.5 decades of headroom above the total's peak, so the half-maximum ticks (which sit
     # at half of it) clear the corner annotations below
     ax_s.set_ylim(ylo, 10.**1.5)

@@ -721,6 +721,12 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   from sweep_gammacm import _sweep_colors, _draw_order
   xkey, xlab, tag, _ = _SCAN_UNITS[unit]      # the unit's symbol is the x label's now
   colors, sm = _sweep_colors(results)
+  # MEASURED on every stored column, DRAWN above nu_B only: with SPEC_BELOW_NUB the grid runs
+  # below the physical floor (gamma = 1), which no figure shows. nu_num = nu/nu_m,0, so the
+  # floor is 1/gamma_m,0^2 for every point (gamma_m,0 does not rescale).
+  floor = {round(float(r['log10ratio']), 3): 1./r['env'].gma_m**2 for r in results}
+  scan_rows = [m for m in scan_rows
+               if m['nu_num'] >= floor.get(round(float(m['logr']), 3), 0.)]
   nu_all = np.array([m[xkey] for m in scan_rows], float)
   nu_lo, nu_hi = nu_all.min(), nu_all.max()
   # wspace above the default 0.2: each panel carries its own y label and tick labels, and

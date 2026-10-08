@@ -41,6 +41,7 @@ from phys_functions import granot_sari_syn, syn_cutoff_R, derive_obsOnTime
 from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, edge_slope,
     edge_slope_drift, flat_core, sliding_slopes, CORE_TOL, CORE_WIN_DEX,
     SLOPE_SMOOTH, SLOPE_TOL, MIN_PTS, MIN_DEX, FIT_DEC, CUT_FAC, EDGE_VFC_TOL)
+from radiation_cooling import SPEC_BELOW_NUB
 from working_cooling import (get_shell_nuFnu, open_rundata, cellsBehindShock_fromData,
     load_shell_rarefaction_offT, check_extracted_cells, open_celldata)
 from working_cooling_data import (get_shell_nuFnu_fromData, data_method_name,
@@ -188,6 +189,9 @@ LOGNU_MIN = -6.7          # fixed low end of the frequency window, in log10(nu/n
                           # the Granot rescaling, so this is one bottom for all nine points.
                           # COST: +0.7 dex of span, Nnu 612 -> 635 at logr=+3, ~4% on a
                           # kernel that is linear in Nnu. NNU_MAX (800) still does not bind.
+NU_EXT_BELOW_NUC = 4.     # SPEC_BELOW_NUB: decades the window extends below nu_c,0 (the break
+                          # drifts down ~2 decades over the pulse, plus the nu^(4/3) segment below
+                          # it). Binds for log C <~ -1.4; at log C = -5 the bottom is ~10^-14.2
 LOGNU_ABOVE_NUM = 1.5     # high end, in decades above each point's OWN nu_M: the window top is
                           # log10(nu_M/nu_m) + this, so every spectrum shows its exponential
                           # cutoff and has fallen >3.5 decades below its peak (the plot floor)
@@ -507,6 +511,13 @@ def _nu_window(key, alpha, lognu_min=LOGNU_MIN, lognu_above=LOGNU_ABOVE_NUM):
   env0 = MyEnv(key)
   env_a = rescale_hydro(alpha, 1., env0) if alpha != 1. else env0
   hi = 2.*np.log10(env_a.gma_max/env_a.gma_m) + lognu_above
+  if SPEC_BELOW_NUB:
+    # the window must reach below the cooling break even where it is under nu_B (VFC):
+    # NU_EXT_BELOW_NUC decades below nu_c,0/nu_m,0 = (gamma_c/gamma_m)^2, never above the
+    # physical floor LOGNU_MIN. The obs grid is RS-normalised for both shells and the FS
+    # nu_c,0 sits above the RS one on it (higher C, same nu_B to 2%), so the RS bound serves
+    # both. Figures still cut at nu_B (phys_band_mask).
+    lognu_min = min(lognu_min, 2.*np.log10(env_a.gma_c/env_a.gma_m) - NU_EXT_BELOW_NUC)
   Nnu = int(np.clip(round((hi - lognu_min)*NNU_PER_DEC), NNU_MIN, NNU_MAX))
   return lognu_min, hi, Nnu
 
@@ -595,6 +606,10 @@ def method_outdir(method=DEFAULT_METHOD, key=None, z=Z_SHELL):
   # definitions MUST NOT share a directory -- a '+2' written under each would silently
   # overwrite the other and neither could be told from the other on reload.
   d += field_correction_tag(key if key is not None else DEFAULT_KEY)
+  # the spectra with the physical floors kept (SPEC_BELOW_NUB=0) are different arrays from the
+  # extended ones the v3 recompute produces by default: never let the two share a cache
+  if not SPEC_BELOW_NUB:
+    d += '_nubfloor'
   if z != Z_SHELL:
     d = f'{d}_z={z}'
   return figdir(d, key)
@@ -809,7 +824,7 @@ def _save_point(outdir, r):
       log10ratio=r['log10ratio'], alpha=r['alpha'], Tb=r['Tb'], nub=r['nub'],
       nuFnu=r['nuFnu'], E_rad=r['E_rad'], E_int=r['E_int'], E_inj=r['E_inj'],
       eps_e=r['eps_e'], method=r.get('method', 'fit'), key=r.get('key', ''),
-      z=r.get('z', Z_SHELL),
+      z=r.get('z', Z_SHELL), below_nub=bool(SPEC_BELOW_NUB),
       **{k: getattr(env, k) for k in _ENV_KEYS},
       **{k: getattr(env, k) for k in _ENV_KEYS_OPT if hasattr(env, k)})
 
@@ -840,6 +855,7 @@ def load_sweep(outdir=OUTDIR):
     r['method'] = str(d['method']) if 'method' in d.files else 'fit'   # provenance
     r['key'] = str(d['key']) if 'key' in d.files else ''               # '' = predates key tagging
     r['z'] = int(d['z']) if 'z' in d.files else Z_SHELL                # emitting shell
+    r['below_nub'] = bool(d['below_nub']) if 'below_nub' in d.files else False  # SPEC_BELOW_NUB
     results.append(r)
   print(f'loaded {len(results)} cached sweep points from {outdir}/cache')
   return results
@@ -1345,6 +1361,8 @@ GS02_S1, GS02_S2 = 1.3, 2.0
 GS02_CUTOFF = 'R'
 GS02_FIT_DEC = 5.0        # fit the top this many decades of the spectrum: below that the
                           # flux is off the plotted range and dominated by the far tail
+GS02_FIT_DEC_EXT = 8.0    # the same on SPEC_BELOW_NUB spectra (fit_dec_of): as the segment
+                          # route's own FIT_DEC, deep enough for the VFC cooling break
 GS02_NUB_FAC = 1.5        # low end of the GS02 fit, in units of nu_B = nu_m/gamma_m^2: bins
                           # below this are DROPPED from the fit (see fit_gs02_spectrum).
                           # WHY. nu_B is the synchrotron frequency of a gamma=1 electron, so
@@ -1397,6 +1415,54 @@ GS02_S_VFC = 2.0          # smoothing of the VERY-fast-cooling single break (gri
                           # the 10 out-of-band spectra of the sweep; 0.0383 at 2.0, flat to
                           # 0.039 over 1.7-2.6). Sharper than the two-break values because it
                           # joins -1/2 straight to -p/2, a smaller slope change.
+
+
+def fit_nu_floor(r):
+  '''
+  The low-end gate for the GS02 / three-break fits of sweep point r: nu_B = nu_m/gamma_m^2 on
+  the stored x axis, where the PHYSICAL spectra roll over at gamma = 1 (GS02_NUB_FAC), or None
+  for spectra computed with SPEC_BELOW_NUB (r['below_nub']), which have no such roll-over --
+  that extension exists precisely so the fit can use the band below nu_B.
+  '''
+  return None if r.get('below_nub', False) else 1./r['env'].gma_m**2
+
+
+def phys_x_floor(r):
+  '''
+  nu_B on sweep point r's stored x axis (x = nu/nu_m,0, nu_over_num): 1/gamma_m,0^2. The
+  physical low end of the model (gamma = 1 electrons). Spectra computed with SPEC_BELOW_NUB
+  extend below it for MEASUREMENT; every figure draws only x >= phys_x_floor(r)
+  (phys_mask), whatever the band holds. Alpha-invariant (gamma_m,0 does not rescale), and the
+  FS floor on the RS-normalised grid is within 2% of the RS one, so one value serves a sweep.
+  '''
+  return 1./r['env'].gma_m**2
+
+
+def above_floor(tr, *ys):
+  '''Bins where every given break track is at or above the physical floor nu_B (tr['nu_B'],
+  same x units): what the break figures may DRAW. Breaks below it (VFC's nu_c, measured on
+  SPEC_BELOW_NUB spectra) stay in the tracks and in every table -- only the figures cut them.'''
+  nb = tr.get('nu_B')
+  if nb is None:
+    return np.ones(len(ys[0]), bool)
+  out = np.ones(len(ys[0]), bool)
+  for y in ys:
+    with np.errstate(invalid='ignore'):
+      out &= np.isfinite(y) & (np.asarray(y) >= nb)
+  return out
+
+
+def phys_mask(x, y, r):
+  '''y with every bin below nu_B (phys_x_floor) set to NaN: what a figure may draw.'''
+  return np.where(np.asarray(x) >= phys_x_floor(r), y, np.nan)
+
+
+def fit_dec_of(r):
+  '''Depth below the peak the GS02 / three-break fits use: GS02_FIT_DEC on physical spectra,
+  GS02_FIT_DEC_EXT on SPEC_BELOW_NUB ones, whose cooling break can sit >5 decades below the
+  nuFnu peak in very fast cooling (log C = -5: nu_c,0/nu_m,0 ~ 1e-10, i.e. 5.1 dex down the
+  1/2 segment) and whose low tail is the smooth nu^(4/3) the shape models, not a cutoff.'''
+  return GS02_FIT_DEC_EXT if r.get('below_nub', False) else GS02_FIT_DEC
 
 
 def fit_gs02_spectrum(x, sp, psyn, nuM, s=(GS02_S1, GS02_S2), free_s=False,
@@ -1998,7 +2064,8 @@ def track_breaks_gs02(r, flux_floor=TRACK_FLUX_FLOOR, rms_max=GS02_TRACK_RMSMAX,
   x = nu_over_num(r); env = r['env']; barT = r['Tb'] - 1.
   nuFnu = r['nuFnu']; n = len(barT)
   nuM_nom = nu_M_over_num(r)
-  nu_B = 1./env.gma_m**2          # gamma=1 floor: gates the fit's low end (GS02_NUB_FAC)
+  nu_B = 1./env.gma_m**2          # gamma=1 floor (display; gates the fit only on physical spectra)
+  nu_gate = fit_nu_floor(r)
   Fpk = np.nanmax(nuFnu, axis=1)
 
   b_lo = np.full(n, np.nan); b_hi = np.full(n, np.nan); nu_Mt = np.full(n, np.nan)
@@ -2008,7 +2075,7 @@ def track_breaks_gs02(r, flux_floor=TRACK_FLUX_FLOOR, rms_max=GS02_TRACK_RMSMAX,
   bright = (np.isfinite(Fpk) & (Fpk > flux_floor*np.nanmax(Fpk))
             & ((np.isfinite(nuFnu) & (nuFnu > 0.)).sum(axis=1) >= 12))
   for i in np.flatnonzero(bright):
-    f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_B)
+    f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_gate, fit_dec=fit_dec_of(r))
     if f is None:
       continue
     b_lo[i], b_hi[i], nu_Mt[i] = f['b_lo'], f['b_hi'], f['nuM']
@@ -2182,6 +2249,7 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
   nuFnu = r['nuFnu']
   nuM_nom = nu_M_over_num(r)
   nu_B = 1./env.gma_m**2
+  nu_gate = fit_nu_floor(r)
   reg = np.array([q for q in tk['regime']], dtype=object)
   is_ = lambda *c: np.array([q in c for q in reg])
   br_ok = np.asarray(tk['br_ok'], bool)
@@ -2202,7 +2270,7 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
   t_mrg = np.full(n, np.nan)
   prev = None; prior = None
   for i in np.flatnonzero(np.array([q is not None for q in reg])):
-    f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_B)
+    f = fit_gs02_spectrum(x, nuFnu[i, :], env.psyn, nuM_nom, free_bmid=True, nu_B=nu_gate, fit_dec=fit_dec_of(r))
     if f is None:
       continue
     f_lo[i], f_hi[i], rms[i], nu_Mt[i] = f['b_lo'], f['b_hi'], f['rms'], f['nuM']
@@ -2216,7 +2284,7 @@ def track_breaks_route(r, tk, rms_max=GS02_TRACK_RMSMAX, barT_swap_max=None,
       if prev is not None:
         seeds.append(prev)
       mrg = reg[i] == 'MC'
-      t = fit_three_break(x, nuFnu[i, :], env.psyn, f['nuM'], seeds, nu_B=nu_B,
+      t = fit_three_break(x, nuFnu[i, :], env.psyn, f['nuM'], seeds, nu_B=nu_gate, fit_dec=fit_dec_of(r),
                           prefer=None if prev is None else prev[1:3], merged=mrg,
                           prior=prior)
       if t is not None:
@@ -3091,8 +3159,9 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
       # the drawn curve AND out of the x-clip below, which is otherwise widened by bins
       # that show nothing there
       sp = np.where(np.isfinite(sp) & (sp > 0.), sp, np.nan)
-      (h,) = ax.loglog(x, sp/pkmax, color=col, lw=1.6)
-      sps.append(sp/pkmax)
+      sp_draw = phys_mask(x, sp, r)     # drawn above nu_B only; MEASURED on the whole band
+      (h,) = ax.loglog(x, sp_draw/pkmax, color=col, lw=1.6)
+      sps.append(sp_draw/pkmax)
       ident = identify_segments(x, sp, p)
       if three_from is not None and r['Tb'][iT] - 1. > three_from:
         identF = identify_segments(x, sp, p, free_lo=ROUTE_KW['free_lo'])
@@ -3101,13 +3170,13 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
           # where the three breaks exist -- the same fit and the same acceptance as
           # track_breaks_route's nu_s -- the four segments are that fit's asymptotes
           if identF['regime'] == 'SC':
-            env = r['env']; nu_B = 1./env.gma_m**2
-            f = fit_gs02_spectrum(x, sp, p, nu_M_over_num(r), free_bmid=True, nu_B=nu_B)
+            env = r['env']; nu_B = 1./env.gma_m**2; nu_gate = fit_nu_floor(r)
+            f = fit_gs02_spectrum(x, sp, p, nu_M_over_num(r), free_bmid=True, nu_B=nu_gate, fit_dec=fit_dec_of(r))
             t = None if f is None else fit_three_break(
                 x, sp, p, f['nuM'], [(x.min()/10., f['b_lo'], f['b_hi'], 1/3. - 1e-3,
                                       f['beta_mid']),
                                      (f['b_lo']/30., f['b_lo'], f['b_hi'], 0., f['beta_mid'])],
-                nu_B=nu_B)
+                nu_B=nu_gate, fit_dec=fit_dec_of(r))
             if t is not None and t['beta_p'] < 1/3. - NU_S_MIN_DEP and not t['at_bound_b1'] \
                and EDGE_FAC*x.min() < t['b1'] < t['b2']:
               ident = dict(identF, segs=three_break_segments(t, p, (x.min(), x.max())))
@@ -3133,6 +3202,10 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
         # the edge of the array) stopped well short of the VFC one on the same axes.
         lxs = np.array([np.log10(x.min()) if j == 0 else l0 - SEG_EXT,
                         np.log10(x.max()) if name == 'hi' else l1 + SEG_EXT])
+        # no guide below the physical floor either (the band may extend below it)
+        lxs[0] = max(lxs[0], np.log10(phys_x_floor(r)))
+        if lxs[1] <= lxs[0]:
+          continue
         ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
@@ -3150,7 +3223,7 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
       vis = np.any(np.nan_to_num(np.array(sps), nan=0.) > ylo, axis=0)
     if vis.any():
       xv = x[vis]
-      ax.set_xlim(xv.min()/3., xv.max()*3.)
+      ax.set_xlim(max(xv.min()/3., phys_x_floor(r)), xv.max()*3.)
     ax.set_xlabel(NU_M_LABEL)
     ax.set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}$')
     # the regime is stated INSIDE the panel (top left, above the rising low-frequency
@@ -3370,21 +3443,24 @@ def _draw_break_evolution(ax, results, tracks, fits, barT_f, barT_off=None,
     x = barT/barT_f
     # only MEASURED points are drawn: a finite fitted nu_c that failed a validity cut is a
     # break the fit placed outside the observed band (the transition into VFC), and showing
-    # it even faintly asserts a cooling break where the fit found none
+    # it even faintly asserts a cooling break where the fit found none. And only ABOVE nu_B:
+    # the (extended) band measures VFC's nu_c below it, the figure stops at the physical floor
+    v = v & above_floor(tr, tr['nu_c'])
     ax.loglog(x, _gap(nu_c, v), color=c, lw=1.5)
-    v_m = tr.get('valid_m', v)
+    v_m = tr.get('valid_m', v) & above_floor(tr, tr['nu_m'])
     ax.loglog(x, _gap(nu_m, v_m), color=c, lw=1.1, ls='--')
     # the blended stretch: one break, drawn as such, so the gap in the solid curves is
     # visibly "not measured" rather than "not there"
-    u = tr['unres']
+    u = tr['unres'] & above_floor(tr, tr['nu_c'])
     if u.any():
       ax.loglog(x, _gap(nu_c, u), color=c, lw=1.2, ls=':')
     # MFC bins measured as ONE merged break (track_breaks_route): drawn as one, on the nu_m
     # normalisation, since neither name applies to it
     if 'nu_mrg' in tr and tr['valid_mrg'].any():
       mrg = tr['nu_mrg']/n_m
-      ax.loglog(x, _gap(mrg, tr['valid_mrg']), color=c, lw=1.2, ls=':')
-      vals.append(mrg[tr['valid_mrg']])
+      v_g = tr['valid_mrg'] & above_floor(tr, tr['nu_mrg'])
+      ax.loglog(x, _gap(mrg, v_g), color=c, lw=1.2, ls=':')
+      vals.append(mrg[v_g])
     vals.append(np.concatenate([nu_c[v], nu_m[v_m]]))
     nu_c_curves.append((x, _gap(nu_c, v)))
   # y-range from the MEASURED points only: the faint stretches are extrapolations of the
@@ -3434,13 +3510,15 @@ def plot_break_frequencies(results, tracks, barT_f, barT_off=None, outdir=OUTDIR
   has = dict(s=False, mrg=False)
   for r, tr, c in _draw_order(zip(results, tracks, colors)):
     x = tr['barT']/barT_f
-    ax.loglog(x, _gap(tr['nu_c'], tr['valid']), color=c, lw=1.5)
-    ax.loglog(x, _gap(tr['nu_m'], tr.get('valid_m', tr['valid'])), color=c, lw=1.1, ls='--')
+    ax.loglog(x, _gap(tr['nu_c'], tr['valid'] & above_floor(tr, tr['nu_c'])), color=c, lw=1.5)
+    ax.loglog(x, _gap(tr['nu_m'], tr.get('valid_m', tr['valid']) & above_floor(tr, tr['nu_m'])),
+              color=c, lw=1.1, ls='--')
     if 'nu_s' in tr and tr['valid_s'].any():
-      ax.loglog(x, _gap(tr['nu_s'], tr['valid_s']), color=c, lw=1.1, ls=':')
+      ax.loglog(x, _gap(tr['nu_s'], tr['valid_s'] & above_floor(tr, tr['nu_s'])), color=c, lw=1.1, ls=':')
       has['s'] = True
     if 'nu_mrg' in tr and tr['valid_mrg'].any():
-      ax.loglog(x, _gap(tr['nu_mrg'], tr['valid_mrg']), color=c, lw=1.1, ls='-.')
+      ax.loglog(x, _gap(tr['nu_mrg'], tr['valid_mrg'] & above_floor(tr, tr['nu_mrg'])),
+                color=c, lw=1.1, ls='-.')
       has['mrg'] = True
   _mark_hydro_times(ax, barT_f, barT_off, tnorm=barT_f)
   ax.set_xlabel(TNORM_LABEL)
@@ -3474,7 +3552,7 @@ def _draw_break_ratio(ax, results, tracks, barT_f, barT_off=None, legend=True):
       y = tr['ratio']; mc = np.zeros(len(y), bool)
     else:
       mc = tr['mc_shape']
-    good = np.isfinite(y)
+    good = np.isfinite(y) & above_floor(tr, tr['nu_lo'], tr['nu_hi'])   # both breaks >= nu_B
     if not good.any():
       continue
     x = tr['barT']/barT_f
@@ -3716,6 +3794,7 @@ def plot_gs02_rms(results, barT_f, barT_off=None, outdir=OUTDIR, n_times=GS02_NT
   for r, c in _draw_order(zip(results, colors)):
     x = nu_over_num(r); p = r['env'].psyn; nuM = nu_M_over_num(r)
     nu_B = 1./r['env'].gma_m**2
+    nu_gate = fit_nu_floor(r)
     barT = r['Tb'] - 1.
     Fpk = np.nanmax(r['nuFnu'], axis=1)
     live = np.flatnonzero(np.isfinite(Fpk) & (Fpk > 1e-10*np.nanmax(Fpk)))
@@ -3724,7 +3803,7 @@ def plot_gs02_rms(results, barT_f, barT_off=None, outdir=OUTDIR, n_times=GS02_NT
     idx = np.unique(np.geomspace(live[0] + 1, live[-1] + 1, min(n_times, live.size)).astype(int) - 1)
     bb, rr = [], []
     for i in idx:
-      f = fit_gs02_spectrum(x, r['nuFnu'][i, :], p, nuM, nu_B=nu_B)
+      f = fit_gs02_spectrum(x, r['nuFnu'][i, :], p, nuM, nu_B=nu_gate, fit_dec=fit_dec_of(r))
       if f is not None:
         bb.append(barT[i]); rr.append(f['rms'])
     if bb:
@@ -3753,18 +3832,19 @@ def build_gs02_table(results, detections, outdir=OUTDIR):
   for r, det in zip(results, detections):
     info = det[3]; x = nu_over_num(r); p = r['env'].psyn; nuM = nu_M_over_num(r)
     nu_B = 1./r['env'].gma_m**2
+    nu_gate = fit_nu_floor(r)
     for which in ('rise', 'peak', 'tail'):
       iT = info.get(f'i_{which}')
       if iT is None:
         continue
       sp = r['nuFnu'][iT, :]
-      f = fit_gs02_spectrum(x, sp, p, nuM, nu_B=nu_B)
-      ff = fit_gs02_spectrum(x, sp, p, nuM, free_s=True, nu_B=nu_B)
+      f = fit_gs02_spectrum(x, sp, p, nuM, nu_B=nu_gate, fit_dec=fit_dec_of(r))
+      ff = fit_gs02_spectrum(x, sp, p, nuM, free_s=True, nu_B=nu_gate, fit_dec=fit_dec_of(r))
       if f is None:
         continue
-      fe = fit_gs02_spectrum(x, sp, p, nuM, cutoff='exp', nu_B=nu_B)   # cruder cutoff, for reference
-      fb = fit_gs02_spectrum(x, sp, p, nuM, free_bmid=True, nu_B=nu_B) # marginality diagnostic
-      rp = _fit_paired_syn_bpl(x, sp, p, nuM, nu_B=nu_B)
+      fe = fit_gs02_spectrum(x, sp, p, nuM, cutoff='exp', nu_B=nu_gate, fit_dec=fit_dec_of(r))   # cruder cutoff, for reference
+      fb = fit_gs02_spectrum(x, sp, p, nuM, free_bmid=True, nu_B=nu_gate, fit_dec=fit_dec_of(r)) # marginality diagnostic
+      rp = _fit_paired_syn_bpl(x, sp, p, nuM, nu_B=nu_gate, fit_dec=fit_dec_of(r))
       fixed.append(f['rms']); paired.append(rp); bodies.append(f['rms_body'])
       expcut.append(fe['rms'] if fe else np.nan)
       if ff is not None:
@@ -3920,6 +4000,10 @@ def _draw_spectra_all(ax, results, get_spec, mode, fname, yclip_dec=3.5,
   for r, c in zip(results, colors):
     x = nu_over_num(r)
     sp = get_spec(r)
+    # drawn above nu_B only (the band may extend below it, SPEC_BELOW_NUB): truncating HERE
+    # keeps the floor logic below, which reads the curve's lowest bin y[0], at nu_B as before
+    keep = x >= phys_x_floor(r)
+    x, sp = x[keep], sp[keep]
     norm = sp[int(np.argmin(np.abs(x - 1.)))] if mode == 'nu_m' else sp.max()
     if mode == 'eff':
       eff = compute_efficiency(r)

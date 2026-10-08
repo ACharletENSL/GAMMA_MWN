@@ -1514,7 +1514,7 @@ def get_Fnu_cell_evolving(nuobs, Tobs, cell, env, Ng=NG_FLUX, norm=True, width_t
   # margin of 10 because we use exact syn instead of sharp cut at gmax
   _BAND_MARGIN = 10.
   nu_B0 = get_variable(cell0, 'nu_B', env)
-  gmax_cut = max(1., np.sqrt(np.min(nuobs)/(nu_B0*_BAND_MARGIN)))
+  gmax_cut = max(GMA_FLOOR, np.sqrt(np.min(nuobs)/(nu_B0*_BAND_MARGIN)))   # 1 physically; below with SPEC_BELOW_NUB
   gmax_arr = cell.gmax.to_numpy()
   N = gmax_arr.size
   jcut = min(max(N - np.searchsorted(gmax_arr[::-1], gmax_cut, side='right'), 1), N)
@@ -1598,7 +1598,7 @@ def get_Fnu_cell_evolving_pair(nuobs, Tobs, cell_full, cell_cut, env, Ng=NG_FLUX
   Tarr = np.atleast_1d(np.asarray(Tobs, dtype=float))
   _BAND_MARGIN = 10.                       # as get_Fnu_cell_evolving
   nu_B0 = get_variable(c0f, 'nu_B', env)
-  gmax_cut = max(1., np.sqrt(np.min(nuobs)/(nu_B0*_BAND_MARGIN)))
+  gmax_cut = max(GMA_FLOOR, np.sqrt(np.min(nuobs)/(nu_B0*_BAND_MARGIN)))   # 1 physically; below with SPEC_BELOW_NUB
 
   def _jcut(cell):
     g = cell.gmax.to_numpy()

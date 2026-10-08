@@ -627,12 +627,20 @@ def generate_cell_fromHistory(shocked, attrs, env_in, u_scale=1., alpha=1.,
 
   # global gamma_max-geometric grid, shared logic with the fit path
   tt_geo = generate_timebins(inj, env, None, 1., end_cond='gmax', r_ref=r_ref)
+  # SPEC_BELOW_NUB (radiation_cooling): keep cooling past gamma = 1 down to GMA_FLOOR so the
+  # spectra can show the cooling break below nu_B. APPENDED on the same ratio below the
+  # unchanged grid, so every step above gamma = 1 -- and the energy budget, which
+  # step_radiated_energy truncates at gamma = 1 -- is identical with and without it.
+  if GMA_FLOOR < 1.:
+    k = np.arange(1, int(np.ceil(np.log(1./GMA_FLOOR)/np.log(r_ref))) + 1)
+    tt_geo = np.concatenate((tt_geo, r_ref**k - 1./gmax0))
 
   # on-axis arrival time at the nodes. Hoisted out of the Tmax block below because the
   # log-Ton refinement needs it whether or not an observer window was given.
   Ton_nodes = (1. + env.z)*(t + env.t0 - x)       # x in light-seconds (c=1 code units)
 
-  # termination: end of data / gmax -> 1 / (optional) observer window, on nodes
+  # termination: end of data / gmax -> 1 (GMA_FLOOR with SPEC_BELOW_NUB) / (optional) observer
+  # window, on nodes
   tt_end = min(tt_nodes[-1], tt_geo[-1])
   if Tmax is not None:
     Tobs_max = env.Ts + Tmax*env.T0
