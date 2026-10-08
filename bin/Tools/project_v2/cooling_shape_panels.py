@@ -115,7 +115,7 @@ FN_TRACKS, FN_SHAPES = 'cooling_tracks.png', 'cooling_shapes.png'
 # panel (a) names its CLOCK as well: the grey reference tracks in (b) and (c) are also
 # synchrotron only, but on the panel's own decaying t'_c, so 'syn. only' alone would not
 # separate the two
-PANEL_LABS = ("syn. only \u2013 $t'_{\\rm c}=\\,$cst",
+PANEL_LABS = ("$t'_{\\rm c}=t'_{\\rm c,i}$",
               'syn. + adiab. \u2013 FC', 'syn. + adiab. \u2013 SC')
 
 
