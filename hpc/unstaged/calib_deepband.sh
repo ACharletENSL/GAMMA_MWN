@@ -6,6 +6,8 @@
 #SBATCH --mem=150G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 # CALIBRATION SET: the sweep recomputed with the tnu<1 cut LIFTED and the band taken well
 # below nu_B, so FC*/VFC spectra acquire the nu^(4/3) window that breaks_from_identified
 # needs to re-centre their mid slope. Measuring the same spectrum on the extended band and

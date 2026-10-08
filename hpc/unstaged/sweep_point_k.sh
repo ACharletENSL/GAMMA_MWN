@@ -6,6 +6,8 @@
 #SBATCH --mem=150G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%A_%a.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 # FORCE=1 recomputes points that already have a cache. WITHOUT IT run_sweep
 # returns in ~5 s per point having skipped everything (skip_cached defaults to
 # True), which looks exactly like a successful recompute in sacct.

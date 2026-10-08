@@ -5,6 +5,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 # Replot only: the tables are current, what was missing is the BIAS GRIDS, which live under
 # bin/Tools/figures/ and are therefore git-ignored -- so they never reached this machine and
 # every a_mid figure drawn here came out fully uncorrected.

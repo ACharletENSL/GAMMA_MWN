@@ -6,6 +6,8 @@
 #SBATCH --mem=150G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 # One sweep point (logr = -3) for shell $ZSH of run $RUNKEY, method $METHOD: it builds the
 # shared prologue (cellscan, and the rarefaction head for the cut methods) that every point
 # writes on the same path, so the array must not be what creates them.

@@ -5,6 +5,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=60G
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 # Force a RE-MEASURE of mid_slopes.csv: table_is_current only stamps the table against the
 # POINT CACHE, so a code change (here the FC* 2brk_flo shape) leaves a stale table looking
 # current and the figures get redrawn from it.

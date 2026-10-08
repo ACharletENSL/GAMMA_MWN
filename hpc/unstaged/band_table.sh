@@ -5,6 +5,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=60G
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 # The offset table alone, measured from deep-band sweeps ALREADY on disk -- no emission is
 # recomputed. Split out from calib_deepband.sh because the two have nothing to do with each
 # other in cost: the sweep is hours on 56 cores, this is a serial pass over cached spectra

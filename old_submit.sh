@@ -3,6 +3,8 @@
 #SBATCH --cpus-per-task=32
 ##SBATCH --nodelist=cn04
 #SBATCH --job-name="big_sph"
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 ##SBATCH --output=test.out
 ##SBATCH --mail-user arthur.charlet@ens-lyon.fr
 ##SBATCH --mail-type BEGIN

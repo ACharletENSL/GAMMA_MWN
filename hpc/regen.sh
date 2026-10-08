@@ -6,6 +6,8 @@
 #SBATCH --mem=150G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 # Full article-figure regeneration for one REGEN_KEY, on the CORRECTED (_fc2) sweeps.
 #
 # Staged version of regen.sh. No STAGE_SHELL here: regen_all runs sweep_shells, which

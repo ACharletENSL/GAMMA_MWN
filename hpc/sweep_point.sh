@@ -6,6 +6,8 @@
 #SBATCH --mem=150G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%A_%a.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 #
 # THE SWEEP POINTS OF ONE (RUNKEY, ZSH), STAGED ONCE AND COMPUTED TOGETHER.
 #

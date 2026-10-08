@@ -6,6 +6,8 @@
 #SBATCH --mem=150G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 # Full article-figure regeneration for one REGEN_KEY, on the CORRECTED (_fc2) sweeps.
 export MPLBACKEND=Agg
 export GAMMACM_NPROC=${SLURM_CPUS_PER_TASK:-1}

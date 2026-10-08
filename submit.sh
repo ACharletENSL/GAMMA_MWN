@@ -6,6 +6,8 @@
 #SBATCH --mem=64G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 
 # The 1D build is one MPI rank (checkEnvironment throws if worldsize != 1) with OpenMP
 # across the node's cores, so cpus-per-task is the only parallelism knob that does

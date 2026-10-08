@@ -6,6 +6,8 @@
 #SBATCH --mem=8G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%A_%a.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 #
 # THE COLD a_u SWEEP: one array task per point, log10(a_u - 1) = (ID - 20)/10, so
 #   sbatch --array=0-40%10 hpc/sweep_au_cold.sh

@@ -6,6 +6,8 @@
 #SBATCH --mem=64G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%j.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 #
 # Post-processing on a compute node, run out of the node's LOCAL disk as the site asks
 # (see hpc/stage.sh for the policy and the measured numbers). Everything the job reads

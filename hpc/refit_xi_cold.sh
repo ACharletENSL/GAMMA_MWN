@@ -6,6 +6,8 @@
 #SBATCH --mem=4G
 #SBATCH --no-requeue
 #SBATCH --output=slurm-%A_%a.out
+#SBATCH --exclude=gpu[1-4,6-8]
+# ^ gpu nodes are QoS-preempted (cancelled, not requeued, under --no-requeue): never queue there
 #
 # Refit the cold a_u sweep's hydro + xi fits with consistent_vx_u=True
 # (fits_hydro.cellsBehindShock_fromFit) and model_Tf=True (analysis_thinshell.get_anglefits),
