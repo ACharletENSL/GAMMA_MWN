@@ -3209,7 +3209,7 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
         ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
                   color=col, ls='-.', lw=0.9, alpha=0.8)
       handles.append(h)
-      lab = f"{l:+.0f}: {disp_class(ident['regime'] or '?') if ident else '?'}"
+      lab = f"{l:+.0f}: {disp_class(figure_class(ident, r) or '?') if ident else '?'}"
       if rr is not None:
         with np.errstate(divide='ignore', invalid='ignore'):
           share = 1. - rr['nuFnu'][iT, :]/sp
@@ -3250,6 +3250,24 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
 # CLASSES/REGIMES and the thing every `== 'MC'` test compares against -- so it is not
 # renamed; only what a reader sees is. Marginally fast cooling is MFC on the figures.
 DISP_CLASS = {'MC': 'MFC'}
+
+
+def figure_class(ident, r):
+  '''
+  The shape class a FIGURE names a spectrum by (identify_segments' class otherwise). On the
+  extended band (SPEC_BELOW_NUB) every fast-cooling spectrum shows its nu^(4/3) segment, so the
+  route calls it FC; the figures keep the physical distinction and name it VFC when its cooling
+  break -- the crossing of the 4/3 and 1/2 segments, as drawn -- lies BELOW nu_B
+  (phys_x_floor), i.e. outside what the model can emit. Measurement code keeps the route's FC.
+  '''
+  if not ident:
+    return None
+  cls, segs = ident['regime'], ident.get('segs') or {}
+  if cls == 'FC' and 'lo' in segs and 'fc' in segs:
+    lx_c = _seg_cross(_seg_line('lo', segs['lo']), _seg_line('fc', segs['fc']))
+    if np.isfinite(lx_c) and 10.**lx_c < phys_x_floor(r):
+      return 'VFC'
+  return cls
 
 
 def disp_class(c):
