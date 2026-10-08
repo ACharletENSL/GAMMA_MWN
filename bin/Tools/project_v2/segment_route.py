@@ -243,11 +243,14 @@ def load_side(z=Z_RS, key=KEY, method=METHOD, nproc=NPROC, route_kw=None,
     tracks = [_run_point(j) for j in jobs]
   nc = sum(1 for tk in tracks if tk.pop('_cached', False))
   print(f'  z={z}: {nc}/{len(tracks)} points from the track cache', flush=True)
+  nub = {round(float(r['log10ratio']), 6): swp.phys_x_floor(r) for r in res}
   out = []
   for tk in tracks:
     tk['barT_f'] = barT_f
+    tk['nu_B'] = nub[round(float(tk['logr']), 6)]
+    tk['class'] = table_class(tk)
     n_ok = int(tk['s_ok'].sum())
-    cl = {c: int(sum(1 for q in tk['regime'] if q == c)) for c in CLASSES}
+    cl = {c: int(sum(1 for q in tk['class'] if q == c)) for c in CLASSES}
     print(f"  log10ratio={tk['logr']:+.1f} z={z}: {n_ok} bins with s, classes "
           + ' '.join(f'{c}:{n}' for c, n in cl.items() if n), flush=True)
     out.append(tk)
@@ -260,9 +263,27 @@ def _cat(sides, key, mask_fn):
   return np.concatenate(v) if v else np.array([])
 
 
+def table_class(tk):
+  '''
+  The shape class the TABLES name each bin by: the route's class, except FC whose cooling
+  break (b_lo, the 4/3 x 1/2 crossing) lies below nu_B (tk['nu_B'], same x units), which is
+  VFC -- as in the figures (swp.figure_class). On SPEC_BELOW_NUB spectra the route sees the
+  4/3 segment below nu_B and calls these FC. tk['regime'] is left alone: the break tracks
+  gate on it.
+  '''
+  cls = np.array(tk['regime'], dtype=object)
+  nb = tk.get('nu_B')
+  if nb is None:
+    return cls
+  with np.errstate(invalid='ignore'):
+    vfc = np.array([q == 'FC' for q in cls]) & (np.asarray(tk['b_lo'], float) < nb)
+  cls[vfc] = 'VFC'
+  return cls
+
+
 def _class_mask(tk, cls, onaxis=None, tangent=None):
   '''bins of one shape class, optionally split by epoch and by how the mid line was got'''
-  m = np.array([q == cls for q in tk['regime']]) & tk['s_ok']
+  m = np.array([q == cls for q in tk.get('class', tk['regime'])]) & tk['s_ok']
   if onaxis is not None:
     m &= (tk['barT'] <= tk['barT_f']) if onaxis else (tk['barT'] > tk['barT_f'])
   if tangent is not None:
@@ -547,7 +568,7 @@ def coverage_table(sides_by_z, verbose=True):
   rows = []
   for zlab, sides in (('RS', sides_by_z[0]), ('FS', sides_by_z[1])):
     for tk in sides:
-      cl = {c: int(sum(1 for q in tk['regime'] if q == c)) for c in CLASSES}
+      cl = {c: int(sum(1 for q in tk.get('class', tk['regime']) if q == c)) for c in CLASSES}
       rows.append(dict(shell=zlab, logr=tk['logr'], bins=len(tk['barT']),
                        identified=int(sum(cl.values())), with_s=int(tk['s_ok'].sum()),
                        tangent=int(sum(1 for q in tk['mid_from'] if q == 'tangent')),
