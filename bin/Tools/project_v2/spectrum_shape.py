@@ -547,11 +547,13 @@ def measure_point(r, z, **kw):
     # drawn against it. C_shell is the emitting shell's OWN gamma_c/gamma_m, and the two
     # are NOT the same number on the forward shock: at the label log10(C) = +2 the FS sits
     # at C = 312, i.e. +2.49. Read a cross-shell comparison with that in hand.
-    C_shell = float(env.gma_c/env.gma_m)
+    # v3 labels (gmacm = gamma_c,0/<gamma_m>); older caches only carry gamma_c/gamma_m
+    C_rs = float(getattr(env, 'gmacm', env.gma_c/env.gma_m))
+    C_shell = C_rs
     if z != Z_RS and hasattr(env, 'gma_cFS') and hasattr(env, 'gma_mFS'):
-      C_shell = float(env.gma_cFS/env.gma_mFS)
+      C_shell = float(getattr(env, 'gmacmFS', env.gma_cFS/env.gma_mFS))
     m.update(kind=kind, z=z, logr=float(r['log10ratio']), psyn=float(env.psyn),
-             C=float(env.gma_c/env.gma_m), C_shell=C_shell,
+             C=C_rs, C_shell=C_shell,
              nuM_env=float((env.gma_max/env.gma_m)**2))
     rows.append(m)
   return rows

@@ -37,7 +37,7 @@ import matplotlib.pyplot as plt
 
 from working_cooling_data import get_shell_nuFnu_fromData
 from plotting_functions import COL_RS, COL_FS, COL_TOT
-from environment import figdir
+from environment import figdir, field_correction_tag, FIDUCIAL_KEY
 from sweep_gammacm import (GAMMA_dir, DEFAULT_KEY, Z_SHELL, TMAX, NT, TB_MIN, TB_LIN,
     SUBCELL_DLOGT, SUBCELL_MAX, R_REF, EARLY_ANA, compute_alpha_sweep, compute_efficiency,
     method_outdir, load_sweep, trim_pngs, _data_method_spec)
@@ -81,7 +81,7 @@ METHOD_STY = {'data': ('-', 1.5), 'data_rarcut': ('--', 1.3),
 METHOD_LABEL = {'data': 'reference', 'data_rarcut': 'rarefaction cut',
                 'data_norar_prerar': 'no rarefaction'}
 OUTDIR_NAME = 'efficiency_sweep'   # figdir(OUTDIR_NAME, key) puts it under the run's
-OUTDIR = figdir(OUTDIR_NAME)       # own folder; this is the fiducial's
+OUTDIR = figdir(OUTDIR_NAME + field_correction_tag(FIDUCIAL_KEY))   # own folder; this is the fiducial's
 
 # Sub-cell ladder. SUBCELL_DLOGT (0.008) is what the cached flux sweep used, so it is
 # the default and makes the coarse-point check EXACT (measured: 0.00e+00 relative
@@ -102,13 +102,16 @@ SUBCELL_FAST = None
 # scalars kept per point: enough to place the point in BOTH shells' regimes and to
 # rebuild every quantity the figures and the table show
 _ENV_KEYS = ('gma_m', 'gma_c', 'gma_max', 'gma_mFS', 'gma_cFS', 'gma_maxFS', 'psyn',
-             'eps_e', 'eps_B', 'xi_e')
+             'eps_e', 'eps_B', 'xi_e', 'gmacm', 'gmacmFS')
 
 
 def _shell_regime(env, z):
-  '''log10(gamma_c/gamma_m) of shell z on env. Both shells' gamma_c scale as alpha**2
-  and their gamma_m are alpha-invariant, so the FS regime is the RS one shifted by a
-  constant (+0.5030 dex on cooling_g100) all along the sweep.'''
+  '''log10 C of shell z on env: the v3 label gamma_c,0/<gamma_m> (MyEnv.gmacm / gmacmFS),
+  gamma_c/gamma_m for an env without it. Both shells' gamma_c scale as alpha**2 and their
+  gamma_m and <gamma_m> are alpha-invariant, so the FS regime is the RS one shifted by a
+  constant all along the sweep (+0.54 dex on cooling_g100_hires under v3).'''
+  if hasattr(env, 'gmacm'):
+    return np.log10(env.gmacmFS if z == 1 else env.gmacm)
   return np.log10((env.gma_cFS/env.gma_mFS) if z == 1 else (env.gma_c/env.gma_m))
 
 
@@ -163,8 +166,12 @@ def load_efficiency_sweep(outdir=OUTDIR, z=Z_SHELL, method=METHOD):
     r.update({k: float(d[k]) for k in _ENV_KEYS if k in d.files})
     r['key'] = str(d['key']); r['z'] = int(d['z']); r['method'] = str(d['method'])
     r['subcell_dlogT'] = float(d['subcell_dlogT']) if 'subcell_dlogT' in d.files else np.nan
-    r['regime'] = np.log10(r['gma_cFS']/r['gma_mFS']) if r['z'] == 1 \
-                  else np.log10(r['gma_c']/r['gma_m'])
+    # v3 label C (gmacm); caches written before v3 carry only gamma_c/gamma_m
+    if 'gmacm' in r:
+      r['regime'] = np.log10(r['gmacmFS'] if r['z'] == 1 else r['gmacm'])
+    else:
+      r['regime'] = np.log10(r['gma_cFS']/r['gma_mFS']) if r['z'] == 1 \
+                    else np.log10(r['gma_c']/r['gma_m'])
     results.append(r)
   return results
 
@@ -704,7 +711,9 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_FINE, z_list=Z_LIST, outdir=
   earlier call, since it reads them back off disk rather than only from this run.
   '''
   # the run's own folder, from the key THIS call was given -- not the module's
-  outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
+  # the field-correction tag is in the NAME: this sweep caches its own points and skips cached
+  # ones, so a definition change (v2 -> v3, or eps_B) must not land in the old directory
+  outdir = figdir(OUTDIR_NAME + field_correction_tag(key), key) if outdir is None else outdir
   os.makedirs(outdir, exist_ok=True)
   # run_sweep is itself incremental: it computes only the (method, z, target) points
   # missing from the cache, so this is both the first run and the resume path

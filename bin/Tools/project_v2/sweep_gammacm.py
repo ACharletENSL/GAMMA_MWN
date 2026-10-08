@@ -60,7 +60,9 @@ _ENV_KEYS = ('nu0', 'nuc', 'T0', 'Ts', 'nu0F0', 'gma_c', 'gma_m', 'gma_max', 'ps
 # fac_nu/fac_F carry the FS->RS flux-unit conversion, the gma_*FS the FS regime.
 # Kept SEPARATE from _ENV_KEYS and read back guarded, so caches written before they
 # existed still load.
-_ENV_KEYS_OPT = ('nu0FS', 'T0FS', 'fac_nu', 'fac_F', 'gma_mFS', 'gma_cFS', 'gma_maxFS')
+_ENV_KEYS_OPT = ('nu0FS', 'T0FS', 'fac_nu', 'fac_F', 'gma_mFS', 'gma_cFS', 'gma_maxFS',
+                 'gmacm', 'gmacmFS')   # v3 labels (MyEnv properties); gamma_c/gamma_m is the
+                                       # FREQUENCY ratio sqrt(nu_c,0/nu_m,0), not the label
 
 DEFAULT_KEY = FIDUCIAL_KEY      # fiducial simulation the sweep runs on unless told otherwise;
                                 # it gets the unsuffixed cache dirs (method_outdir)
@@ -464,11 +466,12 @@ def _nu_0_label(nu_t):
 def compute_alpha_sweep(key, log10ratio_arr):
   '''
   Closed-form alpha (Granot length/time rescale) needed to reach each target
-  log10(gma_c/gma_m), derived from the live baseline env: gma_m is invariant
-  under alpha, gma_c ~ alpha**2, so alpha = 10**((target-log10ratio0)/2).
+  log10(C), derived from the live baseline env: C = env.gmacm = gamma_c,0/<gamma_m> (v3;
+  gamma_c/gamma_m without a v3 sidecar), gamma_c ~ alpha**2 and <gamma_m> is alpha-invariant,
+  so alpha = 10**((target-log10ratio0)/2).
   '''
   env0 = MyEnv(key)
-  log10ratio0 = np.log10(env0.gma_c / env0.gma_m)
+  log10ratio0 = np.log10(env0.gmacm)
   log10ratio_arr = np.asarray(log10ratio_arr, dtype=float)
   alpha_arr = 10.**((log10ratio_arr - log10ratio0) / 2.)
   return alpha_arr, log10ratio0
@@ -677,13 +680,13 @@ def _compute_point(key, z, logr, alpha, Tmax, NT, lognu_min, lognu_above, outdir
     _save_point(odir, r)
     if np.isnan(eff):                       # report the reference variant's efficiency
       eff = E_rad / E_inj if E_inj > 0. else np.nan
-  return dict(logr=logr, alpha=alpha, ratio=env.gma_c/env.gma_m, gma_m=env.gma_m,
+  return dict(logr=logr, alpha=alpha, ratio=env.gmacm, gma_m=env.gma_m,
               RfRS0=env.RfRS0, T0_over_alpha=env.T0/alpha, eff=eff)
 
 
 def _print_point(s):
   print(f"target={s['logr']:+.1f}  alpha={s['alpha']:10.5f}  "
-        f"log10(gma_c/gma_m)={np.log10(s['ratio']):+.6f}  "
+        f"log10(C)={np.log10(s['ratio']):+.6f}  "
         f"RfRS0={s['RfRS0']:.6f}  gma_m={s['gma_m']:.6f}  "
         f"T0/alpha={s['T0_over_alpha']:.6f}  eff={s['eff']:.4f}")
 
@@ -1399,13 +1402,14 @@ GS02_S_VFC = 2.0          # smoothing of the VERY-fast-cooling single break (gri
 def fit_gs02_spectrum(x, sp, psyn, nuM, s=(GS02_S1, GS02_S2), free_s=False,
     free_nuM=True, fit_dec=GS02_FIT_DEC, cutoff=GS02_CUTOFF, free_bmid=False, nu_B=None):
   '''
-  SUPERSEDED AS A MEASUREMENT -- the paper takes its breaks and its smoothing from the
-  segment route (spectral_breaks.breaks_from_identified / smoothing_from_identified), which
-  never fits a whole template and so cannot trade a break position against a smoothing it
-  cannot constrain (the degeneracy spectral_breaks' header documents). This function remains
-  LIVE in two supporting roles: it is the scaffold slope_validation places its free-slope
-  windows from, and track_breaks_gs02 built on it is still the reference track in
-  nuc_validation and cooling_frequency. Do not quote its breaks or its s in the paper.
+  ROLE (updated 2026-10-08). The article's BREAK POSITIONS come from this fit: since
+  2026-10-01 track_breaks_route (break_panels, break_evolution, the break table) lets the
+  segment route decide WHICH breaks exist and takes WHERE they are from this fit with a free
+  mid slope -- the route's crossings drift up to 0.28 dex high near the SC/MFC boundary, the
+  fit does not (see track_breaks_route). The SMOOTHINGS s1/s2 are held here and are NOT a
+  measurement: quote the segment route's (spectral_breaks.smoothing_from_identified) for those.
+  Also the scaffold slope_validation places its free-slope windows from, and the reference
+  track (track_breaks_gs02) of nuc_validation and cooling_frequency.
 
   Fit the Granot & Sari (2002) shape (phys_functions.granot_sari_syn) to ONE nuFnu
   spectrum sp(x), x = nu/nu_m_collision. Free parameters: the two breaks and F_ext,
@@ -2347,7 +2351,8 @@ def fit_break_evolution(r, tr, barT_f, barT_off=None, rise_win=RISE_WIN):
               spectrum is the frozen high-latitude one, sliding as the Doppler factor
   Also returns the collapse normalisation A = nu_c*bar{T}^2 / (gma_c/gma_m)^2 (median
   over the rise window; the same for every regime iff the law is regime-independent),
-  the OBSERVED nu_c/nu_m at the lightcurve peak against the nominal (gma_c/gma_m)^2,
+  the OBSERVED nu_c/nu_m at the BOLOMETRIC peak against the nominal nu_c,0/nu_m,0 =
+  (gma_c/gma_m)^2 (a frequency ratio: under v3 it is (C <gamma_m>/gamma_m,0)^2, not C^2),
   the avoided-crossing separation minimum, and a flag naming what truncates the track.
   '''
   barT, v = tr['barT'], tr['valid']
@@ -2363,7 +2368,9 @@ def fit_break_evolution(r, tr, barT_f, barT_off=None, rise_win=RISE_WIN):
   mr = v & (barT >= rise_win[0]) & (barT <= rise_win[1])
   out['A'] = (float(np.nanmedian(tr['nu_c'][mr]*barT[mr]**2)/(env.gma_c/env.gma_m)**2)
               if mr.sum() >= 4 else np.nan)
-  ipk = int(np.nanargmax(tr['Fpk']))
+  # the BOLOMETRIC peak, as for every peak spectrum in the suite (bolometric_peak_index); the
+  # max-nuFnu row used before differs by up to 0.054 T_f in slow cooling (ratio moves <= 1.5%)
+  ipk = int(bolometric_peak_index(r['nuFnu'], r['nub']))
   out['ratio_pk'] = float(tr['ratio'][ipk]) if v[ipk] else np.nan   # NaN: break off-band at peak
   out['nominal'] = (env.gma_c/env.gma_m)**2
   # smallest separation still ABOVE the resolution floor, plus the bar{T} span over which

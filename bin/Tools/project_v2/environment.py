@@ -82,7 +82,16 @@ def figdir(name, key=None):
   return os.path.join(FIG_ROOT, run_folder(key), name)
 
 
-FIELD_CORR_VERSION = 2
+FIELD_CORR_VERSION = 3
+# 3 (2026-10-08): the cooling parameter is a SHELL quantity and is no longer gamma_c/gamma_m.
+#   gamma_c,0 = 1/I(t'_0 + t'_dyn) of the FIRST fluid element: its own A B'^2 integrated on its
+#     fluid clock from injection to its radius doubling time ('factor' = gamma_c,0/analytic gamma_c,
+#     folded into gamma_c by shells_add_radNorm exactly as before);
+#   <gamma_m> = electron-number mean of the injected gamma_m over ALL cells of the shell
+#     ('gm_avg' = <gamma_m>/analytic gamma_m,0);
+#   C = gamma_c,0/<gamma_m>  (MyEnv.gmacm / gmacmFS).
+#   gamma_m,0 itself stays the ANALYTIC value at R0: it is the nu_m,0 / F_0 normalisation, so
+#   gamma_c/gamma_m remains the FREQUENCY ratio sqrt(nu_c,0/nu_m,0), and is no longer the label.
 # 2 (2026-09-09): the sidecar carries the FULL correction, not C_avg alone. gamma_c is
 # meant to reflect the simulation's physics, so all three factors are measured: the field
 # average over the propagation, the analytic-vs-simulated B'_0, and the COMOVING (fluid)
@@ -126,6 +135,25 @@ def field_correction(key):
     return {int(z): float(c) for z, c in fac.items()}
   except (ValueError, KeyError, OSError) as e:
     print(f'{path}: unreadable ({e}), ignored')
+    return None
+
+
+def field_correction_gm(key):
+  '''
+  v3: the run's measured <gamma_m>/gamma_m,0 as {z: ratio}, or None. Same tolerance as
+  field_correction: no sidecar, a mis-versioned one, or a v3 file without 'gm_avg' all give
+  None, and MyEnv then uses 1 (the label falls back to gamma_c/gamma_m).
+  '''
+  path = field_correction_path(key)
+  if path is None or not os.path.isfile(path):
+    return None
+  try:
+    with open(path) as fh:
+      d = json.load(fh)
+    if int(d.get('version', -1)) != FIELD_CORR_VERSION or 'gm_avg' not in d:
+      return None
+    return {int(z): float(c) for z, c in d['gm_avg'].items()}
+  except (ValueError, KeyError, OSError):
     return None
 
 
@@ -226,7 +254,21 @@ class MyEnv:
     corr = field_correction(key) or {}
     self.C_field = corr.get(4, 1.)          # reverse shock -> gamma_c
     self.C_fieldFS = corr.get(1, 1.)        # forward shock -> gamma_cFS
+    gm = field_correction_gm(key) or {}     # v3: <gamma_m>/gamma_m,0, alpha-invariant
+    self.G_mavg = gm.get(4, 1.)
+    self.G_mavgFS = gm.get(1, 1.)
     self.create_setup(scalefac)
+
+  # THE COOLING PARAMETER (v3). A property, not an attribute, so it follows gamma_c through
+  # rescale_hydro / update_env with no second bookkeeping: gamma_c ~ alpha^2 is re-derived there
+  # and <gamma_m>/gamma_m,0 is a hydro ratio that rescaling leaves unchanged.
+  @property
+  def gmacm(self):
+    return self.gma_c/(self.gma_m*getattr(self, 'G_mavg', 1.))
+
+  @property
+  def gmacmFS(self):
+    return self.gma_cFS/(self.gma_mFS*getattr(self, 'G_mavgFS', 1.))
   
   def read_input(self, path):
     '''

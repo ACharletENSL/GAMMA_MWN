@@ -156,13 +156,13 @@ def load_shell_pairs(key=KEY, method=METHOD, log10ratio_arr=LOG10RATIO_ARR):
 
 @lru_cache(maxsize=None)
 def _regime_offset(key=KEY, verbose=True):
-  '''log10 of (gma_cFS/gma_mFS)/(gma_c/gma_m): the two shells share alpha, so the
+  '''log10 of C_FS/C_RS (v3 labels, MyEnv.gmacmFS/gmacm): the two shells share alpha, so the
   FS sits at this fixed offset above the RS target, always > 0 (the FS is further
   into slow cooling). Exact, from the loaded env; cross-checked against the
   analytic a_u law offset_gcgm_from_au, which assumes the fiducial family
   Ek1 = Ek4, D01 = D04 -- a large mismatch means this setup is off that family.'''
   e0 = MyEnv(key)
-  off = np.log10((e0.gma_cFS/e0.gma_mFS)/(e0.gma_c/e0.gma_m))
+  off = np.log10(e0.gmacmFS/e0.gmacm)     # the LABEL offset: v3 C = gamma_c,0/<gamma_m>
   off_au = np.log10(offset_gcgm_from_au(e0.a_u))
   if verbose:
     print(f'RS->FS cooling-regime offset: {off:+.4f} dex (exact), '

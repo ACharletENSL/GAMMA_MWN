@@ -208,10 +208,11 @@ import matplotlib.pyplot as plt
 from environment import (MyEnv, field_correction, field_correction_path,
     FIELD_CORR_VERSION, FIELD_CORR_TAG)
 from IO import get_variable
-from phys_constants import pi_, c_
+from phys_constants import pi_, c_, alpha_
 from phys_functions import derive_Eint_comoving, derive_Lorentz
 from working_cooling import check_extracted_cells
-from working_cooling_data import _load_cell_history, load_shockfront_states
+from working_cooling_data import (_load_cell_history, load_shockfront_states,
+    measured_shockfront_states)
 import spectral_breaks as sb
 import sweep_gammacm as swp
 from sweep_gammacm import (DEFAULT_KEY, EARLY_ANA, method_outdir, trim_pngs)
@@ -368,7 +369,108 @@ def shock_worldline(key=KEY, z=Z_RS, env=None, clock=CLOCK, source=None):
               gc_nom=gc_nom, b2_first=B2[0]/B2ana, b2_last=B2[-1]/B2ana)
 
 
+def first_element_cooling(key, z, env, r_dyn=2.):
+  '''
+  v3 gamma_c,0: 1/I(t'_0 + t'_dyn) of the FIRST fluid element of shell z, I its own
+  int A B'^2 dt' on its fluid clock from injection to the time it reaches r_dyn x its injection
+  radius (radius doubling by default), A = (rho/rho_inj)^(1/3). Same injection convention as
+  the emission (measured event, prepended state). Returns gamma_c,0 and the diagnostics.
+  '''
+  sh = measured_shockfront_states(key, z, env).sort_values('t').reset_index(drop=True)
+  hist, _, npre = _load_cell_history(key, int(sh.iloc[0].i), 1, env, sh_data=sh)
+  q = cooling_integrals(hist, env)
+  rho = hist.rho.to_numpy(dtype=float); A = (rho/rho[0])**(1./3.)
+  IA = _cumtrapz0(A*q['B2'], q['tp'])
+  xr = q['x']/q['x'][0]
+  if xr.max() < r_dyn:
+    raise ValueError(f'{key} z={z}: first element only reaches {xr.max():.3f} x R_inj < {r_dyn}')
+  t_end = float(np.interp(r_dyn, xr, q['t']))
+  tp_dyn = float(np.interp(t_end, q['t'], q['tp']))
+  I_dyn = float(np.interp(t_end, q['t'], IA))
+  B2_0 = float(q['B2'][0])
+  return dict(gma_c0=1./(alpha_*I_dyn), I_dyn=I_dyn, tp_dyn=tp_dyn,
+              tdyn_over_t0=tp_dyn/(float(q['x'][0])/float(q['lfac'][0])),
+              meanAB_over_own_B2=I_dyn/(tp_dyn*B2_0), A_end=float(np.interp(t_end, q['t'], A)),
+              first_cell=int(sh.iloc[0].i), prepended=int(npre))
+
+
+def shell_mean_gma_m(key, z, env):
+  '''
+  v3 <gamma_m>: electron-number mean of the injected gamma_m over ALL cells of shell z, on the
+  injection states the emission starts the electrons from (measured_shockfront_states rows =
+  row 0 of every cell history). Weight: rho' x^2 dx Gamma, conserved, i.e. the electron number.
+  '''
+  sh = measured_shockfront_states(key, z, env)
+  gm = np.asarray(get_variable(sh, 'gma_m', env), dtype=float)
+  lf = derive_Lorentz(sh.vx.to_numpy(dtype=float))
+  Ne = sh.rho.to_numpy(dtype=float)*sh.x.to_numpy(dtype=float)**2*sh.dx.to_numpy(dtype=float)*lf
+  return dict(gma_m_avg=float(np.average(gm, weights=Ne)), n_cells=int(len(sh)),
+              Ne_spread=float(Ne.max()/Ne.min()))
+
+
 def measure_field_correction(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=True,
+    verbose=True, r_dyn=2.):
+  '''
+  MEASURE THE RUN'S v3 COOLING-PARAMETER CORRECTION AND MAKE IT THE SWEEP'S DEFINITION.
+
+  Per shell, two alpha-invariant hydro ratios written to results/<key>/field_correction.json
+  (version 3, see environment.FIELD_CORR_VERSION):
+    factor = gamma_c,0 / analytic gamma_c, gamma_c,0 = 1/I(t'_0 + t'_dyn) of the first
+             fluid element (first_element_cooling) -- folded into env.gma_c;
+    gm_avg = <gamma_m> / analytic gamma_m,0 (shell_mean_gma_m) -- enters only the label
+             C = env.gmacm = gamma_c,0/<gamma_m>.
+  Both are independent of eps_B (gamma_c and its analytic counterpart both go as 1/eps_B,
+  gamma_m does not depend on it). Needs the cell histories, so run it AFTER cell extraction and
+  BEFORE the sweep: compute_alpha_sweep reads the definition in force. The previous (v2)
+  sidecar is kept beside it as field_correction.v2.json.bak.
+  '''
+  env = MyEnv(key) if env is None else env
+  out_c, out_g, rows = {}, {}, {}
+  for z in zlist:
+    gc_ana = (env.gma_c/env.C_field) if z == Z_RS else (env.gma_cFS/env.C_fieldFS)
+    gm_ana = env.gma_m if z == Z_RS else env.gma_mFS
+    fe = first_element_cooling(key, z, env, r_dyn=r_dyn)
+    sm = shell_mean_gma_m(key, z, env)
+    out_c[z] = fe['gma_c0']/gc_ana
+    out_g[z] = sm['gma_m_avg']/gm_ana
+    rows[z] = dict(fe, **sm, gma_c_analytic=gc_ana, gma_m_analytic=gm_ana,
+                   C_at_alpha1=fe['gma_c0']/sm['gma_m_avg'])
+  if verbose:
+    print(f'--- v3 cooling-parameter correction for {key} (eps_B = {env.eps_B:.6g}) ---')
+    for z in zlist:
+      r = rows[z]
+      print(f'{("RS" if z == Z_RS else "FS"):>3}: gamma_c,0 = {r["gma_c0"]:.4f} (x{out_c[z]:.4f} analytic), '
+            f'<gamma_m> = {r["gma_m_avg"]:.1f} (x{out_g[z]:.4f}), C(alpha=1) = {r["C_at_alpha1"]:.4e} '
+            f'(log {np.log10(r["C_at_alpha1"]):+.4f}); t\'_dyn = {r["tdyn_over_t0"]:.4f} t\'_0, '
+            f'<A B\'^2>/B\'^2_inj = {r["meanAB_over_own_B2"]:.4f}, {r["n_cells"]} cells')
+  if write:
+    path = field_correction_path(key)
+    if path is None:
+      raise ValueError(f'{key!r} is not a run directory: nowhere to write the sidecar')
+    if os.path.isfile(path):
+      with open(path) as fh:
+        old = json.load(fh)
+      if int(old.get('version', -1)) != FIELD_CORR_VERSION:
+        bak = path.replace('.json', f'.v{old.get("version")}.json.bak')
+        if not os.path.isfile(bak):
+          os.replace(path, bak)
+          print(f'previous sidecar kept as {bak}')
+    with open(path, 'w') as fh:
+      json.dump(dict(version=FIELD_CORR_VERSION, key=key,
+                     quantity=("C = gamma_c,0/<gamma_m>; gamma_c,0 = 1/I(t'_0+t'_dyn) of the first "
+                               "fluid element (A-weighted, fluid clock, to r_dyn x R_inj); <gamma_m> "
+                               "electron-number mean over all cells; measured injection states"),
+                     r_dyn=r_dyn, written_by='field_average.measure_field_correction (v3)',
+                     factor={str(z): float(c) for z, c in out_c.items()},
+                     gm_avg={str(z): float(g) for z, g in out_g.items()},
+                     diagnostics={str(z): {k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
+                                           for k, v in rows[z].items()} for z in zlist}), fh, indent=2)
+    print(f'-> {path}   (MyEnv({key!r}).gma_c and .gmacm now follow v3; sweep caches get '
+          f'{FIELD_CORR_TAG!r})')
+  return out_c, out_g
+
+
+def measure_field_correction_v2(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=False,
     verbose=True, quantity='C', clock='fluid', source='measured'):
   '''
   MEASURE THE RUN'S FIELD CORRECTION AND MAKE IT THE SWEEP'S DEFINITION.
@@ -424,6 +526,9 @@ def measure_field_correction(key=KEY, zlist=(Z_RS, Z_FS), env=None, write=True,
       print(f'{("RS" if z == 4 else "FS"):>6} {m:11.4f} {c:8.4f} {np.log10(c):+7.4f}   '
             f'{C:.4f}')
   if write:
+    raise RuntimeError('v2 sidecars are retired (FIELD_CORR_VERSION = 3): this function now only '
+                       'reports the v2 numbers; measure_field_correction writes the v3 sidecar')
+  if False:
     path = field_correction_path(key)
     if path is None:
       raise ValueError(f'{key!r} is not a run directory: nowhere to write the sidecar')
