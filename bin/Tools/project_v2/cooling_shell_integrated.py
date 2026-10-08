@@ -32,10 +32,11 @@ Ndot and constant injected law):
     dN/dgma = Ndot K A^(p-1) gma^-p (1 - gma S/A)^(p-2),
     gma_m,M(x;y) = A gma_{m,M},i / (1 + gma_{m,M},i S).
 
-THE REGIME LABEL is the article's: gma_c,0 = 1/tt over the first t'_0 after collision,
-synchrotron only, i.e. kappa (1 - 2^(1-q))/(q-1) = 0.3435 kappa = 1/(C gma_m,i). The
-0.3435 is <B'^2>/B'_0^2 over [t'_0, 2t'_0] -- the 0.346 the article measures in the
-simulation, so this toy shell is calibrated on the run.
+THE REGIME LABEL is the article's: gma_c,0 = 1/I over the first t'_0 after collision,
+synchrotron AND adiabatic, i.e. kappa (1 - 2^-s)/s = 0.2917 kappa = 1/(C gma_m,i), so
+C = 1 is exactly t'_m = t'_dyn for the first fluid element. The 0.2917 is <A B'^2>/B'_0^2
+over [t'_0, 2t'_0]. (The previous label, 1/tt, used the A-free 0.3435 = <B'^2>/B'_0^2:
+the same C now means 1.178x more cooling.)
 
 NUMERICS. At fixed (x, gma) both edges are increasing in y (A grows, S falls), so the
 support is ONE interval [y_lo, y_hi] with gma_M(x;y_lo) = gma and gma_m(x;y_hi) = gma.
@@ -76,8 +77,9 @@ GMA_LABEL = '$\\gamma_{\\rm e}$'
 
 # --- one population -------------------------------------------------------------------
 def kappa_of_C(logC, q=Q_C, gm0=GM0):
-  '''kappa = t'_0/t'_c,0 from C: gma_c,0 = 1/tt(2t'_0; t'_0) = C gma_m,i.'''
-  return (q - 1.)/((1. - 2.**(1. - q))*10.**logC*gm0)
+  '''kappa = t'_0/t'_c,0 from C: gma_c,0 = 1/I(2t'_0; t'_0) = C gma_m,i.'''
+  s = D_AD + q - 1.
+  return s/((1. - 2.**(-s))*10.**logC*gm0)
 
 
 def S_of(x, y, kap, d=D_AD, q=Q_C):
@@ -297,7 +299,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
 
 def main(show=False):
   print(f'kappa: C=1e-2 -> {kappa_of_C(-2.):.4g}, C=1e2 -> {kappa_of_C(2.):.4g}; '
-        f'<B^2>/B0^2 over [1,2] = {(1. - 2.**(1. - Q_C))/(Q_C - 1.):.4f}')
+        f'<A B^2>/B0^2 over [1,2] = {(1. - 2.**(-S_EXP))/S_EXP:.4f}')
   print(f'sum rule: max |int Ncal dgma/(y_f-1) - 1| = {check_sum_rule():.2e}')
   for lab, g, meas, exp in check_slopes():
     print(f'  {lab:26s} at gma={g:9.3e}: {meas:+.4f} (expected {exp:+.4f})')
