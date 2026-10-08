@@ -595,7 +595,9 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
     # window clipped the last four decades of them
     axs[0, k].set_ylim(lo_N/3., 1e3*hi_N)   # headroom: the -2 guide sits a decade
                                            # above the curves and ran into the frame
-  axs[0, 0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
+  # the curves are the INTEGRAL over the elapsed clock (a*tt above) of a distribution
+  # normalised to one electron, i.e. dN/dgma per unit Ndot_0 t'_c,0 (Eqn. intNe_steady_integ)
+  axs[0, 0].set_ylabel("$(\\dot N_0 t'_{\\rm c,0})^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
                        "/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
   axs[0, -1].legend(handles=[
       plt.Line2D([], [], color=INK, lw=0, marker='o', mfc='none', ms=3.5,

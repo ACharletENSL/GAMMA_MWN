@@ -44,7 +44,7 @@ from spectral_breaks import (segment_slopes, measure_cutoff_nuM, _widest_run, ed
 from working_cooling import (get_shell_nuFnu, open_rundata, cellsBehindShock_fromData,
     load_shell_rarefaction_offT, check_extracted_cells, open_celldata)
 from working_cooling_data import (get_shell_nuFnu_fromData, data_method_name,
-    select_postshock_rows, NORAR_LAW, postshock_start)
+    select_postshock_rows, NORAR_LAW, postshock_start, measured_shockfront_states)
 from IO import get_variable, get_cellfile, open_cellcolumns
 from plotting_functions import nF_label, sci_notation
 import cell_pool
@@ -2481,15 +2481,29 @@ def compute_fluence_spectrum(Tb, nuFnu):
   return np.trapezoid(nuFnu, Tb, axis=0)
 
 
-def exit_onset_barT(key, z=Z_SHELL):
+def exit_onset_barT(key, z=Z_SHELL, source='measured'):
   '''
   bar{T}_f = (Ton - Ts)/T0 for the last-shocked cell (the shell-exit / outer-edge
   cell reached last by the shock) = the shell-crossing observer time. A pure
-  hydro/geometry quantity (~ RfRS0 - 1), alpha- and cooling-independent, so it is
-  a single value for the whole sweep; used to normalise the lightcurve time axis.
+  hydro/geometry quantity, alpha- and cooling-independent, so it is a single value for
+  the whole sweep; used to normalise the lightcurve time axis.
+
+  source='measured' (DEFAULT since 2026-10-08): the last cell's MEASURED injection event
+  (working_cooling_data.measured_shockfront_states), i.e. the onset the emission itself
+  starts that cell at (EARLY_ANA = 'measured'). cooling_g100: 1.35763 (RS) / 1.10534 (FS),
+  last cell shocked at R = 2.518 R0.
+  source='fit': the historical value, the last cell of the FITTED shock trajectory
+  (fits_hydro.cellsBehindShock_fromData): 1.30939 / 1.06619 at R = 2.375 R0. It runs
+  ~3.7% early: the fitted front crosses the last cells too fast, a 1e-5 error in R_sh
+  amplified in R_sh - beta_4 c t (see crossing-time memory); kept for comparison only.
   '''
   env0 = MyEnv(key)
-  sh = cellsBehindShock_fromData(open_rundata(key, z))
+  if source == 'measured':
+    sh = measured_shockfront_states(key, z, env0)
+  elif source == 'fit':
+    sh = cellsBehindShock_fromData(open_rundata(key, z))
+  else:
+    raise ValueError(f"source must be 'measured' or 'fit', got {source!r}")
   exit_row = sh.loc[sh.t.idxmax()]
   return float((get_variable(exit_row, 'Ton', env0) - env0.Ts) / env0.T0)
 
