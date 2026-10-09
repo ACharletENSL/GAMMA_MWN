@@ -391,7 +391,7 @@ def regime_bands(sides_by_z, epoch=True, verbose=True):
   return df
 
 
-def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False):
+def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False, phys=False):
   '''
   Refit one bin with the SAME breaks, mid slope and cut-off the free fit used, changing only
   whether s is frozen -- so the difference in rms is the frozen smoothing and nothing else.
@@ -406,8 +406,12 @@ def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False):
   that the tangent fallback supplied a mid line for carries shape '2brk_tangent', but the
   value being tabulated for MC is the merged break's s -- refitting it as a two-break form
   with s free would compare the frozen prescription against nothing.
+
+  phys=True fits (and measures the rms) on nu >= nu_B only (swp.phys_x_floor): the physical
+  band, without the formal sub-nu_B continuation of SPEC_BELOW_NUB spectra.
   '''
   r = tk['_r']
+  xm = swp.phys_x_floor(r) if phys else None
   x = swp.nu_over_num(r)
   sp, p, sig = r['nuFnu'][i, :], r['env'].psyn, tk['sigma'][i]
   shape = '1brk_mc' if merged else tk['shape'][i]
@@ -420,10 +424,10 @@ def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False):
                                  tk['a_mid'][i] - 1., s_hold=s_hold, sigma=sig,
                                  free_blo=(shape == '2brk_flo'),
                                  free_bhi=(shape != '2brk_flo'),
-                                 free_bmid=bool(tk['mid_fitted'][i]))['rms']
+                                 free_bmid=bool(tk['mid_fitted'][i]), x_min=xm)['rms']
   if shape == '1brk_vfc':
     return sb.fit_smoothing_held(x, sp, p, tk['b_hi'][i], np.nan, tk['nuM'][i], np.nan,
-                                 vfc=True, s_hold=s_hold, sigma=sig)['rms']
+                                 vfc=True, s_hold=s_hold, sigma=sig, x_min=xm)['rms']
   if shape == '1brk_mc':
     return sb.fit_single_break(x, sp, p, tk['nuM'][i], s_hold=s1brk_hold, sigma=sig)['rms']
   return np.nan
@@ -434,7 +438,7 @@ def _refit_point(args):
   Every held refit asked of ONE sweep point, in a worker. The track comes back off its own
   cache and the sweep point is loaded here rather than pickled across, exactly as _run_point
   does -- a track plus its spectra is tens of MB, and the parent would send it once per job.
-  tasks: (spec id, bin indices, s_hold, s1brk_hold, merged) per (class, epoch) case.
+  tasks: (spec id, bin indices, s_hold, s1brk_hold, merged, phys) per (class, epoch) case.
   '''
   key, method, z, logr, route_kw, outdir, tasks = args
   tk = _load_track(_track_cache_path(key, method, z, logr, route_kw, outdir),
@@ -442,9 +446,9 @@ def _refit_point(args):
   tk['logr'], tk['z'] = logr, z
   res = swp.load_sweep(swp.method_outdir(method, key, z))
   tk['_r'] = [q for q in res if abs(q['log10ratio'] - logr) < 1e-9][0]
-  return {sid: np.array([_refit(tk, int(i), s_hold=sh, s1brk_hold=sg, merged=mg)
+  return {sid: np.array([_refit(tk, int(i), s_hold=sh, s1brk_hold=sg, merged=mg, phys=ph)
                          for i in idx], float)
-          for sid, idx, sh, sg, mg in tasks}
+          for sid, idx, sh, sg, mg, ph in tasks}
 
 
 def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
@@ -460,7 +464,8 @@ def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
   held = [[None]*len(sides) for _ in specs]
   jobs = []
   for ti, tk in enumerate(sides):
-    tasks = [(si, sp['idx'][ti], sp['s_hold'], sp['s1brk_hold'], sp['merged'])
+    tasks = [(si, sp['idx'][ti], sp['s_hold'], sp['s1brk_hold'], sp['merged'],
+              sp.get('phys', False))
              for si, sp in enumerate(specs) if len(sp['idx'][ti])]
     if tasks:
       jobs.append((key, method, int(tk['z']), float(tk['logr']), dict(route_kw or {}),
@@ -475,8 +480,8 @@ def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
       outs = pool.map(_refit_point, [j[:7] for j in jobs])
   else:
     outs = [{sid: np.array([_refit(sides[j[7]], int(i), s_hold=sh, s1brk_hold=sg,
-                                   merged=mg) for i in idx], float)
-             for sid, idx, sh, sg, mg in j[6]} for j in jobs]
+                                   merged=mg, phys=ph) for i in idx], float)
+             for sid, idx, sh, sg, mg, ph in j[6]} for j in jobs]
   for j, out in zip(jobs, outs):
     for sid, v in out.items():
       held[sid][j[7]] = v
@@ -487,7 +492,7 @@ def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
 
 def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=True,
     rms_max=PRESC_RMS_MAX, bad_max=PRESC_BAD_MAX, nproc=NPROC, route_kw=None,
-    outdir=OUTDIR, s1_from=None):
+    outdir=OUTDIR, s1_from=None, phys=False):
   '''
   Does the tabulated median actually fit? Freeze s at the pooled per-class median, refit every
   bin of that class, and compare against the same bin fitted with s free. The difference is
@@ -506,6 +511,10 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
   s1_from(tk, cls, onaxis) -> bin mask, if given, picks the bins s1 is held at the median OF
   (default: the class's own). The FC+VFC row holds s1 at the FC bins' value, the one break an
   observer can see, since the merged VFC bins' lower break lies below nu_B.
+
+  phys=True judges the prescription on the PHYSICAL band, nu >= nu_B: the free fits are
+  redone there too (the tracks' own rms covers the extended band), so free and held are
+  compared over the same frequencies. The held values are still the tabulated medians.
   '''
   for zi, z in enumerate((Z_RS, Z_FS)):
     res = swp.load_sweep(swp.method_outdir(method, key, z))
@@ -542,6 +551,13 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
                         s1brk_hold=(sg if np.isfinite(sg) else None), idx=idx,
                         free=np.array([(tk['rms_1brk'][i] if merged else tk['rms'][i])
                                        for tk, ii in zip(sides, idx) for i in ii], float)))
+  if phys:
+    for sp in specs:
+      sp['phys'] = True
+    frees = _run_refits([dict(sp, s_hold=None, s1brk_hold=None) for sp in specs], sides,
+                        key, method, route_kw, outdir, nproc)
+    for sp, fr in zip(specs, frees):
+      sp['free'] = fr
   helds = _run_refits(specs, sides, key, method, route_kw, outdir, nproc)
   for sp, held in zip(specs, helds):
     free = sp['free']
@@ -1340,11 +1356,20 @@ def main(key=KEY, method=METHOD, outdir=None, nproc=NPROC, route_kw=None,
     presc_m = prescription_check(
         sides_by_z, key=key, method=method, nproc=nproc, route_kw=route_kw, outdir=outdir,
         s1_from=lambda tk, c, o: _class_mask(dict(tk, **{'class': tk['class_sep']}), c, o))
+    # ... and the same judged on nu >= nu_B only, free fits redone there
+    print(f"\n{'=== FC AND VFC AS ONE CLASS, nu >= nu_B ONLY ':=<96}")
+    presc_mb = prescription_check(
+        sides_by_z, key=key, method=method, nproc=nproc, route_kw=route_kw, outdir=outdir,
+        s1_from=lambda tk, c, o: _class_mask(dict(tk, **{'class': tk['class_sep']}), c, o),
+        phys=True)
     for tk in sides_by_z[0] + sides_by_z[1]:
       tk['class'] = table_class(tk)
     write_tables((bands_m, 'smoothing_pooled_fcvfc.csv'),
-                 (presc_m, 'prescription_check_fcvfc.csv'), outdir=outdir)
+                 (presc_m, 'prescription_check_fcvfc.csv'),
+                 (presc_mb, 'prescription_check_fcvfc_nub.csv'), outdir=outdir)
     article_table_tex(presc_m, bands_m, bands, outdir=outdir)
+    article_table_tex(presc_mb, bands_m, bands, outdir=outdir,
+                      name='smooth_params_table_nub.tex')
   print(f'\nsegment-route smoothing saved to {outdir}')
   return sides_by_z, cov, reg, ep, bands, presc
 

@@ -1445,7 +1445,7 @@ MID_TOL = 0.05
 def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
     cutfac=CUT_FAC, fit_dec=FIT_DEC, vfc=False, bounds=S_FIT_BOUNDS, s_hold=None,
     sigma=None, free_bmid=False, bmid_margin=BMID_MARGIN, free_blo=False,
-    bmid_physical=False, bmid_dep=BMID_DEP):
+    bmid_physical=False, bmid_dep=BMID_DEP, x_min=None):
   '''
   s1, s2 by fitting granot_sari_syn with the BREAK POSITIONS AND ALL THREE SLOPES HELD, so
   the smoothing is the only shape freedom left. The replacement for the deficit estimator of
@@ -1498,6 +1498,9 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
   a mid slope outside what a three-segment spectrum can carry, and the result is not a
   measurement.
 
+  x_min, if given, drops every frequency below it from the fit (and so from the rms) -- nu_B
+  on SPEC_BELOW_NUB spectra, to judge a shape on the physical band only.
+
   Returns dict(s1, s2, b_hi_fit, rms, npts, at_bound, ok).
   '''
   x = np.asarray(x, float); sp = np.asarray(sp, float)
@@ -1515,6 +1518,8 @@ def fit_smoothing_held(x, sp, psyn, b_lo, b_hi, nuM, beta_mid, free_bhi=True,
   xg, spg = x[g], sp[g]
   flat = _flatten_cutoff(xg, spg, nuM, sigma)
   ok = np.isfinite(flat) & (flat > 0.) & (xg < nuM/cutfac)
+  if x_min is not None:
+    ok &= xg >= x_min
   if ok.sum() < 12:
     return out
   xf, yf = xg[ok], np.log10(flat[ok])
