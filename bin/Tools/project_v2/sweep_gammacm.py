@@ -4465,6 +4465,10 @@ ARTICLE_ANALYTIC = {
       ('article_cells_z4_R0.png', 'cells_hydro.png'),
   ),
 }
+# Series a run may take from the FIDUCIAL when it has none of its own: eps_rad comes from the
+# fiducial's 10-point-per-decade efficiency sweep (the hi-res efficiency was checked several
+# times to match it to good precision, and its own sweep is not worth the cluster time).
+ARTICLE_FROM_FIDUCIAL = ('efficiency_sweep',)
 # In the article but made by NO script in this repository: listed so rebuild_article_choice
 # reports them instead of letting the gap go unnoticed.
 ARTICLE_UNSOURCED = ()
@@ -4490,25 +4494,42 @@ def rebuild_article_choice(key=FIDUCIAL_KEY, series=ARTICLE_SERIES, analytic=ART
   '''
   import shutil
   dest = figdir(ARTICLE_NAME, key)
-  os.makedirs(dest, exist_ok=True)
-  for f in glob.glob(os.path.join(dest, '*.png')):
-    os.remove(f)
-  copied, missing = [], []
+  # GATHER FIRST, delete after: run where the run's sources are absent (e.g. the hi-res key
+  # on the laptop, which holds only its mirrored article_choice) this used to empty the
+  # folder and refill it with the shared figures alone
+  todo, missing = [], []
   for name, globs in series.items():
-    src = next((d for d in (figdir(name + FIELD_CORR_TAG, key), figdir(name, key))
-                if os.path.isdir(d)), None)
-    pairs = _article_copies(src, globs) if src else []
+    keys = (key, FIDUCIAL_KEY) if (name in ARTICLE_FROM_FIDUCIAL and key != FIDUCIAL_KEY) else (key,)
+    pairs = []
+    for k in keys:
+      src = next((d for d in (figdir(name + FIELD_CORR_TAG, k), figdir(name, k))
+                  if os.path.isdir(d)), None)
+      pairs = _article_copies(src, globs) if src else []
+      if pairs:
+        if k != key:
+          print(f'  {name}: taken from the fiducial ({k})')
+        break
     if not pairs:
       missing.append(f'{name}: {globs}')
-    for f, b in pairs:
-      shutil.copy2(f, os.path.join(dest, b)); copied.append(b)
+    todo += pairs
+  # STRICT: any of the run's own series missing and the folder is left as it is (this is
+  # also what protects the laptop's mirror of a cluster-only run: some of its source
+  # folders exist locally, not all)
+  if missing:
+    raise FileNotFoundError(f'rebuild_article_choice({key!r}): sources missing, '
+                            f'{dest} left untouched:\n  ' + '\n  '.join(missing))
   for name, globs in analytic.items():
     pairs = _article_copies(os.path.join(FIG_ROOT, name), globs)
     got = {b for _, b in pairs}
     missing += [f'{name}/{g}' for g in globs
                 if (g[1] if isinstance(g, tuple) else g) not in got]
-    for f, b in pairs:
-      shutil.copy2(f, os.path.join(dest, b)); copied.append(b)
+    todo += pairs
+  os.makedirs(dest, exist_ok=True)
+  for f in glob.glob(os.path.join(dest, '*.png')):
+    os.remove(f)
+  copied = []
+  for f, b in todo:
+    shutil.copy2(f, os.path.join(dest, b)); copied.append(b)
   if copied:
     trim_pngs([os.path.join(dest, c) for c in copied])
   print(f'article_choice rebuilt for {key}: {len(copied)} figures in {dest}')

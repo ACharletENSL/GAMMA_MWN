@@ -347,8 +347,7 @@ def plot_efficiency_curve(res_rs, res_fs, outdir=OUTDIR, method=METHOD):
   ax.set_ylabel('$\\varepsilon_{\\rm rad}$')
   ax.set_xlabel('$\\log_{10}\\mathcal{C}$')
   ax.legend(fontsize=9)
-  ax.set_title('Radiative efficiency across the cooling regime'
-               + ('' if method == METHOD else f'  ({METHOD_LABEL[method]})'))
+  # no title: the article's figures carry none (the caption says what it is)
   fig.tight_layout()
   fig.savefig(os.path.join(outdir, _fname('radiative_efficiency_fine', method)), dpi=300)
   plt.close(fig)
