@@ -111,6 +111,7 @@ GUIDE_FRAC = .2             # the HANDOVER, as a fraction of S_inf: synchrotron 
                             # visibly leaving it.
 FIGSIZE_TRACKS, FIGSIZE_SHAPES = (7.1, 2.75), (7.1, 3.15)
 FN_TRACKS, FN_SHAPES = 'cooling_tracks.png', 'cooling_shapes.png'
+SAVE_DPI = 450
 # what each panel is, said on the panel rather than left to the caption
 # panel (a) names its CLOCK as well: the grey reference tracks in (b) and (c) are also
 # synchrotron only, but on the panel's own decaying t'_c, so 'syn. only' alone would not
@@ -225,7 +226,7 @@ def _vline(ax, v, lab, ls='-', lw=.8, color=INK, top=False):
 
 # --- (1) the edge tracks ----------------------------------------------------------------
 LAB_GM, LAB_GMM = '$\\gamma_\\mathrm{m}$', '$\\gamma_\\mathrm{M}$'
-LAB_GUIDE, LAB_TDYN = "$(t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
+LAB_GUIDE, LAB_TDYN = "$[(t'-t'_{\\rm i})/t'_{\\rm c,i}]^{-1}$", "$t'_{\\rm dyn}$"
 # the knees are named for the PHYSICAL time, not for tt: the abscissa is t'/t'_c,i, and
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
@@ -245,7 +246,7 @@ def lab_adrift(a_rho=A_RHO):
   '''
   if abs(a_rho) < 1e-12:      # no drag: once the burn freezes gma_e simply STOPS
     return 'const.'
-  return "$(t'/t'_{\\rm c,i})^{" + _frac_tex(a_rho/3.) + "}$"
+  return "$[(t'-t'_{\\rm i})/t'_{\\rm c,i}]^{" + _frac_tex(a_rho/3.) + "}$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
 LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
@@ -381,7 +382,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(*GMA_LIM)
     ax.set_yticks(10.**np.arange(0., np.log10(gM0) + 1., 2.))
-    ax.set_xlabel("$t'/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
+    # the clock starts at injection: sigma = x/tt_dyn is (t'-t'_i)/t'_i, R/R_0 = 1 + sigma
+    ax.set_xlabel("$(t'-t'_{\\rm i})/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
     ax.set_title(plab, fontsize=FS_LAB, pad=3.)
     ax.tick_params(axis='x', pad=1.5)
     ax.tick_params(which='both', labelsize=FS_TICK)
@@ -452,7 +454,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   axs[0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
 
   _legend_above(fig, axs, ncol=len(logtt),
-                title="$\\log_{10}(t'/t'_{\\rm c,i})$")
+                title="$\\log_{10}[(t'-t'_{\\rm i})/t'_{\\rm c,i}]$")
   fig.legends[-1].get_title().set_fontsize(FS_LEG)
   return _save(fig, axs, outdir, fname, show)
 
@@ -460,7 +462,9 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
 def _save(fig, axs, outdir, fname, show):
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
-  fig.savefig(path, dpi=300, bbox_inches='tight')
+  # 450, not 300: these are full-width (figure*) and at 300 the tracks printed at ~277 dpi
+  # at A&A's 17 cm, the lowest of the article; 450 gives ~415
+  fig.savefig(path, dpi=SAVE_DPI, bbox_inches='tight')
   print(f'saved {path}')
   if show:
     plt.show()
