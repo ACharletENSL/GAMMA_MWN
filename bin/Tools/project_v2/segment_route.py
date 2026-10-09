@@ -391,7 +391,7 @@ def regime_bands(sides_by_z, epoch=True, verbose=True):
   return df
 
 
-def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False, phys=False):
+def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False, phys=False, full=False):
   '''
   Refit one bin with the SAME breaks, mid slope and cut-off the free fit used, changing only
   whether s is frozen -- so the difference in rms is the frozen smoothing and nothing else.
@@ -409,28 +409,32 @@ def _refit(tk, i, s_hold=None, s1brk_hold=None, merged=False, phys=False):
 
   phys=True fits (and measures the rms) on nu >= nu_B only (swp.phys_x_floor): the physical
   band, without the formal sub-nu_B continuation of SPEC_BELOW_NUB spectra.
+  full=True returns [rms, s1, s2] instead of the rms alone (the free fits of phys=True,
+  whose s are then the tabulated ones).
   '''
   r = tk['_r']
   xm = swp.phys_x_floor(r) if phys else None
   x = swp.nu_over_num(r)
   sp, p, sig = r['nuFnu'][i, :], r['env'].psyn, tk['sigma'][i]
   shape = '1brk_mc' if merged else tk['shape'][i]
+  pick = ((lambda f: np.array([f['rms'], f.get('s1', np.nan), f.get('s2', np.nan)], float))
+          if full else (lambda f: f['rms']))
   if shape in ('2brk', '2brk_tangent', '2brk_free', '2brk_flo'):
     # the mid slope stays as free as it was in the bin's own fit, so the residual difference
     # is the frozen SMOOTHING and nothing else; freezing a_mid too would price two changes.
     # '2brk_flo' (FC*) must ALSO keep b_lo free here: its stored b_lo is the band-bottom seed,
     # so holding it would price a change of geometry on top of the frozen s.
-    return sb.fit_smoothing_held(x, sp, p, tk['b_lo'][i], tk['b_hi'][i], tk['nuM'][i],
-                                 tk['a_mid'][i] - 1., s_hold=s_hold, sigma=sig,
-                                 free_blo=(shape == '2brk_flo'),
-                                 free_bhi=(shape != '2brk_flo'),
-                                 free_bmid=bool(tk['mid_fitted'][i]), x_min=xm)['rms']
+    return pick(sb.fit_smoothing_held(x, sp, p, tk['b_lo'][i], tk['b_hi'][i], tk['nuM'][i],
+                                      tk['a_mid'][i] - 1., s_hold=s_hold, sigma=sig,
+                                      free_blo=(shape == '2brk_flo'),
+                                      free_bhi=(shape != '2brk_flo'),
+                                      free_bmid=bool(tk['mid_fitted'][i]), x_min=xm))
   if shape == '1brk_vfc':
-    return sb.fit_smoothing_held(x, sp, p, tk['b_hi'][i], np.nan, tk['nuM'][i], np.nan,
-                                 vfc=True, s_hold=s_hold, sigma=sig, x_min=xm)['rms']
+    return pick(sb.fit_smoothing_held(x, sp, p, tk['b_hi'][i], np.nan, tk['nuM'][i], np.nan,
+                                      vfc=True, s_hold=s_hold, sigma=sig, x_min=xm))
   if shape == '1brk_mc':
-    return sb.fit_single_break(x, sp, p, tk['nuM'][i], s_hold=s1brk_hold, sigma=sig)['rms']
-  return np.nan
+    return pick(sb.fit_single_break(x, sp, p, tk['nuM'][i], s_hold=s1brk_hold, sigma=sig))
+  return np.full(3, np.nan) if full else np.nan
 
 
 def _refit_point(args):
@@ -438,7 +442,7 @@ def _refit_point(args):
   Every held refit asked of ONE sweep point, in a worker. The track comes back off its own
   cache and the sweep point is loaded here rather than pickled across, exactly as _run_point
   does -- a track plus its spectra is tens of MB, and the parent would send it once per job.
-  tasks: (spec id, bin indices, s_hold, s1brk_hold, merged, phys) per (class, epoch) case.
+  tasks: (spec id, bin indices, s_hold, s1brk_hold, merged, phys, full) per (class, epoch).
   '''
   key, method, z, logr, route_kw, outdir, tasks = args
   tk = _load_track(_track_cache_path(key, method, z, logr, route_kw, outdir),
@@ -446,9 +450,9 @@ def _refit_point(args):
   tk['logr'], tk['z'] = logr, z
   res = swp.load_sweep(swp.method_outdir(method, key, z))
   tk['_r'] = [q for q in res if abs(q['log10ratio'] - logr) < 1e-9][0]
-  return {sid: np.array([_refit(tk, int(i), s_hold=sh, s1brk_hold=sg, merged=mg, phys=ph)
-                         for i in idx], float)
-          for sid, idx, sh, sg, mg, ph in tasks}
+  return {sid: np.array([_refit(tk, int(i), s_hold=sh, s1brk_hold=sg, merged=mg, phys=ph,
+                                full=fu) for i in idx], float)
+          for sid, idx, sh, sg, mg, ph, fu in tasks}
 
 
 def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
@@ -465,7 +469,7 @@ def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
   jobs = []
   for ti, tk in enumerate(sides):
     tasks = [(si, sp['idx'][ti], sp['s_hold'], sp['s1brk_hold'], sp['merged'],
-              sp.get('phys', False))
+              sp.get('phys', False), sp.get('full', False))
              for si, sp in enumerate(specs) if len(sp['idx'][ti])]
     if tasks:
       jobs.append((key, method, int(tk['z']), float(tk['logr']), dict(route_kw or {}),
@@ -480,8 +484,8 @@ def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
       outs = pool.map(_refit_point, [j[:7] for j in jobs])
   else:
     outs = [{sid: np.array([_refit(sides[j[7]], int(i), s_hold=sh, s1brk_hold=sg,
-                                   merged=mg, phys=ph) for i in idx], float)
-             for sid, idx, sh, sg, mg, ph in j[6]} for j in jobs]
+                                   merged=mg, phys=ph, full=fu) for i in idx], float)
+             for sid, idx, sh, sg, mg, ph, fu in j[6]} for j in jobs]
   for j, out in zip(jobs, outs):
     for sid, v in out.items():
       held[sid][j[7]] = v
@@ -546,18 +550,31 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
       if not (np.isfinite(s2) or np.isfinite(sg)):
         continue                    # VSC: no shape is constrained, so nothing to freeze
       idx = [np.flatnonzero(m(tk)) for tk in sides]
-      specs.append(dict(cls=cls, elab=elab, s1=s1, s2=s2, sg=sg, merged=merged,
+      s1m = m if s1_from is None else (lambda tk, c=cls, o=onax: s1_from(tk, c, o))
+      s1sel = np.concatenate([s1m(tk)[ii] for tk, ii in zip(sides, idx)])
+      specs.append(dict(cls=cls, elab=elab, s1=s1, s2=s2, sg=sg, merged=merged, s1sel=s1sel,
                         s_hold=((s1, s2) if np.isfinite(s2) else None),
                         s1brk_hold=(sg if np.isfinite(sg) else None), idx=idx,
                         free=np.array([(tk['rms_1brk'][i] if merged else tk['rms'][i])
                                        for tk, ii in zip(sides, idx) for i in ii], float)))
   if phys:
+    # the free fits redone on nu >= nu_B, and the held values re-derived FROM them: the
+    # whole row -- s medians, their bands, both rms -- then describes the physical band
     for sp in specs:
       sp['phys'] = True
-    frees = _run_refits([dict(sp, s_hold=None, s1brk_hold=None) for sp in specs], sides,
-                        key, method, route_kw, outdir, nproc)
+    frees = _run_refits([dict(sp, s_hold=None, s1brk_hold=None, full=True) for sp in specs],
+                        sides, key, method, route_kw, outdir, nproc)
     for sp, fr in zip(specs, frees):
-      sp['free'] = fr
+      fr = np.asarray(fr, float).reshape(-1, 3)
+      v1, v2 = fr[sp['s1sel'], 1], fr[:, 2]
+      sp['free'] = fr[:, 0]
+      if np.isfinite(v1).any():
+        sp['s1'] = float(np.nanmedian(v1))
+      if np.isfinite(v2).any():
+        sp['s2'] = float(np.nanmedian(v2))
+      sp['b1'], sp['b2'] = _band(v1)[0], _band(v2)[0]
+      if sp['s_hold'] is not None:
+        sp['s_hold'] = (sp['s1'], sp['s2'])
   helds = _run_refits(specs, sides, key, method, route_kw, outdir, nproc)
   for sp, held in zip(specs, helds):
     free = sp['free']
@@ -567,6 +584,7 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
     rf, rh = float(np.median(free[g])), float(np.median(held[g]))
     rows.append(dict(regime=sp['cls'], epoch=sp['elab'], n=int(g.sum()),
                      s1=sp['s1'], s2=sp['s2'], s_1brk=sp['sg'],
+                     **({'b1': sp['b1'], 'b2': sp['b2']} if 'b1' in sp else {}),
                      rms_free=rf, rms_held=rh, cost=rh - rf,
                      cost_pct=(100.*(rh/rf - 1.) if rf > 0 else np.nan),
                      frac_bad=float(np.mean(held[g] > rms_max))))
@@ -1296,8 +1314,11 @@ def article_table_tex(presc, bands_m, bands, outdir=OUTDIR, name='smooth_params_
       if not len(q):
         continue
       w = q.iloc[0]
-      b1 = band(bands if cls == 'FC' else bands_m, cls, ep, 'b1')
-      b2 = band(bands_m, cls, ep, 'b2')
+      if 'b1' in presc.columns:           # phys check: bands of its own free fits
+        b1, b2 = band(presc, cls, ep, 'b1'), band(presc, cls, ep, 'b2')
+      else:
+        b1 = band(bands if cls == 'FC' else bands_m, cls, ep, 'b1')
+        b2 = band(bands_m, cls, ep, 'b2')
       def tex(b):
         # 'v [lo-hi]' -> v^{+(hi-v)}_{-(v-lo)}: the median and its q16-q84 spread
         mt = re.match(r'\s*([\d.]+)\s*\[([\d.]+)-([\d.]+)\]', b)
@@ -1367,9 +1388,11 @@ def main(key=KEY, method=METHOD, outdir=None, nproc=NPROC, route_kw=None,
     write_tables((bands_m, 'smoothing_pooled_fcvfc.csv'),
                  (presc_m, 'prescription_check_fcvfc.csv'),
                  (presc_mb, 'prescription_check_fcvfc_nub.csv'), outdir=outdir)
-    article_table_tex(presc_m, bands_m, bands, outdir=outdir)
-    article_table_tex(presc_mb, bands_m, bands, outdir=outdir,
-                      name='smooth_params_table_nub.tex')
+    # THE article table is the physical-band one (fits on nu >= nu_B); the extended-band
+    # version is kept for comparison
+    article_table_tex(presc_mb, bands_m, bands, outdir=outdir)
+    article_table_tex(presc_m, bands_m, bands, outdir=outdir,
+                      name='smooth_params_table_fullband.tex')
   print(f'\nsegment-route smoothing saved to {outdir}')
   return sides_by_z, cov, reg, ep, bands, presc
 
