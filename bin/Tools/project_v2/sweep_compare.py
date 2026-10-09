@@ -243,11 +243,13 @@ def _spectra_curves(pairs, get_spec, mode, norm_side, colors):
       norm /= eff
     if norm <= 0.:
       continue
-    yf, yd = sf/norm, sd/norm
+    # physical band only (nu >= nu_B): the SPEC_BELOW_NUB extension below it is for
+    # measurement, and showed as an excess under nu_B in the deep fast-cooling spectra
+    yf, yd = swp.phys_mask(x, sf/norm, rf), swp.phys_mask(x, sd/norm, rf)
     curves.append((x, yf, yd, c))
     ypks.append(max(np.nanmax(yf), np.nanmax(yd)))
     with np.errstate(divide='ignore', invalid='ignore'):
-      ratios.append(np.where(sf > 0., sd/sf, np.nan))
+      ratios.append(swp.phys_mask(x, np.where(sf > 0., sd/sf, np.nan), rf))
   return curves, ypks, ratios
 
 
@@ -266,7 +268,10 @@ def _spectra_limits(ax, curves, ypks, mode):
   ylo = (min(ypks) if mode == 'eff' else ymax)/10.**YCLIP_DEC
   ax.set_ylim(ylo, ymax*1.5)
   xhi = max(x[np.nanmax([yf, yd], axis=0) > ylo].max() for x, yf, yd, _ in curves)
-  ax.set_xlim(min(x[0] for x, _, _, _ in curves), 2.*xhi)
+  # from the lowest DRAWN frequency (nu_B, the curves being masked below it), not the
+  # grid's first sample, which with SPEC_BELOW_NUB lies decades lower
+  xlo = min(x[np.isfinite(yf) | np.isfinite(yd)].min() for x, yf, yd, _ in curves)
+  ax.set_xlim(xlo, 2.*xhi)
 
 
 def plot_spectra_compare(pairs, kind='peak', mode='nu_m', outdir=OUTDIR, labels=LABELS,
@@ -376,6 +381,9 @@ def _draw_postrf(ax, rf, rd, barT_f, times=POSTRF_T, yspan=POSTRF_YSPAN, legend=
       D = full - cut
       share = D/full
     D = np.where(np.isfinite(D) & (D > 0.) & (share > POSTRF_NOISE), D, np.nan)
+    # PHYSICAL BAND ONLY, as every figure: below nu_B the spectra are the SPEC_BELOW_NUB
+    # measurement extension, whose per-step seam at nu'_B is what showed at log C = -4, -5
+    full, cut, D = (swp.phys_mask(x, y, rd) for y in (full, cut, D))
     c = cols[k]
     ax.loglog(x, full/norm, color=c, lw=1.0, ls=':', alpha=0.95)
     ax.loglog(x, cut/norm, color=c, lw=1.0, ls='-.', alpha=0.95)
@@ -431,7 +439,7 @@ def plot_postrf_spectra(pairs, barT_f, outdir=OUTDIR, times=POSTRF_T, yspan=POST
     ax.set_xlabel(NU_M_LABEL)
     ax.set_ylabel('$\\Delta\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}(\\bar{T}_f)$')
     xs = nu_over_num(rd)
-    ax.set_xlim(xs.min()/3., xs.max()*3.)
+    ax.set_xlim(swp.phys_x_floor(rd)/3., xs.max()*3.)
     fig.tight_layout()
     path = os.path.join(outdir, f'postrf_spectra_logr={rd["log10ratio"]:+.1f}.png')
     fig.savefig(path, dpi=300); plt.close(fig); out.append(path)
@@ -991,9 +999,15 @@ def fluence_series(pairs, spec_key='nuFnu', x_key=None, nu_break=_shell_nu_break
     sp_a = compute_fluence_spectrum(ra['Tb'], ra[spec_key])
     sp_b = compute_fluence_spectrum(rb['Tb'], rb[spec_key])
     nb = nu_break(ra['env'])
+    # MEASURED ON THE PHYSICAL BAND ONLY (nu >= nu_B). With SPEC_BELOW_NUB the grid runs
+    # decades below nu_B, and for C <~ 1e-3 the nu^(4/3) asymptote exists only there, in the
+    # formal extension: measured on the whole grid it reported a 4/3 the physical spectrum
+    # does not have. Restricted, the indices are those of the spectra computed without the
+    # extension (the _fc2 caches), and a VFC point is unresolved, as it was then.
+    g = x >= swp.phys_x_floor(ra)
     out.append(dict(logr=float(ra['log10ratio']), x=x, sp_a=sp_a, sp_b=sp_b, nu_break=nb,
-                    fa=sb.fluence_low_slope(x, sp_a, nu_break=nb, **kw),
-                    fb=sb.fluence_low_slope(x, sp_b, nu_break=nb, **kw)))
+                    fa=sb.fluence_low_slope(x[g], sp_a[g], nu_break=nb, **kw),
+                    fb=sb.fluence_low_slope(x[g], sp_b[g], nu_break=nb, **kw)))
   return out
 
 
@@ -1115,8 +1129,16 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
     for mk, get, _ in est.values():
       al = np.array([get(e[fk]) for e in series]) - 2.
       ax.plot(eps, al, color='k', ls=ls, lw=1, zorder=1)
-      ax.scatter(eps, al, c=colors, marker=mk, s=36, edgecolors='k', linewidths=.5,
-                 zorder=2)
+      # an ASYMPTOTE the physical band (nu >= nu_B, fluence_series) does not reach is drawn
+      # hollow, as in plot_fluence_slopes_vs_regime: in deep fast cooling the 4/3 segment
+      # lies below nu_B and the value is the slope at the band's bottom, not the asymptote
+      ok = (np.array([bool(e[fk]['converged'] and e[fk]['in_band']) for e in series])
+            if mk == 'o' else np.ones(len(series), bool))
+      col = np.asarray(colors)
+      ax.scatter(eps[ok], al[ok], c=col[ok], marker=mk, s=36, edgecolors='k',
+                 linewidths=.5, zorder=2)
+      ax.scatter(eps[~ok], al[~ok], facecolors='none', edgecolors=col[~ok], marker=mk,
+                 s=36, linewidths=1., zorder=2)
   for a, lab in ((A_LO_ASYMP - 2., '$-2/3$'), (-1.5, '$-3/2$')):
     ax.axhline(a, color='grey', ls=':', lw=.8)
     ax.annotate(lab, xy=(0.01, a), xycoords=transx(ax), fontsize=8, color='grey',
@@ -1129,6 +1151,8 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
   ax.plot([], [], 'k--', lw=1, label=la); ax.plot([], [], 'k-', lw=1, label=lb)
   for mk, _, lab in est.values():
     ax.plot([], [], ls='none', marker=mk, mfc='0.7', mec='k', mew=.5, ms=6, label=lab)
+  ax.plot([], [], ls='none', marker='o', mfc='none', mec='0.4', ms=6,
+          label='asymptote not reached above $\\nu_B$')
   ax.legend(loc='center left', fontsize=9, frameon=False)
 
 

@@ -183,7 +183,7 @@ def peak_and_width(x, sp, levels=WIDTH_LEVELS, top_frac=TOP_FRAC, edge_n=EDGE_N)
   return out
 
 
-def segments_and_breaks(x, sp, psyn, **kw):
+def segments_and_breaks(x, sp, psyn, x_floor=None, **kw):
   '''
   The breaks of one spectrum (the paper route) and its three slopes measured free against
   them.
@@ -291,7 +291,10 @@ def segments_and_breaks(x, sp, psyn, **kw):
   # the low index that needs no break: bounded by min(nu_m, nu_c) where the route found it,
   # so the scan cannot lock onto the fast-cooling nu^(1/2) plateau instead of the asymptote
   nu_break = b['b_lo'] if np.isfinite(b['b_lo']) else (b['b_hi'] if vfc else None)
-  fl = sb.fluence_low_slope(x, sp, nu_break=nu_break)
+  # on the PHYSICAL band (x >= x_floor = nu_B) only, as sweep_compare.fluence_series: below
+  # it the SPEC_BELOW_NUB extension carries a 4/3 asymptote the physical spectrum lacks
+  g = np.ones(len(x), bool) if x_floor is None else (np.asarray(x) >= x_floor)
+  fl = sb.fluence_low_slope(np.asarray(x)[g], np.asarray(sp)[g], nu_break=nu_break)
   out.update(a_inf=fl['a_inf'], inf_conv=bool(fl['converged']),
              inf_band=bool(fl['in_band']))
   return out
@@ -501,10 +504,10 @@ def turnovers_curvature(x, sp, nuM, sigma, a_lo, a_mid, a_hi, cutfac=sb.CUT_FAC,
   return out
 
 
-def measure_spectrum(x, sp, psyn, **kw):
+def measure_spectrum(x, sp, psyn, x_floor=None, **kw):
   '''Every measurement this module makes on one spectrum: width block + segment block.'''
   m = peak_and_width(x, sp)
-  m.update(segments_and_breaks(x, sp, psyn, **kw))
+  m.update(segments_and_breaks(x, sp, psyn, x_floor=x_floor, **kw))
   m['bhi_over_xpk'] = (m['b_hi']/m['x_pk']
                        if np.isfinite(m['b_hi']) and m['x_pk'] > 0. else np.nan)
   # the separation the TURNOVERS give, as against `sep` = b_hi/b_lo from the crossings
@@ -589,7 +592,7 @@ def measure_point(r, z, **kw):
   for kind in KINDS:
     if sp[kind] is None:
       continue
-    m = measure_spectrum(x, sp[kind], env.psyn, **kw)
+    m = measure_spectrum(x, sp[kind], env.psyn, x_floor=swp.phys_x_floor(r), **kw)
     m.update(fit_route_breaks(r, x, sp[kind], m['cls']))
     # nu_pk against the fitted UPPER break: the nuFnu maximum is not a break of the
     # shape, and this is by how much they differ in each regime
