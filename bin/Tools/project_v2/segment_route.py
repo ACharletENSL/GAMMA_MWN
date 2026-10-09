@@ -71,6 +71,7 @@ forces the route again.
 
 import os
 import hashlib
+import re
 import numpy as np
 import pandas as pd
 
@@ -486,7 +487,7 @@ def _run_refits(specs, sides, key, method, route_kw, outdir, nproc):
 
 def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=True,
     rms_max=PRESC_RMS_MAX, bad_max=PRESC_BAD_MAX, nproc=NPROC, route_kw=None,
-    outdir=OUTDIR):
+    outdir=OUTDIR, s1_from=None):
   '''
   Does the tabulated median actually fit? Freeze s at the pooled per-class median, refit every
   bin of that class, and compare against the same bin fitted with s free. The difference is
@@ -501,6 +502,10 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
   the refits are independent: they are grouped BY SWEEP POINT (each worker then loads one
   point's spectra, not all of them) and run across the same pool load_side uses. The pairing
   with the free fits is preserved because both are collected in track order, bins ascending.
+
+  s1_from(tk, cls, onaxis) -> bin mask, if given, picks the bins s1 is held at the median OF
+  (default: the class's own). The FC+VFC row holds s1 at the FC bins' value, the one break an
+  observer can see, since the merged VFC bins' lower break lies below nu_B.
   '''
   for zi, z in enumerate((Z_RS, Z_FS)):
     res = swp.load_sweep(swp.method_outdir(method, key, z))
@@ -524,7 +529,8 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
       # SPEC_BELOW_NUB spectra every VFC bin is a two-break fit (an FC whose nu_c lies below
       # nu_B, table_class), and holding its s1 at NaN made every refit fail and dropped the
       # VFC rows from the table.
-      v1 = _cat(sides, 's1', m)
+      v1 = _cat(sides, 's1', m if s1_from is None
+                else (lambda tk, c=cls, o=onax: s1_from(tk, c, o)))
       s1 = (np.nanmedian(v1) if cls in TWO_BREAK or np.isfinite(v1).any() else np.nan)
       s2 = np.nanmedian(_cat(sides, 's2', m)) if cls in TWO_BREAK + ONE_BREAK else np.nan
       sg = np.nanmedian(_cat(sides, 's_1brk', m)) if merged else np.nan
@@ -1254,6 +1260,45 @@ def write_tables(*dfs_named, outdir=OUTDIR):
       print(f'  wrote {os.path.join(outdir, name)}')
 
 
+ARTICLE_CLASS = {'FC': 'FC', 'MC': 'MFC', 'SC': 'SC'}      # table rows, in this order
+ARTICLE_EPOCH = {'on-axis': 'rise', 'post-crossing': 'tail'}
+
+
+def article_table_tex(presc, bands_m, bands, outdir=OUTDIR, name='smooth_params_table.tex'):
+  '''
+  The article's tab:smooth_params, from the FC+VFC check: s1 of the FC row is the FC bins'
+  own (bands, the separate classes), s2 and the fit diagnostics the merged row's (bands_m,
+  presc). A standalone fragment -- the user merges it into the article.
+  '''
+  def band(df, cls, ep, col):
+    q = df[(df.regime == cls) & (df.epoch == ep)]
+    return str(q.iloc[0][col]).strip() if len(q) else '--'
+  lines = []
+  for cls, lab in ARTICLE_CLASS.items():
+    for ep, elab in ARTICLE_EPOCH.items():
+      q = presc[(presc.regime == cls) & (presc.epoch == ep)]
+      if not len(q):
+        continue
+      w = q.iloc[0]
+      b1 = band(bands if cls == 'FC' else bands_m, cls, ep, 'b1')
+      b2 = band(bands_m, cls, ep, 'b2')
+      def tex(b):
+        # 'v [lo-hi]' -> v^{+(hi-v)}_{-(v-lo)}: the median and its q16-q84 spread
+        mt = re.match(r'\s*([\d.]+)\s*\[([\d.]+)-([\d.]+)\]', b)
+        if not mt:
+          return '\\text{--}'
+        v, lo, hi = (float(g) for g in mt.groups())
+        return f'{v:.2f}^{{+{hi - v:.2f}}}_{{-{v - lo:.2f}}}'
+      lines.append(f"{lab}, {elab} & {tex(b1)} & {tex(b2)} & {w.rms_free:.4f} & "
+                   f"{w.rms_held:.4f} & {w.cost_pct:+.1f} & {100*w.frac_bad:.1f}\\% \\\\")
+  body = '\n'.join(lines)
+  out = os.path.join(outdir, name)
+  with open(out, 'w') as f:
+    f.write(body + '\n')
+  print(f'article table rows -> {out}')
+  return body
+
+
 def main(key=KEY, method=METHOD, outdir=None, nproc=NPROC, route_kw=None,
     use_cache=True, merge_test=True):
   '''
@@ -1285,16 +1330,21 @@ def main(key=KEY, method=METHOD, outdir=None, nproc=NPROC, route_kw=None,
   if merge_test:
     # the same tables with VFC folded into FC (table_class merge_vfc): one row, if the
     # held FC values describe the sub-nu_B-break bins as well as their own do
+    # s1 is held at the FC bins' own median (s1_from): the merged VFC bins' lower break lies
+    # below nu_B, so it is not the break the tabulated s1 describes
     print(f"\n{'=== FC AND VFC AS ONE CLASS ':=<96}")
     for tk in sides_by_z[0] + sides_by_z[1]:
+      tk['class_sep'] = tk['class']
       tk['class'] = table_class(tk, merge_vfc=True)
     bands_m = regime_bands(sides_by_z, epoch=True)
-    presc_m = prescription_check(sides_by_z, key=key, method=method, nproc=nproc,
-                                 route_kw=route_kw, outdir=outdir)
+    presc_m = prescription_check(
+        sides_by_z, key=key, method=method, nproc=nproc, route_kw=route_kw, outdir=outdir,
+        s1_from=lambda tk, c, o: _class_mask(dict(tk, **{'class': tk['class_sep']}), c, o))
     for tk in sides_by_z[0] + sides_by_z[1]:
       tk['class'] = table_class(tk)
     write_tables((bands_m, 'smoothing_pooled_fcvfc.csv'),
                  (presc_m, 'prescription_check_fcvfc.csv'), outdir=outdir)
+    article_table_tex(presc_m, bands_m, bands, outdir=outdir)
   print(f'\nsegment-route smoothing saved to {outdir}')
   return sides_by_z, cov, reg, ep, bands, presc
 
