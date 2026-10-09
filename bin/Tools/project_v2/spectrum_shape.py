@@ -1433,8 +1433,7 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
     return None
 
   ax = ax_r
-  # MFC = the route found no mid segment in either spectrum of the point (class 'MC');
-  # there the fitted pair are shape parameters, drawn hollow
+  # MFC = the route found no mid segment in either spectrum of the point (class 'MC')
   mfc = sorted({m['logr'] for m in rows if m['z'] == z and m['cls'] == 'MC'})
   _held_mid_band(ax, mfc)
   by = {}
@@ -1457,10 +1456,11 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   in_mfc = np.isin(lr, mfc)
   for i, (key, lab) in enumerate((('nu_hi_fit', 'upper break ($\\nu_{\\rm m}$ | $\\nu_{\\rm c}$)'),
                                   ('nu_lo_fit', 'lower break ($\\nu_{\\rm c}$ | $\\nu_{\\rm m}$)'))):
-    v = _ratio(key)
-    ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.3, label=lab)
-    ax.plot(lr[~in_mfc], v[~in_mfc], ls='none', color=_QCOL[i], marker=_QMK[i], ms=6)
-    ax.plot(lr[in_mfc], v[in_mfc], ls='none', color=_QCOL[i], marker=_QMK[i], ms=6, mfc='none')
+    # NOT DRAWN AT MFC: there the fitted pair are shape parameters of one merged turn, not
+    # nu_m and nu_c, so the series simply breaks across the grey band; the nuFnu maximum
+    # below is defined everywhere and carries the panel through it
+    v = np.where(in_mfc, np.nan, _ratio(key))
+    ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.3, marker=_QMK[i], ms=6, label=lab)
   ax.plot(lr, _ratio('x_pk'), color='0.45', ls='--', lw=1., label='$\\nu F_\\nu$ peak')
   ax.set_xlabel(_CLABEL)
   # ticks and label on the RIGHT. This is the last panel, so nothing sits beyond it, and
@@ -1471,7 +1471,7 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
   ax.set_ylabel('peak / time-integrated')
   ax.grid(alpha=0.25)
   _ratio_ylim(ax)
-  ax.legend(fontsize=8, loc='upper left')
+  ax.legend(fontsize=8, loc='center left')   # the empty band between the two families
 
   # the bar sits INSIDE the gap before the ratio panel, and its label goes ABOVE it:
   # rotated beside it, the label needs a panel gap of its own.
