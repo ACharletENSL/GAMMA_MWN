@@ -532,6 +532,54 @@ def measure_spectrum(x, sp, psyn, **kw):
   return m
 
 
+def fit_route_breaks(r, x, sp, cls):
+  '''
+  nu_m and nu_c of ONE spectrum by the article's break estimator -- the one behind the
+  break tracks (sweep_gammacm.track_breaks_route, Fig. bk_evol) and the C calibration:
+  the segment route's class `cls` decides WHICH breaks exist, the GS02 fit with a free mid
+  slope (fit_gs02_spectrum) says WHERE they are. Same gates as the tracks: rms <=
+  GS02_TRACK_RMSMAX, no break at the fit's bound, both breaks EDGE_FAC inside the window.
+
+  Naming is per spectrum, since one spectrum has no time continuity to borrow: the route
+  class orders the breaks (FC: lower = nu_c; SC: lower = nu_m), and an MFC spectrum ('MC',
+  no mid segment for the route to read the ordering off) is named by the fit's own verdict
+  on its free mid slope, as track_breaks_route names its MFC bins. An MFC spectrum the fit
+  calls 'MC' too is left unnamed: its breaks are shape parameters and nothing orders them.
+  The three-break fit is not used: it only applies to the uncut reference method past the
+  crossing, and the figures here are drawn on the rarcut sweep.
+
+  nu_lo_fit / nu_hi_fit are the fitted pair whatever the naming, kept for the table.
+  '''
+  out = dict(nu_lo_fit=np.nan, nu_hi_fit=np.nan, nu_m_fit=np.nan, nu_c_fit=np.nan,
+             fit_reg=None, fit_rms=np.nan, fit_ok=False, fit_named=False)
+  if cls is None:
+    return out
+  f = swp.fit_gs02_spectrum(x, sp, r['env'].psyn, swp.nu_M_over_num(r), free_bmid=True,
+                            nu_B=swp.fit_nu_floor(r), fit_dec=swp.fit_dec_of(r))
+  if f is None:
+    return out
+  one = f['regime'] == 'VFC'                # the fit itself found a single break
+  ok = (not f['at_bound']) and f['rms'] <= swp.GS02_TRACK_RMSMAX
+  out.update(fit_reg=f['regime'], fit_rms=float(f['rms']), fit_ok=bool(ok))
+  if not ok:
+    return out
+  lo, hi = float(f['b_lo']), float(f['b_hi'])
+  lo_in = lo > swp.EDGE_FAC*x.min()
+  hi_in = hi < x.max()/swp.EDGE_FAC
+  if cls in ('SC', 'FC', 'MC') and not one and lo_in and hi_in:
+    out.update(nu_lo_fit=lo, nu_hi_fit=hi)
+    fast = {'FC': True, 'SC': False}.get(cls if cls != 'MC' else f['regime'])
+    if fast is not None:
+      out.update(nu_c_fit=lo if fast else hi, nu_m_fit=hi if fast else lo, fit_named=True)
+  elif cls in ('VFC', 'FC*'):
+    nm = lo if one else hi                  # FC*: the lower break is the band edge
+    if lo_in or not one:
+      out.update(nu_m_fit=nm)
+  elif cls == 'VSC' and not one and lo_in:
+    out.update(nu_m_fit=lo)
+  return out
+
+
 def measure_point(r, z, **kw):
   '''Both spectrum kinds of one sweep point, as two rows.'''
   x = nu_over_num(r)
@@ -542,6 +590,14 @@ def measure_point(r, z, **kw):
     if sp[kind] is None:
       continue
     m = measure_spectrum(x, sp[kind], env.psyn, **kw)
+    m.update(fit_route_breaks(r, x, sp[kind], m['cls']))
+    # nu_pk against the fitted UPPER break: the nuFnu maximum is not a break of the
+    # shape, and this is by how much they differ in each regime
+    m['pk_over_hi_fit'] = (m['x_pk']/m['nu_hi_fit']
+                           if np.isfinite(m['nu_hi_fit']) and m['nu_hi_fit'] > 0. else np.nan)
+    m['ratio_fit'] = (m['nu_c_fit']/m['nu_m_fit']
+                      if np.isfinite(m['nu_c_fit']) and np.isfinite(m['nu_m_fit'])
+                      and m['nu_m_fit'] > 0. else np.nan)
     # C is the SWEEP LABEL's ratio, which is the reverse shock's whatever z is -- the
     # observer grids are RS-normalised for both shells and every figure in this suite is
     # drawn against it. C_shell is the emitting shell's OWN gamma_c/gamma_m, and the two
@@ -555,6 +611,21 @@ def measure_point(r, z, **kw):
     m.update(kind=kind, z=z, logr=float(r['log10ratio']), psyn=float(env.psyn),
              C=C_rs, C_shell=C_shell,
              nuM_env=float((env.gma_max/env.gma_m)**2))
+    # the C calibration's own number, C/(nu_c/nu_m)^(1/2) on the fitted breaks: on the
+    # peak spectrum this is the check of the shell-averaged C definition
+    m['C_over_fit'] = (C_shell/np.sqrt(m['ratio_fit'])
+                       if np.isfinite(m['ratio_fit']) and m['ratio_fit'] > 0. else np.nan)
+    # ... and with the nuFnu maximum in place of the fitted UPPER break: (nu_c/nu_pk)^(1/2)
+    # in fast cooling, (nu_pk/nu_m)^(1/2) in slow. In fast cooling the fitted nu_m sits ~2x
+    # below the maximum (the 1/2 segment is twice as steep as the decline above it), and on
+    # the fiducial v3 peak spectra the maximum gives C to <= 7% (RS) where the fitted nu_m
+    # is 22-34% off; in slow cooling the two coincide and so do the estimates
+    m['C_over_pk'] = np.nan
+    if m['fit_named'] and np.isfinite(m['x_pk']) and m['x_pk'] > 0.:
+      fast_n = m['nu_c_fit'] < m['nu_m_fit']
+      rp = m['nu_lo_fit']/m['x_pk'] if fast_n else m['x_pk']/m['nu_lo_fit']
+      if rp > 0.:
+        m['C_over_pk'] = C_shell/np.sqrt(rp)
     rows.append(m)
   return rows
 
@@ -576,7 +647,7 @@ def measure_sweep(results, z, **kw):
 # position and a width are scales, and their ratio is what "shifted down by x" means.
 _DIFF_KEYS = ('a_lo', 'a_mid', 'a_hi', 'a_inf', 'asym_half', 'asym_tenth',
               'logW_half', 'logW_tenth')
-_RATIO_KEYS = ('x_pk', 'nu_bk', 'pk_over_bk', 'b_lo', 'b_hi', 'nu_knee_lo',
+_RATIO_KEYS = ('nu_lo_fit', 'nu_hi_fit', 'nu_m_fit', 'nu_c_fit', 'ratio_fit', 'x_pk', 'nu_bk', 'pk_over_bk', 'b_lo', 'b_hi', 'nu_knee_lo',
                'nu_knee_hi', 'nu_knee_1', 'sep', 'knee_sep', 'nuM',
                'W_half', 'W_tenth', 'Wlo_half', 'Whi_half', 'F_pk')
 
@@ -631,6 +702,10 @@ RATIO_CSV = 'spectrum_shape_ratios.csv'
 _COLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
          ('log10(C) shell', 'logC_shell', '{:+.2f}'),
          ('kind', 'kind', '{:s}'), ('class', 'cls', '{:s}'),
+         ('nu_m fit', 'nu_m_fit', '{:.4g}'), ('nu_c fit', 'nu_c_fit', '{:.4g}'),
+         ('nu_c/nu_m fit', 'ratio_fit', '{:.4g}'), ('C/(nu_c/nu_m)^1/2', 'C_over_fit', '{:.3f}'), ('C/(..)^1/2 nu_pk', 'C_over_pk', '{:.3f}'),
+         ('fit reg', 'fit_reg', '{:s}'), ('fit rms', 'fit_rms', '{:.3f}'),
+         ('nu_pk/b_hi fit', 'pk_over_hi_fit', '{:.3f}'),
          ('nu_pk', 'nu_pk', '{:.4g}'), ('nu_bk', 'nu_bk', '{:.4g}'),
          ('nu_pk/nu_bk', 'pk_over_bk', '{:.4g}'),
          ('top_dex', 'top_dex', '{:.2f}'),
@@ -673,6 +748,9 @@ _RCOLS = [('shell', 'shell', '{:s}'), ('log10(C)', 'logr', '{:+.0f}'),
           ('W_lo flu/pk', 'R_Wlo_half', '{:.3f}'),
           ('W_hi flu/pk', 'R_Whi_half', '{:.3f}'),
           ('d asym', 'd_asym_half', '{:+.3f}'),
+          ('nu_m fit flu/pk', 'R_nu_m_fit', '{:.3f}'),
+          ('nu_c fit flu/pk', 'R_nu_c_fit', '{:.3f}'),
+          ('nu_c/nu_m fit flu/pk', 'R_ratio_fit', '{:.3f}'),
           ('nu_pk flu/pk', 'R_x_pk', '{:.3f}'),
           ('nu_bk flu/pk', 'R_nu_bk', '{:.3f}'),
           ('nu_pk/nu_bk flu/pk', 'R_pk_over_bk', '{:.3f}'),
@@ -1352,20 +1430,35 @@ def plot_spectra_and_ratios(rows, results, outdir, z, mode='eff'):
     return None
 
   ax = ax_r
-  _held_mid_band(ax, [m['logr'] for m in rows
-                      if m['z'] == z and m['knee_from'] == 'merged'])
+  # MFC = the route found no mid segment in either spectrum of the point (class 'MC');
+  # there the fitted pair are shape parameters, drawn hollow
+  mfc = sorted({m['logr'] for m in rows if m['z'] == z and m['cls'] == 'MC'})
+  _held_mid_band(ax, mfc)
   by = {}
   for m in rows:
     if m['z'] == z:
       by.setdefault(m['kind'], {})[m['logr']] = m
   pk, fl = by.get('peak', {}), by.get('fluence', {})
   lr = np.array(sorted(set(pk) & set(fl)), float)
-  for i, (key, lab) in enumerate((('nu_pk', '$\\nu_{\\rm pk}$'),
-                                  ('nu_bk', '$\\nu_{\\rm bk}$'))):
-    v = np.array([pk[q][key]/fl[q][key]
-                  if np.isfinite(pk[q][key]) and np.isfinite(fl[q][key])
-                  and fl[q][key] > 0. else np.nan for q in lr], float)
-    ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.3, marker=_QMK[i], ms=6, label=lab)
+  def _ratio(key):
+    return np.array([pk[q][key]/fl[q][key]
+                     if np.isfinite(pk[q][key]) and np.isfinite(fl[q][key])
+                     and fl[q][key] > 0. else np.nan for q in lr], float)
+  # THE BREAKS ARE THE ARTICLE'S: fitted by the route of the break tracks (fit_route_breaks),
+  # so this panel and Fig. bk_evol measure the same frequencies. nu_pk, the nuFnu maximum,
+  # is kept as a thin reference: it is not a break of the shape, and where it parts from
+  # the fitted nu_m (fast) or nu_c (slow) is what the text discusses.
+  # LOWER AND UPPER, NOT nu_m AND nu_c: the two swap order across MFC (the lower break is
+  # nu_c in fast cooling, nu_m in slow), so series named by physics jump at the band while
+  # the lower/upper pair runs continuously through it.
+  in_mfc = np.isin(lr, mfc)
+  for i, (key, lab) in enumerate((('nu_hi_fit', 'upper break ($\\nu_{\\rm m}$ | $\\nu_{\\rm c}$)'),
+                                  ('nu_lo_fit', 'lower break ($\\nu_{\\rm c}$ | $\\nu_{\\rm m}$)'))):
+    v = _ratio(key)
+    ax.plot(lr, v, color=_QCOL[i], ls='-', lw=1.3, label=lab)
+    ax.plot(lr[~in_mfc], v[~in_mfc], ls='none', color=_QCOL[i], marker=_QMK[i], ms=6)
+    ax.plot(lr[in_mfc], v[in_mfc], ls='none', color=_QCOL[i], marker=_QMK[i], ms=6, mfc='none')
+  ax.plot(lr, _ratio('x_pk'), color='0.45', ls='--', lw=1., label='$\\nu F_\\nu$ peak')
   ax.set_xlabel(_CLABEL)
   # ticks and label on the RIGHT. This is the last panel, so nothing sits beyond it, and
   # on the left they would have to clear the colour bar -- which is what was forcing a
