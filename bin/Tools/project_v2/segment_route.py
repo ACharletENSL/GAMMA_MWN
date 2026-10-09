@@ -90,6 +90,11 @@ Z_RS, Z_FS = 4, 1
 # break rather than a pair, and VSC has no upper break in band at all -- both are reported,
 # neither is pooled into an s1/s2 row.
 CLASSES = ('VFC', 'FC*', 'FC', 'MC', 'SC', 'VSC')
+# The classes the SMOOTHING tables report. FC* is left out: on SPEC_BELOW_NUB spectra it is
+# only the last bins of the tail (barT > ~360 RS / ~530 FS at the fiducial, ~1e-7 of the peak
+# flux), where nu_c(t) has fallen below the bottom of the extended band -- the band's own
+# edge, not a regime, and its b_lo is the band-bottom seed. Coverage still counts it.
+TABLE_CLASSES = tuple(c for c in CLASSES if c != 'FC*')
 # MC is a two-break class here, but not on the same footing as FC and SC: its mid slope is
 # FITTED inside the shape fit rather than held (spectral_breaks.smoothing_from_identified's
 # free_bmid='mc'), because an MC spectrum displays no mid segment to measure beforehand. Its
@@ -263,13 +268,16 @@ def _cat(sides, key, mask_fn):
   return np.concatenate(v) if v else np.array([])
 
 
-def table_class(tk):
+def table_class(tk, merge_vfc=False):
   '''
   The shape class the TABLES name each bin by: the route's class, except FC whose cooling
   break (b_lo, the 4/3 x 1/2 crossing) lies below nu_B (tk['nu_B'], same x units), which is
   VFC -- as in the figures (swp.figure_class). On SPEC_BELOW_NUB spectra the route sees the
   4/3 segment below nu_B and calls these FC. tk['regime'] is left alone: the break tracks
   gate on it.
+
+  merge_vfc=True folds those bins into FC instead: the same two-break shape, whose lower
+  break simply lies below nu_B. It tests whether one FC row can stand for both.
   '''
   cls = np.array(tk['regime'], dtype=object)
   nb = tk.get('nu_B')
@@ -277,7 +285,7 @@ def table_class(tk):
     return cls
   with np.errstate(invalid='ignore'):
     vfc = np.array([q == 'FC' for q in cls]) & (np.asarray(tk['b_lo'], float) < nb)
-  cls[vfc] = 'VFC'
+  cls[vfc] = 'FC' if merge_vfc else 'VFC'
   return cls
 
 
@@ -315,7 +323,7 @@ def regime_table(sides_by_z, verbose=True, epoch=False):
   splits = ((True, 'on-axis'), (False, 'post-crossing')) if epoch else ((None, 'all'),)
   for zlab, sides in [('RS', sides_by_z[0]), ('FS', sides_by_z[1])] + \
                      [('both', sides_by_z[0] + sides_by_z[1])]:
-    for cls in CLASSES:
+    for cls in TABLE_CLASSES:
       for onax, elab in splits:
         m = lambda tk: _class_mask(tk, cls, onax)
         n = int(sum(m(tk).sum() for tk in sides))
@@ -357,7 +365,7 @@ def regime_bands(sides_by_z, epoch=True, verbose=True):
   rows = []
   splits = ((True, 'on-axis'), (False, 'post-crossing')) if epoch else ((None, 'all'),)
   sides = sides_by_z[0] + sides_by_z[1]
-  for cls in CLASSES:
+  for cls in TABLE_CLASSES:
     for onax, elab in splits:
       m = lambda tk: _class_mask(tk, cls, onax)
       n = int(sum(m(tk).sum() for tk in sides))
@@ -502,7 +510,7 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
   splits = ((True, 'on-axis'), (False, 'post-crossing')) if epoch else ((None, 'all'),)
   rows = []
   specs = []
-  for cls in CLASSES:
+  for cls in TABLE_CLASSES:
     for onax, elab in splits:
       m = lambda tk, c=cls, o=onax: _class_mask(tk, c, o)
       n = int(sum(m(tk).sum() for tk in sides))
@@ -512,7 +520,12 @@ def prescription_check(sides_by_z, key=KEY, method=METHOD, epoch=True, verbose=T
       # other two-break class; the merged break is measured too but is no longer the value
       # being tested, since it is not the shape the route reports for MC.
       merged = False
-      s1 = np.nanmedian(_cat(sides, 's1', m)) if cls in TWO_BREAK else np.nan
+      # s1 is held wherever it was MEASURED, not only for the two-break classes by name: on
+      # SPEC_BELOW_NUB spectra every VFC bin is a two-break fit (an FC whose nu_c lies below
+      # nu_B, table_class), and holding its s1 at NaN made every refit fail and dropped the
+      # VFC rows from the table.
+      v1 = _cat(sides, 's1', m)
+      s1 = (np.nanmedian(v1) if cls in TWO_BREAK or np.isfinite(v1).any() else np.nan)
       s2 = np.nanmedian(_cat(sides, 's2', m)) if cls in TWO_BREAK + ONE_BREAK else np.nan
       sg = np.nanmedian(_cat(sides, 's_1brk', m)) if merged else np.nan
       if not (np.isfinite(s2) or np.isfinite(sg)):
@@ -1242,7 +1255,7 @@ def write_tables(*dfs_named, outdir=OUTDIR):
 
 
 def main(key=KEY, method=METHOD, outdir=None, nproc=NPROC, route_kw=None,
-    use_cache=True):
+    use_cache=True, merge_test=True):
   '''
   The five tables, from the cached sweeps. THIS MODULE DRAWS NOTHING -- it is an analysis
   step, not a figure step, so it does not belong in a replot pass.
@@ -1250,6 +1263,8 @@ def main(key=KEY, method=METHOD, outdir=None, nproc=NPROC, route_kw=None,
   use_cache=True (the default) reloads the per-point tracks written by an earlier run
   instead of refitting them (see _run_point); they are invalidated automatically by an
   edited sweep point or an edited spectral_breaks.py. Pass False to force the fits.
+  merge_test=True also writes *_fcvfc.csv: the bands and the held-s check with VFC folded
+  into FC.
   '''
   outdir = figdir(OUTDIR_NAME, key) if outdir is None else outdir
   _ensure_outdir(outdir)
@@ -1267,6 +1282,19 @@ def main(key=KEY, method=METHOD, outdir=None, nproc=NPROC, route_kw=None,
   write_tables((cov, 'coverage.csv'), (reg, 'smoothing_by_class.csv'),
                (ep, 'smoothing_by_class_epoch.csv'), (bands, 'smoothing_pooled.csv'),
                (presc, 'prescription_check.csv'), outdir=outdir)
+  if merge_test:
+    # the same tables with VFC folded into FC (table_class merge_vfc): one row, if the
+    # held FC values describe the sub-nu_B-break bins as well as their own do
+    print(f"\n{'=== FC AND VFC AS ONE CLASS ':=<96}")
+    for tk in sides_by_z[0] + sides_by_z[1]:
+      tk['class'] = table_class(tk, merge_vfc=True)
+    bands_m = regime_bands(sides_by_z, epoch=True)
+    presc_m = prescription_check(sides_by_z, key=key, method=method, nproc=nproc,
+                                 route_kw=route_kw, outdir=outdir)
+    for tk in sides_by_z[0] + sides_by_z[1]:
+      tk['class'] = table_class(tk)
+    write_tables((bands_m, 'smoothing_pooled_fcvfc.csv'),
+                 (presc_m, 'prescription_check_fcvfc.csv'), outdir=outdir)
   print(f'\nsegment-route smoothing saved to {outdir}')
   return sides_by_z, cov, reg, ep, bands, presc
 
