@@ -40,7 +40,7 @@ from plotting_functions import COL_RS, COL_FS, COL_TOT
 from environment import figdir, field_correction_tag, FIDUCIAL_KEY
 from sweep_gammacm import (GAMMA_dir, DEFAULT_KEY, Z_SHELL, TMAX, NT, TB_MIN, TB_LIN,
     SUBCELL_DLOGT, SUBCELL_MAX, R_REF, EARLY_ANA, compute_alpha_sweep, compute_efficiency,
-    method_outdir, load_sweep, trim_pngs, _data_method_spec)
+    method_outdir, load_sweep, trim_pngs, _data_method_spec, copy_article_figures)
 from cell_pool import pool_context, resolve_nproc, set_thread_env
 
 LOG10RATIO_FINE = np.linspace(-5., 5., 101)  # 10 points/decade, both endpoints included
@@ -684,6 +684,7 @@ def _figures(res_by_method, outdir=OUTDIR):
     plot_post_rarefaction_share(res_by_method, outdir=outdir)
   build_efficiency_table(res_by_method, outdir=outdir)
   trim_pngs(outdir)
+  copy_article_figures(outdir)       # eps_rad.png (= radiative_efficiency_fine.png)
   print(f'Figures saved to {outdir}')
 
 

@@ -4423,60 +4423,94 @@ ARTICLE_NAME = 'article_choice'   # the picked figures live beside the sweep tha
                                  # the destination is derived rather than tabulated
 ARTICLE_DIR = figdir(ARTICLE_NAME)            # the fiducial's, for defaults
 ARTICLE_SERIES = {   # {source figure dir (run folder stripped): globs of the series}
-  # Every figure here describes the SAME prescription on the SAME run: the rarefaction-cut
-  # method (sweep_rarcut's METHOD_A) on cooling_g100. What varies between the three entries
-  # is the question, not the computation -- the reverse shock alone, the two shells summed,
-  # and what the cut itself costs.
-  # The third entry is new (2026-09-14). Most of rarcut_compare is still what it always
-  # was, the EVIDENCE for choosing the prescription rather than the article's own figures,
-  # and is not mirrored; two composites are now picked out of it, listed at their key.
+  # EXACTLY the figures aa_cooling.tex includes (re-synced with the article 2026-10-09), so
+  # article_choice is the article's figure set and nothing else. An entry is a glob, or a
+  # (source name, name in the article) pair where the article renamed the file.
+  # Every sweep figure describes the rarefaction-cut method on one run; the post-
+  # rarefaction comparison (rarcut_compare) is the article's Sect. 5.
   'gammacm_sweep_data_rarcut': (
-      'lightcurve_shape_nu=*.png',     # the three NU_TARGETS; the '_plain' series and the
-                                       # 'vs_nu' ones below break this glob by construction
-      'spectra_norm-eff.png',          # peak + time-integrated spectra as one 2-panel
-                                       # figure, peak-normalised x eps_rad: shapes
-                                       # stacked by how much each regime actually
-                                       # radiates (plot_spectra_pair)
-      'spectrum_evolution_logr=*.png', # the SPEC_LOGT time series per regime (NOT the
-                                       # '_plain' series)
-      'pulse_characteristics_vs_nu.png',    # measured peak time / width / asymmetry across
-      'pulse_characteristics_vs_nu_pk.png', # the band, in nu/nu_m and nu/nu_pk. NB these are
-                                       # the pulse CHARACTERISTICS (lightcurve_shape.
-                                       # plot_shape_vs_nu); the pulse PROFILES are
-                                       # pulse_profiles_collapsed.png and the lightcurves
-                                       # themselves are lightcurve_shape_nu=*.png above
-      'mid_slope_evolution.png',       # mid-segment slope vs time (mid_slope_evolution.py)
-      'break_panels.png',              # the two break panels fused, sharing a
-                                       # bar{T}/bar{T}_f axis: nu_c and nu_m each on its own
-                                       # env normalisation on top, their ratio underneath
-                                       # (plot_break_panels). REPLACED break_evolution.png
-                                       # here 2026-09-16 -- that one and break_ratio_
-                                       # evolution.png are still written beside it as
-                                       # diagnostics, and the glob is exact so neither they
-                                       # nor the _table.png of the same family come along
+      'lightcurve_shape_nu=*.png',     # Fig. 5, the three NU_TARGETS (the '_plain' series
+                                       # breaks this glob by construction)
+      'pulse_characteristics_vs_nu.png',    # Fig. 6, peak time / width / asymmetry vs nu
+      'spectrum_shape_spectra_ratios_RS.png',  # Fig. 7, peak vs time-integrated spectra
+      'spectrum_evolution_logr=*.png', # Fig. 8, the SPEC_LOGT series per regime
+      'break_panels.png',              # Fig. 9, nu_c, nu_m and their ratio (exact name: the
+                                       # break_evolution / _ratio diagnostics stay behind)
+      'mid_slope_evolution.png',       # Fig. B.1 (mid_slope_evolution.py)
   ),
-  # The two shells (sweep_shells, same method and same run -- `shells_split` IS the
-  # data_rarcut set; the uncut `shells_split_data` does not match this key and mirrors
-  # nothing). The RS-only sweep above cannot say what an observer sees, because the FS
-  # arrives on the same lightcurve.
-  'shells_split': (
-      'shell_spectra_panels_*.png',    # RS / FS / sum at three regimes, with (RS+FS)/RS
-                                       # underneath; one file per kind (peak, fluence)
-      'shell_peak_width_*.png',        # and the half-maximum width of the RS against the
-                                       # sum, over the whole sweep, per kind
+  'shells_split': (                    # sweep_shells, same method and run (`shells_split`
+      'shell_spectra_panels_fluence.png',   # IS the data_rarcut set); the article takes the
+  ),                                   # time-integrated panels only
+  'efficiency_sweep': (                # sweep_efficiency, 10 points per decade
+      ('radiative_efficiency_fine.png', 'eps_rad.png'),
   ),
-  # The rarefaction cut-off, which IS an article figure now (2026-09-14) and was not
-  # before: the note above -- that rarcut_compare is the evidence for choosing the
-  # prescription rather than the article's own figures -- still holds for the rest of that
-  # folder, and only these two composites are picked out of it.
-  'rarcut_compare': (
-      'lightcurve_panels_lin.png',     # the three NU_TARGETS, cut vs full, with the ratio
-                                       # underneath: what the post-rarefaction material is
-                                       # worth across the band
-      'fluence_spectra_slope_norm-eff.png',   # and what it does to the time-integrated
-                                       # shape, spectra beside their local index
+  'rarcut_compare': (                  # Sect. 5, full vs cut
+      'lightcurve_shape_cmp_nu=*.png', # the three NU_TARGETS
+      'fluence_spectra_slope_norm-eff.png',
+      'postrf_spectra_all.png',
   ),
 }
+# Figures of the analytic sections, which no run produces: they live under figures/ itself,
+# not under a run folder, and rebuild_article_choice copies them into EVERY run's selection.
+ARTICLE_ANALYTIC = {
+  'cooling_distributions': (           # cooling_shape_panels, cooling_averaged_figure,
+      'cooling_tracks.png',            # cooling_shell_integrated
+      'cooling_shapes.png',
+      'cooling_integrated_steady.png',
+      'cooling_shell_integrated.png',
+  ),
+}
+# In the article but made by NO script in this repository: listed so rebuild_article_choice
+# reports them instead of letting the gap go unnoticed.
+ARTICLE_UNSOURCED = ('cells_hydro.png',)
+
+
+def _article_copies(src_dir, globs):
+  '''(source path, destination basename) for every file an entry selects in src_dir.'''
+  out = []
+  for g in globs:
+    src, dst = g if isinstance(g, tuple) else (g, None)
+    for f in sorted(glob.glob(os.path.join(src_dir, src))):
+      out.append((f, dst or os.path.basename(f)))
+  return out
+
+
+def rebuild_article_choice(key=FIDUCIAL_KEY, series=ARTICLE_SERIES, analytic=ARTICLE_ANALYTIC):
+  '''
+  Empty figures/<run>/article_choice and refill it from every source, so it holds the
+  article's figure set as the sources stand NOW and nothing else (copy_article_figures only
+  ever adds, so a figure dropped from the article would otherwise stay there forever).
+  Each sweep source is looked up with the field-correction tag first (the current
+  definition), then without it. Prints what is missing.
+  '''
+  import shutil
+  dest = figdir(ARTICLE_NAME, key)
+  os.makedirs(dest, exist_ok=True)
+  for f in glob.glob(os.path.join(dest, '*.png')):
+    os.remove(f)
+  copied, missing = [], []
+  for name, globs in series.items():
+    src = next((d for d in (figdir(name + FIELD_CORR_TAG, key), figdir(name, key))
+                if os.path.isdir(d)), None)
+    pairs = _article_copies(src, globs) if src else []
+    if not pairs:
+      missing.append(f'{name}: {globs}')
+    for f, b in pairs:
+      shutil.copy2(f, os.path.join(dest, b)); copied.append(b)
+  for name, globs in analytic.items():
+    pairs = _article_copies(os.path.join(FIG_ROOT, name), globs)
+    got = {b for _, b in pairs}
+    missing += [f'{name}/{g}' for g in globs if g not in got]
+    for f, b in pairs:
+      shutil.copy2(f, os.path.join(dest, b)); copied.append(b)
+  if copied:
+    trim_pngs([os.path.join(dest, c) for c in copied])
+  print(f'article_choice rebuilt for {key}: {len(copied)} figures in {dest}')
+  for m in missing:
+    print(f'  MISSING  {m}')
+  for u in ARTICLE_UNSOURCED:
+    print(f'  NO SOURCE in this repository (copy by hand): {u}')
+  return copied, missing
 
 
 def copy_article_figures(outdir, article_dir=None, series=ARTICLE_SERIES):
@@ -4507,11 +4541,9 @@ def copy_article_figures(outdir, article_dir=None, series=ARTICLE_SERIES):
   dest = article_dir or os.path.join(os.path.dirname(os.path.normpath(outdir)), ARTICLE_NAME)
   os.makedirs(dest, exist_ok=True)
   copied = []
-  for g in globs:
-    for f in sorted(glob.glob(os.path.join(outdir, g))):
-      out = os.path.join(dest, os.path.basename(f))
-      shutil.copy2(f, out)
-      copied.append(os.path.basename(f))
+  for f, b in _article_copies(outdir, globs):
+    shutil.copy2(f, os.path.join(dest, b))
+    copied.append(b)
   # TRIM WHAT LANDS HERE, not just what the drawing step happened to trim. Every main
   # calls trim_pngs before this, but that only covers figures THAT run wrote, and on a
   # machine without ImageMagick it used to do nothing at all -- so the article folder
