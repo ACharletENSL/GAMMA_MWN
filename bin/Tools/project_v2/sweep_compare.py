@@ -1122,23 +1122,18 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
   '''
   la, lb = labels
   band = lambda f: next((v for d, v in f['a_band'].items() if float(d) == band_dex), np.nan)
-  est = {'asym': ('o', lambda f: f['a_inf'], 'asymptotic'),
+  est = {'asym': ('o', lambda f: f['a_inf'], 'asymptotic slopes'),
          'band': ('D', band, f'${band_dex:g}$ dex below $\\nu_{{\\rm pk}}$')}
   for side, (i, fk, ls) in enumerate(((0, 'fa', '--'), (1, 'fb', '-'))):
     eps = np.array([compute_efficiency(p[i]) for p in pairs])
     for mk, get, _ in est.values():
       al = np.array([get(e[fk]) for e in series]) - 2.
       ax.plot(eps, al, color='k', ls=ls, lw=1, zorder=1)
-      # an ASYMPTOTE the physical band (nu >= nu_B, fluence_series) does not reach is drawn
-      # hollow, as in plot_fluence_slopes_vs_regime: in deep fast cooling the 4/3 segment
-      # lies below nu_B and the value is the slope at the band's bottom, not the asymptote
-      ok = (np.array([bool(e[fk]['converged'] and e[fk]['in_band']) for e in series])
-            if mk == 'o' else np.ones(len(series), bool))
-      col = np.asarray(colors)
-      ax.scatter(eps[ok], al[ok], c=col[ok], marker=mk, s=36, edgecolors='k',
-                 linewidths=.5, zorder=2)
-      ax.scatter(eps[~ok], al[~ok], facecolors='none', edgecolors=col[~ok], marker=mk,
-                 s=36, linewidths=1., zorder=2)
+      # every point filled, resolved or not (user's choice, 2026-10-10). NB in deep fast
+      # cooling the 4/3 segment lies below nu_B (fluence_series measures on nu >= nu_B), so
+      # there the circle is the slope at the band's bottom, a lower bound on the asymptote
+      ax.scatter(eps, al, c=colors, marker=mk, s=36, edgecolors='k', linewidths=.5,
+                 zorder=2)
   for a, lab in ((A_LO_ASYMP - 2., '$-2/3$'), (-1.5, '$-3/2$')):
     ax.axhline(a, color='grey', ls=':', lw=.8)
     ax.annotate(lab, xy=(0.01, a), xycoords=transx(ax), fontsize=8, color='grey',
@@ -1151,8 +1146,6 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
   ax.plot([], [], 'k--', lw=1, label=la); ax.plot([], [], 'k-', lw=1, label=lb)
   for mk, _, lab in est.values():
     ax.plot([], [], ls='none', marker=mk, mfc='0.7', mec='k', mew=.5, ms=6, label=lab)
-  ax.plot([], [], ls='none', marker='o', mfc='none', mec='0.4', ms=6,
-          label='asymptote not reached above $\\nu_B$')
   ax.legend(loc='center left', fontsize=9, frameon=False)
 
 
