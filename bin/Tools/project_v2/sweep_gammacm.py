@@ -4450,8 +4450,10 @@ ARTICLE_SERIES = {   # {source figure dir (run folder stripped): globs of the se
       'postrf_spectra_all.png',
   ),
 }
-# Figures of the analytic sections, which no run produces: they live under figures/ itself,
-# not under a run folder, and rebuild_article_choice copies them into EVERY run's selection.
+# Figures no sweep produces: they live under figures/ itself, not under a run folder, and
+# rebuild_article_choice copies them into EVERY run's selection. The analytic sections'
+# figures, and the cell-hydro figure (prerar_model.plot_article, drawn from the
+# cooling_g100_w5 basis run whichever run the article's sweeps come from).
 ARTICLE_ANALYTIC = {
   'cooling_distributions': (           # cooling_shape_panels, cooling_averaged_figure,
       'cooling_tracks.png',            # cooling_shell_integrated
@@ -4459,10 +4461,13 @@ ARTICLE_ANALYTIC = {
       'cooling_integrated_steady.png',
       'cooling_shell_integrated.png',
   ),
+  'prerar_model': (                    # fig:cells_hydro (Sect. 3.1)
+      ('article_cells_z4_R0.png', 'cells_hydro.png'),
+  ),
 }
 # In the article but made by NO script in this repository: listed so rebuild_article_choice
 # reports them instead of letting the gap go unnoticed.
-ARTICLE_UNSOURCED = ('cells_hydro.png',)
+ARTICLE_UNSOURCED = ()
 
 
 def _article_copies(src_dir, globs):
@@ -4500,7 +4505,8 @@ def rebuild_article_choice(key=FIDUCIAL_KEY, series=ARTICLE_SERIES, analytic=ART
   for name, globs in analytic.items():
     pairs = _article_copies(os.path.join(FIG_ROOT, name), globs)
     got = {b for _, b in pairs}
-    missing += [f'{name}/{g}' for g in globs if g not in got]
+    missing += [f'{name}/{g}' for g in globs
+                if (g[1] if isinstance(g, tuple) else g) not in got]
     for f, b in pairs:
       shutil.copy2(f, os.path.join(dest, b)); copied.append(b)
   if copied:
