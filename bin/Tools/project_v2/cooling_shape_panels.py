@@ -226,7 +226,7 @@ def _vline(ax, v, lab, ls='-', lw=.8, color=INK, top=False):
 
 # --- (1) the edge tracks ----------------------------------------------------------------
 LAB_GM, LAB_GMM = '$\\gamma_\\mathrm{m}$', '$\\gamma_\\mathrm{M}$'
-LAB_GUIDE, LAB_TDYN = "$[(t'-t'_{\\rm i})/t'_{\\rm c,i}]^{-1}$", "$t'_{\\rm dyn}$"
+LAB_GUIDE, LAB_TDYN = "$(\\Delta t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
 # the knees are named for the PHYSICAL time, not for tt: the abscissa is t'/t'_c,i, and
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
@@ -246,7 +246,7 @@ def lab_adrift(a_rho=A_RHO):
   '''
   if abs(a_rho) < 1e-12:      # no drag: once the burn freezes gma_e simply STOPS
     return 'const.'
-  return "$[(t'-t'_{\\rm i})/t'_{\\rm c,i}]^{" + _frac_tex(a_rho/3.) + "}$"
+  return "$(\\Delta t'/t'_{\\rm c,i})^{" + _frac_tex(a_rho/3.) + "}$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
 LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
@@ -382,8 +382,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(*GMA_LIM)
     ax.set_yticks(10.**np.arange(0., np.log10(gM0) + 1., 2.))
-    # the clock starts at injection: sigma = x/tt_dyn is (t'-t'_i)/t'_i, R/R_0 = 1 + sigma
-    ax.set_xlabel("$(t'-t'_{\\rm i})/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
+    # the clock starts at injection, Delta t' = t'-t'_i: sigma = x/tt_dyn is Delta t'/t'_i, R/R_0 = 1 + sigma
+    ax.set_xlabel("$\\Delta t'/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
     ax.set_title(plab, fontsize=FS_LAB, pad=3.)
     ax.tick_params(axis='x', pad=1.5)
     ax.tick_params(which='both', labelsize=FS_TICK)
@@ -454,7 +454,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   axs[0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
 
   _legend_above(fig, axs, ncol=len(logtt),
-                title="$\\log_{10}[(t'-t'_{\\rm i})/t'_{\\rm c,i}]$")
+                title="$\\log_{10}(\\Delta t'/t'_{\\rm c,i})$")
   fig.legends[-1].get_title().set_fontsize(FS_LEG)
   return _save(fig, axs, outdir, fname, show)
 
