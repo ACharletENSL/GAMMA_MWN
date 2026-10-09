@@ -1097,7 +1097,10 @@ def rar_map_lookup(rar_map, i):
   7% jump at k=100, the boundary of its under-resolved block -- see
   compute_shell_rarefaction_head.'''
   i = int(i)
-  if i in rar_map:
+  # a NON-FINITE entry is treated as absent: the head solver returned inf for two hi-res RS
+  # cells (cooling_g100_hires z=4, cell_i 641-642, 2026-10-10), which would let them radiate
+  # to the end of the run under the cut -- the very failure the interpolation exists to avoid
+  if i in rar_map and np.isfinite(rar_map[i]):
     return rar_map[i]
   ks = np.array(sorted(rar_map.keys()), dtype=float)
   if not len(ks):

@@ -25,6 +25,7 @@ def main():
   import sweep_shells, sweep_rarcut, sweep_compare
   import nuc_validation, slope_validation, segment_route, sweep_efficiency
   import mid_slope_evolution
+  import spectrum_shape
 
   steps = [
     ('sweep_gammacm  data_rarcut z=4', lambda: swp.main(key=K, method='data_rarcut', z=4, nproc=NP)),
@@ -33,6 +34,9 @@ def main():
     ('sweep_gammacm  data        z=1', lambda: swp.main(key=K, method='data', z=1, nproc=NP)),
     ('lightcurve_shape z=4',           lambda: lcs.main(key=K, z=4, nproc=NP)),
     ('lightcurve_shape z=1',           lambda: lcs.main(key=K, z=1, nproc=NP)),
+    # Fig. 7 (spectrum_shape_spectra_ratios_RS) and the fit-route break/C tables, both
+    # shells; cache-only, seconds
+    ('spectrum_shape',                 lambda: spectrum_shape.main(key=K)),
     # mid_slope_evolution writes mid_slope_evolution.png INTO the sweep's own directory
     # and it is one of the ARTICLE_SERIES globs -- it was missing from the first hi-res
     # regeneration because this step was not in the list.
@@ -48,6 +52,9 @@ def main():
     ('segment_route',                  lambda: segment_route.main(key=K)),
     # last: it computes its OWN points, including data_norar_prerar, and is the long pole
     ('sweep_efficiency',               lambda: sweep_efficiency.main(key=K, nproc=NP)),
+    # LAST: refill article_choice from every source as it now stands (copy_article_figures
+    # only adds, so this is what keeps the folder exactly the article's figure set)
+    ('article_choice',                 lambda: swp.rebuild_article_choice(K)),
   ]
   # COMPLETENESS GUARD. sweep_gammacm.main(use_cache=True) calls load_sweep first and only
   # falls through to run_sweep when that returns NOTHING -- so a cache holding ONE point
