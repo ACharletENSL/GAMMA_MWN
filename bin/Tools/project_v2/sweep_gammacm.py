@@ -30,6 +30,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import matplotlib.transforms as mtransforms
 
 from scipy.optimize import least_squares
@@ -2772,7 +2773,25 @@ def cap_end_barT(key, z=Z_SHELL, cap=R_CAP):
   return out
 
 
-def _sweep_colors(results, cmap=plt.cm.jet):
+# THE COOLING-PARAMETER COLOUR MAP, shared by every C-sweep figure (and by
+# mid_slope_evolution's fixed per-C colours, so a value of C has ONE colour in the article).
+# Colour-blind safe: jet put green and red on different C, which A&A asks authors to avoid.
+# plasma, not viridis, because viridis already means TIME in the series figures
+# (_series_colors, the post-rarefaction spectra); cut at 0.88 because plasma's last ~12% is a
+# pale yellow that vanishes on white, and the slow-cooling end is drawn there.
+SWEEP_CMAP_CUT = 0.88
+SWEEP_CMAP = mcolors.ListedColormap(plt.cm.plasma(np.linspace(0., SWEEP_CMAP_CUT, 256)),
+                                    name='plasma_cut')
+SWEEP_LOGR_RANGE = (-5., 3.)       # the article sweep's span, for callers that colour one C
+                                   # at a time (mid_slope_evolution) and need the same norm
+
+
+def sweep_color(logr, lo=SWEEP_LOGR_RANGE[0], hi=SWEEP_LOGR_RANGE[1]):
+  '''The colour _sweep_colors gives log10 C = logr on a sweep spanning [lo, hi].'''
+  return SWEEP_CMAP(float(np.clip((logr - lo)/(hi - lo), 0., 1.)))
+
+
+def _sweep_colors(results, cmap=SWEEP_CMAP):
   logr = np.array([r['log10ratio'] for r in results], dtype=float)
   norm = plt.Normalize(vmin=logr.min(), vmax=logr.max())
   colors = cmap(norm(logr))
@@ -3045,7 +3064,7 @@ def _series_colors(logt=SPEC_LOGT, cmap=plt.cm.viridis):
   '''One colour per SPEC_LOGT bin, dark (early) to bright (late). Sequential, because the
   bins are ordered in time and the eye should read the sequence as one; truncated below the
   top of the map, whose pale yellow is unreadable on white. Deliberately NOT the sweep's own
-  colour axis (_sweep_colors, jet on log10(gamma_c/gamma_m)): colour means time here, and
+  colour axis (_sweep_colors, SWEEP_CMAP on log10 C): colour means time here, and
   each figure is a single sweep point.'''
   return cmap(np.linspace(0., 0.88, len(np.atleast_1d(logt))))
 

@@ -763,7 +763,7 @@ def plot_shape_vs_nu(scan_rows, results, outdir, x_rf=None, unit='num'):
   # the frequency unit the suptitle used to state is the x label of all three.
   for i, ylab in enumerate(('$x_{\\rm pk}=\\bar{T}_{\\rm pk}/\\bar{T}_f$',
                             'FWHM $/\\bar{T}_f$',
-                            '$t_{\\rm rise}/t_{\\rm fall}$ at $0.1\\,F_{\\rm pk}$')):
+                            '$T_{\\rm rise}/T_{\\rm fall}$ at $0.1\\,F_{\\rm pk}$')):
     ax = axs[i]
     ax.axvline(1., color='grey', ls=':', lw=.8)
     if i in (0, 2) and inside(i, 1.):    # x=1 = shell crossing / symmetric pulse

@@ -90,19 +90,13 @@ X_FINE = 0.05                      # excursion lives (x < X_FINE) and coarser af
                                    # denser late sampling buys nothing but runtime
 FLUX_FLOOR = 1e-10                 # skip steps whose peak flux is this far below the
                                    # brightest: the spectrum there is numerical noise
-# Diverging assignment on logr: blue = fast cooling, neutral grey at logr=0 (gamma_c=gamma_m,
-# the marginal point), red = slow. One global map, so logr=-3 is the same colour in both
-# panels -- colour follows the entity, not its rank within a panel. NB this is NOT the jet
-# colorbar the sweep figures use; there is no colorbar here, the curves are labelled.
-# The FAST-COOLING panel carries only -5..-2, i.e. four neighbours out of the cool half, so
-# the ramp has to do its separating over that stretch: the lightness range is widened and a
-# little hue rotation (navy -> blue -> cyan-blue) added, which separates -4 from -3 where
-# pure lightness did not. -1 stays pale because it appears in the SLOW panel only, beside
-# the grey and the reds. Colour still follows the ENTITY, not its rank in a panel, so -3 is
-# the same colour in both; the end-of-track labels below are what actually makes a track
-# identifiable, and they are why the ramp does not have to carry the whole burden.
-COL = {-5: '#08306b', -4: '#2171b5', -3: '#41b6c4', -2: '#a6bddb',
-       -1: '#d0d1e6', 0: '#737373', 1: '#ef6548', 2: '#a50f15', 3: '#67000d'}
+# One colour per log10 C, the SAME as in every other sweep figure (sweep_gammacm.SWEEP_CMAP,
+# on the article sweep's -5..3 span): colour follows the entity, not its rank within a panel,
+# so logr = -3 is the same colour here, in both panels, and in the lightcurve figures. The
+# hand-tuned blue-grey-red ramp this replaces was a second colour code for the same axis.
+# The end-of-track labels below are what makes a track identifiable; the colour backs them up.
+from sweep_gammacm import sweep_color as _sweep_color
+COL = {lr: _sweep_color(lr) for lr in range(-5, 4)}
 
 
 def col(lr):

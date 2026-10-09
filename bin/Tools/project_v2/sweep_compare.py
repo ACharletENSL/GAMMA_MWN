@@ -721,8 +721,10 @@ def plot_lightcurve_shape_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TA
   ylo_log = min(lo)/swp.YPAD_LOG if lo else 1e-8
 
   for nu_t in nu_targets:
+    # hspace small: x labels are on the bottom row only (sharex='col'), so the default 0.2
+    # was pure white space between the lightcurves and their ratio/difference panels
     fig, axs = plt.subplots(2, 3, figsize=(15.5, 6.6), sharex='col',
-                            gridspec_kw={'height_ratios': [2.2, 1]})
+                            gridspec_kw={'height_ratios': [2.2, 1], 'hspace': 0.05})
     (ax_lin, ax_log, ax_idx), (ax_rlin, ax_rlog, ax_d) = axs
     ratios, dmax = [], 0.
     for (rf, rd), c, eff in _draw_order(zip(pairs, colors, effs)):
@@ -783,7 +785,7 @@ def plot_lightcurve_shape_compare(pairs, barT_f, barT_off=None, nu_targets=NU_TA
     ax_d.set_ylim(-1.1*dmax, 1.1*dmax)
     ax_rlin.set_ylabel(f'{lb} / {la}')
     # (the middle ratio panel shares the left one's label: same quantity, other clock)
-    ax_d.set_ylabel(f'$\\Delta a$  ({lb} $-$ {la})')
+    ax_d.set_ylabel(f'{lb} $-$ {la}')
     for ax in axs[1]:
       ax.set_xlabel('$\\bar{T}/\\bar{T}_f$')
     ax_lin.text(0.97, 0.89, _nu_0_label(nu_t), transform=ax_lin.transAxes,
