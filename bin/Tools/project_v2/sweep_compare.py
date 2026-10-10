@@ -1122,8 +1122,10 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
   '''
   la, lb = labels
   band = lambda f: next((v for d, v in f['a_band'].items() if float(d) == band_dex), np.nan)
-  est = {'asym': ('o', lambda f: f['a_inf'], 'asymptotic slopes'),
-         'band': ('D', band, f'${band_dex:g}$ dex below $\\nu_{{\\rm pk}}$')}
+  # the band point is a free line over the decade ENDING band_dex below the peak, so the
+  # legend gives the window, not a single frequency
+  est = {'asym': ('o', lambda f: f['a_inf'], 'asymptote'),
+         'band': ('D', band, f'$10^{{{-band_dex-1:g}}}$–$10^{{{-band_dex:g}}}\\,\\nu_{{\\rm pk}}$')}
   for side, (i, fk, ls) in enumerate(((0, 'fa', '--'), (1, 'fb', '-'))):
     eps = np.array([compute_efficiency(p[i]) for p in pairs])
     for mk, get, _ in est.values():
