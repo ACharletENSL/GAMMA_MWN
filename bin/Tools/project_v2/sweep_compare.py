@@ -1136,7 +1136,11 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
       # there the circle is the slope at the band's bottom, a lower bound on the asymptote
       ax.scatter(eps, al, c=colors, marker=mk, s=36, edgecolors='k', linewidths=.5,
                  zorder=2)
-  for a, lab in ((A_LO_ASYMP - 2., '$-2/3$'), (-1.5, '$-3/2$')):
+  # one-zone guides: below nu_c (-2/3), fast cooling mid segment (-3/2), slow cooling mid
+  # segment -(p+1)/2, which the slow cooling diamonds sit on
+  psyn = float(pairs[0][0]['env'].psyn)
+  for a, lab in ((A_LO_ASYMP - 2., '$-2/3$'), (-1.5, '$-3/2$'),
+                 (-(psyn + 1.)/2., '$-(p+1)/2$')):
     ax.axhline(a, color='grey', ls=':', lw=.8)
     ax.annotate(lab, xy=(0.01, a), xycoords=transx(ax), fontsize=8, color='grey',
                 ha='left', va='bottom')
