@@ -309,6 +309,8 @@ import os
 import json
 import numpy as np
 import pandas as pd
+import matplotlib
+import matplotlib.ticker
 import matplotlib.pyplot as plt
 
 from environment import MyEnv, GAMMA_dir
@@ -2300,6 +2302,200 @@ def plot_wave_tracks(key='cooling_g100', z=4, stride=4, outdir=OUTDIR):
   ax.legend(fontsize=9, frameon=False, loc='upper left')
   P._style(ax)
   path = os.path.join(outdir, f'wave_tracks_z{z}.png')
+  fig.savefig(path, dpi=200, bbox_inches='tight')
+  plt.close(fig)
+  print(f'saved {path}')
+  return path
+
+
+# --- trailing shock: snapshots ----------------------------------------------------------
+# How the compression behind the rarefaction turns into a shock, read off the snapshots rather
+# than the cell histories. Measured on cooling_g100 shell 4 (2026-10-11), front = steepest
+# Gamma drop, jump = states 2 cells behind / 3 ahead of it (Newtonian RH, gamma 5/3 -- the
+# comoving Theta is 1e-3..1e-6, so the jump is non-relativistic in the gas frame):
+#     t = 1.5e5 - 3e5 s   sound wave: M 1.0-1.1, no entropy jump, front ~30 cells wide
+#     t = 3.5e5 - 6e5 s   steepens: width -> 2 cells, M 1.2 -> 2.9, s2/s1 1.0 -> 1.5
+#     t = 6e5   - 3.6e6 s strong shock: rho2/rho1 -> 4, M 4 -> 9, s2/s1 2.5 -> 11; it forms
+#                         at ~30% of the shell from the interface and reaches the CD at ~3.6e6
+# It strengthens because the gas ahead of it keeps cooling adiabatically (Theta_u 5e-4 ->
+# 3e-6) while the velocity jump decays slowly, so M grows even as the shock weakens in
+# Gamma. Past the CD it runs into shell 1's even colder gas: M 10-90 from snapshot to
+# snapshot there, so the strength table stops at the CD.
+TS_T_REF   = 4.2e4         # s; per-cell entropy reference, after the RS has left shell 4
+TS_SNAP_T  = (np.geomspace(4.5e4, 4.8e5, 7), np.geomspace(4.8e5, 6.5e6, 7))
+                           # the two columns: formation, then propagation and the CD
+TS_TRACK_T = (1.3e5, 3.3e6)  # front tracked in S4 between these (before: no front; after:
+                             # the steepest drop is the CD itself, width jumps to ~20 cells)
+TS_JUMP    = (2, 3)        # cells behind / ahead of the steepest drop for the two states
+TS_WIDTH_W = 40            # half-window (cells) for the Gamma drop the width is measured on
+
+
+def _snap_index(key):
+  '''(iterations, times) of all snapshots of a run, cached on disk beside the dumps.'''
+  import glob, re
+  rdir = os.path.join(GAMMA_dir, 'results', key)
+  cache = os.path.join(rdir, 'snap_times.npz')
+  its = np.array(sorted(int(re.findall(r'phys(\d+)\.out', f)[0])
+                        for f in glob.glob(os.path.join(rdir, 'phys*.out'))))
+  if os.path.exists(cache):
+    z = np.load(cache)
+    if np.array_equal(z['its'], its):
+      return its, z['ts']
+  ts = np.empty(len(its))
+  for n, it in enumerate(its):
+    with open(os.path.join(rdir, f'phys{it:010d}.out')) as fh:
+      fh.readline()
+      ts[n] = float(fh.readline().split()[0])
+  np.savez(cache, its=its, ts=ts)
+  return its, ts
+
+
+def _snap_at(key, t, its=None, ts=None):
+  '''Snapshot nearest in log t, restricted to shells 4 and 1, with Gamma and f added:
+  f = (R - R_int)/(R_CD - R_int), 0 at shell 4's external interface and 1 at the CD.'''
+  if its is None:
+    its, ts = _snap_index(key)
+  n = np.argmin(np.abs(np.log(np.maximum(ts, 1e-30)/t)))
+  d = pd.read_csv(os.path.join(GAMMA_dir, 'results', key, f'phys{its[n]:010d}.out'), sep=' ',
+                  usecols=['t', 'i', 'x', 'dx', 'rho', 'vx', 'p']).set_index('i')
+  k4, _, kCD4 = shell_cell_range(key, 4)
+  _, k1, _ = shell_cell_range(key, 1)
+  d = d.loc[k4:k1].copy()
+  Ri = d.x.loc[k4] - 0.5*d.dx.loc[k4]
+  Rc = d.x.loc[kCD4] + 0.5*d.dx.loc[kCD4]
+  d['G'] = 1./np.sqrt(1. - d.vx**2)
+  d['f'] = (d.x - Ri)/(Rc - Ri)
+  d.attrs.update(t=float(d.t.iloc[0]), Rcd=float(Rc))
+  return d
+
+
+def _front(d, kmin, kmax):
+  '''Steepest Gamma drop between cells kmin..kmax of snapshot d: its cell, f, width (in
+  cells) and the jump across it.'''
+  G, rho, p = (d.loc[kmin:kmax, q].to_numpy() for q in ('G', 'rho', 'p'))
+  dG = np.diff(G)
+  j = int(np.argmin(dG[5:-5])) + 5
+  lo, hi = max(j - TS_WIDTH_W, 0), min(j + TS_WIDTH_W, len(G) - 1)
+  a = lo + int(np.argmax(G[lo:j + 1]))
+  b = j + 1 + int(np.argmin(G[j + 1:hi + 1]))
+  dn, up = j + 1 - TS_JUMP[0], j + TS_JUMP[1]
+  pr, rr = p[dn]/p[up], rho[dn]/rho[up]
+  s = (p/rho**GMA_REF)
+  return dict(k=kmin + j, f=float(d.f.iloc[d.index.get_loc(kmin + j)]), dG=G[a] - G[b],
+              width=(G[a] - G[b])/max(-dG[j], 1e-30), p=pr, rho=rr, s=s[dn]/s[up],
+              M=float(np.sqrt(((GMA_REF + 1)*pr + GMA_REF - 1)/(2*GMA_REF))) if pr > 1 else 1.,
+              Theta_u=p[up]/rho[up])
+
+
+def measure_trailing_front(key='cooling_g100', t_range=TS_TRACK_T, nsnap=60, verbose=True):
+  '''The trailing front in shell 4 per snapshot, geometric in t over t_range. Returns arrays
+  t, LR = log10(R_CD/R_0), k, f, width, M, rho, s, p, Theta_u (see _front).'''
+  env = MyEnv(key)
+  its, ts = _snap_index(key)
+  k4, _, kCD4 = shell_cell_range(key, 4)
+  rows = []
+  for t in np.geomspace(*t_range, nsnap):
+    d = _snap_at(key, t, its, ts)
+    r = _front(d, k4, kCD4)
+    r.update(t=d.attrs['t'], LR=np.log10(d.attrs['Rcd']*c_/env.R0))
+    rows.append(r)
+  out = {q: np.array([r[q] for r in rows]) for q in rows[0]}
+  if verbose:
+    print('     t [s]  log R/R0     f      k  width    M    rho2/1   s2/s1   Theta_u')
+    for i in range(0, len(rows), max(1, len(rows)//20)):
+      print(f'  {out["t"][i]:.2e}  {out["LR"][i]:6.3f}  {out["f"][i]:6.3f}  {out["k"][i]:4d} '
+            f'{out["width"][i]:6.1f} {out["M"][i]:5.2f}  {out["rho"][i]:6.2f}  '
+            f'{out["s"][i]:6.2f}   {out["Theta_u"][i]:.1e}')
+  return out
+
+
+def plot_trailing_shock_snapshots(key='cooling_g100', outdir=OUTDIR, t_cols=TS_SNAP_T,
+    t_ref=TS_T_REF):
+  '''
+  Shell 4 (and the first part of shell 1) at successive times, against f -- 0 at the external
+  interface, 1 at the CD. Left: the rarefaction crossing and the compression growing behind
+  it; right: the front steepened into a shock and run out to, then across, the CD. Rows:
+  Gamma; rho and p compensated by the coasting-shell laws R^2 and R^(10/3); the per-cell
+  entropy s = p/rho^(5/3) over its value at t_ref, after the RS has left (the rarefaction is
+  isentropic, so anything off 1 is made by the trailing shock). Dots on the Gamma curves:
+  the measured front (_front), drawn once its drop exceeds 0.1.
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  env = MyEnv(key)
+  its, ts = _snap_index(key)
+  k4, _, kCD4 = shell_cell_range(key, 4)
+  ref = _snap_at(key, t_ref, its, ts)
+  s_ref = ref.p/ref.rho**GMA_REF
+  fig, axes = plt.subplots(4, 2, figsize=(10., 10.5), sharex='col', sharey='row',
+                           layout='constrained')
+  cmap = plt.get_cmap('viridis')
+  for c, tcol in enumerate(t_cols):
+    snaps = [_snap_at(key, t, its, ts) for t in tcol]
+    LR = np.array([np.log10(d.attrs['Rcd']*c_/env.R0) for d in snaps])
+    norm = plt.Normalize(LR.min(), LR.max())
+    for d, L in zip(snaps, LR):
+      col = cmap(norm(L))
+      x = d.attrs['Rcd']*c_/env.R0
+      axes[0, c].plot(d.f, d.G, color=col, lw=1.3)
+      axes[1, c].plot(d.f, d.rho*x**2, color=col, lw=1.3)
+      axes[2, c].plot(d.f, d.p*x**(10./3.), color=col, lw=1.3)
+      axes[3, c].plot(d.f, (d.p/d.rho**GMA_REF)/s_ref.reindex(d.index), color=col, lw=1.3)
+      if d.attrs['t'] > TS_TRACK_T[0] and d.attrs['t'] < TS_TRACK_T[1]:
+        fr = _front(d, k4, kCD4)
+        if fr['dG'] > 0.1:
+          axes[0, c].plot(fr['f'], d.G.loc[fr['k']], 'o', ms=4, mfc='none', mec='k', mew=0.9)
+    cb = fig.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), ax=axes[:, c],
+                      location='top', shrink=0.8, aspect=30)
+    cb.set_label(r'$\log_{10}(R_{\rm CD}/R_0)$')
+    axes[-1, c].set_xlabel(r'$(R - R_{\rm int})/(R_{\rm CD} - R_{\rm int})$')
+    axes[-1, c].set_xlim(-0.03, 1.25)
+    for ax in axes[:, c]:
+      ax.axvline(1., color='0.6', lw=0.8, ls=(0, (4, 2)), zorder=1)
+      P._style(ax)
+  axes[0, 0].text(1.01, 0.02, 'CD', transform=axes[0, 0].get_xaxis_transform(), fontsize=8,
+                  color='0.45', va='bottom')
+  axes[0, 0].set_ylabel(r'$\Gamma$')
+  axes[1, 0].set_ylabel(r'$\rho\,(R_{\rm CD}/R_0)^2$ [code]')
+  axes[2, 0].set_ylabel(r'$p\,(R_{\rm CD}/R_0)^{10/3}$ [code]')
+  axes[3, 0].set_ylabel(r'$s/s(t_{\rm ref})$')
+  for ax in axes[1:, 0]:
+    ax.set_yscale('log')
+  axes[3, 0].set_ylim(0.5, 30.)
+  path = os.path.join(outdir, f'trailing_shock_snapshots_z4.png')
+  fig.savefig(path, dpi=200, bbox_inches='tight')
+  plt.close(fig)
+  print(f'saved {path}')
+  return path
+
+
+def plot_trailing_shock_strength(key='cooling_g100', outdir=OUTDIR, F=None):
+  '''The front's position, width and jump against log10(R_CD/R_0): it forms as a ~30-cell
+  sound wave, steepens to the 2-cell numerical width, then strengthens to rho2/rho1 = 4 on
+  its way to the CD.'''
+  os.makedirs(outdir, exist_ok=True)
+  F = measure_trailing_front(key) if F is None else F
+  fig, axes = plt.subplots(3, 1, figsize=(5.9, 7.6), sharex=True, layout='constrained',
+                           height_ratios=[1.6, 1.3, 2.2])
+  L = F['LR']
+  axes[0].plot(L, F['f'], color='k', lw=1.5)
+  axes[0].set(ylabel=r'$f_{\rm sh}$', ylim=(0., 1.))
+  axes[1].plot(L, F['width'], color='k', lw=1.5)
+  axes[1].set(ylabel='front width [cells]', yscale='log')
+  axes[1].yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%g'))
+  axes[1].yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+  axes[1].set_yticks([2, 3, 5, 10, 20, 30])
+  for q, col, lab in (('M', '#0072B2', r'$\mathcal{M}$'),
+                      ('rho', '#D55E00', r'$\rho_2/\rho_1$'),
+                      ('s', '#009E73', r'$s_2/s_1$')):
+    axes[2].plot(L, F[q], color=col, lw=1.6, label=lab)
+  axes[2].axhline(4., color='#D55E00', lw=0.8, ls=(0, (4, 2)))
+  axes[2].axhline(1., color='0.6', lw=0.7)
+  axes[2].set(yscale='log', ylabel='jump across the front')
+  axes[2].legend(fontsize=9, frameon=False, loc='upper left')
+  axes[-1].set_xlabel(r'$\log_{10}(R_{\rm CD}/R_0)$')
+  for ax in axes:
+    P._style(ax)
+  path = os.path.join(outdir, 'trailing_shock_strength_z4.png')
   fig.savefig(path, dpi=200, bbox_inches='tight')
   plt.close(fig)
   print(f'saved {path}')
