@@ -2468,6 +2468,103 @@ def plot_trailing_shock_snapshots(key='cooling_g100', outdir=OUTDIR, t_cols=TS_S
   return path
 
 
+TS_STRIP_T = (4.5e4, 6.0e4, 1.0e5, 1.8e5, 3.0e5, 4.5e5, 7.0e5, 1.2e6, 2.2e6, 3.4e6, 5.6e6,
+              8.0e6)
+TS_STRIP_TAG = ('rarefaction in S4', 'both heads at the CD', 'back re-accelerates',
+                'compression grows', 'compression steepens', 'shock forms', 'shock',
+                'shock', 'shock', 'shock reaches the CD', 'transmitted into S1, reflected into S4',
+                'reflected shock in S4')
+TS_REFL_T = (4.5e6, 9.5e6)   # the shock the CD reflects back into S4 (S1 is 3.6x denser): M ~1.2,
+                             # f 0.88 -> 0.45 over this window, lost in the mesh noise after it
+
+
+def _front_back(d, kmin, kmax):
+  '''Left-moving front (pressure RISES across it in the +R direction) in cells kmin..kmax.'''
+  p, rho = d.loc[kmin:kmax, 'p'].to_numpy(), d.loc[kmin:kmax, 'rho'].to_numpy()
+  j = int(np.argmax(np.diff(np.log(p))[5:-8])) + 5
+  pr = p[j + 3]/p[j - 1]
+  return dict(k=kmin + j, f=float(d.f.iloc[d.index.get_loc(kmin + j)]),
+              M=float(np.sqrt(((GMA_REF + 1)*pr + GMA_REF - 1)/(2*GMA_REF))) if pr > 1 else 1.)
+
+
+def _sci(x):
+  e = int(np.floor(np.log10(x)))
+  return rf'{x/10**e:.2g}\times10^{{{e}}}'
+
+
+def plot_trailing_shock_strip(key='cooling_g100', outdir=OUTDIR, t_snap=TS_STRIP_T,
+    tags=TS_STRIP_TAG, xmax=1.25):
+  '''
+  The trailing shock as a film strip: one panel per time, read down the columns. Each panel
+  is the pressure normalised to its value at the CD (log, left axis) and Gamma (grey, right
+  axis) across shell 4 -- f = 0 at the external interface, 1 at the CD -- and the start of
+  shell 1. The front, where _front finds one, is marked with its Mach number (orange), and so is
+  the weak shock the CD reflects back into shell 4 once the front has crossed it (pink).
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  env = MyEnv(key)
+  its, ts = _snap_index(key)
+  k4, _, kCD4 = shell_cell_range(key, 4)
+  ncol = 2
+  nrow = int(np.ceil(len(t_snap)/ncol))
+  fig, axes = plt.subplots(nrow, ncol, figsize=(10., 1.75*nrow + 0.6), sharex=True,
+                           layout='constrained')
+  axes = axes.T.ravel()
+  cP, cG = '#0072B2', '0.45'
+  for ax, t, tag in zip(axes, t_snap, tags):
+    d = _snap_at(key, t, its, ts)
+    d = d[d.f <= xmax]
+    pcd = d.p.loc[kCD4]
+    ax.axvspan(1., xmax, color='0.94', lw=0, zorder=0)
+    ax.axvline(1., color='0.6', lw=0.8, ls=(0, (4, 2)), zorder=1)
+    ax.plot(d.f, d.p/pcd, color=cP, lw=1.5, zorder=3)
+    ax.set_yscale('log')
+    ax.tick_params(axis='y', colors=cP, labelsize=8)
+    axG = ax.twinx()
+    axG.plot(d.f, d.G, color=cG, lw=1.1, zorder=2)
+    axG.tick_params(axis='y', colors=cG, labelsize=8)
+    for sp in ('top',):
+      ax.spines[sp].set_visible(False)
+      axG.spines[sp].set_visible(False)
+    L = np.log10(d.attrs['Rcd']*c_/env.R0)
+    ax.text(0.015, 0.93, rf'$t = {_sci(d.attrs["t"])}$ s,  $\log_{{10}}(R_{{\rm CD}}/R_0) = {L:.2f}$',
+            transform=ax.transAxes, fontsize=8, va='top', ha='left',
+            bbox=dict(fc='white', ec='none', alpha=0.8, pad=1.))
+    ax.text(0.015, 0.06, tag, transform=ax.transAxes, fontsize=8, va='bottom', ha='left',
+            style='italic', color='0.3')
+    if TS_TRACK_T[0] < d.attrs['t'] < TS_TRACK_T[1]:
+      fr = _front(d, k4, kCD4)
+      if fr['dG'] > 0.1 and fr['M'] > 1.15:
+        ax.axvline(fr['f'], color='#D55E00', lw=1.0, zorder=2)
+        ax.text(fr['f'] + 0.012, 0.5, rf'$\mathcal{{M}} = {fr["M"]:.1f}$', color='#D55E00',
+                fontsize=8, transform=ax.get_xaxis_transform(), va='center')
+    if TS_REFL_T[0] < d.attrs['t'] < TS_REFL_T[1]:
+      fr = _front_back(d, k4, kCD4)
+      if fr['M'] > 1.1:
+        ax.axvline(fr['f'], color='#CC79A7', lw=1.0, zorder=2)
+        ax.text(fr['f'] - 0.012, 0.5, rf'$\mathcal{{M}} = {fr["M"]:.1f}$', color='#CC79A7',
+                fontsize=8, transform=ax.get_xaxis_transform(), va='center', ha='right')
+    for a in (ax, axG):
+      a.yaxis.set_major_formatter(matplotlib.ticker.LogFormatterSciNotation() if a is ax
+                                  else matplotlib.ticker.FormatStrFormatter('%g'))
+    ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+  for ax in axes[len(t_snap):]:
+    ax.set_visible(False)
+  for ax in axes[:nrow]:
+    ax.set_ylabel(r'$p/p_{\rm CD}$', color=cP, fontsize=9)
+  axes[0].text(1.01, 0.93, 'S1', transform=axes[0].get_xaxis_transform(), fontsize=8,
+               color='0.45', va='top')
+  for c in range(ncol):
+    axes[c*nrow + nrow - 1].set_xlabel(r'$(R - R_{\rm int})/(R_{\rm CD} - R_{\rm int})$')
+  axes[0].set_xlim(-0.02, xmax)
+  fig.text(1.0, 0.5, r'$\Gamma$ (grey)', rotation=90, va='center', color=cG, fontsize=9)
+  path = os.path.join(outdir, 'trailing_shock_strip_z4.png')
+  fig.savefig(path, dpi=200, bbox_inches='tight')
+  plt.close(fig)
+  print(f'saved {path}')
+  return path
+
+
 def plot_trailing_shock_strength(key='cooling_g100', outdir=OUTDIR, F=None):
   '''The front's position, width and jump against log10(R_CD/R_0): it forms as a ~30-cell
   sound wave, steepens to the 2-cell numerical width, then strengthens to rho2/rho1 = 4 on
