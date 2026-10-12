@@ -509,8 +509,8 @@ def _guide_span(g, y, lev, tol=GUIDE_TOL, dec=GUIDE_DEC, inset=GUIDE_INSET,
 
 LOGSIG_S = (-3., -2.5, -2., -1.5, -1., -.5, 0.)   # t' in [t'_0, 2t'_0], so sigma <= 1
 FN_INT_STEADY = 'cooling_integrated_steady.png'
-STEADY_CASES = ((f"$t'_{{\\rm c}}=\\,$cst – FC", -2.),
-                (f"$t'_{{\\rm c}}=\\,$cst – SC", 2.))
+STEADY_CASES = ("$t'_{\\rm c}=t'_{\\rm c,i}$ \u2013 FC", -2.), \
+               ("$t'_{\\rm c}=t'_{\\rm c,i}$ \u2013 SC", 2.)
 
 
 def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
