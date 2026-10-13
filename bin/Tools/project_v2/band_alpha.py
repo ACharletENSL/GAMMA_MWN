@@ -15,6 +15,7 @@ the shape a Band function gives the noiseless spectrum, not what a GBM fit would
   PYTHONPATH=. python3 band_alpha.py               # fiducial cooling_g100
   BAND_KEY=cooling_g100_hires PYTHONPATH=. python3 band_alpha.py
   BAND_WINDOWS=1 PYTHONPATH=. python3 band_alpha.py  # lower edge nu_pk/30..1000 compared
+  BAND_SHELLS=1 PYTHONPATH=. python3 band_alpha.py   # RS vs RS+FS, rarcut, into shells_split
 '''
 import os
 import numpy as np
@@ -181,6 +182,78 @@ def plot_windows(df, outdir, fname='band_alpha_windows.png', win=WIN):
   return path
 
 
+def measure_shells(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN_LO_CMP):
+  '''
+  Band fits of the RS and of the RS+FS sum, one method, every lower edge. The spectra are
+  sweep_shells.shell_spectra's, so at the peak both are taken at the SAME instant (the
+  bolometric peak of the total), as in sweep_shells.plot_shell_slopes -- not each at its
+  own peak, as measure() does.
+  '''
+  rows = []
+  for p in ssh.load_shell_pairs(key=key, method=method):
+    x = p['x']
+    ok = x >= 1./p['env'].gma_m**2
+    for kind in ('fluence', 'peak'):
+      sp, _ = ssh.shell_spectra(p, kind)
+      for tag in ('RS', 'tot'):
+        for wl in win_los:
+          f = fit_band(x[ok], sp[tag][ok], win, wl)
+          rows.append(dict(logC=round(float(p['log10ratio']), 2), kind=kind, shell=tag,
+                           win_lo=wl, p=float(p['env'].psyn), **f))
+  return pd.DataFrame(rows)
+
+
+def plot_shells(df, outdir, fname='band_alpha_shells.png', win=WIN):
+  '''
+  The Band-alpha counterpart of sweep_shells.plot_shell_slopes: RS (dashed) against RS+FS
+  (solid), time-integrated | peak, alpha against C; colour = lower edge of the window.
+  '''
+  wls = sorted(df.win_lo.unique())
+  cols = swp.SWEEP_CMAP(np.linspace(0., 1., len(wls)))
+  fig, axs = plt.subplots(1, 2, figsize=(9.6, 3.9), sharey=True, layout='constrained')
+  for ax, kind, title in zip(axs, ('fluence', 'peak'), ('time-integrated', 'peak')):
+    _guides(ax, df.p.iloc[0])
+    for wl, c in zip(wls, cols):
+      for tag, ls in (('RS', '--'), ('tot', '-')):
+        d = df[(df.kind == kind) & (df.shell == tag) & (df.win_lo == wl)].sort_values('logC')
+        ax.plot(d.logC, d.alpha, c=c, ls=ls, lw=1.2, marker='o', ms=3.5,
+                mfc=c if tag == 'tot' else 'w')
+        bad = d[~d.whole]
+        ax.plot(bad.logC, bad.alpha, ls='', marker='x', c='0.3', ms=6)
+    ax.set_xlabel(r'$\log_{10}\mathcal{C}$')
+    ax.text(0.03, 0.80, title, transform=ax.transAxes, fontsize=10)
+  axs[0].set_ylabel(rf'Band $\alpha$  (to ${win:g}\,\nu_{{\rm pk}}$)')
+  _legend(axs[0], handles=[plt.Line2D([], [], c=c, marker='o', ms=3.5,
+                                      label=rf'$\nu_{{\rm pk}}/{wl:g}$')
+                           for wl, c in zip(wls, cols)],
+          loc='upper right', title='lower edge', title_fontsize=8)
+  _legend(axs[1], handles=[plt.Line2D([], [], c='k', ls='--', marker='o', ms=3.5, mfc='w',
+                                      label='RS'),
+                           plt.Line2D([], [], c='k', ls='-', marker='o', ms=3.5,
+                                      label='RS+FS')],
+          loc='upper right')
+  os.makedirs(outdir, exist_ok=True)
+  path = os.path.join(outdir, fname)
+  fig.savefig(path, dpi=300)
+  plt.close(fig)
+  return path
+
+
+def main_shells(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN_LO_CMP):
+  '''RS vs RS+FS Band alpha for one method, written next to plot_shell_slopes' figure.'''
+  out = figdir(ssh.OUTDIR_NAME if method == ssh.METHOD else f'{ssh.OUTDIR_NAME}_{method}', key)
+  df = measure_shells(key, method, win, win_los)
+  csv = os.path.join(out, 'band_alpha_shells.csv')
+  os.makedirs(out, exist_ok=True)
+  df.to_csv(csv, index=False, float_format='%.5g')
+  with pd.option_context('display.width', 250, 'display.precision', 2):
+    print(df.pivot_table(index='logC', columns=['kind', 'shell', 'win_lo'], values='alpha'))
+    print(f"rms max {df.groupby('win_lo').rms.max().round(3).to_dict()} dex; incomplete "
+          f"windows: {df[~df.whole][['logC', 'kind', 'shell', 'win_lo']].values.tolist()}")
+  print('wrote', plot_shells(df, out, win=win), 'and', csv)
+  return df
+
+
 def main_windows(key=ssh.KEY, win=WIN, win_los=WIN_LO_CMP):
   '''The Band alpha for several lower window edges, upper edge fixed at win*nu_pk.'''
   out = figdir(OUTDIR_NAME, key)
@@ -215,4 +288,9 @@ def main(key=ssh.KEY, win=WIN):
 
 if __name__ == '__main__':
   key = os.environ.get('BAND_KEY', ssh.KEY)
-  main_windows(key) if os.environ.get('BAND_WINDOWS') else main(key)
+  if os.environ.get('BAND_SHELLS'):
+    main_shells(key)
+  elif os.environ.get('BAND_WINDOWS'):
+    main_windows(key)
+  else:
+    main(key)

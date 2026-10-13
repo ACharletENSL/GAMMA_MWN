@@ -662,7 +662,6 @@ def plot_shell_slopes(pairs, outdir=OUTDIR, xhi=10., ylim=(-0.35, 1.45)):
       ax.axhline(y, color='grey', ls=':', lw=.8, zorder=0)
       ax.annotate(lab, xy=(0.997, y), xycoords=ax.get_yaxis_transform(), fontsize=8,
                   color='grey', ha='right', va='bottom')
-    ax.axhline(0., color='grey', ls='-', lw=.5, zorder=0)
     ax.set_xscale('log')
     ax.set_xlabel(NU_M_RS_LABEL)
     ax.text(.03, .04, title, transform=ax.transAxes, fontsize=10)
