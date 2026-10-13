@@ -14,6 +14,7 @@ the shape a Band function gives the noiseless spectrum, not what a GBM fit would
 
   PYTHONPATH=. python3 band_alpha.py               # fiducial cooling_g100
   BAND_KEY=cooling_g100_hires PYTHONPATH=. python3 band_alpha.py
+  BAND_WINDOWS=1 PYTHONPATH=. python3 band_alpha.py  # lower edge nu_pk/30..1000 compared
 '''
 import os
 import numpy as np
@@ -29,6 +30,7 @@ from environment import figdir
 from plotting_functions import COL_RS, COL_TOT
 
 WIN = 30.                 # the window is [nu_pk/WIN, WIN*nu_pk]
+WIN_LO_CMP = (30., 100., 300., 1000.)   # lower edges compared by main_windows (upper fixed)
 OUTDIR_NAME = 'band_alpha'
 METHODS = {'full': 'data', 'cut': 'data_rarcut'}
 LS = {'full': '-', 'cut': '--'}
@@ -47,9 +49,10 @@ def band_nufnu(lx, logA, alpha, beta, lxp):
   return logA + 2.*np.log10(x/xp) + np.where(x < xb, lo, hi)
 
 
-def fit_band(x, sp, win=WIN):
+def fit_band(x, sp, win=WIN, win_lo=None):
   '''
-  Band fit of one nuFnu spectrum over [x_pk/win, win*x_pk], x_pk its own maximum.
+  Band fit of one nuFnu spectrum over [x_pk/win_lo, win*x_pk], x_pk its own maximum
+  (win_lo defaults to win).
   Returns alpha, beta, the fitted peak over the data peak, rms (dex) and the
   number of samples.
   '''
@@ -57,10 +60,11 @@ def fit_band(x, sp, win=WIN):
   x, sp = x[g], sp[g]
   ipk = int(np.argmax(sp))
   lxp = np.log10(x[ipk])
-  m = np.abs(np.log10(x) - lxp) <= np.log10(win)
+  dlo, dhi = np.log10(win_lo or win), np.log10(win)
+  m = (np.log10(x) >= lxp - dlo) & (np.log10(x) <= lxp + dhi)
   lx, ly = np.log10(x[m]), np.log10(sp[m])
   # the window must be whole: a truncated one would quietly fit a narrower band
-  whole = lx.min() <= lxp - np.log10(win) + 0.05 and lx.max() >= lxp + np.log10(win) - 0.05
+  whole = lx.min() <= lxp - dlo + 0.05 and lx.max() >= lxp + dhi - 0.05
   p0 = (ly.max(), -1., -2.5, lxp)
   bnds = ([ly.max() - 3, -1.99, -10., lxp - 1.5], [ly.max() + 3, 3., -2.01, lxp + 1.5])
   best = None
@@ -75,8 +79,9 @@ def fit_band(x, sp, win=WIN):
               lxp=lxp)
 
 
-def measure(key=ssh.KEY, win=WIN):
-  '''One row per (C, method, shell, epoch): the Band fit of that spectrum.'''
+def measure(key=ssh.KEY, win=WIN, win_los=None):
+  '''One row per (C, method, shell, epoch, lower edge): the Band fit of that spectrum.'''
+  win_los = win_los or (win,)
   rows = []
   for mk, meth in METHODS.items():
     for p in ssh.load_shell_pairs(key=key, method=meth):
@@ -87,9 +92,10 @@ def measure(key=ssh.KEY, win=WIN):
         ipk = swp.bolometric_peak_index(nf, p['nub'])
         for ep, sp in (('integrated', swp.compute_fluence_spectrum(p['Tb'], nf)),
                        ('peak', nf[ipk])):
-          f = fit_band(x[ok], sp[ok], win)
-          rows.append(dict(logC=round(float(p['log10ratio']), 2), method=mk, shell=sk,
-                           epoch=ep, **f))
+          for wl in win_los:
+            f = fit_band(x[ok], sp[ok], win, wl)
+            rows.append(dict(logC=round(float(p['log10ratio']), 2), method=mk, shell=sk,
+                             epoch=ep, win_lo=wl, **f))
   return pd.DataFrame(rows)
 
 
@@ -120,6 +126,66 @@ def plot(df, outdir, fname='band_alpha.png', win=WIN):
   return path
 
 
+def plot_windows(df, outdir, fname='band_alpha_windows.png', win=WIN):
+  '''
+  alpha against C for each lower edge of the window (colour), upper edge fixed at win.
+  Rows: RS, RS+FS; columns: time-integrated, peak. Solid full, dashed rf cut
+  (integrated only -- at the peak the two are identical).
+  '''
+  wls = sorted(df.win_lo.unique())
+  cols = swp.SWEEP_CMAP(np.linspace(0., 1., len(wls)))
+  fig, axs = plt.subplots(2, 2, figsize=(9.6, 6.6), sharex=True, sharey=True,
+                          layout='constrained')
+  for j, (ep, etitle) in enumerate((('integrated', 'time-integrated'), ('peak', 'peak'))):
+    for i, (sk, (_, _, slab)) in enumerate(SHELLS.items()):
+      ax = axs[i, j]
+      for a, lab in ((-2/3, r'$-2/3$'), (-3/2, r'$-3/2$')):
+        ax.axhline(a, c='0.5', ls=':', lw=0.9, zorder=0)
+        ax.text(0.02, a + 0.02, lab, color='0.4', fontsize=8,
+                transform=ax.get_yaxis_transform())
+      for wl, c in zip(wls, cols):
+        for mk in (METHODS if ep == 'integrated' else ('full',)):
+          d = df[(df.epoch == ep) & (df.shell == sk) & (df.method == mk)
+                 & (df.win_lo == wl)].sort_values('logC')
+          ax.plot(d.logC, d.alpha, c=c, ls=LS[mk], lw=1.2, marker='o', ms=3.5,
+                  mfc=c if mk == 'full' else 'w',
+                  label=rf'$\nu_{{\rm pk}}/{wl:g}$' if mk == 'full' else None)
+          bad = d[~d.whole]
+          ax.plot(bad.logC, bad.alpha, ls='', marker='x', c='0.3', ms=6)
+      ax.text(0.03, 0.80, f'{slab}, {etitle}', transform=ax.transAxes, fontsize=10)
+      if i == 1:
+        ax.set_xlabel(r'$\log_{10}\mathcal{C}$')
+      if j == 0:
+        ax.set_ylabel(rf'Band $\alpha$  (to ${win:g}\,\nu_{{\rm pk}}$)')
+  axs[0, 0].legend(frameon=False, fontsize=8, loc='upper right', title='lower edge',
+                   title_fontsize=8)
+  from matplotlib.lines import Line2D
+  axs[0, 1].legend(handles=[Line2D([], [], c='k', ls=LS[mk], label=LAB[mk]) for mk in METHODS],
+                   frameon=False, fontsize=8, loc='upper right')
+  os.makedirs(outdir, exist_ok=True)
+  path = os.path.join(outdir, fname)
+  fig.savefig(path, dpi=300)
+  plt.close(fig)
+  return path
+
+
+def main_windows(key=ssh.KEY, win=WIN, win_los=WIN_LO_CMP):
+  '''The Band alpha for several lower window edges, upper edge fixed at win*nu_pk.'''
+  out = figdir(OUTDIR_NAME, key)
+  df = measure(key, win, win_los)
+  csv = os.path.join(out, 'band_alpha_windows.csv')
+  os.makedirs(out, exist_ok=True)
+  df.to_csv(csv, index=False, float_format='%.5g')
+  piv = df[df.method == 'full'].pivot_table(index='logC', columns=['epoch', 'shell', 'win_lo'],
+                                            values='alpha')
+  with pd.option_context('display.width', 250, 'display.precision', 2):
+    print(piv)
+    print(f"rms max {df.groupby('win_lo').rms.max().round(3).to_dict()} dex; incomplete "
+          f"windows: {df[~df.whole][['logC', 'method', 'shell', 'epoch', 'win_lo']].values.tolist()}")
+  print('wrote', plot_windows(df, out, win=win), 'and', csv)
+  return df
+
+
 def main(key=ssh.KEY, win=WIN):
   out = figdir(OUTDIR_NAME, key)
   df = measure(key, win)
@@ -136,4 +202,5 @@ def main(key=ssh.KEY, win=WIN):
 
 
 if __name__ == '__main__':
-  main(key=os.environ.get('BAND_KEY', ssh.KEY))
+  key = os.environ.get('BAND_KEY', ssh.KEY)
+  main_windows(key) if os.environ.get('BAND_WINDOWS') else main(key)
