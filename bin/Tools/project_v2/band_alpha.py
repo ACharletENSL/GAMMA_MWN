@@ -16,6 +16,7 @@ the shape a Band function gives the noiseless spectrum, not what a GBM fit would
   BAND_KEY=cooling_g100_hires PYTHONPATH=. python3 band_alpha.py
   BAND_WINDOWS=1 PYTHONPATH=. python3 band_alpha.py  # lower edge nu_pk/30..1000 compared
   BAND_SHELLS=1 PYTHONPATH=. python3 band_alpha.py   # RS vs RS+FS, rarcut, into shells_split
+  BAND_2SBPL=1 PYTHONPATH=. python3 band_alpha.py    # same with Ravasio+2018's 2SBPL
 '''
 import os
 import numpy as np
@@ -29,6 +30,7 @@ import sweep_gammacm as swp
 import sweep_shells as ssh
 from environment import figdir
 from plotting_functions import COL_RS, COL_TOT
+from phys_functions import two_sbpl, RAVASIO_N1, RAVASIO_N2
 
 WIN = 30.                 # the window is [nu_pk/WIN, WIN*nu_pk]
 WIN_LO_CMP = (30., 100., 300., 1000.)   # lower edges compared by main_windows (upper fixed)
@@ -78,6 +80,61 @@ def fit_band(x, sp, win=WIN, win_lo=None):
   return dict(alpha=best.x[1], beta=best.x[2], xp_ratio=10.**(best.x[3] - lxp),
               rms=float(np.sqrt(np.mean(res**2))), n=int(m.sum()), whole=bool(whole),
               lxp=lxp)
+
+
+BRK_EDGE = 0.1     # dex: a 2SBPL break this close to the window bottom or to the peak is at bound
+
+
+def fit_2sbpl(x, sp, win=WIN, win_lo=None, n1=RAVASIO_N1, n2=RAVASIO_N2):
+  '''
+  Ravasio et al. (2018) 2SBPL fit of one nuFnu spectrum over the same window as fit_band:
+  A, alpha1, E_break, alpha2, E_peak, beta free, n1 and n2 HELD at their values (their
+  Sect. 2.4). Residual in log10 nuFnu, uniform per sample. The break is confined to the
+  window, below the peak; at_bound flags a break within BRK_EDGE of either end, where
+  alpha1 (bottom) or alpha2 (top) rests on too little of the window to mean much.
+
+  Fitted as alpha1 = alpha2 + delta, delta >= 0. The lower SBPL of eq. (3),
+  [(E/E_br)**(-a1 n1) + (E/E_br)**(-a2 n1)]**(-1/n1), is SYMMETRIC in a1 <-> a2 (the
+  asymmetric prefactor E_br**a1 is absorbed by A): the HARDER index always governs below
+  the break, whichever is called alpha1. Left free, the fit returned both labellings at
+  identical rms (0.00269 dex, log C = -3, nu_pk/1000), with alpha1 and alpha2 swapped and
+  the break moved. delta >= 0 is exactly the set of shapes the model can make.
+  '''
+  g = (sp > 0) & np.isfinite(sp)
+  x, sp = x[g], sp[g]
+  lxp = np.log10(x[int(np.argmax(sp))])
+  dlo, dhi = np.log10(win_lo or win), np.log10(win)
+  m = (np.log10(x) >= lxp - dlo) & (np.log10(x) <= lxp + dhi)
+  lx, ly = np.log10(x[m]), np.log10(sp[m])
+  E = 10.**lx
+
+  def model(q):           # q = logA, delta = a1 - a2, d = log(E_pk/E_br), a2, logE_pk, beta
+    return np.log10(np.maximum(two_sbpl(E, 10.**(q[4] - q[2]), 10.**q[4], q[3] + q[1], q[3],
+                                        q[5],
+                                        n1=n1, n2=n2, A=10.**q[0], nuFnu=True), 1e-300))
+
+  ymax = ly.max()
+  lo = [ymax - 40., 0., 0., -1.99, lxp - .5, -8.]
+  hi = [ymax + 40., 3., dlo, -0.2, lxp + .5, -2.01]
+  best = None
+  for d0 in np.linspace(0.15, dlo - 0.15, 4):      # the break position is the long valley
+    for dl0 in (0.2, 0.8):
+      q0 = [ymax, dl0, d0, -1.7, lxp, -2.3]
+      # A is set by E_break**a1: re-centre it on the data at the start so the first steps
+      # are not spent on the normalisation
+      q0[0] += ymax - model(q0).max()
+      q0 = np.clip(q0, np.array(lo) + 1e-6, np.array(hi) - 1e-6)
+      try:
+        r = least_squares(lambda q: model(q) - ly, q0, bounds=(lo, hi),
+                          x_scale=(1., .3, .3, .3, .3, .3))
+      except ValueError:
+        continue
+      if best is None or r.cost < best.cost:
+        best = r
+  q = best.x
+  return dict(a1=q[3] + q[1], a2=q[3], beta=q[5], brk_dex=q[2], xp_ratio=10.**(q[4] - lxp),
+              rms=float(np.sqrt(np.mean(best.fun**2))), n=int(m.sum()),
+              at_bound=bool(q[2] < BRK_EDGE or q[2] > dlo - BRK_EDGE), lxp=lxp)
 
 
 def measure(key=ssh.KEY, win=WIN, win_los=None):
@@ -203,6 +260,118 @@ def measure_shells(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN_LO_CM
   return pd.DataFrame(rows)
 
 
+def measure_shells_2sbpl(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN_LO_CMP):
+  '''measure_shells with the 2SBPL instead of Band; the Band alpha is carried alongside.'''
+  rows = []
+  for p in ssh.load_shell_pairs(key=key, method=method):
+    x = p['x']
+    ok = x >= 1./p['env'].gma_m**2
+    for kind in ('fluence', 'peak'):
+      sp, _ = ssh.shell_spectra(p, kind)
+      for tag in ('RS', 'tot'):
+        for wl in win_los:
+          f = fit_2sbpl(x[ok], sp[tag][ok], win, wl)
+          f['alpha_band'] = fit_band(x[ok], sp[tag][ok], win, wl)['alpha']
+          rows.append(dict(logC=round(float(p['log10ratio']), 2), kind=kind, shell=tag,
+                           win_lo=wl, p=float(p['env'].psyn), **f))
+  return pd.DataFrame(rows)
+
+
+def plot_shells_2sbpl(df, outdir, fname='twosbpl_shells.png', win=WIN):
+  '''
+  The 2SBPL counterpart of plot_shells: alpha1 (top) and alpha2 (bottom), RS (dashed) vs
+  RS+FS (solid), time-integrated | peak; colour = lower edge of the window, x = break at a
+  window bound.
+  '''
+  wls = sorted(df.win_lo.unique())
+  cols = swp.SWEEP_CMAP(np.linspace(0., 1., len(wls)))
+  fig, axs = plt.subplots(2, 2, figsize=(9.6, 6.8), sharex=True, sharey=True,
+                          layout='constrained')
+  for i, (q, qlab) in enumerate((('a1', r'$\alpha_1$'), ('a2', r'$\alpha_2$'))):
+    for j, (kind, title) in enumerate((('fluence', 'time-integrated'), ('peak', 'peak'))):
+      ax = axs[i, j]
+      _guides(ax, df.p.iloc[0])
+      for wl, c in zip(wls, cols):
+        for tag, ls in (('RS', '--'), ('tot', '-')):
+          d = df[(df.kind == kind) & (df.shell == tag) & (df.win_lo == wl)].sort_values('logC')
+          ax.plot(d.logC, d[q], c=c, ls=ls, lw=1.2, marker='o', ms=3.5,
+                  mfc=c if tag == 'tot' else 'w')
+          bad = d[d.at_bound]
+          ax.plot(bad.logC, bad[q], ls='', marker='x', c='0.3', ms=6)
+      ax.text(0.03, 0.80, f'{title}, {qlab}', transform=ax.transAxes, fontsize=10)
+      if i == 1:
+        ax.set_xlabel(r'$\log_{10}\mathcal{C}$')
+    axs[i, 0].set_ylabel(rf'2SBPL {qlab}  (to ${win:g}\,\nu_{{\rm pk}}$)')
+  _legend(axs[0, 0], handles=[plt.Line2D([], [], c=c, marker='o', ms=3.5,
+                                         label=rf'$\nu_{{\rm pk}}/{wl:g}$')
+                              for wl, c in zip(wls, cols)],
+          loc='upper right', title='lower edge', title_fontsize=8)
+  _legend(axs[0, 1], handles=[plt.Line2D([], [], c='k', ls='--', marker='o', ms=3.5, mfc='w',
+                                         label='RS'),
+                              plt.Line2D([], [], c='k', ls='-', marker='o', ms=3.5,
+                                         label='RS+FS'),
+                              plt.Line2D([], [], c='0.3', ls='', marker='x', ms=6,
+                                         label='break at window bound')],
+          loc='upper left', bbox_to_anchor=(0., .78))
+  os.makedirs(outdir, exist_ok=True)
+  path = os.path.join(outdir, fname)
+  fig.savefig(path, dpi=300)
+  plt.close(fig)
+  return path
+
+
+def plot_band_vs_2sbpl(df, outdir, win_lo=WIN, fname=None, win=WIN):
+  '''
+  One window: Band alpha against the 2SBPL alpha1 and alpha2, RS (red) and RS+FS (black),
+  time-integrated | peak.
+  '''
+  fig, axs = plt.subplots(1, 2, figsize=(9.6, 3.9), sharey=True, layout='constrained')
+  est = (('alpha_band', 'Band $\\alpha$', '-', 'o'), ('a1', '2SBPL $\\alpha_1$', '--', 'v'),
+         ('a2', '2SBPL $\\alpha_2$', ':', 's'))
+  for ax, kind, title in zip(axs, ('fluence', 'peak'), ('time-integrated', 'peak')):
+    _guides(ax, df.p.iloc[0])
+    for tag, c in (('RS', COL_RS), ('tot', COL_TOT)):
+      d = df[(df.kind == kind) & (df.shell == tag) & (df.win_lo == win_lo)].sort_values('logC')
+      for q, _, ls, mk in est:
+        ax.plot(d.logC, d[q], c=c, ls=ls, lw=1.1, marker=mk, ms=3.5)
+      bad = d[d.at_bound]
+      for q in ('a1', 'a2'):
+        ax.plot(bad.logC, bad[q], ls='', marker='x', c='0.3', ms=7)
+    ax.set_xlabel(r'$\log_{10}\mathcal{C}$')
+    ax.text(0.03, 0.80, title, transform=ax.transAxes, fontsize=10)
+  axs[0].set_ylabel(rf'index  ($\nu_{{\rm pk}}/{win_lo:g}$ to ${win:g}\,\nu_{{\rm pk}}$)')
+  _legend(axs[0], handles=[plt.Line2D([], [], c='k', ls=ls, marker=mk, ms=3.5, label=lab)
+                           for _, lab, ls, mk in est]
+                          + [plt.Line2D([], [], c='0.3', ls='', marker='x', ms=6,
+                                        label='break at window bound')],
+          loc='upper right')
+  _legend(axs[1], handles=[plt.Line2D([], [], c=COL_RS, label='RS'),
+                           plt.Line2D([], [], c=COL_TOT, label='RS+FS')], loc='upper right')
+  os.makedirs(outdir, exist_ok=True)
+  path = os.path.join(outdir, fname or f'band_vs_2sbpl_shells_lo{win_lo:g}.png')
+  fig.savefig(path, dpi=300)
+  plt.close(fig)
+  return path
+
+
+def main_shells_2sbpl(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN_LO_CMP):
+  '''RS vs RS+FS 2SBPL indices for one method, next to the Band ones (main_shells).'''
+  out = figdir(ssh.OUTDIR_NAME if method == ssh.METHOD else f'{ssh.OUTDIR_NAME}_{method}', key)
+  df = measure_shells_2sbpl(key, method, win, win_los)
+  csv = os.path.join(out, 'twosbpl_shells.csv')
+  os.makedirs(out, exist_ok=True)
+  df.to_csv(csv, index=False, float_format='%.5g')
+  with pd.option_context('display.width', 250, 'display.precision', 2):
+    for q in ('alpha_band', 'a1', 'a2', 'brk_dex'):
+      print(f'--- {q}')
+      print(df[df.win_lo == win].pivot_table(index='logC', columns=['kind', 'shell'], values=q))
+    print(f"rms max {df.groupby('win_lo').rms.max().round(3).to_dict()} dex; break at bound: "
+          f"{int(df.at_bound.sum())}/{len(df)}")
+  print('wrote', plot_shells_2sbpl(df, out, win=win), plot_band_vs_2sbpl(df, out, win=win),
+        'and', csv)
+  return df
+
+
 def plot_shells(df, outdir, fname='band_alpha_shells.png', win=WIN):
   '''
   The Band-alpha counterpart of sweep_shells.plot_shell_slopes: RS (dashed) against RS+FS
@@ -288,7 +457,9 @@ def main(key=ssh.KEY, win=WIN):
 
 if __name__ == '__main__':
   key = os.environ.get('BAND_KEY', ssh.KEY)
-  if os.environ.get('BAND_SHELLS'):
+  if os.environ.get('BAND_2SBPL'):
+    main_shells_2sbpl(key)
+  elif os.environ.get('BAND_SHELLS'):
     main_shells(key)
   elif os.environ.get('BAND_WINDOWS'):
     main_windows(key)
