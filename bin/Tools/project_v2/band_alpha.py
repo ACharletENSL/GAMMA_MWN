@@ -260,8 +260,23 @@ def measure_shells(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN_LO_CM
   return pd.DataFrame(rows)
 
 
-def measure_shells_2sbpl(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN_LO_CMP):
-  '''measure_shells with the 2SBPL instead of Band; the Band alpha is carried alongside.'''
+# Fixed TOTAL width, slid below the peak: Ravasio et al. (2018, 2019) fit GBM's 8 keV-40 MeV,
+# which with E_break ~ 100 keV and E_pk/E_break ~ 5-35 puts the peak ~2-2.5 dex above the
+# bottom and ~1-2 below the top. The break needs that room below the peak to be measured;
+# the symmetric (30, 30) window gives it 1.5 dex. (lower, upper) factors around nu_pk.
+WINDOWS_3DEX = ((30., 30.), (100., 10.), (300., 3.))
+
+
+def _wlab(lo, hi):
+  hi_s = '' if hi == 1. else f'{hi:g}\\,'
+  return rf'$\nu_{{\rm pk}}/{lo:g}$ to ${hi_s}\nu_{{\rm pk}}$'
+
+
+def measure_shells_2sbpl(key=ssh.KEY, method='data_rarcut', windows=WINDOWS_3DEX):
+  '''
+  measure_shells with the 2SBPL, the Band fit carried alongside (alpha and beta), for
+  each (lower, upper) window in `windows`.
+  '''
   rows = []
   for p in ssh.load_shell_pairs(key=key, method=method):
     x = p['x']
@@ -269,43 +284,62 @@ def measure_shells_2sbpl(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN
     for kind in ('fluence', 'peak'):
       sp, _ = ssh.shell_spectra(p, kind)
       for tag in ('RS', 'tot'):
-        for wl in win_los:
-          f = fit_2sbpl(x[ok], sp[tag][ok], win, wl)
-          f['alpha_band'] = fit_band(x[ok], sp[tag][ok], win, wl)['alpha']
+        for wl, wh in windows:
+          f = fit_2sbpl(x[ok], sp[tag][ok], wh, wl)
+          b = fit_band(x[ok], sp[tag][ok], wh, wl)
+          f.update(alpha_band=b['alpha'], beta_band=b['beta'], rms_band=b['rms'])
           rows.append(dict(logC=round(float(p['log10ratio']), 2), kind=kind, shell=tag,
-                           win_lo=wl, p=float(p['env'].psyn), **f))
+                           win_lo=wl, win_hi=wh, p=float(p['env'].psyn), **f))
   return pd.DataFrame(rows)
 
 
-def plot_shells_2sbpl(df, outdir, fname='twosbpl_shells.png', win=WIN):
+def _windows(df):
+  return list(dict.fromkeys(zip(df.win_lo, df.win_hi)))
+
+
+def _sel(df, kind, tag, w):
+  return df[(df.kind == kind) & (df.shell == tag) & (df.win_lo == w[0])
+            & (df.win_hi == w[1])].sort_values('logC')
+
+
+def _beta_guide(ax, p):
+  '''the one-zone index above the peak, -(p/2 + 1), labelled under the line at the right,
+  where no curve passes (they all flatten towards C ~ 1-10 and stay above it in SC)'''
+  ax.axhline(-(p/2. + 1.), c='0.5', ls=':', lw=0.9, zorder=0)
+  ax.text(0.98, -(p/2. + 1.) - 0.01, r'$-(p/2+1)$', color='0.4', fontsize=8, ha='right',
+          va='top', transform=ax.get_yaxis_transform())
+
+
+def plot_shells_2sbpl(df, outdir, fname='twosbpl_shells_3dex.png'):
   '''
-  The 2SBPL counterpart of plot_shells: alpha1 (top) and alpha2 (bottom), RS (dashed) vs
-  RS+FS (solid), time-integrated | peak; colour = lower edge of the window, x = break at a
-  window bound.
+  The 2SBPL counterpart of plot_shells: alpha1, alpha2 and beta (rows), RS (dashed) vs
+  RS+FS (solid), time-integrated | peak; colour = window, x = break at a window bound.
   '''
-  wls = sorted(df.win_lo.unique())
-  cols = swp.SWEEP_CMAP(np.linspace(0., 1., len(wls)))
-  fig, axs = plt.subplots(2, 2, figsize=(9.6, 6.8), sharex=True, sharey=True,
-                          layout='constrained')
-  for i, (q, qlab) in enumerate((('a1', r'$\alpha_1$'), ('a2', r'$\alpha_2$'))):
+  ws = _windows(df)
+  cols = swp.SWEEP_CMAP(np.linspace(0., 1., len(ws)))
+  fig, axs = plt.subplots(3, 2, figsize=(9.6, 9.6), sharex=True, sharey='row',
+                          layout='constrained', gridspec_kw={'height_ratios': [1., 1., .6]})
+  for i, (q, qlab) in enumerate((('a1', r'$\alpha_1$'), ('a2', r'$\alpha_2$'),
+                                 ('beta', r'$\beta$'))):
     for j, (kind, title) in enumerate((('fluence', 'time-integrated'), ('peak', 'peak'))):
       ax = axs[i, j]
-      _guides(ax, df.p.iloc[0])
-      for wl, c in zip(wls, cols):
+      _beta_guide(ax, df.p.iloc[0]) if q == 'beta' else _guides(ax, df.p.iloc[0])
+      for w, c in zip(ws, cols):
         for tag, ls in (('RS', '--'), ('tot', '-')):
-          d = df[(df.kind == kind) & (df.shell == tag) & (df.win_lo == wl)].sort_values('logC')
+          d = _sel(df, kind, tag, w)
           ax.plot(d.logC, d[q], c=c, ls=ls, lw=1.2, marker='o', ms=3.5,
                   mfc=c if tag == 'tot' else 'w')
-          bad = d[d.at_bound]
-          ax.plot(bad.logC, bad[q], ls='', marker='x', c='0.3', ms=6)
-      ax.text(0.03, 0.80, f'{title}, {qlab}', transform=ax.transAxes, fontsize=10)
-      if i == 1:
+          if q != 'beta':
+            bad = d[d.at_bound]
+            ax.plot(bad.logC, bad[q], ls='', marker='x', c='0.3', ms=6)
+      ax.text(0.03, 0.80 if q != 'beta' else 0.85, f'{title}, {qlab}',
+              transform=ax.transAxes, fontsize=10)
+      if i == 2:
         ax.set_xlabel(r'$\log_{10}\mathcal{C}$')
-    axs[i, 0].set_ylabel(rf'2SBPL {qlab}  (to ${win:g}\,\nu_{{\rm pk}}$)')
-  _legend(axs[0, 0], handles=[plt.Line2D([], [], c=c, marker='o', ms=3.5,
-                                         label=rf'$\nu_{{\rm pk}}/{wl:g}$')
-                              for wl, c in zip(wls, cols)],
-          loc='upper right', title='lower edge', title_fontsize=8)
+    axs[i, 0].set_ylabel(f'2SBPL {qlab}')
+  _legend(axs[0, 0], handles=[plt.Line2D([], [], c=c, marker='o', ms=3.5, label=_wlab(*w))
+                              for w, c in zip(ws, cols)],
+          loc='upper right', title='window', title_fontsize=8)
   _legend(axs[0, 1], handles=[plt.Line2D([], [], c='k', ls='--', marker='o', ms=3.5, mfc='w',
                                          label='RS'),
                               plt.Line2D([], [], c='k', ls='-', marker='o', ms=3.5,
@@ -320,55 +354,65 @@ def plot_shells_2sbpl(df, outdir, fname='twosbpl_shells.png', win=WIN):
   return path
 
 
-def plot_band_vs_2sbpl(df, outdir, win_lo=WIN, fname=None, win=WIN):
+def plot_band_vs_2sbpl(df, outdir, w=(30., 30.), fname=None):
   '''
-  One window: Band alpha against the 2SBPL alpha1 and alpha2, RS (red) and RS+FS (black),
-  time-integrated | peak.
+  One window: Band alpha against the 2SBPL alpha1 and alpha2 (top), and the two betas
+  (bottom); RS (red) and RS+FS (black), time-integrated | peak.
   '''
-  fig, axs = plt.subplots(1, 2, figsize=(9.6, 3.9), sharey=True, layout='constrained')
+  fig, axs = plt.subplots(2, 2, figsize=(9.6, 6.4), sharex=True, sharey='row',
+                          layout='constrained', gridspec_kw={'height_ratios': [1., .6]})
   est = (('alpha_band', 'Band $\\alpha$', '-', 'o'), ('a1', '2SBPL $\\alpha_1$', '--', 'v'),
          ('a2', '2SBPL $\\alpha_2$', ':', 's'))
-  for ax, kind, title in zip(axs, ('fluence', 'peak'), ('time-integrated', 'peak')):
+  est_b = (('beta_band', 'Band $\\beta$', '-', 'o'), ('beta', '2SBPL $\\beta$', '--', 'v'))
+  for j, (kind, title) in enumerate((('fluence', 'time-integrated'), ('peak', 'peak'))):
+    ax, axb = axs[0, j], axs[1, j]
     _guides(ax, df.p.iloc[0])
+    _beta_guide(axb, df.p.iloc[0])
     for tag, c in (('RS', COL_RS), ('tot', COL_TOT)):
-      d = df[(df.kind == kind) & (df.shell == tag) & (df.win_lo == win_lo)].sort_values('logC')
+      d = _sel(df, kind, tag, w)
       for q, _, ls, mk in est:
         ax.plot(d.logC, d[q], c=c, ls=ls, lw=1.1, marker=mk, ms=3.5)
       bad = d[d.at_bound]
       for q in ('a1', 'a2'):
         ax.plot(bad.logC, bad[q], ls='', marker='x', c='0.3', ms=7)
-    ax.set_xlabel(r'$\log_{10}\mathcal{C}$')
-    ax.text(0.03, 0.80, title, transform=ax.transAxes, fontsize=10)
-  axs[0].set_ylabel(rf'index  ($\nu_{{\rm pk}}/{win_lo:g}$ to ${win:g}\,\nu_{{\rm pk}}$)')
-  _legend(axs[0], handles=[plt.Line2D([], [], c='k', ls=ls, marker=mk, ms=3.5, label=lab)
-                           for _, lab, ls, mk in est]
-                          + [plt.Line2D([], [], c='0.3', ls='', marker='x', ms=6,
-                                        label='break at window bound')],
+      for q, _, ls, mk in est_b:
+        axb.plot(d.logC, d[q], c=c, ls=ls, lw=1.1, marker=mk, ms=3.5)
+    axb.set_xlabel(r'$\log_{10}\mathcal{C}$')
+    ax.text(0.03, 0.80, f'{title}, {_wlab(*w)}', transform=ax.transAxes, fontsize=10)
+  axs[0, 0].set_ylabel('index below the peak')
+  axs[1, 0].set_ylabel('index above the peak')
+  _legend(axs[0, 0], handles=[plt.Line2D([], [], c='k', ls=ls, marker=mk, ms=3.5, label=lab)
+                              for _, lab, ls, mk in est]
+                             + [plt.Line2D([], [], c='0.3', ls='', marker='x', ms=6,
+                                           label='break at window bound')],
           loc='upper right')
-  _legend(axs[1], handles=[plt.Line2D([], [], c=COL_RS, label='RS'),
-                           plt.Line2D([], [], c=COL_TOT, label='RS+FS')], loc='upper right')
+  _legend(axs[0, 1], handles=[plt.Line2D([], [], c=COL_RS, label='RS'),
+                              plt.Line2D([], [], c=COL_TOT, label='RS+FS')], loc='upper right')
+  _legend(axs[1, 1], handles=[plt.Line2D([], [], c='k', ls=ls, marker=mk, ms=3.5, label=lab)
+                              for _, lab, ls, mk in est_b], loc='upper left', ncol=2)
   os.makedirs(outdir, exist_ok=True)
-  path = os.path.join(outdir, fname or f'band_vs_2sbpl_shells_lo{win_lo:g}.png')
+  path = os.path.join(outdir, fname or f'band_vs_2sbpl_shells_{w[0]:g}-{w[1]:g}.png')
   fig.savefig(path, dpi=300)
   plt.close(fig)
   return path
 
 
-def main_shells_2sbpl(key=ssh.KEY, method='data_rarcut', win=WIN, win_los=WIN_LO_CMP):
-  '''RS vs RS+FS 2SBPL indices for one method, next to the Band ones (main_shells).'''
+def main_shells_2sbpl(key=ssh.KEY, method='data_rarcut', windows=WINDOWS_3DEX):
+  '''RS vs RS+FS 2SBPL and Band indices for one method, over 3-decade windows.'''
   out = figdir(ssh.OUTDIR_NAME if method == ssh.METHOD else f'{ssh.OUTDIR_NAME}_{method}', key)
-  df = measure_shells_2sbpl(key, method, win, win_los)
-  csv = os.path.join(out, 'twosbpl_shells.csv')
+  df = measure_shells_2sbpl(key, method, windows)
+  csv = os.path.join(out, 'twosbpl_shells_3dex.csv')
   os.makedirs(out, exist_ok=True)
   df.to_csv(csv, index=False, float_format='%.5g')
   with pd.option_context('display.width', 250, 'display.precision', 2):
-    for q in ('alpha_band', 'a1', 'a2', 'brk_dex'):
+    for q in ('alpha_band', 'a1', 'a2', 'brk_dex', 'beta_band', 'beta'):
       print(f'--- {q}')
-      print(df[df.win_lo == win].pivot_table(index='logC', columns=['kind', 'shell'], values=q))
-    print(f"rms max {df.groupby('win_lo').rms.max().round(3).to_dict()} dex; break at bound: "
-          f"{int(df.at_bound.sum())}/{len(df)}")
-  print('wrote', plot_shells_2sbpl(df, out, win=win), plot_band_vs_2sbpl(df, out, win=win),
-        'and', csv)
+      print(df.pivot_table(index='logC', columns=['kind', 'shell', 'win_lo'], values=q))
+    g = df.groupby(['win_lo', 'win_hi'])
+    print(f"rms max 2SBPL {g.rms.max().round(3).to_dict()}, Band {g.rms_band.max().round(3).to_dict()}"
+          f" dex; break at bound: {g.at_bound.sum().to_dict()} of {len(df)//len(windows)}")
+  paths = [plot_shells_2sbpl(df, out)] + [plot_band_vs_2sbpl(df, out, w) for w in windows]
+  print('wrote', *paths, csv)
   return df
 
 
