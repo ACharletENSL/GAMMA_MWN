@@ -600,13 +600,13 @@ _SCAN_COLS = [('log10(gc/gm)', 'logr', '{:+.0f}'), ('nu/nu_m', 'nu_num', '{:.6g}
               ('asym10', 'asym10', '{:.4f}'), ('rise_edge', 'rise_edge', '{:d}')]
 
 
-def build_scan_table(scan_rows, outdir):
+def build_scan_table(scan_rows, outdir, fname=SCAN_CSV):
   '''
   The frequency scan as one csv, every (sweep point, frequency) row. No printed or
   png table: this is thousands of rows, and plot_shape_vs_nu is what it is meant to
   be read as.
   '''
-  csv_path = os.path.join(outdir, SCAN_CSV)
+  csv_path = os.path.join(outdir, fname)
   with open(csv_path, 'w', newline='') as f:
     w = csv.writer(f); w.writerow([c[0] for c in _SCAN_COLS])
     for m in scan_rows:
@@ -1031,3 +1031,117 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGET
   _figures(results, rows, rows_num, scan_rows, barT_f, x_rf, outdir)
   print(f'\nFigures saved to {outdir}')
   return rows, rows_num, scan_rows
+
+
+# ---------------------------------------------------------------------------
+# what the article's RS-only, rf-cut pulse characteristics become with the post-rarefaction
+# emission, the forward shock, or both
+# ---------------------------------------------------------------------------
+SCAN_CSV_TOT = 'lightcurve_freqscan_nu_m_RS+FS.csv'   # the RS+FS scan, beside each method's
+                                                      # RS one
+VARIANTS_REF = ('RS', 'data_rarcut')                  # the article's Fig. 6
+VARIANTS = ((('RS', 'data'), 'RS + post-RF'),         # (shell, method) against the reference,
+            (('tot', 'data_rarcut'), 'RS+FS'),        # one column each
+            (('tot', 'data'), 'RS+FS + post-RF'))
+
+
+def variant_scans(key=DEFAULT_KEY, rescan=False):
+  '''
+  The frequency scan (measure_frequency_scan) of the four (shell, method) combinations
+  {RS, RS+FS} x {data_rarcut, data}, keyed (shell, method), with each method's RS results.
+
+  The RS scans are main()'s own csvs, reused when current and measured otherwise. The RS+FS
+  ones are measured on sweep_shells.load_shell_pairs' sum and cached as SCAN_CSV_TOT in the
+  same RS directory -- its stamp only tracks the RS sweep, so a recomputed FS sweep needs
+  rescan=True. Everything is on the RS clock: x = bar{T}/bar{T}_f,RS and nu/nu_m,0 of the
+  RS, so the FS crossing lands at x = bar{T}_f,FS/bar{T}_f,RS (0.81 on cooling_g100).
+  ~1 min per scan.
+  '''
+  from sweep_shells import load_shell_pairs, Z_RS
+  barT_f, barT_rf, _ = _time_marks(key, Z_RS)
+  scans, results = {}, {}
+  for method in ('data_rarcut', 'data'):
+    outdir = method_outdir(method, key, Z_RS)
+    rs = load_sweep(outdir)
+    if not rs:
+      raise FileNotFoundError(f'no cached sweep in {outdir}')
+    pairs = {round(p['log10ratio'], 6): p for p in load_shell_pairs(key, method=method)}
+    rs = [r for r in rs if round(r['log10ratio'], 6) in pairs]
+    results[method] = rs
+    tot = [dict(r, nuFnu=pairs[round(r['log10ratio'], 6)]['nuFnu_tot']) for r in rs]
+    for shell, res, fname in (('RS', rs, SCAN_CSV), ('tot', tot, SCAN_CSV_TOT)):
+      rows = None if rescan else read_scan_table(outdir, fname)
+      if not rows:
+        print(f'\nfrequency scan, {shell} {method}:')
+        rows = measure_frequency_scan(res, barT_f, barT_rf)
+        build_scan_table(rows, outdir, fname)
+      scans[(shell, method)] = rows
+  return scans, results
+
+
+def plot_shape_vs_nu_variants(scans, results, outdir, x_rf=None):
+  '''
+  Fig. 6 (plot_shape_vs_nu, unit='num') against what adding the post-rarefaction emission,
+  the forward shock, or both does to it. Rows: peak time, FWHM, T_rise/T_fall at 0.1 F_pk;
+  columns: the VARIANTS. Every panel carries the article's RS rf-cut curve dashed and the
+  variant solid, one colour per regime. Log y on every row: the uncut slow-cooling FWHM
+  reaches ~4.6 bar{T}_f at the grid floor, which on a linear axis would flatten the
+  1.1-1.5 the article's figure resolves. Drawn above the RS's nu_B only, as plot_shape_vs_nu.
+  '''
+  from matplotlib.lines import Line2D
+  from sweep_gammacm import _sweep_colors, _draw_order
+  res = results[VARIANTS_REF[1]]
+  colors, sm = _sweep_colors(res)
+  floor = {round(float(r['log10ratio']), 3): 1./r['env'].gma_m**2 for r in res}
+  keep = lambda rows: [m for m in rows
+                       if m['nu_num'] >= floor.get(round(float(m['logr']), 3), 0.)]
+  ref = keep(scans[VARIANTS_REF])
+  qty = (('x_pk', False, '$x_{\\rm pk}=\\bar{T}_{\\rm pk}/\\bar{T}_f$'),
+         ('fwhm', False, 'FWHM $/\\bar{T}_f$'),
+         ('asym10', True, '$T_{\\rm rise}/T_{\\rm fall}$ at $0.1\\,F_{\\rm pk}$'))
+  fig, axs = plt.subplots(3, len(VARIANTS), figsize=(15, 11), sharex=True, sharey='row',
+                          gridspec_kw={'wspace': 0.06, 'hspace': 0.06})
+  nu_all = np.array([m['nu_num'] for m in ref], float)
+  for j, (vkey, vlab) in enumerate(VARIANTS):
+    var = keep(scans[vkey])
+    for r, c in _draw_order(zip(res, colors)):
+      logr = r['log10ratio']
+      for i, (key, edge, _) in enumerate(qty):
+        for rows, ls in ((ref, '--'), (var, '-')):
+          xn, v = _by_logr(rows, logr, key, mask_edge=edge)
+          ok = np.isfinite(v) & (v > 0.)
+          axs[i, j].loglog(xn[ok], v[ok], color=c, lw=1., ls=ls)
+    axs[0, j].text(0.97, 0.86, vlab, transform=axs[0, j].transAxes, fontsize=11,
+                  ha='right', va='top')   # the empty corner: right of nu_m, above x_pk ~ 0.8
+    for i in range(3):
+      ax = axs[i, j]
+      ax.axvline(1., color='grey', ls=':', lw=.8)
+      if i == 0:
+        ax.axhline(1., color='grey', ls=':', lw=.8)
+        if x_rf is not None:
+          ax.axhline(x_rf, color='k', ls='-.', lw=.8)
+      ax.set_xlim(nu_all.min(), nu_all.max())
+    axs[2, j].set_xlabel(_SCAN_UNITS['num'][1])
+  for i, (_, _, ylab) in enumerate(qty):
+    axs[i, 0].set_ylabel(ylab)
+  handles = [Line2D([], [], color='grey', ls='--', lw=1., label='RS, rf cut'),
+             Line2D([], [], color='grey', ls='-', lw=1., label='variant')]
+  if x_rf is not None:
+    handles.append(Line2D([], [], color='k', ls='-.', lw=.8, label='$\\bar{T}_{\\rm rf}$'))
+  axs[1, 0].legend(handles=handles, fontsize=8, loc='upper right')   # empty above the FWHM curves
+  fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.03, label='log$_{10}\\mathcal{C}$')
+  fn = os.path.join(outdir, 'pulse_characteristics_vs_nu_variants.png')
+  fig.savefig(fn, dpi=200)
+  plt.close(fig)
+  print(f'pulse-characteristics variants figure -> {fn}')
+  return fn
+
+
+def main_variants(key=DEFAULT_KEY, rescan=False):
+  '''variant_scans + plot_shape_vs_nu_variants, into the article sweep's RS directory.'''
+  scans, results = variant_scans(key, rescan=rescan)
+  _, _, x_rf = _time_marks(key, Z_SHELL, verbose=False)
+  outdir = method_outdir(VARIANTS_REF[1], key, Z_SHELL)
+  fn = plot_shape_vs_nu_variants(scans, results, outdir, x_rf=x_rf)
+  trim_pngs(outdir)
+  return fn
