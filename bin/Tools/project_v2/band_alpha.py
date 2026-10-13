@@ -85,7 +85,7 @@ def measure(key=ssh.KEY, win=WIN, win_los=None):
   rows = []
   for mk, meth in METHODS.items():
     for p in ssh.load_shell_pairs(key=key, method=meth):
-      x = p['x']
+      x, psyn = p['x'], float(p['env'].psyn)
       ok = x >= swp.phys_x_floor(dict(env=p['env'], nub=p['nub']))
       for sk, (col, _, _) in SHELLS.items():
         nf = p[col]
@@ -95,17 +95,33 @@ def measure(key=ssh.KEY, win=WIN, win_los=None):
           for wl in win_los:
             f = fit_band(x[ok], sp[ok], win, wl)
             rows.append(dict(logC=round(float(p['log10ratio']), 2), method=mk, shell=sk,
-                             epoch=ep, win_lo=wl, **f))
+                             epoch=ep, win_lo=wl, p=psyn, **f))
   return pd.DataFrame(rows)
+
+
+LEG = dict(fontsize=8, frameon=True, facecolor='w', edgecolor='none', framealpha=1.)
+
+
+def _legend(ax, **kw):
+  '''opaque white legend, drawn over the guide lines that run through it'''
+  ax.legend(**LEG, **kw).set_zorder(5)
+
+
+def _guides(ax, p):
+  '''one-zone photon indices: -2/3 (below nu_c, nu_m), -3/2 (fast cooling), -(p+1)/2 (slow
+  cooling above nu_m). Labels sit off the curves: -2/3 under its line, the SC one at the right.'''
+  tr = ax.get_yaxis_transform()
+  for a, lab, xt, dy, ha, va in ((-2/3, r'$-2/3$', 0.02, -0.02, 'left', 'top'),
+                                 (-3/2, r'$-3/2$', 0.02, 0.02, 'left', 'bottom'),
+                                 (-(p + 1)/2, rf'$-(p+1)/2$', 0.98, 0.02, 'right', 'bottom')):
+    ax.axhline(a, c='0.5', ls=':', lw=0.9, zorder=0)
+    ax.text(xt, a + dy, lab, color='0.4', fontsize=8, ha=ha, va=va, transform=tr)
 
 
 def plot(df, outdir, fname='band_alpha.png', win=WIN):
   fig, axs = plt.subplots(1, 2, figsize=(9.6, 3.9), sharey=True, layout='constrained')
   for ax, ep, title in zip(axs, ('integrated', 'peak'), ('time-integrated', 'peak')):
-    for a, lab in ((-2/3, r'$-2/3$'), (-3/2, r'$-3/2$')):
-      ax.axhline(a, c='0.5', ls=':', lw=0.9, zorder=0)
-      ax.text(0.02, a + 0.02, lab, color='0.4', fontsize=8,
-              transform=ax.get_yaxis_transform())
+    _guides(ax, df.p.iloc[0])
     for sk, (_, c, slab) in SHELLS.items():
       # at the peak the cut has removed nothing yet (it only drops late emission): one line
       for mk in (METHODS if ep == 'integrated' else ('full',)):
@@ -117,7 +133,7 @@ def plot(df, outdir, fname='band_alpha.png', win=WIN):
         ax.plot(bad.logC, bad.alpha, ls='', marker='x', c='0.3', ms=6)
     ax.set_xlabel(r'$\log_{10}\mathcal{C}$')
     ax.text(0.03, 0.80, title, transform=ax.transAxes, fontsize=10)
-    ax.legend(frameon=False, fontsize=8, loc='upper right')
+    _legend(ax, loc='upper right')
   axs[0].set_ylabel(rf'Band $\alpha$  ($\nu_{{\rm pk}}/{win:g}$ to ${win:g}\,\nu_{{\rm pk}}$)')
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
@@ -139,10 +155,7 @@ def plot_windows(df, outdir, fname='band_alpha_windows.png', win=WIN):
   for j, (ep, etitle) in enumerate((('integrated', 'time-integrated'), ('peak', 'peak'))):
     for i, (sk, (_, _, slab)) in enumerate(SHELLS.items()):
       ax = axs[i, j]
-      for a, lab in ((-2/3, r'$-2/3$'), (-3/2, r'$-3/2$')):
-        ax.axhline(a, c='0.5', ls=':', lw=0.9, zorder=0)
-        ax.text(0.02, a + 0.02, lab, color='0.4', fontsize=8,
-                transform=ax.get_yaxis_transform())
+      _guides(ax, df.p.iloc[0])
       for wl, c in zip(wls, cols):
         for mk in (METHODS if ep == 'integrated' else ('full',)):
           d = df[(df.epoch == ep) & (df.shell == sk) & (df.method == mk)
@@ -157,11 +170,10 @@ def plot_windows(df, outdir, fname='band_alpha_windows.png', win=WIN):
         ax.set_xlabel(r'$\log_{10}\mathcal{C}$')
       if j == 0:
         ax.set_ylabel(rf'Band $\alpha$  (to ${win:g}\,\nu_{{\rm pk}}$)')
-  axs[0, 0].legend(frameon=False, fontsize=8, loc='upper right', title='lower edge',
-                   title_fontsize=8)
+  _legend(axs[0, 0], loc='upper right', title='lower edge', title_fontsize=8)
   from matplotlib.lines import Line2D
-  axs[0, 1].legend(handles=[Line2D([], [], c='k', ls=LS[mk], label=LAB[mk]) for mk in METHODS],
-                   frameon=False, fontsize=8, loc='upper right')
+  _legend(axs[0, 1], handles=[Line2D([], [], c='k', ls=LS[mk], label=LAB[mk]) for mk in METHODS],
+          loc='upper right')
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
   fig.savefig(path, dpi=300)
