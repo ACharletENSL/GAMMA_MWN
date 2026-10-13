@@ -1500,6 +1500,8 @@ def plot_hle(bins_by_method, sides_by_method, outdir=OUTDIR):
     ax.semilogx(xx, g.to_numpy(), color='#1f77b4', lw=1.7)
     ax.axhline(4/3., color='k', ls='--', lw=.9, alpha=.7, label='$4/3$ (uncooled)')
     ax.axhline(0.5, color='0.5', ls=':', lw=.9, label='$1/2$ (fast cooling)')
+    ax.axhline((3. - sides[0]['psyn'])/2., color='0.5', ls='-.', lw=.9,
+               label='$(3-p)/2$ (slow cooling)')
     ax.set_ylim(0.2, 1.5)
     ax.set_ylabel('$a_{\\rm edge}$: slope over lowest decade')
     ax.set_xlabel('$\\bar{T}/\\bar{T}_f$')

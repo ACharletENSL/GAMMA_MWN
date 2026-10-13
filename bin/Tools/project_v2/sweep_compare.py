@@ -1006,6 +1006,7 @@ def fluence_series(pairs, spec_key='nuFnu', x_key=None, nu_break=_shell_nu_break
     # extension (the _fc2 caches), and a VFC point is unresolved, as it was then.
     g = x >= swp.phys_x_floor(ra)
     out.append(dict(logr=float(ra['log10ratio']), x=x, sp_a=sp_a, sp_b=sp_b, nu_break=nb,
+                    psyn=float(ra['env'].psyn),
                     fa=sb.fluence_low_slope(x[g], sp_a[g], nu_break=nb, **kw),
                     fb=sb.fluence_low_slope(x[g], sp_b[g], nu_break=nb, **kw)))
   return out
@@ -1026,7 +1027,7 @@ def fluence_slope_table(series, labels=LABELS, band_ref=3., verbose=True):
   la, lb = labels
   rows = []
   for e in series:
-    row = {'logr': e['logr'], 'nu_break': e['nu_break']}
+    row = {'logr': e['logr'], 'nu_break': e['nu_break'], 'psyn': e['psyn']}
     for f, tag in ((e['fb'], 'full'), (e['fa'], 'cut')):     # B = reference = full
       res = bool(f['converged'] and f['in_band'])
       row.update({f'a_{tag}': f['a_inf'], f'resolved_{tag}': res,
@@ -1097,7 +1098,9 @@ def _draw_slope_profile(ax, series, colors, labels):
     # they carry no information and, in a multi-panel figure, land on a neighbour
     if xlo <= e['nu_break'] <= xhi:
       ax.plot([e['nu_break']], [A_LO_ASYMP], marker='v', color=c, ms=4, clip_on=False)
-  for y, lab in ((A_LO_ASYMP, '4/3'), (1., '1'), (.5, '1/2')):
+  # one-zone guides: below both breaks, alpha = -1, fast cooling mid, slow cooling mid
+  psyn = series[0]['psyn']
+  for y, lab in ((A_LO_ASYMP, '4/3'), (1., '1'), (.5, '1/2'), ((3. - psyn)/2., '(3-p)/2')):
     ax.axhline(y, color='grey', ls=':', lw=.8)
     ax.annotate(lab, xy=(0.997, y), xycoords=transx(ax), fontsize=8, color='grey',
                 ha='right', va='bottom')
@@ -1212,6 +1215,12 @@ def plot_fluence_slopes_vs_regime(tables, outdir=OUTDIR, labels=LABELS, kind='as
               xy=(0.985, A_LO_ASYMP + .012), xycoords=transx(ax), fontsize=8,
               color='grey', ha='right')
   ax.annotate('1  (Band $\\alpha=-1$)', xy=(0.985, 1. + .012),
+              xycoords=transx(ax), fontsize=8, color='grey', ha='right')
+  # slow cooling mid segment, which the slow cooling band indices sit on
+  psyn = next(iter(tables.values()))[0]['psyn'].iloc[0]
+  a_sc = (3. - psyn)/2.
+  ax.axhline(a_sc, color='grey', ls=':', lw=.8)
+  ax.annotate('$(3-p)/2$  (slow cooling, Band $\\alpha=-(p+1)/2$)', xy=(0.985, a_sc + .012),
               xycoords=transx(ax), fontsize=8, color='grey', ha='right')
   ax.set_ylabel('$a = $ d$\\log(\\nu\\mathcal{F}_\\nu)/$d$\\log\\nu$')
   ax.set_xlabel('$\\log_{10}\\mathcal{C}$')

@@ -19,12 +19,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import cm, colors
 from matplotlib.lines import Line2D
+from environment import MyEnv
 
 FIGROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'figures', 'fiducial')
 EFF_CSV = os.path.join(FIGROOT, 'efficiency_sweep', 'efficiency_table.csv')
 SLOPE_CSV = os.path.join(FIGROOT, 'rarcut_compare', 'fluence_low_slopes.csv')
 OUTDIR = os.path.join(FIGROOT, 'rarcut_compare')
 
+KEY = 'cooling_g100'         # the run FIGROOT's caches come from (p for the guides)
 METHODS = {'full': 'data', 'cut': 'data_rarcut'}
 LS = {'full': '-', 'cut': '--'}
 LAB = {'full': 'full', 'cut': 'rf cut'}
@@ -54,8 +56,9 @@ def plot_tradeoff(z=4, band_dex=2, outdir=OUTDIR, fname='efficiency_slope_tradeo
   cmap = cm.jet
   est = {'asym': 'asymptotic', 'band': rf'${band_dex}$ dex below $\nu_{{\rm pk}}$'}
   fig, ax = plt.subplots(figsize=(6, 4.5), layout='constrained')
-  # reference values: line of death, one-zone fast cooling
-  for a, lab in ((-2/3, r'$-2/3$'), (-3/2, r'$-3/2$')):
+  # reference values: line of death, one-zone fast and slow cooling
+  p = MyEnv(KEY).psyn
+  for a, lab in ((-2/3, r'$-2/3$'), (-3/2, r'$-3/2$'), (-(p + 1)/2, r'$-(p+1)/2$')):
     ax.axhline(a, c='0.4', ls=':', lw=1)
     ax.text(1.1e-2, a + 0.02, lab, color='0.4', fontsize=9)
   for kind in est:
