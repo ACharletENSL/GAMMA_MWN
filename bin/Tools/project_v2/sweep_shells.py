@@ -75,6 +75,7 @@ from sweep_compare import _regrid_onto
 from sweep_gammacm import (run_sweep, load_sweep, method_outdir, compute_alpha_sweep,
     exit_onset_barT, rarefaction_off_barT, nu_over_num, bolometric_peak_index,
     compute_fluence_spectrum, _plot_spectra_all, trim_pngs, copy_article_figures,
+    _sweep_colors, _draw_order,
     LOG10RATIO_ARR,
     NU_TARGETS, NU_REF, NU_M_LABEL, SPEC_YSPAN, XLIM_LIN, DEFAULT_METHOD)
 
@@ -629,6 +630,58 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
   print(f'{kind} spectra composite ({len(sel)} regimes) saved to {f}')
 
 
+def plot_shell_slopes(pairs, outdir=OUTDIR, xhi=10., ylim=(-0.35, 1.45)):
+  '''
+  The local index a = d log(nuFnu)/d log(nu) of the RS (dashed) and of the RS+FS sum
+  (solid), every regime on one axis (colour = C), time-integrated on the left and at the
+  peak on the right. The peak is the bolometric peak of the TOTAL, both curves at that
+  one instant (shell_spectra). Drawn above nu_B only. Guides: the one-zone indices 4/3,
+  1/2 (fast cooling) and (3-p)/2 (slow cooling).
+
+  Where plot_shell_spectra_panels shows only the difference for three regimes, this puts
+  both slopes of every regime side by side, so where the FS bends the sum (the decade
+  between nu_m,FS and nu_m,RS) is read against what the RS alone does there.
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  colors, sm = _sweep_colors(pairs)
+  psyn = float(pairs[0]['env'].psyn)
+  fig, axs = plt.subplots(1, 2, figsize=(11., 4.4), sharey=True, layout='constrained')
+  xlo = np.inf
+  for ax, kind, title in zip(axs, ('fluence', 'peak'), ('time-integrated', 'peak')):
+    for p, c in _draw_order(zip(pairs, colors)):
+      sp, _ = shell_spectra(p, kind)
+      if sp is None:
+        continue
+      x, flo = p['x'], 1./p['env'].gma_m**2
+      for tag, ls in (('RS', '--'), ('tot', '-')):
+        g = (sp[tag] > 0.) & np.isfinite(sp[tag]) & (x >= flo)
+        lx, _, a = sb.segment_slopes(x[g], sp[tag][g])
+        ax.plot(10.**lx, a, color=c, ls=ls, lw=1.1)
+      xlo = min(xlo, flo)
+    for y, lab in ((4./3., '4/3'), (.5, '1/2'), ((3. - psyn)/2., '(3-p)/2')):
+      ax.axhline(y, color='grey', ls=':', lw=.8, zorder=0)
+      ax.annotate(lab, xy=(0.997, y), xycoords=ax.get_yaxis_transform(), fontsize=8,
+                  color='grey', ha='right', va='bottom')
+    ax.axhline(0., color='grey', ls='-', lw=.5, zorder=0)
+    ax.set_xscale('log')
+    ax.set_xlabel(NU_M_RS_LABEL)
+    ax.text(.03, .04, title, transform=ax.transAxes, fontsize=10)
+  for ax in axs:
+    ax.set_xlim(xlo, xhi)
+  axs[0].set_ylim(*ylim)
+  axs[0].set_ylabel('$a = $ d$\\log(\\nu F_\\nu)/$d$\\log\\nu$')
+  axs[1].legend(handles=[plt.Line2D([], [], color='k', ls='--', label='RS'),
+                         plt.Line2D([], [], color='k', ls='-', label='RS+FS')],
+                loc='lower left', bbox_to_anchor=(0., .1), fontsize=9, frameon=True,
+                facecolor='w', edgecolor='none', framealpha=1.).set_zorder(5)
+  fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.035, label='log$_{10}\\mathcal{C}$')
+  f = os.path.join(outdir, 'shell_slopes.png')
+  fig.savefig(f, dpi=300)
+  plt.close(fig)
+  print(f'RS vs RS+FS slopes saved to {f}')
+  return f
+
+
 def plot_shell_width_vs_regime(pairs, kind='peak', key=KEY, outdir=OUTDIR,
     level=WIDTH_LEVEL, rows=None):
   '''
@@ -789,6 +842,7 @@ def main(key=KEY, log10ratio_arr=LOG10RATIO_ARR, method=METHOD, outdir=None,
   for kind in KIND_SYM:
     plot_shell_spectra_panels(pairs, kind=kind, outdir=outdir)
     plot_shell_width_vs_regime(pairs, kind=kind, key=key, outdir=outdir)
+  plot_shell_slopes(pairs, outdir=outdir)
   s = plot_shell_shares(pairs, outdir=outdir)
   trim_pngs(outdir)
   # only `shells_split` itself is keyed in ARTICLE_SERIES, so the uncut companion
