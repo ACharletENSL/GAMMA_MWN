@@ -1039,6 +1039,7 @@ def main(key=DEFAULT_KEY, method=DEFAULT_METHOD, z=Z_SHELL, nu_targets=NU_TARGET
 # ---------------------------------------------------------------------------
 SCAN_CSV_TOT = 'lightcurve_freqscan_nu_m_RS+FS.csv'   # the RS+FS scan, beside each method's
                                                       # RS one
+LS_RF_FS = (0, (5, 2, 1, 2, 1, 2))                    # dash-dot-dot: the FS's last cut-off
 VARIANTS_REF = ('RS', 'data_rarcut')                  # the article's Fig. 6
 VARIANTS = ((('RS', 'data'), 'RS + post-RF'),         # (shell, method) against the reference,
             (('tot', 'data_rarcut'), 'RS+FS'),        # one column each
@@ -1079,7 +1080,7 @@ def variant_scans(key=DEFAULT_KEY, rescan=False):
   return scans, results
 
 
-def plot_shape_vs_nu_variants(scans, results, outdir, x_rf=None):
+def plot_shape_vs_nu_variants(scans, results, outdir, x_rf=None, x_rf_fs=None):
   '''
   Fig. 6 (plot_shape_vs_nu, unit='num') against what adding the post-rarefaction emission,
   the forward shock, or both does to it. Rows: peak time, FWHM, T_rise/T_fall at 0.1 F_pk;
@@ -1087,6 +1088,8 @@ def plot_shape_vs_nu_variants(scans, results, outdir, x_rf=None):
   variant solid, one colour per regime. Log y on every row: the uncut slow-cooling FWHM
   reaches ~4.6 bar{T}_f at the grid floor, which on a linear axis would flatten the
   1.1-1.5 the article's figure resolves. Drawn above the RS's nu_B only, as plot_shape_vs_nu.
+  x_rf / x_rf_fs: last rarefaction cut-off of the RS / FS on the RS clock (bar{T}_rf/bar{T}_f,RS),
+  drawn on the peak-time row; the FS one only in the columns that contain the FS.
   '''
   from matplotlib.lines import Line2D
   from sweep_gammacm import _sweep_colors, _draw_order
@@ -1111,8 +1114,9 @@ def plot_shape_vs_nu_variants(scans, results, outdir, x_rf=None):
           xn, v = _by_logr(rows, logr, key, mask_edge=edge)
           ok = np.isfinite(v) & (v > 0.)
           axs[i, j].loglog(xn[ok], v[ok], color=c, lw=1., ls=ls)
-    axs[0, j].text(0.97, 0.86, vlab, transform=axs[0, j].transAxes, fontsize=11,
-                  ha='right', va='top')   # the empty corner: right of nu_m, above x_pk ~ 0.8
+    axs[0, j].text(0.02, 0.18, vlab, transform=axs[0, j].transAxes, fontsize=10,
+                  ha='left', va='center')  # below the low-nu plateaus, left of the drop at
+                                           # nu_m and under the legend; clear of the rf lines
     for i in range(3):
       ax = axs[i, j]
       ax.axvline(1., color='grey', ls=':', lw=.8)
@@ -1120,6 +1124,8 @@ def plot_shape_vs_nu_variants(scans, results, outdir, x_rf=None):
         ax.axhline(1., color='grey', ls=':', lw=.8)
         if x_rf is not None:
           ax.axhline(x_rf, color='k', ls='-.', lw=.8)
+        if x_rf_fs is not None and vkey[0] == 'tot':
+          ax.axhline(x_rf_fs, color='k', ls=LS_RF_FS, lw=.8)
       ax.set_xlim(nu_all.min(), nu_all.max())
     axs[2, j].set_xlabel(_SCAN_UNITS['num'][1])
   for i, (_, _, ylab) in enumerate(qty):
@@ -1127,8 +1133,14 @@ def plot_shape_vs_nu_variants(scans, results, outdir, x_rf=None):
   handles = [Line2D([], [], color='grey', ls='--', lw=1., label='RS, rf cut'),
              Line2D([], [], color='grey', ls='-', lw=1., label='variant')]
   if x_rf is not None:
-    handles.append(Line2D([], [], color='k', ls='-.', lw=.8, label='$\\bar{T}_{\\rm rf}$'))
-  axs[1, 0].legend(handles=handles, fontsize=8, loc='upper right')   # empty above the FWHM curves
+    handles.append(Line2D([], [], color='k', ls='-.', lw=.8,
+                          label='$\\bar{T}_{\\rm rf}/\\bar{T}_f$, RS'))
+  if x_rf_fs is not None:
+    handles.append(Line2D([], [], color='k', ls=LS_RF_FS, lw=.8,
+                          label='$\\bar{T}_{\\rm rf}/\\bar{T}_f$, FS'))
+  # centre left of the peak-time panel: below the low-frequency plateaus (x_pk ~ 0.8-1.4)
+  # and left of the drop at nu_m, the one region no curve crosses
+  axs[0, 0].legend(handles=handles, fontsize=8, loc='center left')
   fig.colorbar(sm, ax=axs, pad=0.012, fraction=0.03, label='log$_{10}\\mathcal{C}$')
   fn = os.path.join(outdir, 'pulse_characteristics_vs_nu_variants.png')
   fig.savefig(fn, dpi=200)
@@ -1140,8 +1152,10 @@ def plot_shape_vs_nu_variants(scans, results, outdir, x_rf=None):
 def main_variants(key=DEFAULT_KEY, rescan=False):
   '''variant_scans + plot_shape_vs_nu_variants, into the article sweep's RS directory.'''
   scans, results = variant_scans(key, rescan=rescan)
-  _, _, x_rf = _time_marks(key, Z_SHELL, verbose=False)
+  barT_f, _, x_rf = _time_marks(key, Z_SHELL, verbose=False)
+  off_fs = rarefaction_off_barT(key, z=1)          # FS cut-off, put on the RS clock
+  x_rf_fs = off_fs[1]/barT_f if off_fs else None
   outdir = method_outdir(VARIANTS_REF[1], key, Z_SHELL)
-  fn = plot_shape_vs_nu_variants(scans, results, outdir, x_rf=x_rf)
+  fn = plot_shape_vs_nu_variants(scans, results, outdir, x_rf=x_rf, x_rf_fs=x_rf_fs)
   trim_pngs(outdir)
   return fn
