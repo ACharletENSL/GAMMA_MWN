@@ -34,8 +34,8 @@ OUTDIR = os.path.join(GAMMA_dir, 'bin', 'Tools', 'figures', 'afterglow')
 # the fiducial ISM (GS02 break 1), so the lowest band stays above it.
 BANDS = (('10 GHz', 1e10), ('100 GHz', 1e11), ('R band', 4.6e14), ('1 keV', 2.42e17))
 # categorical slots 1-4 of the dataviz reference palette, validated for 4 adjacent series
-# (CVD dE >= 9.1, normal >= 22.9); two sit below 3:1 on white, so every curve is also
-# labelled directly
+# (CVD dE >= 9.1, normal >= 22.9); two sit below 3:1 on white, so the legend names every band
+# (no direct labels: the user prefers the legend alone, 2026-10-16)
 COLORS = ('#2a78d6', '#eb6834', '#1baf7a', '#eda100')
 INK, MUTED = '0.2', '0.5'
 # A&A figures: no background grid, and text sits on an opaque white box so no line
@@ -51,12 +51,7 @@ FIDUCIAL = dict(E=1e52, A=1., k=0., eps_e=.1, eps_B=.01, p=2.5, z=1., dL=2.1e28)
 # 1e-4 d (R_l/R_0 = 2.8), 3% at 1e-3 d, < 0.2% from 2e-2 d, where the GS02 ratio starts
 T_DAYS = (1e-4, 10.)
 GS02_MIN_SEP = 2.                     # decades between GS02's breaks for the comparison
-# direct labels: (t_obs in days, offset in points, ha, va) per band. Each sits on the side of
-# its curve that the curve slopes AWAY from (above-left of a rising curve, below-right of a
-# rising one, above-right of a falling one), since the white text box would otherwise cut a
-# gap in the data; 10 and 100 GHz meet at ~7 d and R band crosses both at ~0.1 d
-LABEL_AT = ((.5, (2, -3), 'left', 'top'), (3e-2, (-2, 3), 'right', 'bottom'),
-            (8e-3, (0, 4), 'center', 'bottom'), (3e-2, (5, 3), 'left', 'bottom'))
+
 
 
 def gs02_flux(model, T, nu, min_sep=0.):
@@ -111,11 +106,7 @@ def plot_fs_lightcurves(model=None, n_per_dec=12, outdir=OUTDIR, fname=None, sho
               label=lab)
     ax.loglog(td, G[:, j], color=col, lw=1., ls=(0, (4, 2)), zorder=2)
     axr.semilogx(td, F[:, j]/G[:, j], color=col, lw=1.5, zorder=3)
-    tl, off, ha, va = LABEL_AT[j]
-    Fl = np.exp(np.interp(np.log(tl), np.log(td), np.log(F[:, j])))
-    ax.annotate(lab, (tl, Fl), xytext=off, textcoords='offset points', ha=ha, va=va,
-                fontsize=FS_ANN, color=INK, zorder=5, bbox=TEXT_BOX)
-  # line-style key, in ink: identity of the bands is carried by the labels and the legend
+  # line-style key, in ink: identity of the bands is carried by the legend
   h_ours, = ax.plot([], [], color=MUTED, lw=2., label='this work')
   h_gs, = ax.plot([], [], color=MUTED, lw=1., ls=(0, (4, 2)), label='GS02')
   leg = ax.legend(loc='lower left', fontsize=FS_ANN, frameon=True, ncol=2,
