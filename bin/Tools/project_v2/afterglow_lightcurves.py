@@ -37,7 +37,10 @@ BANDS = (('10 GHz', 1e10), ('100 GHz', 1e11), ('R band', 4.6e14), ('1 keV', 2.42
 # (CVD dE >= 9.1, normal >= 22.9); two sit below 3:1 on white, so every curve is also
 # labelled directly
 COLORS = ('#2a78d6', '#eb6834', '#1baf7a', '#eda100')
-INK, MUTED, GRID = '0.2', '0.5', '0.88'
+INK, MUTED = '0.2', '0.5'
+# A&A figures: no background grid, and text sits on an opaque white box so no line
+# crosses it (user, 2026-10-16)
+TEXT_BOX = dict(boxstyle='square,pad=0.15', fc='w', ec='none')
 FS_LAB, FS_TICK, FS_ANN = 9., 8., 7.5
 FIGSIZE = (3.6, 4.4)                  # A&A single column
 
@@ -48,10 +51,11 @@ FIDUCIAL = dict(E=1e52, A=1., k=0., eps_e=.1, eps_B=.01, p=2.5, z=1., dL=2.1e28)
 # 1e-4 d (R_l/R_0 = 2.8), 3% at 1e-3 d, < 0.2% from 2e-2 d, where the GS02 ratio starts
 T_DAYS = (1e-4, 10.)
 GS02_MIN_SEP = 2.                     # decades between GS02's breaks for the comparison
-# direct labels: (t_obs in days, offset in points, ha, va) per band, placed where nothing
-# crosses (10 and 100 GHz meet at ~7 d, R band crosses both at ~0.1 d; 1 keV is steep, so its
-# label sits beside the curve rather than above it)
-LABEL_AT = ((2., (0, -4), 'center', 'top'), (.3, (0, 4), 'center', 'bottom'),
+# direct labels: (t_obs in days, offset in points, ha, va) per band. Each sits on the side of
+# its curve that the curve slopes AWAY from (above-left of a rising curve, below-right of a
+# rising one, above-right of a falling one), since the white text box would otherwise cut a
+# gap in the data; 10 and 100 GHz meet at ~7 d and R band crosses both at ~0.1 d
+LABEL_AT = ((.5, (2, -3), 'left', 'top'), (3e-2, (-2, 3), 'right', 'bottom'),
             (8e-3, (0, 4), 'center', 'bottom'), (3e-2, (5, 3), 'left', 'bottom'))
 
 
@@ -110,36 +114,38 @@ def plot_fs_lightcurves(model=None, n_per_dec=12, outdir=OUTDIR, fname=None, sho
     tl, off, ha, va = LABEL_AT[j]
     Fl = np.exp(np.interp(np.log(tl), np.log(td), np.log(F[:, j])))
     ax.annotate(lab, (tl, Fl), xytext=off, textcoords='offset points', ha=ha, va=va,
-                fontsize=FS_ANN, color=INK, zorder=4)
+                fontsize=FS_ANN, color=INK, zorder=5, bbox=TEXT_BOX)
   # line-style key, in ink: identity of the bands is carried by the labels and the legend
   h_ours, = ax.plot([], [], color=MUTED, lw=2., label='this work')
   h_gs, = ax.plot([], [], color=MUTED, lw=1., ls=(0, (4, 2)), label='GS02')
-  leg = ax.legend(loc='lower left', fontsize=FS_ANN, frameon=False, ncol=2,
-                  handlelength=2.2, columnspacing=1.)
+  leg = ax.legend(loc='lower left', fontsize=FS_ANN, frameon=True, ncol=2,
+                  handlelength=2.2, columnspacing=1., fancybox=False, framealpha=1.,
+                  facecolor='w', edgecolor='none', borderpad=.3)
+  leg.set_zorder(6)
   for t in leg.get_texts():
     t.set_color(INK)
   for a in (ax, axr):
     a.axvline(t0, color=MUTED, lw=.7, zorder=1)
-    a.grid(color=GRID, lw=.6, which='major')
     a.tick_params(which='both', labelsize=FS_TICK, colors=INK)
     for s in a.spines.values():
       s.set_color(MUTED)
   ytop = np.nanmax(F)*12.
   ax.set_ylim(ytop*1e-8, ytop)
   ax.annotate('$\\nu_\\mathrm{m}=\\nu_\\mathrm{c}$', (t0, ytop), xytext=(3, -3),
-              textcoords='offset points', ha='left', va='top', fontsize=FS_ANN, color=INK)
+              textcoords='offset points', ha='left', va='top', fontsize=FS_ANN, color=INK,
+              bbox=TEXT_BOX, zorder=5)
   par = (f'$E=10^{{{np.log10(model.E):.0f}}}$ erg, $n_0={model.A:g}$ cm$^{{-3}}$\n'
          f'$\\epsilon_\\mathrm{{e}}={model.eps_e:g}$, $\\epsilon_B={model.eps_B:g}$, '
          f'$p={model.p:g}$, $z={model.z:g}$')
   ax.annotate(par, (.04, .26), xycoords='axes fraction', ha='left', va='bottom',
-              fontsize=FS_ANN, color=INK)
+              fontsize=FS_ANN, color=INK, bbox=TEXT_BOX, zorder=5)
   ax.set_ylabel('$F_\\nu$ (mJy)', fontsize=FS_LAB, color=INK)
   axr.axhline(1., color=MUTED, lw=.7, zorder=1)
   i_ok = np.flatnonzero(np.isfinite(G[:, 0]))
   if i_ok.size and i_ok[0] > 0:
     axr.annotate(f'GS02 breaks\n< {GS02_MIN_SEP:g} dex apart',
                  (np.sqrt(td[0]*td[i_ok[0]]), .87), ha='center', va='bottom',
-                 fontsize=FS_ANN, color=MUTED)
+                 fontsize=FS_ANN, color=MUTED, bbox=TEXT_BOX, zorder=5)
   axr.set_ylim(.85, 1.15)
   axr.set_ylabel('$F_\\nu/F_\\nu^{\\rm GS02}$', fontsize=FS_LAB, color=INK)
   axr.set_xlabel('$t_{\\rm obs}$ (days)', fontsize=FS_LAB, color=INK)
