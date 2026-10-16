@@ -12,8 +12,8 @@ cooling nu_c, so for k = 2 the comparison starts at the transition.
 THE COMPARISON IS NOT VALID NEAR THE TRANSITION. GS02's spectra are fitted with their breaks
 well apart, and at k = 0 nu_c/nu_m ~ t_obs, so after nu_m = nu_c the breaks stay within two
 decades of each other for two decades in time. There the GS02 formula and this module differ
-by up to 55% (1.55 at 3e-4 d, the reference's limitation: its Eq. 4 smoothing assumes
-separated breaks), so GS02 is drawn only where |log10(nu_c/nu_m)| >= GS02_MIN_SEP = 2.
+by up to 64% (1.64 at 2.2e-4 d, right after the transition; the reference's limitation, its
+Eq. 4 smoothing assumes separated breaks), so GS02 is drawn only where |log10(nu_c/nu_m)| >= GS02_MIN_SEP = 2.
 Measured at the fiducial, over all four bands, ours/GS02 is 0.96-1.11 with the breaks >= 2
 dex apart, 0.96-1.04 at >= 3 dex and 0.96-1.03 at >= 3.5 dex: the excess shrinks as the
 breaks separate, toward the accuracy of the spectral check (check_gs02).
@@ -43,7 +43,10 @@ FIGSIZE = (3.6, 4.4)                  # A&A single column
 
 # the fiducial forward shock of the figure: ISM, z = 1 at d_L = 6.8 Gpc (Planck 2018)
 FIDUCIAL = dict(E=1e52, A=1., k=0., eps_e=.1, eps_B=.01, p=2.5, z=1., dL=2.1e28)
-T_DAYS = (1e-4, 10.)                  # Gamma_l = 212 .. 2.8 at the fiducial
+# Gamma_l = 212 .. 2.8 at the fiducial. EARLY TIMES DEPEND ON Gamma0 (injection starts at R_0,
+# the coasting phase is not modelled): Gamma0 = 1e5 instead of 1e3 raises F_nu by up to 22% at
+# 1e-4 d (R_l/R_0 = 2.8), 3% at 1e-3 d, < 0.2% from 2e-2 d, where the GS02 ratio starts
+T_DAYS = (1e-4, 10.)
 GS02_MIN_SEP = 2.                     # decades between GS02's breaks for the comparison
 # direct labels: (t_obs in days, offset in points, ha, va) per band, placed where nothing
 # crosses (10 and 100 GHz meet at ~7 d, R band crosses both at ~0.1 d; 1 keV is steep, so its
