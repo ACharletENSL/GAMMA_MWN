@@ -47,9 +47,10 @@ element's int dT int dnu F_nu equals (1+z) E_rad/(4 pi d_L^2) to 1e-4; and again
 smoothed spectra (Table 2) the flux agrees to 0.97-1.04 (k=0, slow cooling, 1 day),
 0.99-1.06 (k=0, fast, 1e-3 day) and 0.96-1.09 (k=2, slow, 10 days) from 2 decades below the
 first break to 2 above the second -- the size of GS02's own fit errors (0.5-7% per break).
-The quadrature is converged: doubling any grid moves those ratios by < 2e-4. Table 2 as
-extracted from the PDF loses minus signs: F_9 must scale as t^+1/2 (checked against
-F_11 (nu_9/nu_11)^-1/2), which is what gs02_k0 uses.
+The quadrature is converged: doubling any grid moves those ratios by < 2e-4. gs02_k0 and
+gs02_k2_slow transcribe Table 2 as printed (e.g. F_9 ~ t^+1/2); a pdftotext copy drops
+every minus sign, so a transcription from one must be checked against the neighbouring
+break, F_b2 = F_b1 (nu_b2/nu_b1)^beta.
 
 Not included: synchrotron self-absorption, inverse Compton, a jet, the coasting phase
 (injection starts at R_0 on the self-similar solution), and the reverse shock.
