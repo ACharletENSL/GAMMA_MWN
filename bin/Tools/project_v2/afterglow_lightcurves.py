@@ -4,13 +4,15 @@
 '''
 Lightcurves and figures for Paper I Sect. 4, from afterglow_flux.
 
-fs_lightcurves: F_nu(t_obs) of the BM forward shock at a few bands, and GS02's smoothed
-spectrum at the same (t_obs, nu) for comparison: their slow-cooling spectrum (breaks 2, 3)
+Notation: uppercase T is an observer-frame time (Paper I convention, no 'obs' subscript).
+
+fs_lightcurves: F_nu(T) of the BM forward shock at a few bands, and GS02's smoothed
+spectrum at the same (T, nu) for comparison: their slow-cooling spectrum (breaks 2, 3)
 once nu_m < nu_c, their fast-cooling one (breaks 11, 9) before. GS02 give no k = 2 fast-
 cooling nu_c, so for k = 2 the comparison starts at the transition.
 
 THE COMPARISON IS NOT VALID NEAR THE TRANSITION. GS02's spectra are fitted with their breaks
-well apart, and at k = 0 nu_c/nu_m ~ t_obs, so after nu_m = nu_c the breaks stay within two
+well apart, and at k = 0 nu_c/nu_m ~ T, so after nu_m = nu_c the breaks stay within two
 decades of each other for two decades in time. There the GS02 formula and this module differ
 by up to 64% (1.64 at 2.2e-4 d, right after the transition; the reference's limitation, its
 Eq. 4 smoothing assumes separated breaks), so GS02 is drawn only where |log10(nu_c/nu_m)| >= GS02_MIN_SEP = 2.
@@ -70,7 +72,7 @@ def gs02_flux(model, T, nu, min_sep=0.):
 
 
 def transition_time(model, lo=1e-8*af.DAY, hi=1e4*af.DAY, n=200):
-  '''t_obs where GS02's slow-cooling nu_m and nu_c meet (bisection in ln t)'''
+  '''T where GS02's slow-cooling nu_m and nu_c meet (bisection in ln t)'''
   breaks = af.gs02_k2_slow if model.k == 2. else af.gs02_k0
   f = lambda t: np.log(breaks(model, t)[2][0]/breaks(model, t)[3][0])
   a, b = np.log(lo), np.log(hi)
@@ -88,7 +90,7 @@ def fs_lightcurves(model, T, bands=BANDS, min_sep=GS02_MIN_SEP):
 
 def plot_fs_lightcurves(model=None, n_per_dec=12, outdir=OUTDIR, fname=None, show=False):
   '''
-  Top: F_nu(t_obs) per band, this module solid, GS02 dashed where their breaks are at
+  Top: F_nu(T) per band, this module solid, GS02 dashed where their breaks are at
   least GS02_MIN_SEP decades apart. Bottom: their ratio. The vertical hairline is GS02's
   nu_m = nu_c.
   '''
@@ -139,7 +141,7 @@ def plot_fs_lightcurves(model=None, n_per_dec=12, outdir=OUTDIR, fname=None, sho
                  fontsize=FS_ANN, color=MUTED, bbox=TEXT_BOX, zorder=5)
   axr.set_ylim(.85, 1.15)
   axr.set_ylabel('$F_\\nu/F_\\nu^{\\rm GS02}$', fontsize=FS_LAB, color=INK)
-  axr.set_xlabel('$t_{\\rm obs}$ (days)', fontsize=FS_LAB, color=INK)
+  axr.set_xlabel('$T$ (days)', fontsize=FS_LAB, color=INK)
   axr.set_xlim(td[0], td[-1])
 
   os.makedirs(outdir, exist_ok=True)
@@ -154,7 +156,7 @@ def plot_fs_lightcurves(model=None, n_per_dec=12, outdir=OUTDIR, fname=None, sho
 def main(show=False):
   fig, axs, (td, F, G, t0) = plot_fs_lightcurves(show=show)
   r = F/G
-  print(f'GS02 nu_m = nu_c at t_obs = {t0:.3g} d')
+  print(f'GS02 nu_m = nu_c at T = {t0:.3g} d')
   for j, (lab, _) in enumerate(BANDS):
     print(f'  {lab:8s} ours/GS02 where its breaks are >= {GS02_MIN_SEP:g} dex apart: '
           f'{np.nanmin(r[:, j]):.3f} .. {np.nanmax(r[:, j]):.3f}')
