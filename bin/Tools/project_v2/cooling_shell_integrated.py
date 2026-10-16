@@ -2,55 +2,63 @@
 # @Author: acharlet
 
 '''
-The SHELL-INTEGRATED electron distribution: every population present at one comoving
-time t', summed over its injection time t'_i,
+The SHELL-INTEGRATED electron distribution (Paper I, Sect. 3): every population present
+when the shell is at radius R, summed over its injection radius R_i,
 
-    dNcal/dgma(t') = int_{t'_0}^{t'_f} dN/dgma(t'; t'_i) dt'_i,
-    t'_f = min(t', t'_0 + Delta t'_inj),
+    dNcal/dgma(R) = int_{R_0}^{R_f} Ndot_inj(R_i) dN/dgma(R; R_i) dR_i,
+    R_f = min(R, R_0 + Delta R_inj),
 
-for a HOMOGENEOUS shell: every fluid element sees the same B'(t') and the same
-expansion, so the integral over position is an integral over t'_i alone.
+with dN/dgma(R; R_i) the NORMALISED distribution of the electrons injected at R_i (Eq.
+eqn:dndgma_full) and Ndot_inj = dN_inj/dR_i. Radii are in R_0: x = R/R_0, y = R_i/R_0,
+r = R/R_i = x/y.
 
-THE POWER LAWS (cooling_integrated_adiabatic's, positive exponents). With tau = t'/t'_i,
+THE RADIUS CLOCK (Sect. 2.1, Eq. eqn:plaws). After injection every fluid element evolves
+self-similarly,
 
-    A = tau^-d                    the adiabatic factor, d = 2/3     (rho ~ t'^-2)
-    t'_c = t'_c,i tau^q           the synchrotron clock, q = 10/3   (B'^2 ~ rho^5/3)
-    s = d + q - 1 = 3
+    n' ~ r^-lam_n,   B' ~ r^-lam_B,   Gamma ~ r^-g,
 
-and the f-weighted clock of the appendix integrates in closed form,
+so A = r^(-lam_n/3) and, with dt' = dR/(c Gamma),
 
-    A tt_eff = S(t'; t'_i) = (t'_i/t'_c,i) (1 - tau^-s)/s,
+    I(R; R_i) = (1 - r^-Lam)/(Lam gbar_c,i),     Lam = lam_n/3 + 2 lam_B - 1 - g,
+    gma(R) = A gma_i/(1 + gma_i I)               (ln r/gbar_c,i at Lam = 0).
 
-bounded since s > 0: every population's burn FREEZES after a few t'_i and from then on
-it only slides down as A. Homogeneity ties the populations together through
-t'_c,i = t'_c,0 (t'_i/t'_0)^q, i.e. t'_i/t'_c,i = kappa y^(1-q), with y = t'_i/t'_0,
-x = t'/t'_0 and kappa = t'_0/t'_c,0.
+THE SHOCK FRONT sets what each element starts with: gbar_c,i ~ R_i^lam_c, gma_m,i ~
+R_i^-lam_m, gma_M,i ~ R_i^lam_M and Ndot_inj ~ R_i^lam_N. A HOMOGENEOUS shell (all elements
+see the same B' at a given R) has lam_c = 2 lam_B - 1 - g, which is the default. These
+indices, and nothing else, enter the distribution: g^sh only acts through lam_c and lam_m.
 
-ONE population (appendix Eqn. app_dndgma_full, per unit injection time, constant rate
-Ndot and constant injected law):
+THE REFERENCE CASE (the article's figure, COASTING): coasting, constant comoving width,
+gma_ad = 5/3 at constant eps_B, i.e. lam_n = 2, lam_B = 5/3, g = 0, Lam = 3, lam_c = 7/3,
+constant gma_m,i, gma_M,i and Ndot. There t'/t'_0 = R/R_0, so this reproduces the previous
+t'-clock version of this file (d = 2/3, q = 10/3, s = 3) to rounding.
+bm_forward_shock(k) gives the Blandford-McKee forward-shock laws (Table tab:indices and
+Sect. 4).
 
-    dN/dgma = Ndot K A^(p-1) gma^-p (1 - gma S/A)^(p-2),
-    gma_m,M(x;y) = A gma_{m,M},i / (1 + gma_{m,M},i S).
+THE REGIME LABEL is the article's: C = gbar_c(R_0)/gma_m,0, with gbar_c = 1/I(2R_i; R_i)
+= Lam gbar_c,i/(1 - 2^-Lam) the dynamical value of the FIRST element (Eq. eqn:bargamma_c),
+so C = 1 is exactly R_m = 2R_0 for that element.
 
-THE REGIME LABEL is the article's: gma_c,0 = 1/I over the first t'_0 after collision,
-synchrotron AND adiabatic, i.e. kappa (1 - 2^-s)/s = 0.2917 kappa = 1/(C gma_m,i), so
-C = 1 is exactly t'_m = t'_dyn for the first fluid element. The 0.2917 is <A B'^2>/B'_0^2
-over [t'_0, 2t'_0]. (The previous label, 1/tt, used the A-free 0.3435 = <B'^2>/B'_0^2:
-the same C now means 1.178x more cooling.)
+THE TWO SEGMENTS that need a spread of injection radii (Sect. 3.2):
+  frozen fast cooling   gma ~ R_i^(lam_n/3 + lam_c)  =>  (1 + lam_N)/(lam_n/3 + lam_c) - 1
+  adiabatic smearing    gma ~ R_i^(lam_n/3 - lam_m)  =>  (1 + lam_N)/(lam_n/3 - lam_m) - 1
+-2/3 and +1/2 in the reference case, (2-7k)/(16+k) and (14-7k)/(4+k) for the BM forward
+shock.
 
-NUMERICS. At fixed (x, gma) both edges are increasing in y (A grows, S falls), so the
-support is ONE interval [y_lo, y_hi] with gma_M(x;y_lo) = gma and gma_m(x;y_hi) = gma.
-Both are found by vectorised bisection in ln y, and the integrand -- smooth inside, a
-(1 - gma S/A)^(p-2) square-root zero at y_lo -- by Gauss-Legendre after y = y_lo +
-(y_hi - y_lo) u^2. Checked by the SUM RULE int Ncal dgma = Ndot (y_f - 1) t'_0.
+NUMERICS. At fixed (x, gma) both edges increase with y in every case of interest (A grows,
+I falls; lam_m < lam_n/3 for gma_m), so the support is ONE interval [y_lo, y_hi] with
+gma_M(x;y_lo) = gma and gma_m(x;y_hi) = gma. Both are found by vectorised bisection in ln y,
+and the integrand, smooth inside, by Gauss-Legendre after y = y_lo + (y_hi - y_lo) u^2.
+_check_monotone refuses a set of laws where that assumption fails, rather than returning a
+wrong integral. Checked by the SUM RULE int Ncal dgma = int_1^y_f y^lam_N dy (in Ndot_0 R_0).
 
-Two cases, the two columns of the figure:
-  internal shocks  Delta t'_inj = t'_0  (shock crosses at ~ the doubling radius)
-  afterglow        Delta t'_inj -> inf  (injection never stops)
+Two injection cases, the two columns of the figure:
+  internal shocks  Delta R_inj = R_0  (shock crosses at ~ the doubling radius)
+  afterglow        Delta R_inj -> inf (injection never stops)
 and two regimes, the rows: C = 10^-2 (fast) and C = 10^2 (slow).
 '''
 
 import os
+from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -58,15 +66,14 @@ from cooling_distribution import norm_plaw_distrib
 from cooling_shape_figure import OUTDIR          # the shared family folder
 
 P_SYN = 2.5
-GM0, GMA_M0 = 1e3, 1e8        # injected bounds, as the rest of the family
-D_AD, Q_C = 2./3., 10./3.     # A = tau^-d, t'_c ~ tau^q
-S_EXP = D_AD + Q_C - 1.
+GM0, GMA_M0 = 1e3, 1e8        # injected bounds at R_0, as the rest of the family
+LAM_EPS = 1e-12               # |Lam| below this is the logarithmic case
 LOGC_ROWS = (-2., 2.)
 X_SAMPLES = (1.1, 1.5, 2., 3., 10., 30., 100.)
 CASES = (('internal shocks', '$\\Delta t\'_{\\rm inj}=t\'_0$', 1.),
          ('afterglow', '$\\Delta t\'_{\\rm inj}\\gg t\'_0$', np.inf))
-# the injected law is the same for every population, so its bounds carry the article's
-# collision subscript ,0 (Sect. 2.3) rather than the per-population ,i
+# the figure's injected law is the same for every population, so its bounds carry the
+# article's collision subscript ,0 (Sect. 2.3) rather than the per-population ,i
 NG, NQ, NBIS = 900, 96, 80
 
 INK, MUTED = '0.25', '0.55'
@@ -75,32 +82,105 @@ FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 7.5, 7.
 GMA_LABEL = '$\\gamma_{\\rm e}$'
 
 
+# --- the power laws -------------------------------------------------------------------
+@dataclass(frozen=True)
+class ShellLaws:
+  '''
+  Element evolution (lam_n, lam_B, g) and shock-front laws (lam_c, lam_m, lam_M, lam_N),
+  all as defined in the article. lam_c = None is the homogeneous shell, 2 lam_B - 1 - g.
+  '''
+  lam_n: float = 2.
+  lam_B: float = 5./3.
+  g: float = 0.
+  lam_c: float = None
+  lam_m: float = 0.
+  lam_M: float = 0.
+  lam_N: float = 0.
+  label: str = 'coasting'
+
+  def __post_init__(self):
+    if self.lam_c is None:
+      object.__setattr__(self, 'lam_c', 2.*self.lam_B - 1. - self.g)
+
+  @property
+  def Lam(self):
+    '''the freezing index, Eq. eqn:I_plaw'''
+    return self.lam_n/3. + 2.*self.lam_B - 1. - self.g
+
+  @property
+  def frozen_index(self):
+    '''frozen fast-cooling segment, gma ~ R_i^(lam_n/3 + lam_c)'''
+    return (1. + self.lam_N)/(self.lam_n/3. + self.lam_c) - 1.
+
+  @property
+  def smeared_index(self):
+    '''adiabatically smeared segment below gma_m,i, gma ~ R_i^(lam_n/3 - lam_m)'''
+    return (1. + self.lam_N)/(self.lam_n/3. - self.lam_m) - 1.
+
+  def R_tr(self, logC):
+    '''R_tr/R_0 where fresh injection turns from fast to slow cooling'''
+    return 10.**(-logC/(self.lam_c + self.lam_m))
+
+
+COASTING = ShellLaws()
+
+
+def bm_forward_shock(k=0., lam_M=.75):
+  '''
+  Blandford-McKee forward shock in n_ext ~ R^-k: elements follow the BM row of Table
+  tab:indices, injection follows the shock (Sect. 4), g^sh = (3-k)/2, so
+  lam_c = k + g^sh - 1, lam_m = g^sh and lam_N = 2 - k (Ndot = 4 pi R^2 n_ext).
+  lam_M = 3/4 is the Bohm-limited gma_M,i ~ B_i'^-1/2 with B_i' ~ Gamma_i n_ext^1/2; it is
+  a choice of acceleration model, not a consequence of the hydro.
+  '''
+  gsh = (3. - k)/2.
+  return ShellLaws(lam_n=(13. - 2.*k)/2., lam_B=(13. - 2.*k)/3., g=(7. - 2.*k)/2.,
+                   lam_c=k + gsh - 1., lam_m=gsh, lam_M=lam_M, lam_N=2. - k,
+                   label=f'BM forward shock, k={k:g}')
+
+
 # --- one population -------------------------------------------------------------------
-def kappa_of_C(logC, q=Q_C, gm0=GM0):
-  '''kappa = t'_0/t'_c,0 from C: gma_c,0 = 1/I(2t'_0; t'_0) = C gma_m,i.'''
-  s = D_AD + q - 1.
-  return s/((1. - 2.**(-s))*10.**logC*gm0)
+def gbar_ci0_of_C(logC, laws=COASTING, gm0=GM0):
+  '''gbar_c,i of the first element from C = gbar_c(R_0)/gma_m,0, Eq. eqn:bargamma_c.'''
+  L = laws.Lam
+  f = np.log(2.) if abs(L) < LAM_EPS else (1. - 2.**(-L))/L     # = gbar_c,i I(2R_i)
+  return 10.**logC*gm0*f
 
 
-def S_of(x, y, kap, d=D_AD, q=Q_C):
-  '''A tt_eff for the population injected at y, seen at x (both in t'_0).'''
-  s = d + q - 1.
-  return kap*y**(1. - q)*(1. - (y/x)**s)/s
+def A_of(x, y, laws=COASTING):
+  '''adiabatic shift of the element injected at y, seen at x'''
+  return (y/x)**(laws.lam_n/3.)
 
 
-def edges(x, y, kap, gi, d=D_AD, q=Q_C):
-  '''gma(x) of an electron injected at y with gma_i (gi), Eqn. app_gma_exact.'''
-  A = (y/x)**d
-  return A*gi/(1. + gi*S_of(x, y, kap, d, q))
+def I_of(x, y, gci0, laws=COASTING):
+  '''I(R; R_i), Eq. eqn:I_plaw, with gbar_c,i = gci0 y^lam_c'''
+  r = x/y
+  gci = gci0*y**laws.lam_c
+  L = laws.Lam
+  if abs(L) < LAM_EPS:
+    return np.log(r)/gci
+  return (1. - r**(-L))/(L*gci)
 
 
-def dNdg_pop(gma, x, y, kap, p=P_SYN, gm0=GM0, gM0=GMA_M0, d=D_AD, q=Q_C):
-  '''One population per unit injection time (Ndot = 1), zero off its support.'''
-  K = norm_plaw_distrib(gm0, gM0, p)
-  A = (y/x)**d
-  S = S_of(x, y, kap, d, q)
-  inside = (gma >= edges(x, y, kap, gm0, d, q)) & (gma <= edges(x, y, kap, gM0, d, q))
-  core = np.clip(1. - gma*S/A, 0., None)
+def inj_bounds(y, laws=COASTING, gm0=GM0, gM0=GMA_M0):
+  '''gma_m,i and gma_M,i of the element injected at y'''
+  return gm0*y**(-laws.lam_m), gM0*y**laws.lam_M
+
+
+def edge(x, y, gci0, which, laws=COASTING, gm0=GM0, gM0=GMA_M0):
+  '''gma_m (which='m') or gma_M ('M') at x of the element injected at y, Eq. eqn:gma_t.'''
+  gi = inj_bounds(y, laws, gm0, gM0)[0 if which == 'm' else 1]
+  return A_of(x, y, laws)*gi/(1. + gi*I_of(x, y, gci0, laws))
+
+
+def dNdg_pop(gma, x, y, gci0, laws=COASTING, p=P_SYN, gm0=GM0, gM0=GMA_M0):
+  '''One population, normalised to one electron, zero off its support.'''
+  gmi, gMi = inj_bounds(y, laws, gm0, gM0)
+  K = norm_plaw_distrib(gmi, gMi, p)
+  A = A_of(x, y, laws)
+  I = I_of(x, y, gci0, laws)
+  inside = (gma >= A*gmi/(1. + gmi*I)) & (gma <= A*gMi/(1. + gMi*I))
+  core = np.clip(1. - gma*I/A, 0., None)
   return np.where(inside, K*A**(p - 1.)*gma**(-p)*core**(p - 2.), 0.)
 
 
@@ -115,43 +195,64 @@ def _bisect_y(fun, target, lo, hi, n=NBIS):
   return np.exp(.5*(a + b))
 
 
-def shell_integrated(gma, x, logC, dinj, p=P_SYN, gm0=GM0, gM0=GMA_M0, d=D_AD, q=Q_C,
+def _check_monotone(x, yf, gci0, laws, gm0, gM0, n=257):
+  '''both edges must increase with y on [1, yf], or the support is not one interval'''
+  if yf <= 1.:
+    return
+  ys = np.geomspace(1., yf, n)
+  for which in ('m', 'M'):
+    e = edge(x, ys, gci0, which, laws, gm0, gM0)
+    if np.any(np.diff(e) < -1e-12*e[:-1]):
+      raise ValueError(f'gma_{which}(x={x:g}; y) is not increasing in y for {laws}: '
+                       'the support is not a single interval in R_i')
+
+
+def shell_integrated(gma, x, logC, dinj, laws=COASTING, p=P_SYN, gm0=GM0, gM0=GMA_M0,
     nq=NQ):
   '''
-  Ncal(gma; x) / (Ndot t'_0), injection over y in [1, min(x, 1 + dinj)].
+  Ncal(gma; x) / (Ndot_0 R_0), injection over y in [1, min(x, 1 + dinj)], dinj in R_0.
   '''
   gma = np.asarray(gma, dtype=float)
-  kap = kappa_of_C(logC, q, gm0)
+  gci0 = gbar_ci0_of_C(logC, laws, gm0)
   yf = min(x, 1. + dinj)
-  y_lo = _bisect_y(lambda y: edges(x, y, kap, gM0, d, q), gma, 1., yf)
-  y_hi = _bisect_y(lambda y: edges(x, y, kap, gm0, d, q), gma, 1., yf)
+  _check_monotone(x, yf, gci0, laws, gm0, gM0)
+  e_m = lambda y: edge(x, y, gci0, 'm', laws, gm0, gM0)
+  e_M = lambda y: edge(x, y, gci0, 'M', laws, gm0, gM0)
+  y_lo = _bisect_y(e_M, gma, 1., yf)
+  y_hi = _bisect_y(e_m, gma, 1., yf)
   # outside the range of either edge the root saturates at a bound: test directly
-  y_lo = np.where(edges(x, 1., kap, gM0, d, q) >= gma, 1., y_lo)
-  y_hi = np.where(edges(x, yf, kap, gm0, d, q) <= gma, yf, y_hi)
-  ok = (y_hi > y_lo) & (gma <= edges(x, yf, kap, gM0, d, q)) \
-       & (gma >= edges(x, 1., kap, gm0, d, q))
+  y_lo = np.where(e_M(1.) >= gma, 1., y_lo)
+  y_hi = np.where(e_m(yf) <= gma, yf, y_hi)
+  ok = (y_hi > y_lo) & (gma <= e_M(yf)) & (gma >= e_m(1.))
   u, w = np.polynomial.legendre.leggauss(nq)
   u, w = .5*(u + 1.), .5*w
   dy = (y_hi - y_lo)[:, None]
   yy = y_lo[:, None] + dy*u[None, :]**2
-  f = dNdg_pop(gma[:, None], x, yy, kap, p, gm0, gM0, d, q)
+  f = yy**laws.lam_N*dNdg_pop(gma[:, None], x, yy, gci0, laws, p, gm0, gM0)
   N = np.sum(f*2.*u[None, :]*w[None, :], axis=1)*dy[:, 0]
   return np.where(ok, N, 0.)
 
 
-def support(x, logC, dinj, gm0=GM0, gM0=GMA_M0, d=D_AD, q=Q_C):
+def injected_number(x, dinj, laws=COASTING):
+  '''int_1^y_f y^lam_N dy: what the shell integral must sum to, in Ndot_0 R_0'''
+  yf = min(x, 1. + dinj)
+  a = 1. + laws.lam_N
+  return np.log(yf) if abs(a) < LAM_EPS else (yf**a - 1.)/a
+
+
+def support(x, logC, dinj, laws=COASTING, gm0=GM0, gM0=GMA_M0):
   '''lowest and highest gma present in the shell at x.'''
-  kap = kappa_of_C(logC, q, gm0)
+  gci0 = gbar_ci0_of_C(logC, laws, gm0)
   yf = min(x, 1. + dinj)
   ys = np.geomspace(1., yf, 400) if yf > 1. else np.array([1.])
-  return (float(edges(x, ys, kap, gm0, d, q).min()),
-          float(edges(x, ys, kap, gM0, d, q).max()))
+  return (float(edge(x, ys, gci0, 'm', laws, gm0, gM0).min()),
+          float(edge(x, ys, gci0, 'M', laws, gm0, gM0).max()))
 
 
-def shell_curve(x, logC, dinj, ng=NG, **kw):
-  lo, hi = support(x, logC, dinj)
+def shell_curve(x, logC, dinj, ng=NG, laws=COASTING, **kw):
+  lo, hi = support(x, logC, dinj, laws)
   gma = np.geomspace(lo*(1. + 1e-9), hi*(1. - 1e-9), ng)
-  return gma, shell_integrated(gma, x, logC, dinj, **kw)
+  return gma, shell_integrated(gma, x, logC, dinj, laws, **kw)
 
 
 def log_slope(gma, N):
@@ -160,39 +261,62 @@ def log_slope(gma, N):
 
 
 # --- checks ---------------------------------------------------------------------------
-def check_sum_rule(ng=6000):
-  '''int Ncal dgma / (y_f - 1) -> 1: number conservation, every (case, C, x).'''
+def check_sum_rule(laws=COASTING, ng=6000, xs=X_SAMPLES):
+  '''int Ncal dgma / injected_number -> 1: number conservation, every (case, C, x).'''
   worst = 0.
   for _, _, dinj in CASES:
     for lc in LOGC_ROWS:
-      for x in X_SAMPLES:
-        g, N = shell_curve(x, lc, dinj, ng=ng)
+      for x in xs:
+        g, N = shell_curve(x, lc, dinj, ng=ng, laws=laws)
         tot = np.trapezoid(N, g)
-        worst = max(worst, abs(tot/(min(x, 1. + dinj) - 1.) - 1.))
+        worst = max(worst, abs(tot/injected_number(x, dinj, laws) - 1.))
   return worst
 
 
-def check_slopes():
-  '''the asymptotic indices of the text, measured on the afterglow at x = 100.'''
+def _slope_at(g, x, lc, dinj, laws):
+  gg = g*np.array([.97, 1.03])
+  N = shell_integrated(gg, x, lc, dinj, laws)
+  return float((np.diff(np.log(N))/np.diff(np.log(gg)))[0])
+
+
+def check_slopes(laws=COASTING):
+  '''the asymptotic indices of the text, measured on the afterglow (reference case).'''
   out = []
-  kapF = kappa_of_C(-2.)
-  g0 = S_EXP/kapF*100.**(-D_AD)          # oldest (frozen) edge of the fast afterglow
+  gF = gbar_ci0_of_C(-2., laws)
+  g0 = laws.Lam*gF*100.**(-laws.lam_n/3.)     # oldest (frozen) edge of the fast afterglow
   for lab, lc, x, g, exp in (
       ('FC fresh -2', -2., 3., 500., -2.),
-      ('FC relics 1/s-1', -2., 100., 3.*g0, 1./S_EXP - 1.),
-      ('SC smeared 1/d-1', 2., 100., GM0*100.**(-D_AD/2.), 1./D_AD - 1.),
+      ('FC frozen', -2., 100., 3.*g0, laws.frozen_index),
+      ('SC smeared', 2., 100., GM0*100.**(-laws.lam_n/6.), laws.smeared_index),
       ('SC injected -p', 2., 100., 3.*GM0, -P_SYN),
       ('SC cooled -(p+1)', 2., 1.5, 3e-2*GMA_M0, -(P_SYN + 1.))):
-    gg = g*np.array([.97, 1.03])
-    N = shell_integrated(gg, x, lc, np.inf)
-    out.append((f'{lab} (x={x:g})', g,
-                float((np.diff(np.log(N))/np.diff(np.log(gg)))[0]), exp))
+    out.append((f'{lab} (x={x:g})', g, _slope_at(g, x, lc, np.inf, laws), exp))
   return out
+
+
+def check_bm_slopes(k, x=300., logC_fast=-3., logC_slow=2.):
+  '''
+  The two spread-of-injection segments on the BM forward shock, continuous injection.
+  Frozen: 10x above the oldest relic's edge, with R_tr = C^-1/2 R_0 ~ 30 R_0 so that the
+  relics span y = 1..~15. Smeared: in slow cooling, at the geometric middle of
+  [gma_m(x;1), gma_m,i(x)], where the R_i = R_0 lower limit is negligible.
+  At x = 300 these sit below gma = 1 (the BM drag A is steep): a check of the algebra,
+  which does not care, not of a physical spectrum.
+  '''
+  laws = bm_forward_shock(k)
+  gF = gbar_ci0_of_C(logC_fast, laws)
+  g_frz = 10.*edge(x, 1., gF, 'M', laws)
+  lo, hi = edge(x, 1., gbar_ci0_of_C(logC_slow, laws), 'm', laws), GM0*x**(-laws.lam_m)
+  g_sm = np.sqrt(lo*hi)
+  return laws, ((f'FC frozen (x={x:g})', g_frz,
+                 _slope_at(g_frz, x, logC_fast, np.inf, laws), laws.frozen_index),
+                (f'SC smeared (x={x:g})', g_sm,
+                 _slope_at(g_sm, x, logC_slow, np.inf, laws), laws.smeared_index))
 
 
 # --- the figure -----------------------------------------------------------------------
 def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=False,
-    p=P_SYN):
+    p=P_SYN, laws=COASTING):
   '''
   Per regime (fast on top, slow below): the distributions, and their local slope
   underneath, with the indices the text derives as guides. Columns are the two
@@ -203,12 +327,12 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
   cmap = plt.cm.Blues
   col = lambda x: cmap(.35 + .65*norm(np.log10(x)))
   # expected indices per regime row: the steady-state ones and the two that need a
-  # spread of injection times (relics 1/s-1 in fast, smearing 1/d-1 in slow cooling)
-  levels = {LOGC_ROWS[0]: ((1./S_EXP - 1., '$-2/3$'), (-2., '$-2$'),
+  # spread of injection radii (frozen relics in fast, smearing in slow cooling)
+  levels = {LOGC_ROWS[0]: ((laws.frozen_index, '$-2/3$'), (-2., '$-2$'),
                            (-(p + 1.), '$-(p+1)$')),
-            LOGC_ROWS[1]: ((1./D_AD - 1., '$+1/2$'), (-p, '$-p$'),
+            LOGC_ROWS[1]: ((laws.smeared_index, '$+1/2$'), (-p, '$-p$'),
                            (-(p + 1.), '$-(p+1)$'))}
-  # continuous injection turns slow after t'_tr, so its fast-cooling panel ends on -p
+  # continuous injection turns slow after R_tr, so its fast-cooling panel ends on -p
   extra = {(LOGC_ROWS[0], 1): ((-p, '$-p$'),)}
   SL_LIM = (-(p + 2.4), 1.6)
   fig, axs = plt.subplots(5, 2, figsize=FIGSIZE, sharex=True,
@@ -222,7 +346,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
     for j, (name, lab, dinj) in enumerate(CASES):
       axN, axS = axN_row[j], axS_row[j]
       for x in X_SAMPLES:
-        g, N = shell_curve(x, lc, dinj)
+        g, N = shell_curve(x, lc, dinj, laws=laws)
         axN.loglog(g, N, color=col(x), lw=1.2, zorder=3)
         sl = log_slope(g, N)
         # the support edges are hard, so the slope runs off to +-inf there: blank what
@@ -285,6 +409,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
   sm = plt.cm.ScalarMappable(cmap=plt.cm.colors.ListedColormap(
       cmap(np.linspace(.35, 1., 256))), norm=norm)
   cb = fig.colorbar(sm, cax=cax)
+  # coasting: t'/t'_0 = R/R_0, which is what X_SAMPLES are
   cb.set_label("$\\log_{10}(t'/t'_0)$", fontsize=FS_LAB)
   cax.tick_params(labelsize=FS_TICK)
 
@@ -298,11 +423,19 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
 
 
 def main(show=False):
-  print(f'kappa: C=1e-2 -> {kappa_of_C(-2.):.4g}, C=1e2 -> {kappa_of_C(2.):.4g}; '
-        f'<A B^2>/B0^2 over [1,2] = {(1. - 2.**(-S_EXP))/S_EXP:.4f}')
-  print(f'sum rule: max |int Ncal dgma/(y_f-1) - 1| = {check_sum_rule():.2e}')
+  L = COASTING
+  print(f'{L.label}: Lam = {L.Lam:g}, lam_c = {L.lam_c:.4g}; gbar_c,i(R_0): '
+        f'C=1e-2 -> {gbar_ci0_of_C(-2.):.4g}, C=1e2 -> {gbar_ci0_of_C(2.):.4g}; '
+        f'I(2R_i) gbar_c,i = {(1. - 2.**(-L.Lam))/L.Lam:.4f}')
+  print(f'sum rule: max |int Ncal dgma/injected - 1| = {check_sum_rule():.2e}')
   for lab, g, meas, exp in check_slopes():
     print(f'  {lab:26s} at gma={g:9.3e}: {meas:+.4f} (expected {exp:+.4f})')
+  for k in (0., 2.):
+    laws, rows = check_bm_slopes(k)
+    print(f'{laws.label}: Lam = {laws.Lam:.4g}, lam_c = {laws.lam_c:g}, '
+          f'R_tr(C=1e-3) = {laws.R_tr(-3.):.3g} R_0')
+    for lab, g, meas, exp in rows:
+      print(f'  {lab:26s} at gma={g:9.3e}: {meas:+.4f} (expected {exp:+.4f})')
   plot_shell_integrated(show=show)
 
 
