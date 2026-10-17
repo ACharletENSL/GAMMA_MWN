@@ -106,11 +106,12 @@ def plot_fs_lightcurves(model=None, n_per_dec=12, outdir=OUTDIR, fname=None, sho
   for j, ((lab, nu), col) in enumerate(zip(BANDS, COLORS)):
     ax.loglog(td, F[:, j], color=col, lw=2., solid_capstyle='round', zorder=3,
               label=lab)
-    ax.loglog(td, G[:, j], color=col, lw=1., ls=(0, (4, 2)), zorder=2)
+    # GS02 ON TOP and in ink: in the band colour under the 2px line it was invisible
+    ax.loglog(td, G[:, j], color=INK, lw=.9, ls=(0, (3, 2)), zorder=4)
     axr.semilogx(td, F[:, j]/G[:, j], color=col, lw=1.5, zorder=3)
   # line-style key, in ink: identity of the bands is carried by the legend
   h_ours, = ax.plot([], [], color=MUTED, lw=2., label='this work')
-  h_gs, = ax.plot([], [], color=MUTED, lw=1., ls=(0, (4, 2)), label='GS02')
+  h_gs, = ax.plot([], [], color=INK, lw=.9, ls=(0, (3, 2)), label='GS02')
   leg = ax.legend(loc='lower left', fontsize=FS_ANN, frameon=True, ncol=2,
                   handlelength=2.2, columnspacing=1., fancybox=False, framealpha=1.,
                   facecolor='w', edgecolor='none', borderpad=.3)
