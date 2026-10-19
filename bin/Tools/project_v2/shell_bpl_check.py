@@ -49,8 +49,9 @@ coasting and frozen-flux elements, BM k = 0, 2 and a g = 0 < m/2 shell, tau = 3-
   * Finite injection (Delta t'_inj = t'_0), more than 0.3 dex inside the row's edges: frozen
     FC 1-2% from tau = 10 (15% at tau = 3, the last elements still freezing); SC 8% (p=2.5),
     4% (2.2), 16% (3). The closed form Eq. eqn:finite_SC: 0.7/1.5/3.2% (p = 2.2/2.5/3) more
-    than a decade below gma_inf(t';t'_0), overestimates by 10% at -0.2 dex, 17-32% at
-    gma_inf(t';t'_0) and up to x2 (x3 at p=3) in the tail above, toward gma_inf(t';t'_end):
+    than a decade below gma_inf(t';t'_0); closed/exact = 1.13 at -0.2 dex, 1.2-1.25 (1.47
+    at p=3) at gma_inf(t';t'_0) and 1.9-2.2 (3.3 at p=3) 0.6 dex above it, in the tail that
+    runs up to gma_inf(t';t'_end):
     the neglected (1 - gma tt_eff)^(p-2), whose deficit grows with p - 2. Neither finite row
     involves f (only s gbar_c,i enters).
 '''
