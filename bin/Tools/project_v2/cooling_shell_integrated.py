@@ -22,6 +22,11 @@ so A = r^(-lam_n/3) and, with dt' = dR/(c Gamma),
     I(R; R_i) = (1 - r^-Lam)/(Lam gbar_c,i),     Lam = lam_n/3 + 2 lam_B - 1 - g,
     gma(R) = A gma_i/(1 + gma_i I)               (ln r/gbar_c,i at Lam = 0).
 
+All indices and gbar_c,i here are RADIAL. The article now works in comoving time (Sect. 2):
+its indices are these over (1+g), its s = Lam/(1+g) and its gbar_c,i = (1+g) times this one
+(Eq. eqn:plaws_R), so s gbar_c,i = Lam gbar_c,i and I are unchanged. shell_bpl_check maps
+them onto Table tab:shell_bpl.
+
 THE SHOCK FRONT sets what each element starts with: gbar_c,i ~ R_i^lam_c, gma_m,i ~
 R_i^-lam_m, gma_M,i ~ R_i^lam_M and Ndot_inj ~ R_i^lam_N. A HOMOGENEOUS shell (all elements
 see the same B' at a given R) has lam_c = 2 lam_B - 1 - g, which is the default. These
@@ -36,7 +41,9 @@ Sect. 4).
 
 THE REGIME LABEL is the article's: C = gbar_c(R_0)/gma_m,0, with gbar_c = 1/I(2R_i; R_i)
 = Lam gbar_c,i/(1 - 2^-Lam) the dynamical value of the FIRST element (Eq. eqn:bargamma_c),
-so C = 1 is exactly R_m = 2R_0 for that element.
+so C = 1 is exactly R_m = 2R_0 for that element. The article's dynamical value is now taken
+at t' = 2t'_i (Eq. eqn:bargamma_c), i.e. R = 2^(1/(1+g)) R_i: the same for the coasting
+figure, not for the BM laws (whose logC here only feeds algebra checks).
 
 THE TWO SEGMENTS that need a spread of injection radii (Sect. 3.2):
   frozen fast cooling   gma ~ R_i^(lam_n/3 + lam_c)  =>  (1 + lam_N)/(lam_n/3 + lam_c) - 1

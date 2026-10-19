@@ -13,6 +13,10 @@ cooling_shell_integrated.ShellLaws (lam_n, lam_B, g only; r = R/R_i):
     Gamma = Gamma_i r^-g,   B' = B'_i r^-lam_B,   A = r^(-lam_n/3),
     I = (1 - r^-Lam)/(Lam gbar_c,i),   gma(gma_i) = A gma_i/(1 + gma_i I).
 
+gbar_c,i here is RADIAL, 6 pi m_e c^2 Gamma_i/(sigma_T B_i'^2 R_i): the article's comoving
+gbar_c,i (Eq. eqn:plaws_R) is (1+g) times it, and Lam = (1+g) s, so I is the article's to
+rounding (checked against a quadrature of the physical B'(R), Gamma(R): 2e-9).
+
 THE EMISSIVITY is integrated over the INJECTED Lorentz factor, not over gma: the electron
 count is K gma_i^-p dgma_i exactly, the fast-cooled pile-up at A/I needs no resolution, and
 the (1 - gma I/A)^(p-2) factor of the cooled shape (which cancels catastrophically when the
@@ -151,7 +155,7 @@ class BMForwardShock:
     Bi = np.sqrt(32.*pi_*self.eps_B*n*mp_*c_**2)*Gi
     gm = self.eps_e*(self.p - 2.)/(self.p - 1.)*(mp_/me_)*Gi/self.xi_e
     gM = self.gM_fac*np.sqrt(6.*pi_*e_/(sigT_*Bi))
-    gci = 6.*pi_*me_*c_**2*Gi/(sigT_*Bi**2*Ri)             # Eq. eqn:bgma_ci
+    gci = 6.*pi_*me_*c_**2*Gi/(sigT_*Bi**2*Ri)             # radial: Eq. eqn:plaws_R/(1+g)
     # where the Bohm limit falls below gma_m,i (very early, strong field) the injection is
     # mono-energetic: a 0.1%-wide law, which norm_plaw_distrib still normalises exactly
     return dict(Gamma=Gi, B=Bi, gm=gm, gM=np.maximum(gM, GM_MIN_WIDTH*gm), gci=gci,
