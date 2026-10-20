@@ -599,8 +599,10 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
   '''
   norm, cmap, col = _colour()
   u = ugrid(*U_LIM)
+  # the spacer row only holds the named ticks of the slow-cooling row, which then sit
+  # between the two regime blocks and read for both
   fig, axs = plt.subplots(5, 2, figsize=FIGSIZE, sharex=True,
-      gridspec_kw=dict(height_ratios=[1.9, 1., .22, 1.9, 1.], hspace=.08, wspace=.06))
+      gridspec_kw=dict(height_ratios=[1.9, 1., .13, 1.9, 1.], hspace=.08, wspace=.06))
   for ax in axs[2]:
     ax.set_visible(False)
   rows = ((axs[0], axs[1]), (axs[3], axs[4]))
@@ -653,7 +655,7 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
     ax.set_xlabel(XLABEL, fontsize=FS_LAB)
   axs[0, 0].set_xlim(*U_LIM)
   axs[0, 0].set_xticks(10.**np.arange(-4., 17., 4.))   # none on the edges: the columns touch
-  for r in (0, 3):
+  for r in (3,):
     for c in (0, 1):
       named_ticks_top(axs[r, c], ((GM0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{m},\\!0})$"),
                                   (GMA_M0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{M},\\!0})$")))
