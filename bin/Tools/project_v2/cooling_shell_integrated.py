@@ -73,7 +73,9 @@ from cooling_distribution import norm_plaw_distrib
 from cooling_shape_figure import OUTDIR, named_ticks_top, marks_bottom   # the shared family folder
 
 P_SYN = 2.5
-GM0, GMA_M0 = 1e3, 1e8        # injected bounds at R_0, as the rest of the family
+GM0, GMA_M0 = 1e4, 1e9        # injected bounds at R_0, as the rest of the family (1e3,
+                              # 1e8 before 2026-10-21, when the oldest frozen edges fell
+                              # below gamma_e = 1)
 LAM_EPS = 1e-12               # |Lam| below this is the logarithmic case
 LOGC_ROWS = (-2., 2.)
 X_SAMPLES = (1.1, 1.5, 2., 3., 10., 30., 100.)
@@ -110,10 +112,13 @@ FINITE_LABS = {'FC': {'low': "$\\gamma_\\infty(t';t'_0)$",
 # no box sits on a curve: ('off', dx, dy) in points from the mark, or ('at', gma_e,
 # axes-y) in free space with a thin leader line back to the mark. gma_m,i has no entry:
 # with lam_m = 0 it IS gma_m,0, and the dotted line there is named for both
-BREAK_AT = {(0, 0, 'low'): ('at', .5, .925), (0, 0, 'hi'): ('at', 80., .925),
-            (0, 1, 'low'): ('at', .9, .925), (0, 1, 'fr'): ('at', 40., .925),
-            (1, 0, 'low'): ('off', -6, -6), (1, 0, 'hi'): ('at', 5e5, .66),
-            (1, 1, 'low'): ('at', 2.8, .75), (1, 1, 'b'): ('at', 4e7, .45)}
+# The 'at' abscissae were set at gma_m,0 = 1e3 and scale with it: a change of the bounds
+# at fixed ratios shifts every curve by the same factor
+_G = GM0/1e3
+BREAK_AT = {(0, 0, 'low'): ('at', .5*_G, .925), (0, 0, 'hi'): ('at', 80.*_G, .925),
+            (0, 1, 'low'): ('at', .9*_G, .925), (0, 1, 'fr'): ('at', 40.*_G, .925),
+            (1, 0, 'low'): ('off', -6, -6), (1, 0, 'hi'): ('at', 5e5*_G, .66),
+            (1, 1, 'low'): ('at', 2.8*_G, .75), (1, 1, 'b'): ('at', 4e7*_G, .45)}
 # (1, 1, 'low'): the written-out gma_m(t';t'_0) is too long to sit beside its mark, where
 # it covered the edges of the two oldest curves: it goes left of them, on a leader
 TOP_ROOM = (300., 8.)          # ylim top over the curves' max, per row: the FC row's names
@@ -488,7 +493,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
       ax.set_ylim(top*1e-12, top*TOP_ROOM[i])
   for ax in axs[4]:
     ax.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
-  axs[0, 0].set_xlim(.05, 3.*GMA_M0)
+  axs[0, 0].set_xlim(5e-5*GM0, 3.*GMA_M0)
   # the injected bounds are NAMED TICKS on the top axis of each regime block (user,
   # 2026-10-20), which leaves the panels to the curves and the break names. The
   # continuous column names gma_m,0 for gma_m,i(t') too: with lam_m = 0 they coincide
