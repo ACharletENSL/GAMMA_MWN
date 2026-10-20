@@ -70,7 +70,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from cooling_distribution import norm_plaw_distrib
-from cooling_shape_figure import OUTDIR, named_ticks_top   # the shared family folder
+from cooling_shape_figure import OUTDIR, named_ticks_top, marks_bottom   # the shared family folder
 
 P_SYN = 2.5
 GM0, GMA_M0 = 1e3, 1e8        # injected bounds at R_0, as the rest of the family
@@ -417,7 +417,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
   extra = {(LOGC_ROWS[0], 1): ((-p, '$-p$'),)}
   SL_LIM = (-(p + 2.4), 1.6)
   fig, axs = plt.subplots(5, 2, figsize=FIGSIZE, sharex=True,
-      gridspec_kw=dict(height_ratios=[1.9, 1., .22, 1.9, 1.], hspace=.08, wspace=.06))
+      gridspec_kw=dict(height_ratios=[1.9, 1., .13, 1.9, 1.], hspace=.08, wspace=.06))
   for ax in axs[2]:
     ax.set_visible(False)
   rows = ((axs[0], axs[1]), (axs[3], axs[4]))
@@ -485,10 +485,12 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
   # the injected bounds are NAMED TICKS on the top axis of each regime block (user,
   # 2026-10-20), which leaves the panels to the curves and the break names. The
   # continuous column names gma_m,0 for gma_m,i(t') too: with lam_m = 0 they coincide
-  for r in (0, 3):
-    for c, lm in ((0, '$\\gamma_{\\mathrm{m},\\!0}$'),
-                  (1, '$\\gamma_{\\mathrm{m},\\!i}=\\gamma_{\\mathrm{m},\\!0}$')):
-      named_ticks_top(axs[r, c], ((GM0, lm), (GMA_M0, '$\\gamma_{\\mathrm{M},\\!0}$')))
+  # named ONCE, on the slow-cooling row's top axis in the thin gap between the two
+  # regime blocks, with bare marks pointing down from the block above (user, 2026-10-20)
+  for c, lm in ((0, '$\\gamma_{\\mathrm{m},\\!0}$'),
+                (1, '$\\gamma_{\\mathrm{m},\\!i}=\\gamma_{\\mathrm{m},\\!0}$')):
+    named_ticks_top(axs[3, c], ((GM0, lm), (GMA_M0, '$\\gamma_{\\mathrm{M},\\!0}$')))
+    marks_bottom(axs[1, c], (GM0, GMA_M0))
   fig.subplots_adjust(right=.84)
   # line-style key ABOVE the panels, where it covers nothing; the colour is the time
   h = [plt.Line2D([], [], color=MUTED, lw=1.2, ls=(0, (2.5, 1.5)),

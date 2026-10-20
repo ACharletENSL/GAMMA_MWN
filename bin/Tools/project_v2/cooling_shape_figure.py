@@ -115,6 +115,21 @@ def named_ticks_top(ax, ticks, fontsize=FS_TICK, color=INK):
   return sec
 
 
+def marks_bottom(ax, values, color=INK):
+  '''
+  Bare ticks (no text) on the bottom axis at `values`: they point from the panel above
+  a row of named_ticks_top into the gap, so that one set of names reads for both rows
+  (user, 2026-10-20). A secondary axis, as named_ticks_top, so the panel's own decade
+  ticks are untouched.
+  '''
+  import matplotlib.ticker as mticker
+  sec = ax.secondary_xaxis('bottom')
+  sec.set_xticks(list(values), labels=[''] * len(values))
+  sec.xaxis.set_minor_locator(mticker.NullLocator())
+  sec.tick_params(axis='x', length=3., colors=color)
+  return sec
+
+
 # --- the distribution -----------------------------------------------------------------
 def cooled_distrib(tt, p=P_SYN, gm0=GM0, gM0=GMA_M0, Ng=NG):
   '''

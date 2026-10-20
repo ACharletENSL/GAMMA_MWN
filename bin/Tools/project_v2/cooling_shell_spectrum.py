@@ -68,7 +68,7 @@ import cooling_shell_integrated as csi
 import shell_bpl_check as sbc
 from cooling_shell_integrated import (COASTING, ShellLaws, X_SAMPLES, CASES, LOGC_ROWS,
     P_SYN, GM0, GMA_M0, INK, MUTED, TEXT_BOX, FIGSIZE, FS_LAB, FS_TICK, FS_ANN, FS_LEG)
-from cooling_shape_figure import OUTDIR, named_ticks_top
+from cooling_shape_figure import OUTDIR, named_ticks_top, marks_bottom
 from phys_functions import func_R, R_LOW_COEF
 
 I_S = 16.*np.pi/(27.*np.sqrt(3.))              # int R dx
@@ -655,10 +655,11 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
     ax.set_xlabel(XLABEL, fontsize=FS_LAB)
   axs[0, 0].set_xlim(*U_LIM)
   axs[0, 0].set_xticks(10.**np.arange(-4., 17., 4.))   # none on the edges: the columns touch
-  for r in (3,):
-    for c in (0, 1):
-      named_ticks_top(axs[r, c], ((GM0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{m},\\!0})$"),
-                                  (GMA_M0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{M},\\!0})$")))
+  # named once, between the two rows, with bare marks pointing down from the row above
+  for c in (0, 1):
+    named_ticks_top(axs[3, c], ((GM0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{m},\\!0})$"),
+                                (GMA_M0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{M},\\!0})$")))
+    marks_bottom(axs[1, c], (GM0**2, GMA_M0**2))
   fig.subplots_adjust(right=.84)
   h = [plt.Line2D([], [], color=MUTED, lw=1.2, label='full kernel'),
        plt.Line2D([], [], color=MUTED, lw=.9, ls=':', label='step kernel (one curve)'),
