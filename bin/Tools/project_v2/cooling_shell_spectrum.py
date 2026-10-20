@@ -31,7 +31,7 @@ the shell_bpl_check grid p = 2.2-3, lam_inj = -1/2-1, lam_m = 0-0.3, tau = 3-100
     r(kappa) closed form = 0.870 (1/6), 0.831 (1/12), 0.803 (0), 0.798 (-1/2), 0.822 (-0.6),
     0.873 (-3/4), 1 (-1), 1.068 (-1.1), 1.192 (-5/4), 1.469 (-3/2); func_R quadrature agrees
     to <= 0.4% (its int R dx is 1.07514, 0.03% above 16 pi/27 sqrt3). Measured full/step
-    mid-segment on B1 tau=50: 1.189 in -p/2 (r = 1.192); 0.85 and 0.74 in the frozen and -1/2
+    mid-segment on B1 tau=16: 1.190 in -p/2 (r = 1.192); 0.83 and 0.72 in the frozen and -1/2
     segments, below r because those segments are too short for the asymptote.
     Eq. eqn:Lnu_bpl = the table integrated as a fine interpolant to 7e-6.
   * BPL/exact, step kernel (grid, FC at C = 1e-5; reference case in brackets):
@@ -43,13 +43,17 @@ the shell_bpl_check grid p = 2.2-3, lam_inj = -1/2-1, lam_m = 0-0.3, tau = 3-100
     The harmonic joining, carried through Eq. eqn:Lnu_shell, cuts the max within a decade
     to 1-51% at nu'_fr (1-23% for lam_inj < 1; reference 5-18%) and 2-30% at nu'_b
     (reference 17-18%). Checked by brute-force trapezoid (1.332/1.990/1.110 at SC tau=10).
-  * Frozen segment, B1 (C = 1e-4, tau = 10, 30, 50 < t'_tr = 51.8, nu'_fr/nu'_low = 1e6,
-    7e8, 1.6e10): the local index stays within 0.05 of 1/6 below 1.6-4.1e-5 nu'_fr (full),
-    2.9-7.4e-5 (step), 3.6-5.6e-4 (Eq. eqn:Lnu_bpl), against 1.5e-4 for the text's formula,
-    which is the frozen segment ALONE: the -1/2 electrons above gma_fr add a nu'^(1/3) term
-    (the BPL converges sooner) and the exact distribution is below the table at gma_fr (it
-    converges later). Max index in the segment: 0.162 at tau = 50. B2 (lam_inj = 2): 1/3
-    down to nu'_low. The B1 frozen range is at gma_e < 1 (gma_low = 0.006-0.019).
+  * Frozen segment, B1 (since 2026-10-21: gma_m,0 = 1e4, C = 1e-3, tau = 10, 13, 16 <
+    t'_tr = 19.3, nu'_c/nu'_inf(t';t'_0) = 1.0e6, 4.8e6, 1.7e7; lowest gma_e 1.9, 1.6, 1.4).
+    No clean nu'^(1/6) segment yet: the local index rises to a maximum 0.143/0.152/0.158
+    (full; step 0.136-0.150, BPL 0.149-0.155, frozen segment alone 0.144-0.153) and is within
+    0.05 of 1/6 from just above nu'_inf(t';t'_0) up to 4.67/4.63/4.55 decades below nu'_c
+    (full), 4.45/4.37/4.25 (step), 3.27/3.30/3.37 (Eq. eqn:Lnu_bpl) and 3.82 (frozen
+    segment alone, the text's formula), i.e. over 0.85, 1.6, 2.2 decades (full). The -1/2
+    electrons above gma_c add a nu'^(1/3) term (the BPL converges sooner) and the exact
+    distribution is below the table at gma_c (it converges later). B2 (lam_inj = 2): 1/3
+    down to nu'_inf. (Before: C = 1e-4, tau = 10-50, gma_m,0 = 1e3: 4.4-4.8 decades
+    (full), max 0.162, but the frozen range at gma_e = 0.006-0.019.)
   * Kernel smoothing, |full - step local index| > 0.05: 0.65-1.05 decade below nu'_low
     (sharp edge, step width 0.05), 0.9-1.0 decade around nu'_m,i in FC ([0.42, 3.9] nu'_m,i),
     0.68 in SC ([0.70, 3.4]), 0.75 above nu'_b ([2, 11.5] nu'_b, the r(kappa) change), and
@@ -77,14 +81,17 @@ NU_SYN_COEF = 1.5*X_SYN                         # nu'_syn = 1.2599 gma^2 nu'_B
 P_SYN_COEF = 8./(27.*X_SYN)                     # p'_syn in sigma_T m_e c^2 B'/e, 0.3528
 G_PER_DEC = 100                                 # distribution samples per decade of gma
 U_PER_DEC = 30                                  # spectrum samples per decade of nu'
-U_LIM = (1e-6, 1e18)                            # Fig. A: below the lowest nu'_low (finite
-                                                # FC, tau=100: 7.6e-5) to past nu'_syn(gma_M,0)
+# frequencies scale as gma^2: the abscissae below were set at gma_m,0 = 1e3 and move with it
+_U = (GM0/1e3)**2
+U_LIM = (1e-6*_U, 1e18*_U)                      # Fig. A: below the lowest nu'_inf(t';t'_0)
+                                                # (finite FC, tau=100: 7.6e-3) to past
+                                                # nu'_syn(gma_M,0)
 SLOPE_TOL = .05
 
 # same reference curve per panel as Fig. 4 (row, column) -> tau
 REF_X = csi.REF_X
-FC_B = -4.                                      # Fig. B: t'_tr = 52 t'_0
-X_B = (10., 30., 50.)
+FC_B = -3.                                      # Fig. B: t'_tr = 19.3 t'_0 (was -4, 52 t'_0,
+X_B = (10., 13., 16.)                           # and tau = 10, 30, 50 before 2026-10-21)
 LAWS_B2 = ShellLaws(lam_N=2., label='coasting, lam_inj = 2')
 
 
@@ -463,8 +470,8 @@ def frozen_convergence(laws=COASTING, xs=X_B, tol=SLOPE_TOL):
 
 
 def full_over_step(p=P_SYN, laws=COASTING):
-  '''full/step in mid-segment on B1 tau = 50, against r(kappa)'''
-  x = 50.
+  '''full/step in mid-segment on B1 at its last time, against r(kappa)'''
+  x = X_B[-1]
   _, br, _, _ = bpl(np.array([1.]), x, FC_B, np.inf, 'FC', laws)
   g, fN = distribution(x, FC_B, np.inf, laws)
   pts = dict(frozen=np.sqrt(br['low']*br['fr']), cooling=np.sqrt(br['fr']*br['mi']),
@@ -489,12 +496,12 @@ FINITE_LABS = {'FC': {'low': "$\\nu'_\\infty(t';t'_0)$",
                       'hi': "$\\nu'_\\infty(t';t'_0)$"}}
 # ('off', dx, dy) in points from the mark, or ('at', u, axes-y) with a leader line; set by
 # eye on the render so that no box sits on a curve
-BREAK_AT = {(0, 0, 'low'): ('at', 4e-4, .86), (0, 0, 'hi'): ('at', 1e1, .93),
-            (0, 1, 'low'): ('at', 3e-3, .93), (0, 1, 'fr'): ('at', 1e2, .93),
-            (0, 1, 'mi'): ('at', 1e6, .93),
-            (1, 0, 'low'): ('at', 1e-2, .25), (1, 0, 'hi'): ('at', 1e2, .08),
-            (1, 1, 'low'): ('at', 1e-2, .93), (1, 1, 'mi'): ('at', 2e3, .93),
-            (1, 1, 'b'): ('at', 1e9, .12)}
+BREAK_AT = {(0, 0, 'low'): ('at', 4e-4*_U, .86), (0, 0, 'hi'): ('at', 1e1*_U, .93),
+            (0, 1, 'low'): ('at', 3e-3*_U, .93), (0, 1, 'fr'): ('at', 1e2*_U, .93),
+            (0, 1, 'mi'): ('at', 1e6*_U, .93),
+            (1, 0, 'low'): ('at', 1e-2*_U, .25), (1, 0, 'hi'): ('at', 1e2*_U, .08),
+            (1, 1, 'low'): ('at', 1e-2*_U, .93), (1, 1, 'mi'): ('at', 2e3*_U, .93),
+            (1, 1, 'b'): ('at', 1e9*_U, .12)}
 TOP_ROOM = (60., 60.)
 SL_LIM = (-2.1, .7)
 Y_DEC = 9.                     # decades shown below each row's maximum
@@ -659,7 +666,7 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
   for ax in axs[4]:
     ax.set_xlabel(XLABEL, fontsize=FS_LAB)
   axs[0, 0].set_xlim(*U_LIM)
-  axs[0, 0].set_xticks(10.**np.arange(-4., 17., 4.))   # none on the edges: the columns touch
+  axs[0, 0].set_xticks(10.**np.arange(-4., 17., 4.)*_U)   # none on the edges: the columns touch
   # named once, between the two rows, with bare marks pointing down from the row above
   for c in (0, 1):
     named_ticks_top(axs[3, c], ((GM0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{m},\\!0})$"),
@@ -690,10 +697,10 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
 
 # --- Figure B -------------------------------------------------------------------------
 FIGSIZE_B = (3.5, 5.9)
-U_LIM_B = (1e-10, 1e9)
+U_LIM_B = (1e-6, 1e11)
 FROZEN_LS = dict(lw=.9, ls=(0, (5, 1.5, 1, 1.5)))   # dash-dot, in the curve's colour
 B_LABS = (('low', BREAK_LABS['FC']['low'], ('off', 0, -11)),
-          ('fr', BREAK_LABS['FC']['fr'], ('at', 30., .27)))
+          ('fr', BREAK_LABS['FC']['fr'], ('at', 3e3, .3)))
 # nu'_c (key 'fr') named in the free space below, with a leader: the frozen-alone spectrum drops
 # vertically at the mark and the steep segments run just right of it
 
@@ -701,14 +708,17 @@ B_LABS = (('low', BREAK_LABS['FC']['low'], ('off', 0, -11)),
 def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=False,
     p=P_SYN):
   '''
-  Fig. B: continuous injection in fast cooling with gbar_c(t'_0) = 1e-4 gma_m,0, at
-  tau = 10, 30, 50 < t'_tr = 52: B1 lam_inj = 0 (kappa_fr = 1/6), B2 lam_inj = 2 (1/3).
+  Fig. B: continuous injection in fast cooling with gbar_c,0 = 1e-3 gma_m,0, at
+  tau = 10, 13, 16 < t'_tr = 19.3: B1 lam_inj = 0 (kappa_fr = 1/6), B2 lam_inj = 2 (1/3).
   Full kernel solid, step dotted, nu'_low and nu'_fr marked on each curve (named on the
   last); the frozen segment alone (frozen_alone) dash-dot in the curve's colour, and in the slope panels
   its local index (the text's formula, kappa = (1 + lam_inj)/2 eta) between nu'_low and
   nu'_fr.
   '''
-  norm, cmap, col = _colour()
+  norm, cmap, _ = _colour()
+  # tau = 10, 13, 16 are one shade on Fig. A's 1.1-100 ramp: the same Blues, stretched over
+  # the three times (the key above the panels names them)
+  col = lambda x: cmap(.45 + .55*(x - X_B[0])/(X_B[-1] - X_B[0]))
   u = ugrid(*U_LIM_B, n=40)
   fig, axs = plt.subplots(5, 1, figsize=FIGSIZE_B, sharex=True,
       gridspec_kw=dict(height_ratios=[1.6, 1., .22, 1.6, 1.], hspace=.08))
@@ -765,8 +775,8 @@ def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=F
       ax.tick_params(which='both', labelsize=FS_TICK)
   axs[4].set_xlabel(XLABEL, fontsize=FS_LAB)
   axs[0].set_xlim(*U_LIM_B)
-  axs[0].set_xticks(10.**np.arange(-9., 9., 3.))
-  # two keys: the times (the colours of Fig. A's colour bar) above the panels, the line
+  axs[0].set_xticks(10.**np.arange(-3., 11., 3.))
+  # two keys: the times (Blues, stretched over the three) above the panels, the line
   # styles in the free lower left of the second panel, under the curves
   hc = [plt.Line2D([], [], color=col(x), lw=2., label=f"$t'={x:g}\\,t'_0$") for x in X_B]
   hs = [plt.Line2D([], [], color=MUTED, lw=1.2, label='full kernel'),
@@ -801,7 +811,7 @@ def report_checks():
   for kap, rc, rn in k['r']:
     print(f'  r(kappa={kap:+.4f}) = {rc:.4f} closed, {rn:.4f} func_R')
   for name, (fs, rk) in full_over_step().items():
-    print(f'  B1 tau=50 mid-{name}: full/step = {fs:.4f}, r = {rk:.4f}')
+    print(f'  B1 tau={X_B[-1]:g} mid-{name}: full/step = {fs:.4f}, r = {rk:.4f}')
   # Eq. eqn:Lnu_bpl against the same table integrated as a fine piecewise interpolant
   c = sbc.comoving(COASTING, 0., 10., 2., P_SYN, gm0=GM0)
   pieces, br = table_pieces(c, 'SC', None, GMA_M0)
