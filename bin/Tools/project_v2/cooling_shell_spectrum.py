@@ -230,6 +230,17 @@ def bpl(u, x, logC, dinj, regime, laws=COASTING, p=P_SYN, gM0=GMA_M0):
   return L, {k: v**2*t**(-laws.lam_B) for k, v in br.items()}, pieces, c
 
 
+def frozen_alone(u, x, pieces, laws=COASTING, dinj=np.inf):
+  '''
+  the spectrum of the frozen fast-cooling segment of Table tab:shell_bpl alone (its first
+  piece, [gma_low, gma_fr]), in the units of spectra: nu'^(1/3) below nu'_low, then the
+  local index kappa_fr_local up to nu'_fr, and nothing above
+  '''
+  t = float(tau_of(x, laws))
+  return (t**(-laws.lam_B)*csi.injected_number(x, dinj, laws)
+          *pl_spectrum(np.sqrt(u*t**laws.lam_B), pieces[:1]))
+
+
 def nu_of_gma(g, x, laws=COASTING):
   return g**2*float(tau_of(x, laws))**(-laws.lam_B)
 
@@ -673,7 +684,9 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
 FIGSIZE_B = (3.5, 5.9)
 U_LIM_B = (1e-10, 1e9)
 FROZEN_LS = dict(color=INK, lw=.8, ls=(0, (5, 1.5, 1, 1.5)))   # dash-dot: neither kernel
-B_LABS = (('low', BREAK_LABS['low'], ('off', 0, -11)), ('fr', BREAK_LABS['fr'], ('off', 0, -11)))
+B_LABS = (('low', BREAK_LABS['low'], ('off', 0, -11)), ('fr', BREAK_LABS['fr'], ('at', 30., .27)))
+# nu'_fr named in the free space below, with a leader: the frozen-alone spectrum drops
+# vertically at the mark and the steep segments run just right of it
 
 
 def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=False,
@@ -682,8 +695,9 @@ def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=F
   Fig. B: continuous injection in fast cooling with gbar_c(t'_0) = 1e-4 gma_m,0, at
   tau = 10, 30, 50 < t'_tr = 52: B1 lam_inj = 0 (kappa_fr = 1/6), B2 lam_inj = 2 (1/3).
   Full kernel solid, step dotted, nu'_low and nu'_fr marked on each curve (named on the
-  last); in the slope panels the local index of the frozen segment alone (the text's
-  formula, with kappa = (1 + lam_inj)/2 eta), thin ink, between nu'_low and nu'_fr.
+  last); the frozen segment alone (frozen_alone) dash-dot in ink, and in the slope panels
+  its local index (the text's formula, kappa = (1 + lam_inj)/2 eta) between nu'_low and
+  nu'_fr.
   '''
   norm, cmap, col = _colour()
   u = ugrid(*U_LIM_B, n=40)
@@ -698,16 +712,27 @@ def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=F
     for x in X_B:
       g, fN = distribution(x, FC_B, np.inf, laws, p)
       Ls, Lf = spectra(u, x, g, fN, laws)
-      _, br, _, _ = bpl(np.array([1.]), x, FC_B, np.inf, 'FC', laws, p)
+      _, br, pieces, _ = bpl(np.array([1.]), x, FC_B, np.inf, 'FC', laws, p)
       axN.loglog(u, Lf, color=col(x), lw=1.2, zorder=3)
+      # the frozen segment alone: Eq. eqn:Lnu_bpl on the table's [gma_low, gma_fr] piece
+      Lz = frozen_alone(u, x, pieces, laws)
+      axN.loglog(u, np.where(Lz > 0., Lz, np.nan), zorder=5, **FROZEN_LS)
       axN.loglog(u, np.where(Ls > 0., Ls, np.nan), color=col(x), lw=1.1, ls=':', zorder=4)
-      for key, lab, (_, dx, dy) in B_LABS:
+      for key, lab, (how, a, b) in B_LABS:
         yb = float(_at(u, Lf, br[key]))
         axN.plot([br[key]], [yb], marker='|', ms=7, mew=1., color=INK, zorder=6)
-        if x == X_B[-1] and i == 0:
-          axN.annotate(lab, (br[key], yb), textcoords='offset points', xytext=(dx, dy),
+        if x != X_B[-1] or i != 0:
+          continue
+        if how == 'off':
+          axN.annotate(lab, (br[key], yb), textcoords='offset points', xytext=(a, b),
                        ha='center', va='top', color=INK, fontsize=FS_ANN, bbox=TEXT_BOX,
                        zorder=7)
+        else:
+          axN.annotate(lab, (br[key], yb), xytext=(a, b),
+                       textcoords=('data', 'axes fraction'), ha='center', va='center',
+                       color=INK, fontsize=FS_ANN, bbox=TEXT_BOX, zorder=7,
+                       arrowprops=dict(arrowstyle='-', color=INK, lw=.5, shrinkA=0,
+                                       shrinkB=4))
       for L, ls in ((Lf, '-'), (Ls, ':')):
         s = local_slope(u, L)
         s[~np.isfinite(s) | (s < SL_LIM[0]) | (s > SL_LIM[1])] = np.nan
