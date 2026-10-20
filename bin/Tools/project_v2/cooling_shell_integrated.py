@@ -454,7 +454,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
       # the case, INSIDE the panel (no titles), top right where the curves have fallen
       # away; C is the DYNAMICAL value of the first element, Eq. eqn:bargamma_c
       axN.annotate(f'{lab}\n$\\bar{{\\gamma}}_{{\\rm c}}(t\'_0)=10^{{{lc:+.0f}}}'
-                   f'\\gamma_{{\\mathrm{{m}},\\!0}}$', (.98, .88), xycoords='axes fraction',
+                   f'\\gamma_{{\\mathrm{{m}},\\!0}}$', (.98, .97), xycoords='axes fraction',
                    fontsize=FS_ANN, color=INK, ha='right', va='top', multialignment='right',
                    bbox=TEXT_BOX, zorder=7)
       if j == 0:
