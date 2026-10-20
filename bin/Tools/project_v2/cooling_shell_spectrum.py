@@ -507,18 +507,54 @@ def _mark_breaks(ax, row, col, u, Lf, br, regime, finite):
                   arrowprops=dict(arrowstyle='-', color=INK, lw=.5, shrinkA=0, shrinkB=5))
 
 
+def _guides(p):
+  '''the reference indices of the slope panels, by name'''
+  return {'1/3': (1./3., '$1/3$'), '1/6': (1./6., '$1/6$'), '-1/2': (-.5, '$-1/2$'),
+          '-(p-1)/2': (-(p - 1.)/2., '$-(p-1)/2$'), '-p/2': (-p/2., '$-p/2$')}
+
+
+# which guides each slope panel draws: only those its curves follow over a segment (more
+# than half a decade within 0.03, measured 2026-10-20), so a panel carries no idle lines.
+# 1/6: the continuous FC panel only (1.3 dec; finite FC only crosses it); -(p-1)/2 there
+# after t'_tr (0.5 dec); -1/2 in neither SC panel (<= 0.1 dec); B2 has no 1/6 (kappa = 1/3)
+GUIDES_A = {(0, 0): ('1/3', '-1/2', '-p/2'),
+            (0, 1): ('1/3', '1/6', '-1/2', '-(p-1)/2', '-p/2'),
+            (1, 0): ('1/3', '-(p-1)/2', '-p/2'),
+            (1, 1): ('1/3', '-(p-1)/2', '-p/2')}
+GUIDES_B = (('1/3', '1/6', '-1/2', '-p/2'), ('1/3', '-1/2', '-p/2'))
+
+
+def _split_va(labels, levs):
+  '''labels of neighbouring levels closer than 0.4: lift the upper one, drop the lower'''
+  for k in range(len(levs) - 1):
+    if levs[k][0] - levs[k + 1][0] < .4:
+      labels[k].set_va('bottom')
+      labels[k + 1].set_va('top')
+
+
 def _levels_right(axS, levs):
   '''the reference indices as named ticks on the right spine (as Fig. 4)'''
+  levs = sorted(levs, reverse=True)
   axR = axS.twinx()
   axR.set_ylim(axS.get_ylim())
   axR.set_yticks([v for v, _ in levs])
   axR.set_yticklabels([t for _, t in levs])
-  tl = axR.get_yticklabels()
-  for k in range(len(levs) - 1):
-    if levs[k][0] - levs[k + 1][0] < .4:
-      tl[k].set_va('bottom')
-      tl[k + 1].set_va('top')
+  _split_va(axR.get_yticklabels(), levs)
   axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
+
+
+def _levels_left(axS, levs):
+  '''
+  indices drawn in a left panel only: named ticks on its own (left) axis, among the
+  numeric ones, since its right spine faces the next column
+  '''
+  if not levs:
+    return
+  num = [v for v in axS.get_yticks() if axS.get_ylim()[0] <= v <= axS.get_ylim()[1]
+         and all(abs(v - lv) > .3 for lv, _ in levs)]
+  ticks = sorted([(v, f'${v:g}$') for v in num] + list(levs), reverse=True)
+  axS.set_yticks([v for v, _ in ticks])
+  axS.set_yticklabels([t for _, t in ticks])
 
 
 def _colour():
@@ -538,7 +574,7 @@ def _colorbar(fig, axs_top, axs_bot, norm, cmap):
   cax.tick_params(labelsize=FS_TICK)
 
 
-XLABEL = "$\\nu'/\\nu'_{{\\rm syn},0}$,  $\\nu'_{{\\rm syn},0}=\\nu'_{\\rm syn}(\\gamma_{\\rm e}{=}1,t'_0)$"
+XLABEL = "$\\nu'/\\nu'_{{\\rm syn},0}$"
 YLABEL = "$L'_{\\nu'}/(p'_{{\\rm syn},0}\\,\\dot N_0 t'_0)$"
 SLABEL = "${\\rm d}\\ln L'_{\\nu'}/{\\rm d}\\ln\\nu'$"
 
@@ -557,10 +593,7 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
   for ax in axs[2]:
     ax.set_visible(False)
   rows = ((axs[0], axs[1]), (axs[3], axs[4]))
-  third = (1./3., '$1/3$')
-  levels = {0: (third, (1./6., '$1/6$'), (-.5, '$-1/2$'), (-(p - 1.)/2., '$-(p-1)/2$'),
-                (-p/2., '$-p/2$')),
-            1: (third, (-.5, '$-1/2$'), (-(p - 1.)/2., '$-(p-1)/2$'), (-p/2., '$-p/2$'))}
+  G = _guides(p)
   for i, lc in enumerate(LOGC_ROWS):
     axN_row, axS_row = rows[i]
     regime = 'FC' if lc < 0. else 'SC'
@@ -583,8 +616,7 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
           axN.loglog(u, np.where(Lb > 0., Lb, np.nan), color=INK, ls=(0, (3, 2)), lw=.9,
                      zorder=5)
           _mark_breaks(axN, i, j, u, Lf, br, regime, not np.isinf(dinj))
-      levs = levels[i]
-      for lev, _ in levs:
+      for lev, _ in (G[k] for k in GUIDES_A[(i, j)]):
         axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
       axS.set_ylim(*SL_LIM)
       for ax in (axN, axS):
@@ -599,7 +631,11 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
       else:
         axN.tick_params(labelleft=False)
         axS.tick_params(labelleft=False)
-        _levels_right(axS, levs)
+        # the right column's guides on its right spine, the left column's own ones (if
+        # any) on its left axis
+        _levels_right(axS, [G[k] for k in GUIDES_A[(i, 1)]])
+        _levels_left(axS_row[0], [G[k] for k in GUIDES_A[(i, 0)]
+                                  if k not in GUIDES_A[(i, 1)]])
     for ax in axN_row:
       ax.set_ylim(top*10.**-Y_DEC, top*TOP_ROOM[i])
   for ax in axs[4]:
@@ -679,7 +715,7 @@ def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=F
       axS.semilogx(u[m], kappa_fr_local(u[m], br['fr'], kraw), color=INK, lw=.6, zorder=5)
       top = max(top, Lf.max())
     axN.set_ylim(top*10.**-(5. + i), top*8.)
-    levs = ((1./3., '$1/3$'), (1./6., '$1/6$'), (-.5, '$-1/2$'), (-p/2., '$-p/2$'))
+    levs = [_guides(p)[k] for k in GUIDES_B[i]]
     for lev, _ in levs:
       axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
     axS.set_ylim(-1.6, .6)
@@ -691,22 +727,28 @@ def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=F
     axS.set_ylabel(SLABEL, fontsize=FS_LAB)
     for ax in (axN, axS):
       ax.tick_params(which='both', labelsize=FS_TICK)
-  axs[4].set_xlabel("$\\nu'/\\nu'_{{\\rm syn},0}$", fontsize=FS_LAB)
+  axs[4].set_xlabel(XLABEL, fontsize=FS_LAB)
   axs[0].set_xlim(*U_LIM_B)
   axs[0].set_xticks(10.**np.arange(-9., 9., 3.))
   for r in (0, 3):
     named_ticks_top(axs[r], ((GM0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{m},\\!0})$"),))
-  # key above the panels: the colours are the times of Fig. A's colour bar
-  h = [plt.Line2D([], [], color=col(x), lw=1.2, label=f"$t'={x:g}\\,t'_0$") for x in X_B]
-  h += [plt.Line2D([], [], color=MUTED, lw=1.1, ls=':', label='step kernel'),
+  # two keys: the times (the colours of Fig. A's colour bar) above the panels, the line
+  # styles below the x label
+  hc = [plt.Line2D([], [], color=col(x), lw=2., label=f"$t'={x:g}\\,t'_0$") for x in X_B]
+  hs = [plt.Line2D([], [], color=MUTED, lw=1.2, label='full kernel'),
+        plt.Line2D([], [], color=MUTED, lw=1.1, ls=':', label='step kernel'),
         plt.Line2D([], [], color=INK, lw=.6, label='frozen segment alone')]
   fig.canvas.draw()
   r_ = fig.canvas.get_renderer()
-  ytop = fig.transFigure.inverted().transform(axs[0].get_tightbbox(r_))[1, 1]
+  inv = fig.transFigure.inverted()
+  ytop = inv.transform(axs[0].get_tightbbox(r_))[1, 1]
+  ybot = inv.transform(axs[4].get_tightbbox(r_))[0, 1]
   pa = axs[0].get_position()
-  fig.legend(handles=h, loc='lower center', ncol=3, bbox_to_anchor=(.5*(pa.x0 + pa.x1),
-             ytop + .004), bbox_transform=fig.transFigure, fontsize=FS_LEG,
-             frameon=False, handlelength=1.8, columnspacing=1.)
+  xc = .5*(pa.x0 + pa.x1)
+  kw = dict(bbox_transform=fig.transFigure, fontsize=FS_LEG, frameon=False,
+            handlelength=1.8, columnspacing=1.2)
+  fig.legend(handles=hc, loc='lower center', ncol=3, bbox_to_anchor=(xc, ytop + .004), **kw)
+  fig.legend(handles=hs, loc='upper center', ncol=3, bbox_to_anchor=(xc, ybot - .004), **kw)
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
   fig.savefig(path, dpi=300, bbox_inches='tight')
