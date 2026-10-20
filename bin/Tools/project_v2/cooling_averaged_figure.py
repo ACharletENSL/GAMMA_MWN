@@ -471,46 +471,14 @@ def plot_averaged(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG, cases=None,
 
 
 # --- the steady window, integrated rather than averaged -----------------------------------
-GUIDE_INSET = .08       # white space at the LOW end of a guide, as a fraction of its run
-GUIDE_INSET_HI = .12    # and at the high end, so a guide never hugs the next break
-GUIDE_OFF = 8.          # how far a guide sits above the curves it labels
-GUIDE_TOL = .3          # |slope - level| still counted as that segment; it sets how
-                        # far a guide follows a segment into its rounded-off end
-GUIDE_DEC = .6          # decades of gma_e a segment must span to earn a guide
-
-
-def _guide_span(g, y, lev, tol=GUIDE_TOL, dec=GUIDE_DEC, inset=GUIDE_INSET,
-    inset_hi=GUIDE_INSET_HI):
-  '''
-  Where a curve y(g) actually carries the log-slope `lev`, as (gma_e, y at the middle).
-
-  The longest contiguous run within `tol` of the level, inset at both ends and dropped
-  altogether if it is shorter than `dec` decades -- that last test is what keeps -p out
-  of the fast-cooling panel and -2 out of the slow one, rather than a hand-written list
-  of which guide belongs where.
-  '''
-  ok = y > 0.
-  g, y = g[ok], y[ok]
-  m = np.abs(log_slope(g, y) - lev) < tol
-  best, run = (0, 0), None
-  for i, v in enumerate(np.append(m, False)):
-    if v and run is None:
-      run = i
-    elif not v and run is not None:
-      best, run = max(best, (i - run, run), key=lambda t: t[0]), None
-  n, i0 = best
-  if n < 2 or np.log10(g[i0+n-1]/g[i0]) < dec:
-    return None
-  lg = np.log10(g[i0:i0+n]/g[i0])/np.log10(g[i0+n-1]/g[i0])
-  keep = (lg > inset) & (lg < 1. - inset_hi)
-  gg = g[i0:i0+n][keep]
-  return (gg, float(y[i0:i0+n][keep][len(gg)//2])) if len(gg) > 1 else None
-
-
 LOGSIG_S = (-3., -2.5, -2., -1.5, -1., -.5, 0.)   # t' in [t'_0, 2t'_0], so sigma <= 1
 FN_INT_STEADY = 'cooling_integrated_steady.png'
-STEADY_CASES = ("$t'_{\\rm c}=t'_{\\rm c,0}$ \u2013 FC", -2.), \
-               ("$t'_{\\rm c}=t'_{\\rm c,0}$ \u2013 SC", 2.)
+# the case INSIDE each panel (A&A: no titles); the ratio is spelled out with a bar, as
+# everywhere in the cooling_distributions series
+STEADY_CASES = ("$\\bar{\\gamma}_{\\mathrm{c},\\!0}=10^{-2}\\gamma_{\\mathrm{m},\\!0}$", -2.), \
+               ("$\\bar{\\gamma}_{\\mathrm{c},\\!0}=10^{2}\\gamma_{\\mathrm{m},\\!0}$", 2.)
+TEXT_BOX = dict(boxstyle='square,pad=0.15', fc='w', ec='none')   # A&A: opaque, borderless
+BPL_RUN = 1.                # decades a normalised asymptote runs past the break it meets
 
 
 def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
@@ -529,9 +497,14 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
   regime: C = 1/(kappa gma_m,0). Hence two columns rather than one, fast and slow
   cooling, the same pair the rest of the family uses.
 
-  The slopes are shown as GUIDES rather than in a slope panel, each one located by
-  _guide_span: which of -2, -p, -(p+1) appears, and over what gma_e, is the regime,
-  so the guide set differs between the two columns and is read off the curves.
+  THE BROKEN POWER LAW of the article, NORMALISED, for the last curve (Delta t' = t'_0,
+  gma_c = 1/tt), dashed in ink on top of it (Sect. 3.1, Eqs. eqn:steady_FC/SC):
+    FC  Ndot t'_c [gma^-2 (gma_c..gma_m,0), gma_m,0^(p-1) gma^-(p+1) above]: EXACT, so it
+        lies on the curve -- which is the text's point.
+    SC  the two asymptotes, (p-1) gma_m,0^(p-1) gma^-p/gma_c and gma_m,0^(p-1)
+        gma^-(p+1), each run BPL_RUN decades past their crossing at gma_c/(p-1), marked:
+        there the exact curve is lower by 1 - [(p-2)/(p-1)]^(p-1) (0.81 at p = 2.5).
+  The finite-gma_M,0 normalisation K0 replaces (p-1) gma_m,0^(p-1), as in the curves.
   '''
   cases = STEADY_CASES if cases is None else cases
   logsig = np.asarray(logsig, dtype=float)
@@ -557,26 +530,37 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
       gM_t = 1./(tt + 1./gM0)
       axN.scatter([gM_t], [N_averaged(gM_t, tt, p, gm0, gM0)*tt], s=11,
                   facecolors='none', edgecolors=INK, linewidths=.7, zorder=6)
-    # SHAPE references, offset so they claim no amplitude. Each one is drawn only where
-    # the curves actually carry that slope, so fast cooling gets -2 then -(p+1) and slow
-    # cooling -p then -(p+1); none of them spans the panel.
-    gref = np.geomspace(gm0/(1. + gm0*tts.max()), gM0, 400)
-    env = np.max([[float(N_integrated(x, tt, p, gm0, gM0)) for x in gref]
-                  for tt in tts], axis=0)
-    for lev, llab in ((-2., '-2'), (-p, '-p'), (-(p+1.), '-(p+1)')):
-      sp = _guide_span(gref, env, lev)
-      if sp is None:
-        continue
-      gg, y0 = sp
-      yy = GUIDE_OFF*y0*(gg/gg[len(gg)//2])**lev
-      axN.loglog(gg, yy, color=MUTED, ls='--', lw=.9, zorder=2)
-      j = len(gg)//5     # a FIFTH of the way along, not the middle: the -2 guide runs
-                         # up to gma_m,0 and a centred label hit that line's label
-      axN.annotate(f'$\\propto\\gamma_{{\\rm e}}^{{{llab}}}$', (gg[j], yy[j]),
-                   textcoords='offset points', xytext=(3, 3), color=MUTED,
-                   fontsize=FS_ANN,
-                   bbox=dict(fc='w', ec='none', alpha=.8, pad=1.))
-    axN.set_title(lab, fontsize=FS_LAB, pad=3.)
+    # the normalised broken power law of the LAST curve (see docstring)
+    tt = tts.max()
+    gc, K0 = 1./tt, norm_plaw_distrib(gm0, gM0, p)
+    hi_s = lambda g: K0/(p - 1.)*g**(-(p + 1.))           # cooled injected, both regimes
+    if lc < 0.:                                          # FC: exact, gma_c < gma_m,0
+      segs = ((gc, gm0, lambda g: K0/((p - 1.)*gm0**(p - 1.))*g**-2., '-2'),
+              (gm0, gM0/10., hi_s, '-(p+1)'))
+    else:                                                # SC: the two asymptotes
+      gx = gc/(p - 1.)
+      segs = ((gm0, gx*10.**BPL_RUN, lambda g: K0*tt*g**-p, '-p'),
+              (gx/10.**BPL_RUN, gM0/10., hi_s, '-(p+1)'))
+      axN.scatter([gx], [hi_s(gx)], s=14, marker='D', facecolors='w', edgecolors=INK,
+                  linewidths=.8, zorder=7)
+      # ABOVE the crossing, in the empty wedge over the curves: a box on them cuts the data
+      axN.annotate('$\\gamma_{\\rm c}/(p-1)$', (gx, hi_s(gx)), textcoords='offset points',
+                   xytext=(12, 20), ha='left', va='bottom', color=INK, fontsize=FS_ANN,
+                   bbox=TEXT_BOX, zorder=7,
+                   arrowprops=dict(arrowstyle='-', color=INK, lw=.6, shrinkA=0, shrinkB=4))
+    for a_, b_, fn, llab in segs:
+      gg = np.geomspace(a_, b_, 60)
+      axN.loglog(gg, fn(gg), color=INK, ls=(0, (3, 2)), lw=.9, zorder=5)
+      # the index, just above the segment so its box stays off the curves: a third of
+      # the way along, except in SC, where the crossing label takes the middle -- -p near
+      # gma_m,0 and -(p+1) further out
+      frac = 1./3. if lc < 0. else (.12 if llab == '-p' else .6)
+      gl = a_*(b_/a_)**frac
+      axN.annotate(f'$\\propto\\gamma_{{\\rm e}}^{{{llab}}}$', (gl, fn(gl)),
+                   textcoords='offset points', xytext=(4, 6), color=INK, fontsize=FS_ANN,
+                   bbox=TEXT_BOX, zorder=7)
+    axN.annotate(lab, (.97, .89), xycoords='axes fraction', ha='right', va='top',
+                 color=INK, fontsize=FS_ANN, bbox=TEXT_BOX, zorder=7)
     axN.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
     for v in (gm0, gM0):
       axN.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
@@ -584,9 +568,8 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
                     (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
       axN.annotate(vlab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
                    fontsize=FS_ANN, ha='center', va='top',
-                   bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+                   bbox=TEXT_BOX)
     axN.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
-    axN.grid(alpha=.25, lw=.4)
     axN.tick_params(which='both', labelsize=FS_TICK)
     axN.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   for k in range(len(cases)):
@@ -597,12 +580,15 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
                                            # above the curves and ran into the frame
   # the curves are the INTEGRAL over the elapsed clock (a*tt above) of a distribution
   # normalised to one electron, i.e. dN/dgma per unit Ndot_0 t'_c,0 (Eqn. intNe_steady_integ)
-  axs[0, 0].set_ylabel("$(\\dot N_0 t'_{\\rm c,0})^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
+  axs[0, 0].set_ylabel("$(\\dot N_0 t'_{\\mathrm{c},\\!0})^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}"
                        "/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
   axs[0, -1].legend(handles=[
       plt.Line2D([], [], color=INK, lw=0, marker='o', mfc='none', ms=3.5,
-                 label="$\\gamma_\\mathrm{M}(t')$")],
-      fontsize=FS_LEG, loc='upper left', bbox_to_anchor=(.01, .93), framealpha=.9,
+                 label="$\\gamma_\\mathrm{M}(t')$"),
+      plt.Line2D([], [], color=INK, ls=(0, (3, 2)), lw=.9,
+                 label="BPL, $\\Delta t'=t'_0$")],
+      fontsize=FS_LEG, loc='upper left', bbox_to_anchor=(.01, .93), frameon=True,
+      framealpha=1., facecolor='w', edgecolor='none', fancybox=False,
       handletextpad=.3, borderpad=.3)   # BELOW the gma_m,0 label row: flush with the
                                         # top it cleared that label by only 4 px
   p1 = axs[0, -1].get_position()
