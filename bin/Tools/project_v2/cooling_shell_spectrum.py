@@ -476,8 +476,13 @@ def full_over_step(p=P_SYN, laws=COASTING):
 
 
 # --- Figure A -------------------------------------------------------------------------
-BREAK_LABS = {'low': "$\\nu'_{\\rm low}$", 'fr': "$\\nu'_{\\rm fr}$",
-              'mi': "$\\nu'_{\\mathrm{m},\\!i}$", 'b': "$\\nu'_{\\rm b}$"}
+# the article's break names (2026-10-20), as Fig. 4: the lowest edge written out,
+# nu'_inf(t';t'_0) in fast and nu'_m(t';t'_0) in slow cooling; the cooling break nu'_c in
+# both regimes (the table's keys 'fr' and 'b')
+BREAK_LABS = {'FC': {'low': "$\\nu'_\\infty(t';t'_0)$", 'fr': "$\\nu'_{\\rm c}$",
+                     'mi': "$\\nu'_{\\mathrm{m},\\!i}$"},
+              'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_0)$", 'b': "$\\nu'_{\\rm c}$",
+                     'mi': "$\\nu'_{\\mathrm{m},\\!i}$"}}
 FINITE_LABS = {'FC': {'low': "$\\nu'_\\infty(t';t'_0)$",
                       'hi': "$\\nu'_\\infty(t';t'_{\\rm end})$"},
                'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_{\\rm end})$",
@@ -488,7 +493,7 @@ BREAK_AT = {(0, 0, 'low'): ('at', 4e-4, .86), (0, 0, 'hi'): ('at', 1e1, .93),
             (0, 1, 'low'): ('at', 3e-3, .93), (0, 1, 'fr'): ('at', 1e2, .93),
             (0, 1, 'mi'): ('at', 1e6, .93),
             (1, 0, 'low'): ('at', 1e-2, .25), (1, 0, 'hi'): ('at', 1e2, .08),
-            (1, 1, 'low'): ('at', 3e0, .93), (1, 1, 'mi'): ('at', 2e3, .93),
+            (1, 1, 'low'): ('at', 1e-2, .93), (1, 1, 'mi'): ('at', 2e3, .93),
             (1, 1, 'b'): ('at', 1e9, .12)}
 TOP_ROOM = (60., 60.)
 SL_LIM = (-2.1, .7)
@@ -496,7 +501,7 @@ Y_DEC = 9.                     # decades shown below each row's maximum
 
 
 def _mark_breaks(ax, row, col, u, Lf, br, regime, finite):
-  labs = FINITE_LABS[regime] if finite else BREAK_LABS
+  labs = (FINITE_LABS if finite else BREAK_LABS)[regime]
   for key in ('low', 'fr', 'mi', 'b', 'hi'):
     if key not in br:
       continue
@@ -634,7 +639,7 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
       axS.set_ylim(*SL_LIM)
       for ax in (axN, axS):
         ax.tick_params(which='both', labelsize=FS_TICK)
-      axN.annotate(f'{lab}\n$\\bar{{\\gamma}}_{{\\rm c}}(t\'_0)=10^{{{lc:+.0f}}}'
+      axN.annotate(f'{lab}\n$\\bar{{\\gamma}}_{{\\mathrm{{c}},\\!0}}=10^{{{lc:+.0f}}}'
                    f'\\gamma_{{\\mathrm{{m}},\\!0}}$', (.98, .97), xycoords='axes fraction',
                    fontsize=FS_ANN, color=INK, ha='right', va='top', multialignment='right',
                    bbox=TEXT_BOX, zorder=7)
@@ -687,8 +692,9 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
 FIGSIZE_B = (3.5, 5.9)
 U_LIM_B = (1e-10, 1e9)
 FROZEN_LS = dict(lw=.9, ls=(0, (5, 1.5, 1, 1.5)))   # dash-dot, in the curve's colour
-B_LABS = (('low', BREAK_LABS['low'], ('off', 0, -11)), ('fr', BREAK_LABS['fr'], ('at', 30., .27)))
-# nu'_fr named in the free space below, with a leader: the frozen-alone spectrum drops
+B_LABS = (('low', BREAK_LABS['FC']['low'], ('off', 0, -11)),
+          ('fr', BREAK_LABS['FC']['fr'], ('at', 30., .27)))
+# nu'_c (key 'fr') named in the free space below, with a leader: the frozen-alone spectrum drops
 # vertically at the mark and the steep segments run just right of it
 
 
