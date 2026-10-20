@@ -84,6 +84,33 @@ CASES = (('internal shocks', '$\\Delta t\'_{\\rm inj}=t\'_0$', 1.),
 NG, NQ, NBIS = 900, 96, 80
 
 INK, MUTED = '0.25', '0.55'
+# A&A: no background grid, text on an OPAQUE borderless white box (afterglow_lightcurves)
+TEXT_BOX = dict(boxstyle='square,pad=0.15', fc='w', ec='none')
+# THE NAMED BREAKS (Table tab:shell_bpl), on ONE reference curve per panel, with the
+# table's broken power law for that curve dashed in ink (shell_bpl_check.table). The
+# continuous FC panel takes x = 3, before R_tr = 7.2 R_0 where fresh injection turns slow
+# and the FC rows stop applying; the continuous SC one x = 10, where gma_b is still
+# below gma_M,0 (at x = 100 it is not). The finite ones the last curve.
+REF_X = {(0, 0): 100., (0, 1): 3., (1, 0): 100., (1, 1): 10.}    # (row, column) -> x
+# finite-injection curves drawn DASHED over the continuous FC panel: the same oldest
+# elements, so they lie on its low end (author's note on the figure)
+OVERLAY_X = (3., 30.)
+BREAK_LABS = {'low': '$\\gamma_{\\rm low}$', 'fr': '$\\gamma_{\\rm fr}$',
+              'mi': '$\\gamma_{\\mathrm{m},\\!i}$', 'b': '$\\gamma_{\\rm b}$'}
+FINITE_LABS = {'FC': {'low': "$\\gamma_\\infty(t';t'_0)$",
+                      'hi': "$\\gamma_\\infty(t';t'_{\\rm end})$"},
+               'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_{\\rm end})$",
+                      'hi': "$\\gamma_\\infty(t';t'_0)$"}}
+# where each break's name goes, per (row, column, break), set by eye on the render so that
+# no box sits on a curve: ('off', dx, dy) in points from the mark, or ('at', gma_e,
+# axes-y) in free space with a thin leader line back to the mark. gma_m,i has no entry:
+# with lam_m = 0 it IS gma_m,0, and the dotted line there is named for both
+BREAK_AT = {(0, 0, 'low'): ('at', .5, .925), (0, 0, 'hi'): ('at', 80., .925),
+            (0, 1, 'low'): ('at', .9, .925), (0, 1, 'fr'): ('at', 40., .925),
+            (1, 0, 'low'): ('off', -6, -6), (1, 0, 'hi'): ('at', 5e5, .66),
+            (1, 1, 'low'): ('off', -6, -6), (1, 1, 'b'): ('at', 4e7, .45)}
+TOP_ROOM = (300., 8.)          # ylim top over the curves' max, per row: the FC row's names
+                              # sit in a band above its curves
 FIGSIZE = (7.0, 8.4)
 FS_LAB, FS_TICK, FS_ANN, FS_LEG = 9., 8., 7.5, 7.
 GMA_LABEL = '$\\gamma_{\\rm e}$'
@@ -322,12 +349,59 @@ def check_bm_slopes(k, x=300., logC_fast=-3., logC_slow=2.):
 
 
 # --- the figure -----------------------------------------------------------------------
+def _reference_bpl(axN, row, col, x, lc, dinj, laws, p, regime):
+  '''
+  The reference curve's broken power law (Table tab:shell_bpl, via shell_bpl_check),
+  dashed in ink, and its breaks named on the EXACT curve with a short vertical mark.
+  Returns nothing; draws on axN. The table's dN/(N dln gma) times N/gma is the plotted
+  (Ndot_0 t'_0)^-1 dNcal/dgma (coasting: R_0 units are t'_0 units).
+  '''
+  import shell_bpl_check as sbc       # it imports this module: not at module level
+  c = sbc.comoving(laws, 0., x, lc, p, gm0=GM0)
+  tau_end = None if np.isinf(dinj) else 1. + dinj
+  lo, hi = support(x, lc, dinj, laws)
+  g = np.geomspace(lo, hi/3., 600)
+  f, _, br, _ = sbc.table(g, c, regime, tau_end)
+  ntot = injected_number(x, dinj, laws)
+  m = f > 0.
+  axN.loglog(g[m], ntot*f[m]/g[m], color=INK, ls=(0, (3, 2)), lw=.9, zorder=5)
+  labs = BREAK_LABS if tau_end is None else FINITE_LABS[regime]
+  for key in ('low', 'fr', 'mi', 'b', 'hi'):
+    if key not in br:                 # FC has gma_fr, SC gma_b; finite only low, hi
+      continue
+    gb = br[key]
+    # on the exact curve; an edge sits where the curve stops, so step just inside it
+    gq = np.clip(gb, lo*1.15, hi/1.15)
+    yb = float(shell_integrated(np.array([gq]), x, lc, dinj, laws, p)[0])
+    axN.plot([gq], [yb], marker='|', ms=9, mew=1.1, color=INK, zorder=6)
+    where = BREAK_AT.get((row, col, key))
+    if where is None:
+      continue
+    if where[0] == 'off':
+      dx, dy = where[1:]
+      axN.annotate(labs[key], (gq, yb), textcoords='offset points', xytext=(dx, dy),
+                   ha='left' if dx >= 0 else 'right', va='bottom' if dy >= 0 else 'top',
+                   color=INK, fontsize=FS_ANN, bbox=TEXT_BOX, zorder=7)
+    else:
+      axN.annotate(labs[key], (gq, yb), xytext=where[1:],
+                   textcoords=('data', 'axes fraction'), ha='center', va='center',
+                   color=INK, fontsize=FS_ANN, bbox=TEXT_BOX, zorder=7,
+                   arrowprops=dict(arrowstyle='-', color=INK, lw=.5, shrinkA=0,
+                                   shrinkB=5))
+
+
 def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=False,
     p=P_SYN, laws=COASTING):
   '''
   Per regime (fast on top, slow below): the distributions, and their local slope
   underneath, with the indices the text derives as guides. Columns are the two
   injection cases. A blank spacer row separates the two regimes.
+
+  On each distribution panel ONE reference curve (REF_X) carries the breaks of Table
+  tab:shell_bpl, named, and the table's broken power law dashed in ink. The continuous
+  fast-cooling panel also carries two finite-injection curves (OVERLAY_X), dashed in
+  their time colour: they are its oldest elements, and lie on its low end.
+  A&A style: no grid, no titles (each case is written inside its panel), opaque boxes.
   '''
   lx = np.log10(X_SAMPLES)
   norm = plt.Normalize(vmin=lx.min(), vmax=lx.max())
@@ -349,6 +423,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
   rows = ((axs[0], axs[1]), (axs[3], axs[4]))
   for i, lc in enumerate(LOGC_ROWS):
     axN_row, axS_row = rows[i]
+    regime = 'FC' if lc < 0. else 'SC'
     top = 0.
     for j, (name, lab, dinj) in enumerate(CASES):
       axN, axS = axN_row[j], axS_row[j]
@@ -361,6 +436,11 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
         sl[~np.isfinite(sl) | (sl > SL_LIM[1]) | (sl < SL_LIM[0])] = np.nan
         axS.semilogx(g, sl, color=col(x), lw=1.1, zorder=3)
         top = max(top, N.max())
+      if i == 0 and np.isinf(dinj):
+        for x in OVERLAY_X:
+          g, N = shell_curve(x, lc, CASES[0][2], laws=laws)
+          axN.loglog(g, N, color=col(x), lw=1.2, ls=(0, (2.5, 1.5)), zorder=4)
+      _reference_bpl(axN, i, j, REF_X[(i, j)], lc, dinj, laws, p, regime)
       lev_ij = tuple(sorted(levels[lc] + extra.get((lc, j), ()), reverse=True))
       for lev, _ in lev_ij:
         axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
@@ -370,17 +450,15 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
         ax.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
         for v in (GM0, GMA_M0):
           ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-        ax.grid(alpha=.25, lw=.4)
         ax.tick_params(which='both', labelsize=FS_TICK)
-      axN.annotate(f'$\\bar{{\\gamma}}_{{\\rm c,0}}/\\gamma_{{\\rm m,0}}=10^{{{lc:+.0f}}}$',
-                   (.03, .05), xycoords='axes fraction', fontsize=FS_ANN, color=INK,
-                   ha='left', va='bottom',
-                   bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
-      if i == 0:
-        axN.annotate(lab, (.5, 1.02), xycoords='axes fraction',
-                     fontsize=FS_LAB, color=INK, ha='center', va='bottom')
+      # the case, INSIDE the panel (no titles), top right where the curves have fallen
+      # away; C is the DYNAMICAL value of the first element, Eq. eqn:bargamma_c
+      axN.annotate(f'{lab}\n$\\bar{{\\gamma}}_{{\\rm c}}(t\'_0)=10^{{{lc:+.0f}}}'
+                   f'\\gamma_{{\\mathrm{{m}},\\!0}}$', (.98, .88), xycoords='axes fraction',
+                   fontsize=FS_ANN, color=INK, ha='right', va='top', multialignment='right',
+                   bbox=TEXT_BOX, zorder=7)
       if j == 0:
-        axN.set_ylabel('$(\\dot N t\'_0)^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}'
+        axN.set_ylabel('$(\\dot N_0 t\'_0)^{-1}\\,{\\rm d}\\mathcal{N}_{\\rm e}'
                        '/{\\rm d}\\gamma_{\\rm e}$', fontsize=FS_LAB)
         axS.set_ylabel('${\\rm d}\\ln\\mathcal{N}_{\\rm e}/{\\rm d}\\ln\\gamma_{\\rm e}$',
                        fontsize=FS_LAB)
@@ -399,18 +477,30 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
             tl[k].set_va('bottom')
             tl[k + 1].set_va('top')
         axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
-        axR.grid(False)
     for ax in axN_row:
-      ax.set_ylim(top*1e-12, top*8.)
+      ax.set_ylim(top*1e-12, top*TOP_ROOM[i])
   for ax in axs[4]:
     ax.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axs[0, 0].set_xlim(.05, 3.*GMA_M0)
-  for v, lab in ((GM0, '$\\gamma_{\\mathrm{m},\\!0}$'),
-                 (GMA_M0, '$\\gamma_{\\mathrm{M},\\!0}$')):
-    axs[0, 1].annotate(lab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
-                       fontsize=FS_ANN, ha='center', va='top',
-                       bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+  # the continuous column names gma_m,0 for gma_m,i(t') too: with lam_m = 0 they coincide
+  for ax, lm in ((axs[0, 0], '$\\gamma_{\\mathrm{m},\\!0}$'),
+                 (axs[0, 1], '$\\gamma_{\\mathrm{m},\\!i}=\\gamma_{\\mathrm{m},\\!0}$')):
+    for v, lab in ((GM0, lm), (GMA_M0, '$\\gamma_{\\mathrm{M},\\!0}$')):
+      # along the FLOOR: the band above the curves holds the break names, and at
+      # gma_m,0 and gma_M,0 every curve is decades above the panel's bottom
+      ax.annotate(lab, (v, .02), xycoords=('data', 'axes fraction'), color=INK,
+                  fontsize=FS_ANN, ha='center', va='bottom', bbox=TEXT_BOX, zorder=7)
   fig.subplots_adjust(right=.84)
+  # line-style key ABOVE the panels, where it covers nothing; the colour is the time
+  h = [plt.Line2D([], [], color=MUTED, lw=1.2, ls=(0, (2.5, 1.5)),
+                  label="$\\Delta t'_{\\rm inj}=t'_0$, over the continuous case"),
+       plt.Line2D([], [], color=INK, lw=.9, ls=(0, (3, 2)),
+                  label='broken power law (one curve)'),
+       plt.Line2D([], [], color=INK, lw=0, marker='|', ms=7, mew=1.1, label='its breaks')]
+  pa, pb = axs[0, 0].get_position(), axs[0, 1].get_position()
+  fig.legend(handles=h, loc='lower center', ncol=3, bbox_to_anchor=(.5*(pa.x0 + pb.x1),
+             pa.y1 + .006), bbox_transform=fig.transFigure, fontsize=FS_LEG,
+             frameon=False, handlelength=2., columnspacing=1.2)
   p0, p1 = axs[0, 1].get_position(), axs[4, 1].get_position()
   cax = fig.add_axes([.935, p1.y0, .018, p0.y1 - p1.y0])
   sm = plt.cm.ScalarMappable(cmap=plt.cm.colors.ListedColormap(
