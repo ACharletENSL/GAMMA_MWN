@@ -21,11 +21,17 @@ THE THREE PANELS, and what each assumes.
       C at all. Physics from cooling_shape_figure.
 
       In (b) and (c) the knees are the article's t'_x (Eq. eq:t_X-gamma_ci, tt_knee):
-      a line width later than t'_c,i/gma_X,i, and absent when gma_X,i < s gbar_c,i,
+      a line width later than t'_c,i/gma_X,i, and absent when gma_X,i < (1-2^-s) gbar_c,i,
       i.e. no t'_m in the slow-cooling panel, where gma_m never loses half its energy.
 
-  (b) SYNCHROTRON + ADIABATIC, fast cooling, bar{gma}_c/gma_m,i = 1e-2.
-  (c) the same, slow cooling, bar{gma}_c/gma_m,i = 1e+2.
+  (b) SYNCHROTRON + ADIABATIC, fast cooling, bar{gma}_c,i/gma_m,i = 1e-2.
+  (c) the same, slow cooling, bar{gma}_c,i/gma_m,i = 1e+2.
+
+      bar{gma}_c,i is the ARTICLE's (Eq. eqn:bargamma_c, 2026-10-20): the Lorentz factor
+      that cools in ONE dynamical time, 1/I(2t'_i) = s gbar^syn/(1 - 2^-s), with
+      gbar^syn = t'_c,i/t'_i = 1/tt_dyn the constant-field one these panels used to be
+      labelled with. At s = 3 the two differ by 3.43, so tt_dyn = 3.43/(C gma_m,i)
+      (tt_dyn_of_gbar_c) -- the same C as Figs. 4-6, which is the point.
 
       Both on the FREELY EXPANDING SHELL at constant eps_B, which is one choice, not
       two: rho' ~ R^-2 (a shell of fixed comoving width, coasting R/R_0 = 1 + sigma),
@@ -33,11 +39,9 @@ THE THREE PANELS, and what each assumes.
       B' ~ rho'^(gma_ad/2), so q = -a_rho*gma_ad = 10/3 is DERIVED (q is the
       exponent of t'_c, not of B'). With d = -a_rho/3 = 2/3 that gives
       s = d + q - 1 = 3 > 0: the synchrotron burn saturates at S_inf = tt_dyn/s, and
-      only C < 1/s reaches fast cooling --
-      which is why (b) and (c) sit either side of that threshold rather than either
-      side of C = 1. Each carries the scale its regime is set by, as a dash-dotted
-      vertical: t'_dyn on the tracks, bar{gma}_c,i on the shapes -- one is the abscissa
-      reading of the other, since gma_c = 1/tt_dyn. The constants live in
+      gma_m,i burns only for C < 1/(1 - 2^-s) = 8/7. Each carries the scale its regime
+      is set by, as a dash-dotted vertical: t'_dyn on the tracks, bar{gma}_c,i on the
+      shapes, bar{gma}_c,i = s/[(1 - 2^-s) tt_dyn]. The constants live in
       cooling_integrated_adiabatic (A_RHO, Q_C)
       and the trajectory in gamma_cooled / cooled_distrib_adiab, so nothing is
       restated here.
@@ -83,8 +87,8 @@ from cooling_integrated_adiabatic import (A_RHO, Q_C, _exps, A_of_sigma,
 from cooling_shape_adiabatic import cooled_distrib_adiab, lab_C
 
 # --- defaults -------------------------------------------------------------------------
-LOGC_PANELS = (-2., 2.)     # the two adiabatic columns: either side of the C < 1/s
-                            # cooling threshold, not either side of C = 1
+LOGC_PANELS = (-2., 2.)     # the two adiabatic columns, C = bar{gma}_c,i/gma_m,i:
+                            # either side of the C < 1/(1-2^-s) threshold
 T_LIM = (1e-11, 1e2)        # t'/t'_c,i span of the TRACK panels, shared by all three
 NX = 900                    # points per track
 # ONE y range for the three track panels, so the drag in (b)/(c) is read against (a)
@@ -140,14 +144,34 @@ def _frac_tex(v, sign=True):
   return n if fr.denominator == 1 else f'{n}/{fr.denominator}'
 
 
-def panel_specs(gm0=GM0, logC_m=LOGC_PANELS, labs=PANEL_LABS):
+def _gbar_fac(a_rho=A_RHO, q=Q_C):
+  "bar{gma}_c,i/gbar^syn = s/(1 - 2^-s): one dynamical time of a burn that saturates."
+  s = _exps(a_rho, q)[1]
+  return s/(1. - 2.**-s)
+
+
+def tt_dyn_of_gbar_c(logC, gm0=GM0, a_rho=A_RHO, q=Q_C):
+  '''
+  tt_dyn = t'_i/t'_c,i from the ARTICLE's C = bar{gma}_c,i/gma_m,i, with
+  bar{gma}_c,i = 1/I(2t'_i) (Eq. eqn:bargamma_c). cooling_integrated_figure's
+  tt_dyn_of_C is the s = -1 case (no drag, constant field), where the two coincide.
+  '''
+  return _gbar_fac(a_rho, q)*tt_dyn_of_C(logC, gm0)
+
+
+def gbar_c_i(ttd, a_rho=A_RHO, q=Q_C):
+  "bar{gma}_c,i = 1/I(2t'_i) of a panel with tt_dyn = ttd: the inverse of tt_dyn_of_gbar_c."
+  return _gbar_fac(a_rho, q)/ttd
+
+
+def panel_specs(gm0=GM0, logC_m=LOGC_PANELS, labs=PANEL_LABS, a_rho=A_RHO, q=Q_C):
   '''
   (kind, tt_dyn, label) for the three panels, in the order the figures use. tt_dyn is
   None for the first panel, which has no C to set one. `labs` names them; the no-drag
   figure passes its own.
   '''
   return ([('syn', None, labs[0])]
-          + [('adiab', tt_dyn_of_C(lc, gm0), lab)
+          + [('adiab', tt_dyn_of_gbar_c(lc, gm0, a_rho, q), lab)
              for lc, lab in zip(logC_m, labs[1:])])
 
 
@@ -296,7 +320,7 @@ def _frozen_guide(ax, x, ttd, a_rho=A_RHO, q=Q_C, frac=GUIDE_FRAC):
   per electron, so EVERY trajectory becomes gma ~ A(t'): cooling is purely adiabatic from
   there on. An edge that burnt (gma_0 S_inf >> 1) forgets gma_0 and lands on A/S_inf
   itself; one that never burnt -- panel (c)'s gma_m -- runs PARALLEL to it at A gma_0,
-  the offset between them being the 1 + s C the width law stalls at.
+  the offset between them being the 1 + (1-2^-s) C the width law stalls at.
 
   A = (1+sigma)^-d, so the line drawn is s/tt_dyn * sigma^-d -- the large-sigma form, a
   straight s-normalised power of the abscissa rather than the exact A/S_inf
@@ -343,7 +367,7 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   # constant-t'_c synchrotron, which is what the no-drag figure wants for its reference.
   # gamma_cooled at a_rho = 0, q = 0 reduces to gamma_synCooled exactly.
   ref_q = q if ref_q is None else ref_q
-  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m, labs)):
+  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m, labs, a_rho, q)):
     if kind == 'syn':
       for lab, a_, b_, col in bands:
         a_, b_ = max(a_, x[0]), min(b_, x[-1])
@@ -375,8 +399,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     # THE KNEES ARE THE ARTICLE'S t'_x (Eq. eq:t_X-gamma_ci), where the integrated burn
     # reaches 1/gma_X,i: t'_c,i/gma_X,i exactly in (a), tt_knee in (b)/(c). There they
     # are later than the naive 1/gma_X,i by 1 + (1+s)/(2 gma_X,i tt_dyn) -- 0.002% for
-    # t'_M, 2% for t'_m in (b), a line width -- but tt_knee also knows that an edge
-    # below s gbar_c,i NEVER burns: t'_m does not exist in (c), and is not drawn there
+    # t'_M, 0.6% for t'_m in (b), a line width -- but tt_knee also knows that an edge
+    # below (1-2^-s) gbar_c,i NEVER burns: t'_m does not exist in (c), and is not drawn there
     # (it used to be, at the naive value, contradicting Sect. 2; fixed 2026-10-20).
     knees = ((t_M, t_m) if kind == 'syn' else
              tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0)))
@@ -433,7 +457,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   order as plot_cooling_tracks, and the SAME sampled times in every panel.
 
   Every vertical is named ON its line along the top strip: the two injected bounds in
-  all three panels, and bar{gma}_c,i = 1/tt_dyn on the adiabatic two, marked with the
+  all three panels, and bar{gma}_c,i = 1/I(2t'_i) on the adiabatic two, marked with the
   dash-dot the tracks give t'_dyn.
   '''
   fig, axs = _row(FIGSIZE_SHAPES)
@@ -441,7 +465,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   K0 = norm_plaw_distrib(gm0, gM0, p)
   lo = np.inf
 
-  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m, SHAPE_LABS)):
+  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m, SHAPE_LABS, a_rho, q)):
     # the injected law goes UNDER the cooled ones: the earliest of them tracks it
     # almost exactly, and on top the black would hide that curve entirely
     ax.loglog(*(cooled_distrib(0., p, gm0, gM0) if kind == 'syn' else
@@ -468,12 +492,13 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
                   textcoords='offset points', xytext=(3, 3), color=MUTED,
                   fontsize=FS_ANN)
     else:
-      _vline(ax, 1./ttd, ls='-.', lw=.9)                  # bar{gma}_c,i = 1/tt_dyn
+      _vline(ax, gbar_c_i(ttd, a_rho, q), ls='-.', lw=.9)  # bar{gma}_c,i = 1/I(2t'_i)
     for v in (gm0, gM0):                                 # the injected bounds
       _vline(ax, v, ls=':')
     # their names are TICKS on the top axis, which leaves the panel to the curves
     named_ticks_top(ax, sorted([(gm0, LAB_GMI), (gM0, LAB_GMMI)]
-                               + ([] if kind == 'syn' else [(1./ttd, LAB_GC)])))
+                               + ([] if kind == 'syn' else
+                                  [(gbar_c_i(ttd, a_rho, q), LAB_GC)])))
     _mark_gma1(ax, 'x')
     ax.set_ylim(*N_LIM)
     ax.set_xlabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)
@@ -509,7 +534,7 @@ def main(show=False):
   print(f"lowest edge at t'/t'_c,i = {x_end:g}:")
   print(f'  (a) synchrotron   gma_m = {gamma_synCooled(x_end, GM0):.3e}')
   for lc in LOGC_PANELS:
-    ttd = tt_dyn_of_C(lc, GM0)
+    ttd = tt_dyn_of_gbar_c(lc, GM0)
     gm = float(gamma_cooled(x_end/ttd, GM0, ttd, A_RHO, Q_C))
     kM, km = (tt_knee(g, ttd) for g in (GMA_M0, GM0))
     print(f'  C = 10^{lc:+.0f}      gma_m = {gm:.3e}   (tt_dyn = {ttd:.3e})'
@@ -526,7 +551,7 @@ def main(show=False):
     print(f'                   gma_M/(A/S_inf) = {gM/gA:.4f}'
           f'   power/exact = {pw/gA:.4f}'
           f'   gma_m/(A gma_m,i) = {gm/(float(A_of_sigma(x_end/ttd, A_RHO))*GM0):.4f}'
-          f'   gma_M/gma_m = {gM/gm:8.3f}  (1+sC = {1. + abs(_exps(A_RHO, Q_C)[1])*10.**lc:8.3f})')
+          f'   gma_M/gma_m = {gM/gm:8.3f}  (1+(1-2^-s)C = {1. + (1. - 2.**-_exps(A_RHO, Q_C)[1])*10.**lc:8.3f})')
   # the no-drag case is no longer a figure of its own -- it IS the grey reference in
   # the adiabatic panels. s collapses to q - 1 there, and with nothing to carry gma_e
   # down after the burn freezes each edge simply stops at 1/S_inf, which is why those
@@ -535,14 +560,14 @@ def main(show=False):
   print(f'no drag (a_rho = 0): s = q-1 = {s_nd:.4f}, threshold C < 1/s = {1./s_nd:.4f}')
   print("naive knees t'_X = 1/gma_X,i against the integrated ones (S = 1/gma_X,i):")
   for lc in LOGC_PANELS:
-    ttd = tt_dyn_of_C(lc, GM0)
+    ttd = tt_dyn_of_gbar_c(lc, GM0)
     for g0, nm in ((GMA_M0, "t'_M"), (GM0, "t'_m")):
       ex = tt_knee(g0, ttd, A_RHO, Q_C)
       r = f'{ex/(1./g0):.4f}' if ex is not None else 'NEVER BURNS'
       print(f"  C = 10^{lc:+.0f}  {nm}: naive {1./g0:.3e}   exact/naive {r:>11s}"
             f"   (gma_0 tt_dyn/s = {g0*ttd/_exps(A_RHO, Q_C)[1]:.3g})")
   for lc in LOGC_PANELS:
-    ttd = tt_dyn_of_C(lc, GM0)
+    ttd = tt_dyn_of_gbar_c(lc, GM0)
     s_inf = ttd/s_nd
     print(f'  C = 10^{lc:+.0f}   1/S_inf = {1./s_inf:.3e}   '
           f'gma_m,i*S_inf = {GM0*s_inf:9.3g} -> '
