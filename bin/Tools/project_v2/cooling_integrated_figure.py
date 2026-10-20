@@ -138,7 +138,8 @@ from cooling_distribution import gamma_synCooled, norm_plaw_distrib, distrib_pla
 
 # --- defaults -------------------------------------------------------------------------
 P_SYN = 2.5                 # phys_input.ini psyn
-GM0, GMA_M0 = 1e3, 1e8      # injected bounds gma_m0, gma_M0 (fiducial, as cooling_shape)
+GM0, GMA_M0 = 1e4, 1e9      # injected bounds gma_m0, gma_M0 (fiducial, as cooling_shape;
+                            # 1e3, 1e8 before 2026-10-21)
 # one curve per cooling regime, log10 C with C = gma_c/gma_m. Symmetric about the
 # marginal case C = 1, and the fast end stops at -3 because that is where gma_c reaches
 # the gma = 1 floor on these bounds (see VALIDITY above).
