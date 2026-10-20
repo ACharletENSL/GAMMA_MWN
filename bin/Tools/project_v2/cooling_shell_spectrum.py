@@ -672,6 +672,7 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
 # --- Figure B -------------------------------------------------------------------------
 FIGSIZE_B = (3.5, 5.9)
 U_LIM_B = (1e-10, 1e9)
+FROZEN_LS = dict(color=INK, lw=.8, ls=(0, (5, 1.5, 1, 1.5)))   # dash-dot: neither kernel
 B_LABS = (('low', BREAK_LABS['low'], ('off', 0, -11)), ('fr', BREAK_LABS['fr'], ('off', 0, -11)))
 
 
@@ -712,17 +713,17 @@ def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=F
         s[~np.isfinite(s) | (s < SL_LIM[0]) | (s > SL_LIM[1])] = np.nan
         axS.semilogx(u, s, color=col(x), lw=1.1, ls=ls, zorder=3)
       m = (u > br['low']) & (u < br['fr'])
-      axS.semilogx(u[m], kappa_fr_local(u[m], br['fr'], kraw), color=INK, lw=.6, zorder=5)
+      axS.semilogx(u[m], kappa_fr_local(u[m], br['fr'], kraw), zorder=5, **FROZEN_LS)
       top = max(top, Lf.max())
-    axN.set_ylim(top*10.**-(5. + i), top*8.)
+    axN.set_ylim(top*10.**-(5. + 2.*i), top*8.)   # room for the style key under B2
     levs = [_guides(p)[k] for k in GUIDES_B[i]]
     for lev, _ in levs:
       axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
     axS.set_ylim(-1.6, .6)
     _levels_right(axS, levs)
-    axN.annotate(f"{tag}\n$\\bar{{\\gamma}}_{{\\rm c}}(t'_0)=10^{{{FC_B:+.0f}}}"
-                 f"\\gamma_{{\\mathrm{{m}},\\!0}}$", (.45, .04), xycoords='axes fraction',
-                 fontsize=FS_ANN, color=INK, ha='center', va='bottom', bbox=TEXT_BOX, zorder=7)
+    # gbar_c(t'_0) is the same in both panels: it goes in the caption, not here
+    axN.annotate(tag, (.03, .95), xycoords='axes fraction', fontsize=FS_ANN, color=INK,
+                 ha='left', va='top', zorder=7)
     axN.set_ylabel(YLABEL, fontsize=FS_LAB)
     axS.set_ylabel(SLABEL, fontsize=FS_LAB)
     for ax in (axN, axS):
@@ -730,25 +731,23 @@ def plot_frozen(outdir=OUTDIR, fname='cooling_shell_spectrum_frozen.png', show=F
   axs[4].set_xlabel(XLABEL, fontsize=FS_LAB)
   axs[0].set_xlim(*U_LIM_B)
   axs[0].set_xticks(10.**np.arange(-9., 9., 3.))
-  for r in (0, 3):
-    named_ticks_top(axs[r], ((GM0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{m},\\!0})$"),))
   # two keys: the times (the colours of Fig. A's colour bar) above the panels, the line
-  # styles below the x label
+  # styles in the free lower left of the second panel, under the curves
   hc = [plt.Line2D([], [], color=col(x), lw=2., label=f"$t'={x:g}\\,t'_0$") for x in X_B]
   hs = [plt.Line2D([], [], color=MUTED, lw=1.2, label='full kernel'),
         plt.Line2D([], [], color=MUTED, lw=1.1, ls=':', label='step kernel'),
-        plt.Line2D([], [], color=INK, lw=.6, label='frozen segment alone')]
+        plt.Line2D([], [], label='frozen segment alone', **FROZEN_LS)]
   fig.canvas.draw()
   r_ = fig.canvas.get_renderer()
   inv = fig.transFigure.inverted()
   ytop = inv.transform(axs[0].get_tightbbox(r_))[1, 1]
-  ybot = inv.transform(axs[4].get_tightbbox(r_))[0, 1]
   pa = axs[0].get_position()
   xc = .5*(pa.x0 + pa.x1)
   kw = dict(bbox_transform=fig.transFigure, fontsize=FS_LEG, frameon=False,
             handlelength=1.8, columnspacing=1.2)
   fig.legend(handles=hc, loc='lower center', ncol=3, bbox_to_anchor=(xc, ytop + .004), **kw)
-  fig.legend(handles=hs, loc='upper center', ncol=3, bbox_to_anchor=(xc, ybot - .004), **kw)
+  axs[3].legend(handles=hs, loc='lower left', fontsize=FS_LEG, frameon=False,
+                handlelength=2.2, borderaxespad=.4)
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
   fig.savefig(path, dpi=300, bbox_inches='tight')
