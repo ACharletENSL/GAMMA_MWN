@@ -72,11 +72,14 @@ from cooling_distribution import gamma_synCooled, norm_plaw_distrib, distrib_pla
 
 # --- defaults -------------------------------------------------------------------------
 P_SYN = 2.5                 # phys_input.ini psyn
-GM0, GMA_M0 = 1e3, 1e8      # injected bounds gma_m0, gma_M0 (fiducial case)
-# sampled normalized times as log10(tt): from the top edge just starting to burn
-# (tt = 1/gma_M0 = 1e-8) through the mono-energetic limit (tt >> 1/gma_m0 = 1e-3) and
-# on to tt = 1, where the population has cooled all the way onto gma = 1
-LOGTT_SAMPLES = (-8., -7., -6., -5., -4., -3., -2., -1., 0.)
+GM0, GMA_M0 = 1e4, 1e9      # injected bounds gma_m0, gma_M0 (fiducial case; 1e3, 1e8 before
+                            # 2026-10-21, when the oldest frozen edges of Figs. 4-6 fell
+                            # below gma_e = 1)
+# sampled normalized times as log10(tt), tied to the bounds so that a change of them is an
+# exact shift (gma ~ 1/tt): from the top edge just starting to burn (tt = 1/gma_M0 = 1e-9)
+# through the mono-energetic limit (tt >> 1/gma_m0 = 1e-4) to tt = 1e5/gma_M0 = 0.1, where
+# the population has cooled onto gma ~ 10
+LOGTT_SAMPLES = tuple(float(k) - np.log10(GMA_M0) for k in range(9))
 NG = 800                    # points per curve
 # ONE folder for the whole analytic-distribution family: the instantaneous shape and the
 # time-integrated distribution, each with and without adiabatic cooling. Defined here, in

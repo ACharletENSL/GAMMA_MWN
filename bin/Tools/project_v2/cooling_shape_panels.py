@@ -89,7 +89,9 @@ from cooling_shape_adiabatic import cooled_distrib_adiab, lab_C
 # --- defaults -------------------------------------------------------------------------
 LOGC_PANELS = (-2., 2.)     # the two adiabatic columns, C = bar{gma}_c,i/gma_m,i:
                             # either side of the C < 1/(1-2^-s) threshold
-T_LIM = (1e-11, 1e2)        # t'/t'_c,i span of the TRACK panels, shared by all three
+T_LIM = (1e-3/GMA_M0, 1e2)  # t'/t'_c,i span of the TRACK panels, shared by all three:
+                            # starts 3 decades before t'_M = 1/gma_M,i, ends 2 decades
+                            # into VFC, whose edge tt = 1 does not move with the bounds
 NX = 900                    # points per track
 # ONE y range for the three track panels, so the drag in (b)/(c) is read against (a)
 # rather than against a rescaled axis. The tracks are CUT at gma_e = 1, so the floor no
@@ -374,9 +376,13 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
         if not a_ < b_:
           continue
         ax.axvspan(a_, b_, color=col, alpha=BAND_ALPHA, lw=0, zorder=0)
-        ax.annotate(lab, (np.sqrt(a_*b_), .985), xycoords=('data', 'axes fraction'),
-                    color=INK, fontsize=FS_ANN, ha='center', va='top',
-                    bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
+        # the last band is the narrowest on the axis: its name is set flush with the
+        # right spine instead of centred, where its box ran over the frame
+        last = b_ >= x[-1]
+        ax.annotate(lab, (.975 if last else np.sqrt(a_*b_), .985),
+                    xycoords=('axes fraction' if last else 'data', 'axes fraction'),
+                    color=INK, fontsize=FS_ANN, ha='right' if last else 'center',
+                    va='top', bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
       gM, gm = gamma_synCooled(x, gM0), gamma_synCooled(x, gm0)
       x0 = None                                    # nothing freezes: 1/tt runs on
     else:
