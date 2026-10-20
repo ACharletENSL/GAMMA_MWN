@@ -501,7 +501,8 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
     FC  Ndot t'_c [gma^-2 (gma_c..gma_m,0), gma_m,0^(p-1) gma^-(p+1) above]: EXACT, so it
         lies on the curve -- which is the text's point.
     SC  the two asymptotes, (p-1) gma_m,0^(p-1) gma^-p/gma_c and gma_m,0^(p-1)
-        gma^-(p+1), each stopping at their crossing gma_c/(p-1), which is marked: there
+        gma^-(p+1), each stopping at their crossing 1/[tt (p-1)], marked and named
+        gma_c (the article's cooling break, renamed 2026-10-20): there
         the exact curve is lower by 1 - [(p-2)/(p-1)]^(p-1) (0.81 at p = 2.5). They are
         NOT run past it (user, 2026-10-20): the marker already shows the crossing.
   The finite-gma_M,0 normalisation K0 replaces (p-1) gma_m,0^(p-1), as in the curves.
@@ -543,7 +544,9 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
       axN.scatter([gx], [hi_s(gx)], s=14, marker='D', facecolors='w', edgecolors=INK,
                   linewidths=.8, zorder=7)
       # ABOVE the crossing, in the empty wedge over the curves: a box on them cuts the data
-      axN.annotate('$\\gamma_{\\rm c}/(p-1)$', (gx, hi_s(gx)), textcoords='offset points',
+      # named gma_c, the article's cooling break (Eq. eqn:breaks): in steady slow
+      # cooling it is the crossing 1/[tt (p-1)] of the two asymptotes (2026-10-20)
+      axN.annotate('$\\gamma_{\\rm c}$', (gx, hi_s(gx)), textcoords='offset points',
                    xytext=(12, 20), ha='left', va='bottom', color=INK, fontsize=FS_ANN,
                    bbox=TEXT_BOX, zorder=7,
                    arrowprops=dict(arrowstyle='-', color=INK, lw=.6, shrinkA=0, shrinkB=4))
