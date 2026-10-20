@@ -100,6 +100,21 @@ def _band_bg(col, alpha=BAND_ALPHA):
   return tuple(alpha*c + (1. - alpha) for c in mcolors.to_rgb(col))
 
 
+def named_ticks_top(ax, ticks, fontsize=FS_TICK, color=INK):
+  '''
+  The characteristic Lorentz factors as NAMED TICKS on the top axis, [(value, label)],
+  instead of labels inside the panel (user, 2026-10-20: it frees the panel for the
+  annotations). The bottom axis keeps its decades. A secondary axis with the identity
+  map, so it shares the panel's log scale exactly; no minor ticks.
+  '''
+  import matplotlib.ticker as mticker
+  sec = ax.secondary_xaxis('top')
+  sec.set_xticks([v for v, _ in ticks], labels=[lab for _, lab in ticks])
+  sec.xaxis.set_minor_locator(mticker.NullLocator())
+  sec.tick_params(axis='x', labelsize=fontsize, length=3., pad=1.5, colors=color)
+  return sec
+
+
 # --- the distribution -----------------------------------------------------------------
 def cooled_distrib(tt, p=P_SYN, gm0=GM0, gM0=GMA_M0, Ng=NG):
   '''

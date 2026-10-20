@@ -93,7 +93,7 @@ from cooling_distribution import gamma_synCooled, norm_plaw_distrib
 from cooling_integrated_figure import (P_SYN, GM0, GMA_M0, OUTDIR, INK, MUTED, FIGSIZE,
     FS_LAB, FS_TICK, FS_ANN, FS_LEG, GMA_LABEL, N_integrated, log_slope, tt_dyn_of_C)
 from cooling_integrated_adiabatic import Q_C, _exps, S_of_sigma
-from cooling_shape_figure import LOGTT_SAMPLES
+from cooling_shape_figure import LOGTT_SAMPLES, named_ticks_top
 
 # --- defaults -------------------------------------------------------------------------
 # the SAME sampled times the shape figure uses, so the two are read together: gma_c runs
@@ -478,7 +478,6 @@ FN_INT_STEADY = 'cooling_integrated_steady.png'
 STEADY_CASES = ("$\\bar{\\gamma}_{\\mathrm{c},\\!0}=10^{-2}\\gamma_{\\mathrm{m},\\!0}$", -2.), \
                ("$\\bar{\\gamma}_{\\mathrm{c},\\!0}=10^{2}\\gamma_{\\mathrm{m},\\!0}$", 2.)
 TEXT_BOX = dict(boxstyle='square,pad=0.15', fc='w', ec='none')   # A&A: opaque, borderless
-BPL_RUN = 1.                # decades a normalised asymptote runs past the break it meets
 
 
 def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
@@ -502,8 +501,9 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
     FC  Ndot t'_c [gma^-2 (gma_c..gma_m,0), gma_m,0^(p-1) gma^-(p+1) above]: EXACT, so it
         lies on the curve -- which is the text's point.
     SC  the two asymptotes, (p-1) gma_m,0^(p-1) gma^-p/gma_c and gma_m,0^(p-1)
-        gma^-(p+1), each run BPL_RUN decades past their crossing at gma_c/(p-1), marked:
-        there the exact curve is lower by 1 - [(p-2)/(p-1)]^(p-1) (0.81 at p = 2.5).
+        gma^-(p+1), each stopping at their crossing gma_c/(p-1), which is marked: there
+        the exact curve is lower by 1 - [(p-2)/(p-1)]^(p-1) (0.81 at p = 2.5). They are
+        NOT run past it (user, 2026-10-20): the marker already shows the crossing.
   The finite-gma_M,0 normalisation K0 replaces (p-1) gma_m,0^(p-1), as in the curves.
   '''
   cases = STEADY_CASES if cases is None else cases
@@ -539,8 +539,7 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
               (gm0, gM0/10., hi_s, '-(p+1)'))
     else:                                                # SC: the two asymptotes
       gx = gc/(p - 1.)
-      segs = ((gm0, gx*10.**BPL_RUN, lambda g: K0*tt*g**-p, '-p'),
-              (gx/10.**BPL_RUN, gM0/10., hi_s, '-(p+1)'))
+      segs = ((gm0, gx, lambda g: K0*tt*g**-p, '-p'), (gx, gM0/10., hi_s, '-(p+1)'))
       axN.scatter([gx], [hi_s(gx)], s=14, marker='D', facecolors='w', edgecolors=INK,
                   linewidths=.8, zorder=7)
       # ABOVE the crossing, in the empty wedge over the curves: a box on them cuts the data
@@ -559,16 +558,15 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
       axN.annotate(f'$\\propto\\gamma_{{\\rm e}}^{{{llab}}}$', (gl, fn(gl)),
                    textcoords='offset points', xytext=(4, 6), color=INK, fontsize=FS_ANN,
                    bbox=TEXT_BOX, zorder=7)
-    axN.annotate(lab, (.97, .89), xycoords='axes fraction', ha='right', va='top',
+    # ends just short of the gma_M,0 line (at axes x ~ 0.92), so its box cuts nothing
+    axN.annotate(lab, (.895, .97), xycoords='axes fraction', ha='right', va='top',
                  color=INK, fontsize=FS_ANN, bbox=TEXT_BOX, zorder=7)
     axN.axvspan(1e-30, 1., color='crimson', alpha=.07, lw=0, zorder=0)
     for v in (gm0, gM0):
       axN.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
-    for v, vlab in ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'),
-                    (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')):
-      axN.annotate(vlab, (v, .985), xycoords=('data', 'axes fraction'), color=INK,
-                   fontsize=FS_ANN, ha='center', va='top',
-                   bbox=TEXT_BOX)
+    # named on the TOP AXIS (user, 2026-10-20), which frees the panel's top band
+    named_ticks_top(axN, ((gm0, '$\\gamma_{\\mathrm{m},\\!0}$'),
+                          (gM0, '$\\gamma_{\\mathrm{M},\\!0}$')))
     axN.axvline(1., color='crimson', ls=':', lw=.9, zorder=1)
     axN.tick_params(which='both', labelsize=FS_TICK)
     axN.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
@@ -587,10 +585,9 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
                  label="$\\gamma_\\mathrm{M}(t')$"),
       plt.Line2D([], [], color=INK, ls=(0, (3, 2)), lw=.9,
                  label="BPL, $\\Delta t'=t'_0$")],
-      fontsize=FS_LEG, loc='upper left', bbox_to_anchor=(.01, .93), frameon=True,
+      fontsize=FS_LEG, loc='upper left', bbox_to_anchor=(.01, .99), frameon=True,
       framealpha=1., facecolor='w', edgecolor='none', fancybox=False,
-      handletextpad=.3, borderpad=.3)   # BELOW the gma_m,0 label row: flush with the
-                                        # top it cleared that label by only 4 px
+      handletextpad=.3, borderpad=.3)   # top left: gma_m,0 is named on the top axis
   p1 = axs[0, -1].get_position()
   cax = fig.add_axes([p1.x1 + .016, p1.y0, .019, p1.height])
   cb = fig.colorbar(sm, cax=cax)

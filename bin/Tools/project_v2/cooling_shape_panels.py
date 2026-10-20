@@ -75,6 +75,7 @@ import matplotlib.pyplot as plt
 
 from cooling_distribution import gamma_synCooled, norm_plaw_distrib
 from cooling_shape_figure import (P_SYN, GM0, GMA_M0, OUTDIR, INK, MUTED, MFC_FAC,
+    named_ticks_top,
     FS_LAB, FS_TICK, FS_ANN, FS_LEG, LOGTT_SAMPLES, BAND_ALPHA, _band_bg, cooled_distrib)
 from cooling_integrated_figure import tt_dyn_of_C
 from cooling_integrated_adiabatic import (A_RHO, Q_C, _exps, A_of_sigma,
@@ -88,10 +89,13 @@ T_LIM = (1e-11, 1e2)        # t'/t'_c,i span of the TRACK panels, shared by all 
 NX = 900                    # points per track
 # ONE y range for the three track panels, so the drag in (b)/(c) is read against (a)
 # rather than against a rescaled axis. The tracks are CUT at gma_e = 1, so the floor no
-# longer has to clear them: it leaves about three quarters of a decade of empty gutter
-# below the cut for the vertical labels, and the ceiling leaves the decade the
-# regime-band labels of panel (a) sit in.
-GMA_LIM = (.15, 30.*GMA_M0)
+# longer has to clear them: it leaves 1.3 decades of empty gutter below the cut, so the
+# vertical labels sit clear of the gma_e = 1 line (at .15 that line ran through them),
+# and the ceiling leaves the decade the regime-band labels of panel (a) sit in.
+GMA_LIM = (.05, 30.*GMA_M0)
+FLOOR_GAP = .085            # axes fraction the track verticals stop above the floor: the
+                            # names sit in that gap, so no line crosses them and they need
+                            # no box (user, 2026-10-20: the boxes stood out on the bands)
 N_LIM = (1e-16, 1e4)        # N_e^-1 dN_e/dgma_e range of the SHAPE panels
 # a row of three, sized for a two-column article's full width. The shape panels get the
 # taller box: twenty decades of N against ten of gamma.
@@ -172,7 +176,11 @@ def _legend_above(fig, axs, order=(), **kw):
     for h, l in zip(*ax.get_legend_handles_labels()):
       seen.setdefault(l, h)
   keys = [l for l in order if l in seen] + [l for l in seen if l not in order]
-  top = max(ax.get_position().y1 for ax in axs)      # no titles: the axes' own top
+  # above everything on top of the axes -- the named ticks of the shapes included
+  fig.canvas.draw()
+  r = fig.canvas.get_renderer()
+  inv = fig.transFigure.inverted()
+  top = max(inv.transform(ax.get_tightbbox(r))[1, 1] for ax in axs)
   p0, p1 = axs[0].get_position(), axs[-1].get_position()
   fig.legend([seen[l] for l in keys], keys, fontsize=FS_LEG, loc='lower center',
              bbox_to_anchor=(.5*(p0.x0 + p1.x1), top + .012),
@@ -218,23 +226,27 @@ def _cut1(y):
   return np.where(y >= 1., y, np.nan)
 
 
-def _panel_tag(ax, lab, xy, ha, va):
-  'The case a panel shows, written inside it on an opaque box (A&A: no titles).'
+def _panel_tag(ax, lab, xy, ha, va, box=True):
+  '''
+  The case a panel shows, written inside it (A&A: no titles), on an opaque box where a
+  line crosses it; box=False where none does (panel (a) of the tracks).
+  '''
   ax.annotate(lab, xy, xycoords='axes fraction', ha=ha, va=va, color=INK,
-              fontsize=FS_ANN, multialignment=ha, bbox=TEXT_BOX, zorder=7)
+              fontsize=FS_ANN, multialignment=ha, bbox=TEXT_BOX if box else None,
+              zorder=7)
 
 
-def _vline(ax, v, lab, ls='-', lw=.8, color=INK, top=False):
+def _vline(ax, v, lab=None, ls='-', lw=.8, color=INK):
   '''
-  A marked vertical, named ON the line rather than in the legend. The tracks put their
-  names along the FLOOR, in the gutter the gma_e = 1 cut leaves empty; the shapes put
-  theirs along the top, where the curves have already fallen away.
+  A marked vertical. With a name (the tracks' times), the name sits on the FLOOR, in the
+  gutter below gma_e = 1, and the line STOPS above it (FLOOR_GAP): nothing crosses the
+  text, so it needs no box. Without one (the shapes' Lorentz factors), the name is a
+  named tick on the top axis instead (named_ticks_top).
   '''
-  ax.axvline(v, color=color, ls=ls, lw=lw, zorder=1)
-  ax.annotate(lab, (v, .985 if top else .02), xycoords=('data', 'axes fraction'),
-              color=color, fontsize=FS_ANN, ha='center',
-              va='top' if top else 'bottom',
-              bbox=TEXT_BOX)
+  ax.axvline(v, ymin=FLOOR_GAP if lab else 0., color=color, ls=ls, lw=lw, zorder=1)
+  if lab:
+    ax.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=color,
+                fontsize=FS_ANN, ha='center', va='bottom')
 
 
 # --- (1) the edge tracks ----------------------------------------------------------------
@@ -390,9 +402,9 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     # which is the slow-cooling panel's missing t'_m.
     for v, ls, lab in zip(knees, ('-', '--'), (LAB_TMM, LAB_TM)):
       if v is not None:
-        _vline(ax, v, lab, ls)
+        _vline(ax, v, lab, ls=ls)
     if ttd is not None:
-      _vline(ax, ttd, LAB_TDYN, '-.', lw=.9)   # t'_dyn IS tt_dyn on this abscissa
+      _vline(ax, ttd, LAB_TDYN, ls='-.', lw=.9)   # t'_dyn IS tt_dyn on this abscissa
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(*GMA_LIM)
     ax.set_yticks(10.**np.arange(0., np.log10(gM0) + 1., 2.))
@@ -400,7 +412,8 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     ax.set_xlabel(f"$\\Delta t'/{TCI}$", fontsize=FS_LAB, labelpad=1.)
     # the case INSIDE the panel (A&A: no titles), top right where every track has
     # already fallen away; (a) drops it below its regime-band row
-    _panel_tag(ax, plab, (.97, .86 if kind == 'syn' else .97), 'right', 'top')
+    _panel_tag(ax, plab, (.97, .86 if kind == 'syn' else .97), 'right', 'top',
+               box=kind != 'syn')            # (a): no line crosses it
     ax.tick_params(axis='x', pad=1.5)
     ax.tick_params(which='both', labelsize=FS_TICK)
   axs[0].set_ylabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)
@@ -455,9 +468,12 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
                   textcoords='offset points', xytext=(3, 3), color=MUTED,
                   fontsize=FS_ANN)
     else:
-      _vline(ax, 1./ttd, LAB_GC, '-.', lw=.9, top=True)   # bar{gma}_c,i = 1/tt_dyn
-    for v, lab in ((gm0, LAB_GMI), (gM0, LAB_GMMI)):      # the injected bounds
-      _vline(ax, v, lab, ':', top=True)
+      _vline(ax, 1./ttd, ls='-.', lw=.9)                  # bar{gma}_c,i = 1/tt_dyn
+    for v in (gm0, gM0):                                 # the injected bounds
+      _vline(ax, v, ls=':')
+    # their names are TICKS on the top axis, which leaves the panel to the curves
+    named_ticks_top(ax, sorted([(gm0, LAB_GMI), (gM0, LAB_GMMI)]
+                               + ([] if kind == 'syn' else [(1./ttd, LAB_GC)])))
     _mark_gma1(ax, 'x')
     ax.set_ylim(*N_LIM)
     ax.set_xlabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)

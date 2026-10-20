@@ -70,7 +70,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from cooling_distribution import norm_plaw_distrib
-from cooling_shape_figure import OUTDIR          # the shared family folder
+from cooling_shape_figure import OUTDIR, named_ticks_top   # the shared family folder
 
 P_SYN = 2.5
 GM0, GMA_M0 = 1e3, 1e8        # injected bounds at R_0, as the rest of the family
@@ -482,14 +482,13 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
   for ax in axs[4]:
     ax.set_xlabel(GMA_LABEL, fontsize=FS_LAB)
   axs[0, 0].set_xlim(.05, 3.*GMA_M0)
-  # the continuous column names gma_m,0 for gma_m,i(t') too: with lam_m = 0 they coincide
-  for ax, lm in ((axs[0, 0], '$\\gamma_{\\mathrm{m},\\!0}$'),
-                 (axs[0, 1], '$\\gamma_{\\mathrm{m},\\!i}=\\gamma_{\\mathrm{m},\\!0}$')):
-    for v, lab in ((GM0, lm), (GMA_M0, '$\\gamma_{\\mathrm{M},\\!0}$')):
-      # along the FLOOR: the band above the curves holds the break names, and at
-      # gma_m,0 and gma_M,0 every curve is decades above the panel's bottom
-      ax.annotate(lab, (v, .02), xycoords=('data', 'axes fraction'), color=INK,
-                  fontsize=FS_ANN, ha='center', va='bottom', bbox=TEXT_BOX, zorder=7)
+  # the injected bounds are NAMED TICKS on the top axis of each regime block (user,
+  # 2026-10-20), which leaves the panels to the curves and the break names. The
+  # continuous column names gma_m,0 for gma_m,i(t') too: with lam_m = 0 they coincide
+  for r in (0, 3):
+    for c, lm in ((0, '$\\gamma_{\\mathrm{m},\\!0}$'),
+                  (1, '$\\gamma_{\\mathrm{m},\\!i}=\\gamma_{\\mathrm{m},\\!0}$')):
+      named_ticks_top(axs[r, c], ((GM0, lm), (GMA_M0, '$\\gamma_{\\mathrm{M},\\!0}$')))
   fig.subplots_adjust(right=.84)
   # line-style key ABOVE the panels, where it covers nothing; the colour is the time
   h = [plt.Line2D([], [], color=MUTED, lw=1.2, ls=(0, (2.5, 1.5)),
@@ -498,8 +497,12 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
                   label='broken power law (one curve)'),
        plt.Line2D([], [], color=INK, lw=0, marker='|', ms=7, mew=1.1, label='its breaks')]
   pa, pb = axs[0, 0].get_position(), axs[0, 1].get_position()
+  fig.canvas.draw()                      # above the named ticks, which need a layout
+  r_ = fig.canvas.get_renderer()
+  top = max(fig.transFigure.inverted().transform(ax.get_tightbbox(r_))[1, 1]
+            for ax in axs[0])
   fig.legend(handles=h, loc='lower center', ncol=3, bbox_to_anchor=(.5*(pa.x0 + pb.x1),
-             pa.y1 + .006), bbox_transform=fig.transFigure, fontsize=FS_LEG,
+             top + .004), bbox_transform=fig.transFigure, fontsize=FS_LEG,
              frameon=False, handlelength=2., columnspacing=1.2)
   p0, p1 = axs[0, 1].get_position(), axs[4, 1].get_position()
   cax = fig.add_axes([.935, p1.y0, .018, p0.y1 - p1.y0])
