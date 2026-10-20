@@ -89,14 +89,19 @@ TEXT_BOX = dict(boxstyle='square,pad=0.15', fc='w', ec='none')
 # THE NAMED BREAKS (Table tab:shell_bpl), on ONE reference curve per panel, with the
 # table's broken power law for that curve dashed in ink (shell_bpl_check.table). The
 # continuous FC panel takes x = 3, before R_tr = 7.2 R_0 where fresh injection turns slow
-# and the FC rows stop applying; the continuous SC one x = 10, where gma_b is still
+# and the FC rows stop applying; the continuous SC one x = 10, where gma_c is still
 # below gma_M,0 (at x = 100 it is not). The finite ones the last curve.
 REF_X = {(0, 0): 100., (0, 1): 3., (1, 0): 100., (1, 1): 10.}    # (row, column) -> x
 # finite-injection curves drawn DASHED over the continuous FC panel: the same oldest
 # elements, so they lie on its low end (author's note on the figure)
 OVERLAY_X = (3., 30.)
-BREAK_LABS = {'low': '$\\gamma_{\\rm low}$', 'fr': '$\\gamma_{\\rm fr}$',
-              'mi': '$\\gamma_{\\mathrm{m},\\!i}$', 'b': '$\\gamma_{\\rm b}$'}
+# the article's break names (2026-10-20): the lowest edge written out, gma_inf(t';t'_0)
+# in fast and gma_m(t';t'_0) in slow cooling; the cooling break gma_c in both regimes
+# (the table's keys 'fr' and 'b')
+BREAK_LABS = {'FC': {'low': "$\\gamma_\\infty(t';t'_0)$", 'fr': '$\\gamma_{\\rm c}$',
+                     'mi': '$\\gamma_{\\mathrm{m},\\!i}$'},
+              'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_0)$", 'b': '$\\gamma_{\\rm c}$',
+                     'mi': '$\\gamma_{\\mathrm{m},\\!i}$'}}
 FINITE_LABS = {'FC': {'low': "$\\gamma_\\infty(t';t'_0)$",
                       'hi': "$\\gamma_\\infty(t';t'_{\\rm end})$"},
                'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_{\\rm end})$",
@@ -108,7 +113,9 @@ FINITE_LABS = {'FC': {'low': "$\\gamma_\\infty(t';t'_0)$",
 BREAK_AT = {(0, 0, 'low'): ('at', .5, .925), (0, 0, 'hi'): ('at', 80., .925),
             (0, 1, 'low'): ('at', .9, .925), (0, 1, 'fr'): ('at', 40., .925),
             (1, 0, 'low'): ('off', -6, -6), (1, 0, 'hi'): ('at', 5e5, .66),
-            (1, 1, 'low'): ('off', -6, -6), (1, 1, 'b'): ('at', 4e7, .45)}
+            (1, 1, 'low'): ('at', 2.8, .75), (1, 1, 'b'): ('at', 4e7, .45)}
+# (1, 1, 'low'): the written-out gma_m(t';t'_0) is too long to sit beside its mark, where
+# it covered the edges of the two oldest curves: it goes left of them, on a leader
 TOP_ROOM = (300., 8.)          # ylim top over the curves' max, per row: the FC row's names
                               # sit in a band above its curves
 FIGSIZE = (7.0, 8.4)
@@ -365,9 +372,9 @@ def _reference_bpl(axN, row, col, x, lc, dinj, laws, p, regime):
   ntot = injected_number(x, dinj, laws)
   m = f > 0.
   axN.loglog(g[m], ntot*f[m]/g[m], color=INK, ls=(0, (3, 2)), lw=.9, zorder=5)
-  labs = BREAK_LABS if tau_end is None else FINITE_LABS[regime]
+  labs = (BREAK_LABS if tau_end is None else FINITE_LABS)[regime]
   for key in ('low', 'fr', 'mi', 'b', 'hi'):
-    if key not in br:                 # FC has gma_fr, SC gma_b; finite only low, hi
+    if key not in br:                 # gma_c is 'fr' in FC, 'b' in SC; finite only low, hi
       continue
     gb = br[key]
     # on the exact curve; an edge sits where the curve stops, so step just inside it
@@ -453,7 +460,7 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
         ax.tick_params(which='both', labelsize=FS_TICK)
       # the case, INSIDE the panel (no titles), top right where the curves have fallen
       # away; C is the DYNAMICAL value of the first element, Eq. eqn:bargamma_c
-      axN.annotate(f'{lab}\n$\\bar{{\\gamma}}_{{\\rm c}}(t\'_0)=10^{{{lc:+.0f}}}'
+      axN.annotate(f'{lab}\n$\\bar{{\\gamma}}_{{\\mathrm{{c}},\\!0}}=10^{{{lc:+.0f}}}'
                    f'\\gamma_{{\\mathrm{{m}},\\!0}}$', (.98, .97), xycoords='axes fraction',
                    fontsize=FS_ANN, color=INK, ha='right', va='top', multialignment='right',
                    bbox=TEXT_BOX, zorder=7)
