@@ -20,11 +20,9 @@ THE THREE PANELS, and what each assumes.
       t'_M = 1/gma_M,i and t'_m = 1/gma_m,i, and in these units they need no reference
       C at all. Physics from cooling_shape_figure.
 
-      Those two times are used in EVERY panel, as the naive estimate t'_c,0/gma_X,i.
-      The exact knees, where the integrated burn reaches 1/gma_X,i, are later by
-      1 + (1+s)/(2 gma_X,i tt_dyn) -- a line width at these values -- and the one thing
-      the naive form cannot express, that an edge may never burn, is read off the
-      figure: the knee happens only where t'_dyn lies to its right.
+      In (b) and (c) the knees are the article's t'_x (Eq. eq:t_X-gamma_ci, tt_knee):
+      a line width later than t'_c,i/gma_X,i, and absent when gma_X,i < s gbar_c,i,
+      i.e. no t'_m in the slow-cooling panel, where gma_m never loses half its energy.
 
   (b) SYNCHROTRON + ADIABATIC, fast cooling, bar{gma}_c/gma_m,i = 1e-2.
   (c) the same, slow cooling, bar{gma}_c/gma_m,i = 1e+2.
@@ -53,7 +51,9 @@ For (b) and (c), sigma = (t'/t'_c,i)/tt_dyn does the conversion.
 EVERY VERTICAL IS NAMED ON ITS OWN LINE rather than in the legend, which leaves the
 legend for the curves alone. The tracks put their names along the FLOOR, in the gutter
 the gma_e = 1 cut leaves empty; the shapes put theirs along the top, where the curves
-have already fallen away. Each panel is titled with the case it shows.
+have already fallen away. A&A: no titles and no grid -- the case each panel shows is
+written INSIDE it (top right on the tracks, bottom left on the shapes), on an opaque box.
+Subscripts follow the article: upright c, m, M and italic i (t'_{c,i} is {\rm c},i).
 
 THE TRACKS ARE CUT AT gma_e = 1. Below it the ultra-relativistic trajectory is not the
 physical one, and continuing it only asserts where a model that no longer holds would
@@ -112,12 +112,21 @@ GUIDE_FRAC = .2             # the HANDOVER, as a fraction of S_inf: synchrotron 
 FIGSIZE_TRACKS, FIGSIZE_SHAPES = (7.1, 2.75), (7.1, 3.15)
 FN_TRACKS, FN_SHAPES = 'cooling_tracks.png', 'cooling_shapes.png'
 SAVE_DPI = 450
+# A&A: no background grid, and text on an OPAQUE borderless white box so no line crosses
+# it (user, 2026-10-16; afterglow_lightcurves.TEXT_BOX)
+TEXT_BOX = dict(boxstyle='square,pad=0.15', fc='w', ec='none')
 # what each panel is, said on the panel rather than left to the caption
 # panel (a) names its CLOCK as well: the grey reference tracks in (b) and (c) are also
 # synchrotron only, but on the panel's own decaying t'_c, so 'syn. only' alone would not
 # separate the two
-PANEL_LABS = ("syn. only \u2013 $t'_{\\rm c}=t'_{\\rm c,i}$",
-              'syn. + adiab. \u2013 FC', 'syn. + adiab. \u2013 SC')
+PANEL_LABS = ("syn. only\n$t'_{\\rm c}=t'_{{\\rm c},\\!i}$",
+              'syn. + adiab. (FC)\n$\\bar{\\gamma}_{{\\rm c},\\!i}=10^{-2}\\gamma_{{\\rm m},\\!i}$',
+              'syn. + adiab. (SC)\n$\\bar{\\gamma}_{{\\rm c},\\!i}=10^{2}\\gamma_{{\\rm m},\\!i}$')
+
+# the shapes put the case bottom left, where the (c) box ran into the gbar_c,i line at
+# 1e5 with the regime word on its first line: the ratio already says FC or SC
+SHAPE_LABS = (PANEL_LABS[0],) + tuple(l.replace(' (FC)', '').replace(' (SC)', '')
+                                      for l in PANEL_LABS[1:])
 
 
 def _frac_tex(v, sign=True):
@@ -163,9 +172,7 @@ def _legend_above(fig, axs, order=(), **kw):
     for h, l in zip(*ax.get_legend_handles_labels()):
       seen.setdefault(l, h)
   keys = [l for l in order if l in seen] + [l for l in seen if l not in order]
-  fig.canvas.draw()                     # titles have no extent until they are laid out
-  inv = fig.transFigure.inverted()
-  top = max(inv.transform(ax.title.get_window_extent())[1, 1] for ax in axs)
+  top = max(ax.get_position().y1 for ax in axs)      # no titles: the axes' own top
   p0, p1 = axs[0].get_position(), axs[-1].get_position()
   fig.legend([seen[l] for l in keys], keys, fontsize=FS_LEG, loc='lower center',
              bbox_to_anchor=(.5*(p0.x0 + p1.x1), top + .012),
@@ -211,6 +218,12 @@ def _cut1(y):
   return np.where(y >= 1., y, np.nan)
 
 
+def _panel_tag(ax, lab, xy, ha, va):
+  'The case a panel shows, written inside it on an opaque box (A&A: no titles).'
+  ax.annotate(lab, xy, xycoords='axes fraction', ha=ha, va=va, color=INK,
+              fontsize=FS_ANN, multialignment=ha, bbox=TEXT_BOX, zorder=7)
+
+
 def _vline(ax, v, lab, ls='-', lw=.8, color=INK, top=False):
   '''
   A marked vertical, named ON the line rather than in the legend. The tracks put their
@@ -221,17 +234,18 @@ def _vline(ax, v, lab, ls='-', lw=.8, color=INK, top=False):
   ax.annotate(lab, (v, .985 if top else .02), xycoords=('data', 'axes fraction'),
               color=color, fontsize=FS_ANN, ha='center',
               va='top' if top else 'bottom',
-              bbox=dict(fc='w', ec='none', alpha=.85, pad=1.))
+              bbox=TEXT_BOX)
 
 
 # --- (1) the edge tracks ----------------------------------------------------------------
 LAB_GM, LAB_GMM = '$\\gamma_\\mathrm{m}$', '$\\gamma_\\mathrm{M}$'
-LAB_GUIDE, LAB_TDYN = "$(\\Delta t'/t'_{\\rm c,i})^{-1}$", "$t'_{\\rm dyn}$"
+TCI = "t'_{{\\rm c},\\!i}"          # the article's t'_{\\c,i}: upright c, italic i
+LAB_GUIDE, LAB_TDYN = f"$(\\Delta t'/{TCI})^{{-1}}$", "$t'_{\\rm dyn}$"
 # the knees are named for the PHYSICAL time, not for tt: the abscissa is t'/t'_c,i, and
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
 LAB_SYN = 'syn. only'       # the same population with the expansion switched off
-LAB_GC = '$\\bar{\\gamma}_{\\rm c,i}$'   # c,i: set by the INJECTION t'_c, not the decayed one
+LAB_GC = '$\\bar{\\gamma}_{{\\rm c},\\!i}$'   # c,i: set by the INJECTION t'_c, not the decayed one
 SYN_REF = '0.62'            # lighter than the tracks, and solid/dashed rather than the
                             # guides' dash-dot and dotted, so it reads as another CASE
 
@@ -246,10 +260,10 @@ def lab_adrift(a_rho=A_RHO):
   '''
   if abs(a_rho) < 1e-12:      # no drag: once the burn freezes gma_e simply STOPS
     return 'const.'
-  return "$(\\Delta t'/t'_{\\rm c,i})^{" + _frac_tex(a_rho/3.) + "}$"
+  return f"$(\\Delta t'/{TCI})^{{" + _frac_tex(a_rho/3.) + "}$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
-LAB_GMI = '$\\gamma_{\\mathrm{m},\\!\\mathrm{i}}$'
-LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!\\mathrm{i}}$'
+LAB_GMI = '$\\gamma_{\\mathrm{m},\\!i}$'
+LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!i}$'
 
 
 def freeze_x(ttd, a_rho=A_RHO, q=Q_C, frac=.5):
@@ -346,14 +360,14 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
       x0 = freeze_x(ttd, a_rho, q, GUIDE_FRAC)
       _frozen_guide(ax, x, ttd, a_rho, q, GUIDE_FRAC)
 
-    # THE KNEES ARE THE NAIVE ONES, t'_X = t'_c,0/gma_X,i, i.e. 1/gma_X,i on this
-    # abscissa -- the time to cool at the INJECTION rate -- and the same in every panel.
-    # Integrating the rate properly puts them at S(t') = 1/gma_X,i instead, which is
-    # later by 1 + (1+s)/(2 gma_X,i tt_dyn): 0.002% for t'_M, 2% for t'_m in (b), both
-    # a line width here. main() prints the comparison. What the naive definition cannot
-    # say is that an edge may never burn at all, which is read off the figure instead:
-    # the knee happens only if t'_dyn lies to the RIGHT of it, as t'_m does not in (c).
-    knees = (t_M, t_m)
+    # THE KNEES ARE THE ARTICLE'S t'_x (Eq. eq:t_X-gamma_ci), where the integrated burn
+    # reaches 1/gma_X,i: t'_c,i/gma_X,i exactly in (a), tt_knee in (b)/(c). There they
+    # are later than the naive 1/gma_X,i by 1 + (1+s)/(2 gma_X,i tt_dyn) -- 0.002% for
+    # t'_M, 2% for t'_m in (b), a line width -- but tt_knee also knows that an edge
+    # below s gbar_c,i NEVER burns: t'_m does not exist in (c), and is not drawn there
+    # (it used to be, at the naive value, contradicting Sect. 2; fixed 2026-10-20).
+    knees = ((t_M, t_m) if kind == 'syn' else
+             tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0)))
 
     # 1/tt is the asymptote the top edge slides down, never a place it bends. It
     # starts a little before the knee where the edge begins to burn -- there is nothing
@@ -383,11 +397,12 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     ax.set_ylim(*GMA_LIM)
     ax.set_yticks(10.**np.arange(0., np.log10(gM0) + 1., 2.))
     # the clock starts at injection, Delta t' = t'-t'_i: sigma = x/tt_dyn is Delta t'/t'_i, R/R_0 = 1 + sigma
-    ax.set_xlabel("$\\Delta t'/t'_{\\rm c,i}$", fontsize=FS_LAB, labelpad=1.)
-    ax.set_title(plab, fontsize=FS_LAB, pad=3.)
+    ax.set_xlabel(f"$\\Delta t'/{TCI}$", fontsize=FS_LAB, labelpad=1.)
+    # the case INSIDE the panel (A&A: no titles), top right where every track has
+    # already fallen away; (a) drops it below its regime-band row
+    _panel_tag(ax, plab, (.97, .86 if kind == 'syn' else .97), 'right', 'top')
     ax.tick_params(axis='x', pad=1.5)
     ax.tick_params(which='both', labelsize=FS_TICK)
-    ax.grid(alpha=.25, lw=.4)
   axs[0].set_ylabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)
 
   # the scalings last: the tracks and the times that mark them first, then what they
@@ -413,7 +428,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   K0 = norm_plaw_distrib(gm0, gM0, p)
   lo = np.inf
 
-  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m)):
+  for ax, (kind, ttd, plab) in zip(axs, panel_specs(gm0, logC_m, SHAPE_LABS)):
     # the injected law goes UNDER the cooled ones: the earliest of them tracks it
     # almost exactly, and on top the black would hide that curve entirely
     ax.loglog(*(cooled_distrib(0., p, gm0, gM0) if kind == 'syn' else
@@ -446,15 +461,15 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     _mark_gma1(ax, 'x')
     ax.set_ylim(*N_LIM)
     ax.set_xlabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)
-    ax.set_title(plab, fontsize=FS_LAB, pad=3.)
+    # bottom left: the cooled curves never reach below N ~ 1e-9 at gma_e < 1e2
+    _panel_tag(ax, plab, (.03, .03), 'left', 'bottom')
     ax.tick_params(which='both', labelsize=FS_TICK)
-    ax.grid(alpha=.25, lw=.4)
   for ax in axs:
     ax.set_xlim(.5*lo, 2.*gM0)
   axs[0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
 
   _legend_above(fig, axs, ncol=len(logtt),
-                title="$\\log_{10}(\\Delta t'/t'_{\\rm c,i})$")
+                title=f"$\\log_{{10}}(\\Delta t'/{TCI})$")
   fig.legends[-1].get_title().set_fontsize(FS_LEG)
   return _save(fig, axs, outdir, fname, show)
 
