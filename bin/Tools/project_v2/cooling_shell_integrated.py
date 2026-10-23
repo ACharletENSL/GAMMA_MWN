@@ -78,7 +78,9 @@ GM0, GMA_M0 = 1e4, 1e9        # injected bounds at R_0, as the rest of the famil
                               # below gamma_e = 1)
 LAM_EPS = 1e-12               # |Lam| below this is the logarithmic case
 LOGC_ROWS = (-2., 2.)
-X_SAMPLES = (1.1, 1.5, 2., 3., 10., 30., 100.)
+# t'/t'_0 = 1 + Delta t'/t'_0 at round elapsed times Delta t'/t'_0 = 0.1 ... 100 (article 2026-10-23:
+# elapsed times since the start of the injection, as in Sect. 2 and Fig. 3)
+X_SAMPLES = (1.1, 1.5, 2., 3., 11., 31., 101.)
 CASES = (('internal shocks', '$\\Delta t\'_{\\rm inj}=t\'_0$', 1.),
          ('afterglow', '$\\Delta t\'_{\\rm inj}\\gg t\'_0$', np.inf))
 # the figure's injected law is the same for every population, so its bounds carry the
@@ -93,20 +95,20 @@ TEXT_BOX = dict(boxstyle='square,pad=0.15', fc='w', ec='none')
 # continuous FC panel takes x = 3, before R_tr = 7.2 R_0 where fresh injection turns slow
 # and the FC rows stop applying; the continuous SC one x = 10, where gma_c is still
 # below gma_M,0 (at x = 100 it is not). The finite ones the last curve.
-REF_X = {(0, 0): 100., (0, 1): 3., (1, 0): 100., (1, 1): 10.}    # (row, column) -> x
+REF_X = {(0, 0): 101., (0, 1): 3., (1, 0): 101., (1, 1): 11.}    # (row, column) -> x
 # finite-injection curves drawn DASHED over the continuous FC panel: the same oldest
 # elements, so they lie on its low end (author's note on the figure)
-OVERLAY_X = (3., 30.)
+OVERLAY_X = (3., 31.)
 # the article's break names (2026-10-20): the lowest edge written out, gma_inf(t';t'_0)
 # in fast and gma_m(t';t'_0) in slow cooling; the cooling break gma_c in both regimes
 # (the table's keys 'fr' and 'b')
-BREAK_LABS = {'FC': {'low': "$\\gamma_\\mathrm{M}(t';t'_0)$", 'fr': '$\\gamma_{\\rm c}$',
+BREAK_LABS = {'FC': {'low': "$\\gamma_\\mathrm{M}(t';t'_0)$", 'fr': '$\\kappa_{\\rm FC}\\gamma_{\\rm c}$',
                      'mi': '$\\gamma_{\\mathrm{m},\\!i}$'},
-              'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_0)$", 'b': '$\\gamma_{\\rm c}$',
+              'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_0)$", 'b': '$\\kappa_{\\rm SC}\\gamma_{\\rm c}$',
                      'mi': '$\\gamma_{\\mathrm{m},\\!i}$'}}
 FINITE_LABS = {'FC': {'low': "$\\gamma_\\mathrm{M}(t';t'_0)$",
-                      'hi': "$\\gamma_\\mathrm{M}(t';t'_{\\rm end})$"},
-               'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_{\\rm end})$",
+                      'hi': "$\\gamma_\\mathrm{M}(t';t'_0+\\Delta t'_{\\rm inj})$"},
+               'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_0+\\Delta t'_{\\rm inj})$",
                       'hi': "$\\gamma_\\mathrm{M}(t';t'_0)$"}}
 # where each break's name goes, per (row, column, break), set by eye on the render so that
 # no box sits on a curve: ('off', dx, dy) in points from the mark, or ('at', gma_e,
@@ -115,9 +117,11 @@ FINITE_LABS = {'FC': {'low': "$\\gamma_\\mathrm{M}(t';t'_0)$",
 # The 'at' abscissae were set at gma_m,0 = 1e3 and scale with it: a change of the bounds
 # at fixed ratios shifts every curve by the same factor
 _G = GM0/1e3
-BREAK_AT = {(0, 0, 'low'): ('at', .5*_G, .925), (0, 0, 'hi'): ('at', 80.*_G, .925),
+# (0, 0, 'hi') and (1, 0, 'low'): the written-out t'_0+Delta t'_inj (2026-10-23) is longer than
+# t'_end was; the first moves right of its neighbour, the second left of the curves
+BREAK_AT = {(0, 0, 'low'): ('at', .5*_G, .925), (0, 0, 'hi'): ('at', 3e3*_G, .925),
             (0, 1, 'low'): ('at', .9*_G, .925), (0, 1, 'fr'): ('at', 40.*_G, .925),
-            (1, 0, 'low'): ('off', -6, -6), (1, 0, 'hi'): ('at', 5e5*_G, .66),
+            (1, 0, 'low'): ('at', 1.5*_G, .45), (1, 0, 'hi'): ('at', 5e5*_G, .66),
             (1, 1, 'low'): ('at', 2.8*_G, .75), (1, 1, 'b'): ('at', 4e7*_G, .45)}
 # (1, 1, 'low'): the written-out gma_m(t';t'_0) is too long to sit beside its mark, where
 # it covered the edges of the two oldest curves: it goes left of them, on a leader
@@ -415,10 +419,10 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
   their time colour: they are its oldest elements, and lie on its low end.
   A&A style: no grid, no titles (each case is written inside its panel), opaque boxes.
   '''
-  lx = np.log10(X_SAMPLES)
+  lx = np.log10(np.array(X_SAMPLES) - 1.)          # log10(Delta t'/t'_0)
   norm = plt.Normalize(vmin=lx.min(), vmax=lx.max())
   cmap = plt.cm.Blues
-  col = lambda x: cmap(.35 + .65*norm(np.log10(x)))
+  col = lambda x: cmap(.35 + .65*norm(np.log10(x - 1.)))
   # expected indices per regime row: the steady-state ones and the two that need a
   # spread of injection radii (frozen relics in fast, smearing in slow cooling)
   levels = {LOGC_ROWS[0]: ((laws.frozen_index, '$-2/3$'), (-2., '$-2$'),
@@ -522,8 +526,8 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
   sm = plt.cm.ScalarMappable(cmap=plt.cm.colors.ListedColormap(
       cmap(np.linspace(.35, 1., 256))), norm=norm)
   cb = fig.colorbar(sm, cax=cax)
-  # coasting: t'/t'_0 = R/R_0, which is what X_SAMPLES are
-  cb.set_label("$\\log_{10}(t'/t'_0)$", fontsize=FS_LAB)
+  # coasting: t'/t'_0 = R/R_0 = 1 + Delta t'/t'_0
+  cb.set_label("$\\log_{10}(\\Delta t'/t'_0)$", fontsize=FS_LAB)
   cax.tick_params(labelsize=FS_TICK)
 
   os.makedirs(outdir, exist_ok=True)

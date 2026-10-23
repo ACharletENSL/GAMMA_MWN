@@ -491,8 +491,8 @@ BREAK_LABS = {'FC': {'low': "$\\nu'_\\mathrm{M}(t';t'_0)$", 'fr': "$\\nu'_{\\rm 
               'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_0)$", 'b': "$\\nu'_{\\rm c}$",
                      'mi': "$\\nu'_{\\mathrm{m},\\!i}$"}}
 FINITE_LABS = {'FC': {'low': "$\\nu'_\\mathrm{M}(t';t'_0)$",
-                      'hi': "$\\nu'_\\mathrm{M}(t';t'_{\\rm end})$"},
-               'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_{\\rm end})$",
+                      'hi': "$\\nu'_\\mathrm{M}(t';t'_0+\\Delta t'_{\\rm inj})$"},
+               'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_0+\\Delta t'_{\\rm inj})$",
                       'hi': "$\\nu'_\\mathrm{M}(t';t'_0)$"}}
 # ('off', dx, dy) in points from the mark, or ('at', u, axes-y) with a leader line; set by
 # eye on the render so that no box sits on a curve
@@ -581,10 +581,10 @@ def _levels_left(axS, levs):
 
 
 def _colour():
-  lx = np.log10(X_SAMPLES)
+  lx = np.log10(np.array(X_SAMPLES) - 1.)          # log10(Delta t'/t'_0), as Fig. 4
   norm = plt.Normalize(vmin=lx.min(), vmax=lx.max())
   cmap = plt.cm.Blues
-  return norm, cmap, (lambda x: cmap(.35 + .65*norm(np.log10(x))))
+  return norm, cmap, (lambda x: cmap(.35 + .65*norm(np.log10(x - 1.))))
 
 
 def _colorbar(fig, axs_top, axs_bot, norm, cmap):
@@ -593,7 +593,7 @@ def _colorbar(fig, axs_top, axs_bot, norm, cmap):
   sm = plt.cm.ScalarMappable(cmap=plt.cm.colors.ListedColormap(
       cmap(np.linspace(.35, 1., 256))), norm=norm)
   cb = fig.colorbar(sm, cax=cax)
-  cb.set_label("$\\log_{10}(t'/t'_0)$", fontsize=FS_LAB)
+  cb.set_label("$\\log_{10}(\\Delta t'/t'_0)$", fontsize=FS_LAB)
   cax.tick_params(labelsize=FS_TICK)
 
 
