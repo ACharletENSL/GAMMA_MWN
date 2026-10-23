@@ -100,14 +100,14 @@ OVERLAY_X = (3., 30.)
 # the article's break names (2026-10-20): the lowest edge written out, gma_inf(t';t'_0)
 # in fast and gma_m(t';t'_0) in slow cooling; the cooling break gma_c in both regimes
 # (the table's keys 'fr' and 'b')
-BREAK_LABS = {'FC': {'low': "$\\gamma_\\infty(t';t'_0)$", 'fr': '$\\gamma_{\\rm c}$',
+BREAK_LABS = {'FC': {'low': "$\\gamma_\\mathrm{M}(t';t'_0)$", 'fr': '$\\gamma_{\\rm c}$',
                      'mi': '$\\gamma_{\\mathrm{m},\\!i}$'},
               'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_0)$", 'b': '$\\gamma_{\\rm c}$',
                      'mi': '$\\gamma_{\\mathrm{m},\\!i}$'}}
-FINITE_LABS = {'FC': {'low': "$\\gamma_\\infty(t';t'_0)$",
-                      'hi': "$\\gamma_\\infty(t';t'_{\\rm end})$"},
+FINITE_LABS = {'FC': {'low': "$\\gamma_\\mathrm{M}(t';t'_0)$",
+                      'hi': "$\\gamma_\\mathrm{M}(t';t'_{\\rm end})$"},
                'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_{\\rm end})$",
-                      'hi': "$\\gamma_\\infty(t';t'_0)$"}}
+                      'hi': "$\\gamma_\\mathrm{M}(t';t'_0)$"}}
 # where each break's name goes, per (row, column, break), set by eye on the render so that
 # no box sits on a curve: ('off', dx, dy) in points from the mark, or ('at', gma_e,
 # axes-y) in free space with a thin leader line back to the mark. gma_m,i has no entry:
@@ -464,9 +464,8 @@ def plot_shell_integrated(outdir=OUTDIR, fname='cooling_shell_integrated.png', s
           ax.axvline(v, color=INK, ls=':', lw=.8, zorder=1)
         ax.tick_params(which='both', labelsize=FS_TICK)
       # the case, INSIDE the panel (no titles), top right where the curves have fallen
-      # away; C is the DYNAMICAL value of the first element, Eq. eqn:bargamma_c
-      axN.annotate(f'{lab}\n$\\bar{{\\gamma}}_{{\\mathrm{{c}},\\!0}}=10^{{{lc:+.0f}}}'
-                   f'\\gamma_{{\\mathrm{{m}},\\!0}}$', (.98, .97), xycoords='axes fraction',
+      # away; C is the old dynamical ratio of the first element, 1/(gma_m,0 I_dyn,0) (2026-10-23)
+      axN.annotate(f'{lab}\n$\\gamma_{{\\mathrm{{m}},\\!0}}I_{{{{\\rm dyn}},0}}=10^{{{-lc:.0f}}}$', (.98, .97), xycoords='axes fraction',
                    fontsize=FS_ANN, color=INK, ha='right', va='top', multialignment='right',
                    bbox=TEXT_BOX, zorder=7)
       if j == 0:

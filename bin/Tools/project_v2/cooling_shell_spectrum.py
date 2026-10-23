@@ -486,14 +486,14 @@ def full_over_step(p=P_SYN, laws=COASTING):
 # the article's break names (2026-10-20), as Fig. 4: the lowest edge written out,
 # nu'_inf(t';t'_0) in fast and nu'_m(t';t'_0) in slow cooling; the cooling break nu'_c in
 # both regimes (the table's keys 'fr' and 'b')
-BREAK_LABS = {'FC': {'low': "$\\nu'_\\infty(t';t'_0)$", 'fr': "$\\nu'_{\\rm c}$",
+BREAK_LABS = {'FC': {'low': "$\\nu'_\\mathrm{M}(t';t'_0)$", 'fr': "$\\nu'_{\\rm c}$",
                      'mi': "$\\nu'_{\\mathrm{m},\\!i}$"},
               'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_0)$", 'b': "$\\nu'_{\\rm c}$",
                      'mi': "$\\nu'_{\\mathrm{m},\\!i}$"}}
-FINITE_LABS = {'FC': {'low': "$\\nu'_\\infty(t';t'_0)$",
-                      'hi': "$\\nu'_\\infty(t';t'_{\\rm end})$"},
+FINITE_LABS = {'FC': {'low': "$\\nu'_\\mathrm{M}(t';t'_0)$",
+                      'hi': "$\\nu'_\\mathrm{M}(t';t'_{\\rm end})$"},
                'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_{\\rm end})$",
-                      'hi': "$\\nu'_\\infty(t';t'_0)$"}}
+                      'hi': "$\\nu'_\\mathrm{M}(t';t'_0)$"}}
 # ('off', dx, dy) in points from the mark, or ('at', u, axes-y) with a leader line; set by
 # eye on the render so that no box sits on a curve
 BREAK_AT = {(0, 0, 'low'): ('at', 4e-4*_U, .86), (0, 0, 'hi'): ('at', 1e1*_U, .93),
@@ -646,8 +646,7 @@ def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=
       axS.set_ylim(*SL_LIM)
       for ax in (axN, axS):
         ax.tick_params(which='both', labelsize=FS_TICK)
-      axN.annotate(f'{lab}\n$\\bar{{\\gamma}}_{{\\mathrm{{c}},\\!0}}=10^{{{lc:+.0f}}}'
-                   f'\\gamma_{{\\mathrm{{m}},\\!0}}$', (.98, .97), xycoords='axes fraction',
+      axN.annotate(f'{lab}\n$\\gamma_{{\\mathrm{{m}},\\!0}}I_{{{{\\rm dyn}},0}}=10^{{{-lc:.0f}}}$', (.98, .97), xycoords='axes fraction',
                    fontsize=FS_ANN, color=INK, ha='right', va='top', multialignment='right',
                    bbox=TEXT_BOX, zorder=7)
       if j == 0:

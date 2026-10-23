@@ -20,17 +20,17 @@ THE THREE PANELS, and what each assumes.
       t'_M = 1/gma_M,i and t'_m = 1/gma_m,i, and in these units they need no reference
       C at all. Physics from cooling_shape_figure.
 
-      In (b) and (c) the knees are the article's t'_x (Eq. eq:t_X-gamma_ci, tt_knee):
-      a line width later than t'_c,i/gma_X,i, and absent when gma_X,i < (1-2^-s) gbar_c,i,
-      i.e. no t'_m in the slow-cooling panel, where gma_m never loses half its energy.
+      In (b) and (c) the knees are also the CLASSICAL t'_x = 1/gma_X,i (article Eq.
+      eqn:t_x, 2026-10-23): the exact half-energy times are a line width later, and in
+      the slow-cooling panel t'_m is drawn although gma_m never loses half its energy.
 
-  (b) SYNCHROTRON + ADIABATIC, fast cooling, bar{gma}_c,i/gma_m,i = 1e-2.
-  (c) the same, slow cooling, bar{gma}_c,i/gma_m,i = 1e+2.
+  (b) SYNCHROTRON + ADIABATIC, fast cooling, gma_m,i I_dyn = 1e+2.
+  (c) the same, slow cooling, gma_m,i I_dyn = 1e-2.
 
-      bar{gma}_c,i is the ARTICLE's (Eq. eqn:bargamma_c, 2026-10-20): the Lorentz factor
-      that cools in ONE dynamical time, 1/I(2t'_i) = s gbar^syn/(1 - 2^-s), with
-      gbar^syn = t'_c,i/t'_i = 1/tt_dyn the constant-field one these panels used to be
-      labelled with. At s = 3 the two differ by 3.43, so tt_dyn = 3.43/(C gma_m,i)
+      The control parameter C (LOGC_PANELS = log10 C) is the old dynamical ratio,
+      1/(gma_m,i I_dyn) with I_dyn = I(2t'_i) = (1 - 2^-s)/(s gbar_c,i) (article Eq.
+      eqn:I_dyn, 2026-10-23), and gbar_c,i = t'_c,i/t'_i = 1/tt_dyn the article's
+      cooling Lorentz factor. At s = 3 the two differ by 3.43, so tt_dyn = 3.43/(C gma_m,i)
       (tt_dyn_of_gbar_c) -- the same C as Figs. 4-6, which is the point.
 
       Both on the FREELY EXPANDING SHELL at constant eps_B, which is one choice, not
@@ -40,8 +40,8 @@ THE THREE PANELS, and what each assumes.
       exponent of t'_c, not of B'). With d = -a_rho/3 = 2/3 that gives
       s = d + q - 1 = 3 > 0: the synchrotron burn saturates at S_inf = tt_dyn/s, and
       gma_m,i burns only for C < 1/(1 - 2^-s) = 8/7. Each carries the scale its regime
-      is set by, as a dash-dotted vertical: t'_dyn on the tracks, bar{gma}_c,i on the
-      shapes, bar{gma}_c,i = s/[(1 - 2^-s) tt_dyn]. The constants live in
+      is set by, as a dash-dotted vertical: t'_dyn on the tracks, I_dyn^-1 on the
+      shapes, I_dyn^-1 = s/[(1 - 2^-s) tt_dyn]. The constants live in
       cooling_integrated_adiabatic (A_RHO, Q_C)
       and the trajectory in gamma_cooled / cooled_distrib_adiab, so nothing is
       restated here.
@@ -130,8 +130,10 @@ TEXT_BOX = dict(boxstyle='square,pad=0.15', fc='w', ec='none')
 # synchrotron only, but on the panel's own decaying t'_c, so 'syn. only' alone would not
 # separate the two
 PANEL_LABS = ("syn. only\n$t'_{\\rm c}=t'_{{\\rm c},\\!i}$",
-              'syn. + adiab. (FC)\n$\\bar{\\gamma}_{{\\rm c},\\!i}=10^{-2}\\gamma_{{\\rm m},\\!i}$',
-              'syn. + adiab. (SC)\n$\\bar{\\gamma}_{{\\rm c},\\!i}=10^{2}\\gamma_{{\\rm m},\\!i}$')
+              'syn. + adiab. (FC)\n$\\gamma_{{\\rm m},\\!i}I_{\\rm dyn}=10^{2}$',
+              'syn. + adiab. (SC)\n$\\gamma_{{\\rm m},\\!i}I_{\\rm dyn}=10^{-2}$')
+# the control parameter is gma_m,i I_dyn = 1/C (author 2026-10-23): C, the ratio the runs
+# are set by, is the old dynamical bar{gma}_c,i/gma_m,i, now written 1/(gma_m,i I_dyn)
 
 # the shapes put the case bottom left, where the (c) box ran into the gbar_c,i line at
 # 1e5 with the regime word on its first line: the ratio already says FC or SC
@@ -262,7 +264,7 @@ def _panel_tag(ax, lab, xy, ha, va, box=True):
               zorder=7)
 
 
-def _vline(ax, v, lab=None, ls='-', lw=.8, color=INK):
+def _vline(ax, v, lab=None, ls='-', lw=.8, color=INK, ha='center'):
   '''
   A marked vertical. With a name (the tracks' times), the name sits on the FLOOR, in the
   gutter below gma_e = 1, and the line STOPS above it (FLOOR_GAP): nothing crosses the
@@ -272,7 +274,7 @@ def _vline(ax, v, lab=None, ls='-', lw=.8, color=INK):
   ax.axvline(v, ymin=FLOOR_GAP if lab else 0., color=color, ls=ls, lw=lw, zorder=1)
   if lab:
     ax.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=color,
-                fontsize=FS_ANN, ha='center', va='bottom')
+                fontsize=FS_ANN, ha=ha, va='bottom')
 
 
 # --- (1) the edge tracks ----------------------------------------------------------------
@@ -283,7 +285,7 @@ LAB_GUIDE, LAB_TDYN = f"$(\\Delta t'/{TCI})^{{-1}}$", "$t'_{\\rm dyn}$"
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
 LAB_SYN = 'syn. only'       # the same population with the expansion switched off
-LAB_GC = '$\\bar{\\gamma}_{{\\rm c},\\!i}$'   # c,i: set by the INJECTION t'_c, not the decayed one
+LAB_GC = '$I_{\\rm dyn}^{-1}$'   # 1/I(2t'_i), where the line is drawn (article 2026-10-23)
 SYN_REF = '0.62'            # lighter than the tracks, and solid/dashed rather than the
                             # guides' dash-dot and dotted, so it reads as another CASE
 
@@ -408,8 +410,9 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     # t'_M, 0.6% for t'_m in (b), a line width -- but tt_knee also knows that an edge
     # below (1-2^-s) gbar_c,i NEVER burns: t'_m does not exist in (c), and is not drawn there
     # (it used to be, at the naive value, contradicting Sect. 2; fixed 2026-10-20).
-    knees = ((t_M, t_m) if kind == 'syn' else
-             tuple(tt_knee(g0, ttd, a_rho, q) for g0 in (gM0, gm0)))
+    # 2026-10-23: the article's t'_x is now the CLASSICAL cooling time t'_c,i/gma_x,i
+    # (Eq. eqn:t_x), in every panel; in (c) t'_m is drawn although gma_m never burns.
+    knees = (t_M, t_m)
 
     # 1/tt is the asymptote the top edge slides down, never a place it bends. It
     # starts a little before the knee where the edge begins to burn -- there is nothing
@@ -430,11 +433,15 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     # the verticals, each named ON its line along the floor. The knees echo the edges
     # they belong to, solid for M and dashed for m; None where the edge never burns,
     # which is the slow-cooling panel's missing t'_m.
+    # in (c) the classical t'_m lies only 1.5 decades after t'_dyn: their names, centred,
+    # ran into each other, so they lean apart, t'_dyn to the left and t'_m to the right
+    late_m = ttd is not None and knees[1] > ttd
     for v, ls, lab in zip(knees, ('-', '--'), (LAB_TMM, LAB_TM)):
       if v is not None:
-        _vline(ax, v, lab, ls=ls)
+        _vline(ax, v, lab, ls=ls, ha='left' if (late_m and lab == LAB_TM) else 'center')
     if ttd is not None:
-      _vline(ax, ttd, LAB_TDYN, ls='-.', lw=.9)   # t'_dyn IS tt_dyn on this abscissa
+      _vline(ax, ttd, LAB_TDYN, ls='-.', lw=.9,   # t'_dyn IS tt_dyn on this abscissa
+             ha='right' if late_m else 'center')
     ax.set_xlim(x[0], x[-1])
     ax.set_ylim(*GMA_LIM)
     ax.set_yticks(10.**np.arange(0., np.log10(gM0) + 1., 2.))
