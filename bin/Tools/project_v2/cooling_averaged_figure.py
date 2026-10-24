@@ -544,10 +544,10 @@ def plot_integrated_steady(p=P_SYN, gm0=GM0, gM0=GMA_M0, logsig=LOGSIG_S,
       axN.scatter([gx], [hi_s(gx)], s=14, marker='D', facecolors='w', edgecolors=INK,
                   linewidths=.8, zorder=7)
       # ABOVE the crossing, in the empty wedge over the curves: a box on them cuts the data
-      # named gma_c, the article's cooling break (Eq. eqn:breaks): in steady slow
-      # cooling it is the crossing 1/[tt (p-1)] of the two asymptotes (2026-10-20)
-      axN.annotate('$\\gamma_{\\rm c}$', (gx, hi_s(gx)), textcoords='offset points',
-                   xytext=(12, 20), ha='left', va='bottom', color=INK, fontsize=FS_ANN,
+      # named gma_c/(p-1): gma_c is 1/tt (article 2026-10-23, its usual meaning), and the
+      # two asymptotes cross a factor p-1 below it; label close to the mark (2026-10-24)
+      axN.annotate('$\\gamma_{\\rm c}/(p-1)$', (gx, hi_s(gx)), textcoords='offset points',
+                   xytext=(5, 7), ha='left', va='bottom', color=INK, fontsize=FS_ANN,
                    bbox=TEXT_BOX, zorder=7,
                    arrowprops=dict(arrowstyle='-', color=INK, lw=.6, shrinkA=0, shrinkB=4))
     for a_, b_, fn, llab in segs:
