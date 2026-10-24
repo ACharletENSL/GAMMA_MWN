@@ -102,14 +102,14 @@ OVERLAY_X = (3., 31.)
 # the article's break names (2026-10-20): the lowest edge written out, gma_inf(t';t'_0)
 # in fast and gma_m(t';t'_0) in slow cooling; the cooling break gma_c in both regimes
 # (the table's keys 'fr' and 'b')
-BREAK_LABS = {'FC': {'low': "$\\gamma_\\mathrm{M}(t';t'_0)$", 'fr': '$\\kappa_{\\rm FC}\\gamma_{\\rm c}$',
+BREAK_LABS = {'FC': {'low': "$\\gamma_{\\rm c,ad}$", 'fr': '$\\kappa_{\\rm FC}\\gamma_{\\rm c}$',
                      'mi': '$\\gamma_{\\mathrm{m},\\!i}$'},
-              'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_0)$", 'b': '$\\kappa_{\\rm SC}\\gamma_{\\rm c}$',
+              'SC': {'low': "$\\gamma_{\\rm m,ad}$", 'b': '$\\kappa_{\\rm SC}\\gamma_{\\rm c}$',
                      'mi': '$\\gamma_{\\mathrm{m},\\!i}$'}}
-FINITE_LABS = {'FC': {'low': "$\\gamma_\\mathrm{M}(t';t'_0)$",
+FINITE_LABS = {'FC': {'low': "$\\gamma_{\\rm c,ad}$",
                       'hi': "$\\gamma_\\mathrm{M}(t';t'_0+\\Delta t'_{\\rm inj})$"},
                'SC': {'low': "$\\gamma_\\mathrm{m}(t';t'_0+\\Delta t'_{\\rm inj})$",
-                      'hi': "$\\gamma_\\mathrm{M}(t';t'_0)$"}}
+                      'hi': "$\\gamma_{\\rm c,ad}$"}}
 # where each break's name goes, per (row, column, break), set by eye on the render so that
 # no box sits on a curve: ('off', dx, dy) in points from the mark, or ('at', gma_e,
 # axes-y) in free space with a thin leader line back to the mark. gma_m,i has no entry:

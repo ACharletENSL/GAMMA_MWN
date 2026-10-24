@@ -486,14 +486,14 @@ def full_over_step(p=P_SYN, laws=COASTING):
 # the article's break names (2026-10-20), as Fig. 4: the lowest edge written out,
 # nu'_inf(t';t'_0) in fast and nu'_m(t';t'_0) in slow cooling; the cooling break nu'_c in
 # both regimes (the table's keys 'fr' and 'b')
-BREAK_LABS = {'FC': {'low': "$\\nu'_\\mathrm{M}(t';t'_0)$", 'fr': "$\\nu'_{\\rm c}$",
-                     'mi': "$\\nu'_{\\mathrm{m},\\!i}$"},
-              'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_0)$", 'b': "$\\nu'_{\\rm c}$",
-                     'mi': "$\\nu'_{\\mathrm{m},\\!i}$"}}
-FINITE_LABS = {'FC': {'low': "$\\nu'_\\mathrm{M}(t';t'_0)$",
+BREAK_LABS = {'FC': {'low': "$\\nu'_{\\rm c,ad}$", 'fr': "$\\nu'_{\\rm c}$",
+                     'mi': "$\\nu'_{\\rm m}$"},
+              'SC': {'low': "$\\nu'_{\\rm m,ad}$", 'b': "$\\nu'_{\\rm c}$",
+                     'mi': "$\\nu'_{\\rm m}$"}}
+FINITE_LABS = {'FC': {'low': "$\\nu'_{\\rm c,ad}$",
                       'hi': "$\\nu'_\\mathrm{M}(t';t'_0+\\Delta t'_{\\rm inj})$"},
                'SC': {'low': "$\\nu'_\\mathrm{m}(t';t'_0+\\Delta t'_{\\rm inj})$",
-                      'hi': "$\\nu'_\\mathrm{M}(t';t'_0)$"}}
+                      'hi': "$\\nu'_{\\rm c,ad}$"}}
 # ('off', dx, dy) in points from the mark, or ('at', u, axes-y) with a leader line; set by
 # eye on the render so that no box sits on a curve
 BREAK_AT = {(0, 0, 'low'): ('at', 4e-4*_U, .86), (0, 0, 'hi'): ('at', 1e1*_U, .93),
