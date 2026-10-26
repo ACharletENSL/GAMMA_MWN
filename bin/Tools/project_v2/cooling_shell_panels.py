@@ -60,7 +60,7 @@ NO_BPL = {('FC', 0): (0.3, 100.), ('SC', 0): (0.3,)}
 
 INK, MUTED, GREY = '0.15', '0.45', '0.75'
 FS_LAB, FS_TICK, FS_ANN = 9., 8., 7.
-# A&A: no grid, text on an opaque borderless white box
+# A&A: no grid; only the regime headers sit on an opaque borderless white box
 BOX = dict(boxstyle='square,pad=0.1', fc='w', ec='none')
 BPL_LS = dict(color=INK, ls=(0, (3, 2)), lw=.8, zorder=5)
 STEP_LS = dict(ls=':', lw=1.1)
@@ -125,8 +125,9 @@ def _layout(figsize, slope_h):
   return fig, {'FC': (axs[0], axs[1]), 'SC': (axs[3], axs[4])}, axs
 
 
-def _guides(axS_row, levs):
-  '''the row's indices as dashed guides in both slope panels, named on the right spine'''
+def _guides(axS_row, levs, nudge):
+  '''the row's indices as dashed guides in both slope panels, ticked on the right spine
+  and named beside their ticks; nudge = {label: dy in points} where two would overlap'''
   levs = sorted(levs, reverse=True)
   for ax in axS_row:
     for v, _ in levs:
@@ -134,13 +135,12 @@ def _guides(axS_row, levs):
   axR = axS_row[1].twinx()
   axR.set_ylim(axS_row[1].get_ylim())
   axR.set_yticks([v for v, _ in levs])
-  axR.set_yticklabels([t for _, t in levs])
-  tl = axR.get_yticklabels()
-  for k in range(len(levs) - 1):
-    if levs[k][0] - levs[k + 1][0] < .6:
-      tl[k].set_va('bottom')
-      tl[k + 1].set_va('top')
-  axR.tick_params(axis='y', labelsize=FS_ANN, length=2.5, pad=1.5, colors=INK)
+  axR.set_yticklabels([])
+  axR.tick_params(axis='y', length=2.5, colors=INK)
+  for v, t in levs:
+    axR.annotate(t, (1., v), xycoords=('axes fraction', 'data'), textcoords='offset points',
+                 xytext=(4., nudge.get(t, 0.)), ha='left', va='center', fontsize=FS_ANN,
+                 color=INK, annotation_clip=False)
 
 
 def _headers(rows):
@@ -163,24 +163,28 @@ def _key(fig, axs, extra):
            fontsize=FS_ANN, color=INK)
 
 
-def _name_breaks(ax, at, value, br, names, offs):
-  '''a short mark on the exact curve at each break, and its name at offs (points)'''
-  for k, lab in names.items():
+# one marker per break, the same for a quantity in every panel and in both figures
+MARK = {'c,ad': 'o', 'm,ad': 's', 'cFC': 'D', 'cSC': 'D', 'm,i': '^', 'c,ad,f': 'v',
+        'm,ad,f': 'p'}
+MARK_KW = dict(ms=5., mfc='w', mec=INK, mew=1., ls='none')
+
+
+def _mark_breaks(ax, at, value, br, quantities, labels, leg):
+  '''a marker on the exact curve at each break; their names in a legend at leg =
+  (loc, (x, y) in axes fraction)'''
+  h = []
+  for k, q in quantities.items():
     xb = at(br[k])
-    yb = value(xb)
-    ax.plot([xb], [yb], marker='|', ms=8, mew=1., color=INK, zorder=6)
-    dx, dy = offs[k]
-    ax.annotate(lab, (xb, yb), textcoords='offset points', xytext=(dx, dy),
-                ha='left' if dx > 0 else ('right' if dx < 0 else 'center'),
-                va='bottom' if dy >= 0 else 'top', fontsize=FS_ANN, color=INK, bbox=BOX,
-                zorder=7)
+    ax.plot([xb], [value(xb)], marker=MARK[q], zorder=6, **MARK_KW)
+    h.append(plt.Line2D([], [], marker=MARK[q], label=labels[q], **MARK_KW))
+  ax.legend(handles=h, loc=leg[0], bbox_to_anchor=leg[1], fontsize=FS_ANN, frameon=False,
+            handlelength=1., handletextpad=.4, borderpad=.2, labelspacing=.25)
 
 
 def _panel_text(ax, spots, italic):
   for xv, yv, txt in spots:
     ax.text(xv, yv, txt, fontsize=FS_ANN + (0. if italic else .5), color=MUTED,
-            style='italic' if italic else 'normal', ha='center', va='center', zorder=7,
-            bbox=BOX)
+            style='italic' if italic else 'normal', ha='center', va='center', zorder=7)
 
 
 def _interp_log(xs, ys):
@@ -189,32 +193,31 @@ def _interp_log(xs, ys):
 
 
 # --- Fig. 4 ---------------------------------------------------------------------------
-G_NAMES = {
-  ('FC', 0): {'low': r'$\gamma_{\rm c,ad}$', 'fr': r'$\kappa_{\rm FC}\gamma_{\rm c}$',
-              'mi': r'$\gamma_{{\rm m},i}$'},
-  ('SC', 0): {'low': r'$\gamma_{\rm m,ad}$', 'mi': r'$\gamma_{{\rm m},i}$',
-              'b': r'$\kappa_{\rm SC}\gamma_{\rm c}$'},
-  ('FC', 1): {'low': r'$\gamma_{\rm c,ad}$', 'hi': r'$\gamma_{\rm c,ad,f}$'},
-  ('SC', 1): {'low': r'$\gamma_{\rm m,ad}$', 'adf': r'$\gamma_{\rm m,ad,f}$',
-              'hi': r'$\gamma_{\rm c,ad}$'}}
-G_OFFS = {
-  ('FC', 0): {'low': (2, 7), 'fr': (0, 8), 'mi': (7, -3)},
-  ('SC', 0): {'low': (-5, 2), 'mi': (5, 4), 'b': (-4, -5)},
-  ('FC', 1): {'low': (2, 7), 'hi': (5, -4)},
-  ('SC', 1): {'low': (-5, 2), 'adf': (0, 8), 'hi': (4, 4)}}
+G_BREAKS = {  # table break -> quantity (MARK)
+  ('FC', 0): {'low': 'c,ad', 'fr': 'cFC', 'mi': 'm,i'},
+  ('SC', 0): {'low': 'm,ad', 'mi': 'm,i', 'b': 'cSC'},
+  ('FC', 1): {'low': 'c,ad', 'hi': 'c,ad,f'},
+  ('SC', 1): {'low': 'm,ad', 'adf': 'm,ad,f', 'hi': 'c,ad'}}
+G_LAB = {'c,ad': r'$\gamma_{\rm c,ad}$', 'm,ad': r'$\gamma_{\rm m,ad}$',
+         'cFC': r'$\kappa_{\rm FC}\gamma_{\rm c}$', 'cSC': r'$\kappa_{\rm SC}\gamma_{\rm c}$',
+         'm,i': r'$\gamma_{{\rm m},i}$', 'c,ad,f': r'$\gamma_{\rm c,ad,f}$',
+         'm,ad,f': r'$\gamma_{\rm m,ad,f}$'}
+G_LEG = {('FC', 0): ('upper left', (.30, .34)), ('FC', 1): ('lower right', (.99, .02)),
+         ('SC', 0): ('upper left', (.01, .99)), ('SC', 1): ('lower left', (.01, .02))}
+G_NUDGE = {'FC': {r'$-2$': 3., r'$-p$': -1.5}, 'SC': {}}   # -2 and -p: 5 pt apart
 G_SEGS = {   # (gma_e, f_e, segment name), by eye on the render
   ('FC', 0): ((1.5e2, 1.2, 'frozen tail'), (5e3, 1.8e-3, 'cooling tail'),
               (2e7, 1.2e-3, 'cooled')),
-  ('SC', 0): ((2.6e4, 3e-3, 'adiabatic\ntail'), (2e6, 1e-1, 'injected'),
+  ('SC', 0): ((4e3, 3e-3, 'adiabatic\ntail'), (2e7, 3e-2, 'injected'),
               (6e8, 2e-4, 'cooled')),
   ('FC', 1): ((2e2, 1.2, 'frozen tail'),),
-  ('SC', 1): ((1.2e3, 1.5e-1, 'adiabatic\ntail'), (4e5, 1.6, 'injected'))}
+  ('SC', 1): ((1.2e3, 1.5e-1, 'adiabatic\ntail'), (1e7, 5e-2, 'injected'))}
 G_TIMES = {  # (gma_e, f_e, ha) of each time's label, beside the curve's lowest gma_e
   ('FC', 0): {0.3: (1.6e2, 3e-2, 'left'), 3.: (30., 3e-2, 'right'),
-              15.: (12., 3e-2, 'right'), 100.: (3.5, 3e-3, 'right')},
+              15.: (12., 3e-2, 'right'), 100.: (5., 1.2e-3, 'left')},
   ('SC', 0): {0.3: (9e4, 2e-5, 'left'), 3.: (3.5e4, 2e-5, 'right'),
               15.: (1.4e4, 2e-5, 'right')},
-  ('FC', 1): {15.: (16., 3e-3, 'left'), 100.: (3.5, 3e-3, 'right')},
+  ('FC', 1): {15.: (3.6e3, 3e-3, 'left'), 100.: (7e2, 3e-3, 'right')},
   ('SC', 1): {15.: (1.7e4, 1e-5, 'left'), 100.: (4e3, 1e-5, 'right')}}
 G_SLOPES = {'FC': ((-2./3., r'$-2/3$'), (-2., r'$-2$'), (-P, r'$-p$'),
                    (-(P + 1.), r'$-(p+1)$')),
@@ -248,14 +251,13 @@ def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=F
         fb = eval_pieces(gb, pieces)
         axN.loglog(gb, np.where(fb > 0, fb, np.nan), **BPL_LS)
         if t == NAMED[(reg, col)]:
-          names = G_NAMES[(reg, col)]
-          _name_breaks(axN, lambda v: np.clip(v, g[0]*1.03, g[-1]/1.03),
-                       _interp_log(g, f), {k: br[k] for k in names}, names,
-                       G_OFFS[(reg, col)])
+          _mark_breaks(axN, lambda v: np.clip(v, g[0]*1.03, g[-1]/1.03),
+                       _interp_log(g, f), br, G_BREAKS[(reg, col)], G_LAB,
+                       G_LEG[(reg, col)])
       _panel_text(axN, G_SEGS[(reg, col)], italic=True)
       for t, (xv, yv, ha) in G_TIMES[(reg, col)].items():
         axN.text(xv, yv, f'{t:g}', ha=ha, va='center', fontsize=FS_ANN, color=COL[t],
-                 fontweight='bold', bbox=BOX, zorder=8)
+                 fontweight='bold', zorder=8)
       axN.set_ylim(*YLIM_F[reg])
       axS.set_ylim(*SL_LIM_G)
       for ax in (axN, axS):
@@ -268,10 +270,10 @@ def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=F
       else:
         axN.tick_params(labelleft=False)
         axS.tick_params(labelleft=False)
-    _guides(axSs, G_SLOPES[reg])
+    _guides(axSs, G_SLOPES[reg], G_NUDGE[reg])
   rows['FC'][0][0].annotate(r"after $t'_{\rm tr}$", (4e4, 3.5e-1), xytext=(3e6, 1.5e-1),
                             fontsize=FS_ANN, color=COL[100.], ha='center', va='center',
-                            bbox=BOX, arrowprops=dict(arrowstyle='-', color=COL[100.],
+                            arrowprops=dict(arrowstyle='-', color=COL[100.],
                                                       lw=.6))
   for ax in axs[4]:
     ax.set_xlabel(r'$\gamma_{\rm e}$', fontsize=FS_LAB)
@@ -284,24 +286,19 @@ def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=F
 
 
 # --- Fig. 5 ---------------------------------------------------------------------------
-U_NAMES = {
-  ('FC', 0): {'low': r"$\nu'_{\rm c,ad}$", 'fr': r"$\nu'_{\rm c}$", 'mi': r"$\nu'_{\rm m}$"},
-  ('SC', 0): {'low': r"$\nu'_{\rm m,ad}$", 'mi': r"$\nu'_{\rm m}$", 'b': r"$\nu'_{\rm c}$"},
-  ('FC', 1): {'low': r"$\nu'_{\rm c,ad}$", 'hi': r"$\nu'_{\rm c,ad,f}$"},
-  ('SC', 1): {'low': r"$\nu'_{\rm m,ad}$", 'adf': r"$\nu'_{\rm m,ad,f}$",
-              'hi': r"$\nu'_{\rm c,ad}$"}}
-U_OFFS = {
-  ('FC', 0): {'low': (-3, 6), 'fr': (0, 8), 'mi': (5, 3)},
-  ('SC', 0): {'low': (-4, 5), 'mi': (4, 5), 'b': (-5, 3)},
-  ('FC', 1): {'low': (-3, 6), 'hi': (5, 3)},
-  ('SC', 1): {'low': (-6, 3), 'adf': (4, 9), 'hi': (5, 4)}}
+U_LAB = {'c,ad': r"$\nu'_{\rm c,ad}$", 'm,ad': r"$\nu'_{\rm m,ad}$", 'cFC': r"$\nu'_{\rm c}$",
+         'cSC': r"$\nu'_{\rm c}$", 'm,i': r"$\nu'_{\rm m}$", 'c,ad,f': r"$\nu'_{\rm c,ad,f}$",
+         'm,ad,f': r"$\nu'_{\rm m,ad,f}$"}
+U_LEG = {('FC', 0): ('lower right', (.99, .02)), ('FC', 1): ('lower right', (.99, .02)),
+         ('SC', 0): ('lower left', (.01, .02)), ('SC', 1): ('lower left', (.01, .02))}
+U_NUDGE = {'FC': {r'$1/3$': 2., r'$1/6$': -2.}, 'SC': {}}  # 1/3 and 1/6: 6 pt apart
 U_SEGS = {   # (u, L, spectral index of the segment)
-  ('FC', 0): ((1e1, 3e-2, r"$\nu'^{1/3}$"), (3e4, 6e-1, r"$\nu'^{\,\alpha_{\rm fr}}$"),
-              (2e8, 1.5e-2, r"$\nu'^{-1/2}$"), (1e13, 2e-4, r"$\nu'^{-p/2}$")),
-  ('SC', 0): ((1e4, 3e-2, r"$\nu'^{1/3}$"), (1e13, 1.5e-1, r"$\nu'^{-(p-1)/2}$"),
+  ('FC', 0): ((3e0, 1e-1, r"$\nu'^{1/3}$"), (3e4, 6e-1, r"$\nu'^{\,\alpha_{\rm fr}}$"),
+              (3e7, 2.5e-3, r"$\nu'^{-1/2}$"), (2e9, 1.5e-4, r"$\nu'^{-p/2}$")),
+  ('SC', 0): ((1e3, 5e-2, r"$\nu'^{1/3}$"), (1e13, 1.5e-1, r"$\nu'^{-(p-1)/2}$"),
               (1e18, 3e-5, r"$\nu'^{-p/2}$")),
-  ('FC', 1): ((1e1, 3e-2, r"$\nu'^{1/3}$"), (1e4, 8e-1, r"$\nu'^{\,\alpha_{\rm fr}}$")),
-  ('SC', 1): ((1e3, 3e-2, r"$\nu'^{1/3}$"), (1e13, 1e-1, r"$\nu'^{-(p-1)/2}$"))}
+  ('FC', 1): ((1e1, 3e-3, r"$\nu'^{1/3}$"), (1e4, 8e-1, r"$\nu'^{\,\alpha_{\rm fr}}$")),
+  ('SC', 1): ((1e2, 6e-2, r"$\nu'^{1/3}$"), (3e15, 1e-2, r"$\nu'^{-(p-1)/2}$"))}
 U_SLOPES = {'FC': ((1./3., r'$1/3$'), (1./6., r'$1/6$'), (-.5, r'$-1/2$'),
                    (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$')),
             'SC': ((1./3., r'$1/3$'), (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$'))}
@@ -339,9 +336,9 @@ def fig_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=False):
         if t == NAMED[(reg, col)]:
           Ls = spectrum(g, f, u, full=False)
           axN.loglog(u, np.where(Ls > 0, Ls, np.nan), color=COL[t], zorder=4, **STEP_LS)
-          names = U_NAMES[(reg, col)]
-          _name_breaks(axN, lambda v: np.clip(v, *XLIM_U), _interp_log(u, L),
-                       {k: br[k]**2 for k in names}, names, U_OFFS[(reg, col)])
+          _mark_breaks(axN, lambda v: np.clip(v, *XLIM_U), _interp_log(u, L),
+                       {k: v**2 for k, v in br.items()}, G_BREAKS[(reg, col)], U_LAB,
+                       U_LEG[(reg, col)])
       _panel_text(axN, U_SEGS[(reg, col)], italic=False)
       axN.set_ylim(*YLIM_L[reg])
       axS.set_ylim(*SL_LIM_U)
@@ -353,7 +350,7 @@ def fig_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=False):
       else:
         axN.tick_params(labelleft=False)
         axS.tick_params(labelleft=False)
-    _guides(axSs, U_SLOPES[reg])
+    _guides(axSs, U_SLOPES[reg], U_NUDGE[reg])
   for ax in axs[4]:
     ax.set_xlabel(r"$\nu'/\nu'_{\rm syn}(\gamma_{\rm e}=1)$", fontsize=FS_LAB)
   axs[0, 0].set_xlim(*XLIM_U)
