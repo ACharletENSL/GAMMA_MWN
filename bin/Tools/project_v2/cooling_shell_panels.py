@@ -233,6 +233,11 @@ def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=F
         fb = eval_pieces(gb, pieces)
         axN.loglog(gb, np.where(fb > 0, fb, np.nan), **BPL_LS)
         if t == NAMED[(reg, col)]:
+          if G_BREAKS[(reg, col)].get('hi') == 'c,ad,f':
+            # the last elements pile up at their frozen Lorentz factor: mark gma_c,ad,f at
+            # the peak of the exact curve, where it reads, rather than at the table's
+            # value, which falls on the sharp drop just above it (author, 2026-10-26)
+            br = dict(br, hi=float(g[np.argmax(f)]))
           _mark_breaks(axN, lambda v: np.clip(v, g[0]*1.03, g[-1]/1.03),
                        _interp_log(g, f), br, G_BREAKS[(reg, col)], G_LAB,
                        LEG)
