@@ -87,9 +87,6 @@ U_LIM = (1e-6*_U, 1e18*_U)                      # Fig. A: below the lowest nu'_i
                                                 # (finite FC, tau=100: 7.6e-3) to past
                                                 # nu'_syn(gma_M,0)
 SLOPE_TOL = .05
-
-# same reference curve per panel as Fig. 4 (row, column) -> tau
-REF_X = csi.REF_X
 FC_B = -3.                                      # Fig. B: t'_tr = 19.3 t'_0 (was -4, 52 t'_0,
 X_B = (10., 13., 16.)                           # and tau = 10, 30, 50 before 2026-10-21)
 LAWS_B2 = ShellLaws(lam_N=2., label='coasting, lam_inj = 2')
@@ -182,9 +179,12 @@ def table_pieces(c, regime, tau_end=None, gM=GMA_M0):
     if regime == 'FC':
       hi = br['hi']
       segs = [(br['low'], hi, [(pw(a*F/eta, hi, a/(2.*eta)), a/(2.*eta))])]
-    else:
-      gme = c.gm_of(tau_end)
-      segs = [(br['low'], br['hi'],
+    else:                                                 # adiabatic tail, then bpl_finite
+      gme, gm, t = br['adf'], c.gmi(c.tau), c.tau
+      C = (p - 1.)*a*F/P*(t/tau_end)**a
+      segs = [(br['low'], gme, [(pw(C, gm, a/(2.*zeta)), a/(2.*zeta)),
+                                (pw(-C*t**(-P), gm, (1. - p)/2.), (1. - p)/2.)]),
+              (gme, br['hi'],
                [(pw((p - 1.)*a*F/P*(1. - tau_end**(-P)), gme, (1. - p)/2.), (1. - p)/2.)])]
   pieces = [(lo, hi, fn(lo), k) for lo, hi, terms in segs if hi > lo for fn, k in terms]
   return pieces, br
@@ -536,14 +536,7 @@ def _guides(p):
           '-(p-1)/2': (-(p - 1.)/2., '$-(p-1)/2$'), '-p/2': (-p/2., '$-p/2$')}
 
 
-# which guides each slope panel draws: only those its curves follow over a segment (more
-# than half a decade within 0.03, measured 2026-10-20), so a panel carries no idle lines.
-# 1/6: the continuous FC panel only (1.3 dec; finite FC only crosses it); -(p-1)/2 there
-# after t'_tr (0.5 dec); -1/2 in neither SC panel (<= 0.1 dec); B2 has no 1/6 (kappa = 1/3)
-GUIDES_A = {(0, 0): ('1/3', '-1/2', '-p/2'),
-            (0, 1): ('1/3', '1/6', '-1/2', '-(p-1)/2', '-p/2'),
-            (1, 0): ('1/3', '-(p-1)/2', '-p/2'),
-            (1, 1): ('1/3', '-(p-1)/2', '-p/2')}
+# the guides of each Fig. B slope panel: only those its curves follow over a segment
 GUIDES_B = (('1/3', '1/6', '-1/2', '-p/2'), ('1/3', '-1/2', '-p/2'))
 
 
@@ -602,96 +595,11 @@ YLABEL = "$L'_{\\nu'}/(p'_{{\\rm syn},0}\\,\\dot N_0 t'_0)$"
 SLABEL = "${\\rm d}\\ln L'_{\\nu'}/{\\rm d}\\ln\\nu'$"
 
 
-def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=False,
-    p=P_SYN, laws=COASTING):
-  '''
-  Fig. A: the layout, cases and colours of Fig. 4. Full-kernel spectra coloured by time;
-  on the Fig. 4 reference curve the step-kernel spectrum dotted, Eq. eqn:Lnu_bpl dashed in
-  ink and its breaks as short marks. Slope panels with the indices of Table tab:shell_spectrum.
-  '''
-  norm, cmap, col = _colour()
-  u = ugrid(*U_LIM)
-  # the spacer row only holds the named ticks of the slow-cooling row, which then sit
-  # between the two regime blocks and read for both
-  fig, axs = plt.subplots(5, 2, figsize=FIGSIZE, sharex=True,
-      gridspec_kw=dict(height_ratios=[1.9, 1., .13, 1.9, 1.], hspace=.08, wspace=.06))
-  for ax in axs[2]:
-    ax.set_visible(False)
-  rows = ((axs[0], axs[1]), (axs[3], axs[4]))
-  G = _guides(p)
-  for i, lc in enumerate(LOGC_ROWS):
-    axN_row, axS_row = rows[i]
-    regime = 'FC' if lc < 0. else 'SC'
-    top = 0.
-    for j, (name, lab, dinj) in enumerate(CASES):
-      axN, axS = axN_row[j], axS_row[j]
-      xref = REF_X[(i, j)]
-      for x in X_SAMPLES:
-        g, fN = distribution(x, lc, dinj, laws, p)
-        Ls, Lf = spectra(u, x, g, fN, laws)
-        axN.loglog(u, Lf, color=col(x), lw=1.2, zorder=3)
-        s = local_slope(u, Lf)
-        s[~np.isfinite(s) | (s < SL_LIM[0]) | (s > SL_LIM[1])] = np.nan
-        axS.semilogx(u, s, color=col(x), lw=1.1, zorder=3)
-        top = max(top, np.nanmax(Lf))
-        if x == xref:
-          axN.loglog(u, np.where(Ls > 0., Ls, np.nan), color=col(x), lw=1.1, ls=':',
-                     zorder=4)
-          Lb, br, _, _ = bpl(u, x, lc, dinj, regime, laws, p)
-          axN.loglog(u, np.where(Lb > 0., Lb, np.nan), color=INK, ls=(0, (3, 2)), lw=.9,
-                     zorder=5)
-          _mark_breaks(axN, i, j, u, Lf, br, regime, not np.isinf(dinj))
-      for lev, _ in (G[k] for k in GUIDES_A[(i, j)]):
-        axS.axhline(lev, color=MUTED, ls='--', lw=.7, zorder=1)
-      axS.set_ylim(*SL_LIM)
-      for ax in (axN, axS):
-        ax.tick_params(which='both', labelsize=FS_TICK)
-      axN.annotate(f'{lab}\n$\\gamma_{{\\mathrm{{m}},\\!0}}I_{{{{\\rm dyn}},0}}=10^{{{-lc:.0f}}}$', (.98, .97), xycoords='axes fraction',
-                   fontsize=FS_ANN, color=INK, ha='right', va='top', multialignment='right',
-                   bbox=TEXT_BOX, zorder=7)
-      if j == 0:
-        axN.set_ylabel(YLABEL, fontsize=FS_LAB)
-        axS.set_ylabel(SLABEL, fontsize=FS_LAB)
-      else:
-        axN.tick_params(labelleft=False)
-        axS.tick_params(labelleft=False)
-        # the right column's guides on its right spine, the left column's own ones (if
-        # any) on its left axis
-        _levels_right(axS, [G[k] for k in GUIDES_A[(i, 1)]])
-        _levels_left(axS_row[0], [G[k] for k in GUIDES_A[(i, 0)]
-                                  if k not in GUIDES_A[(i, 1)]])
-    for ax in axN_row:
-      ax.set_ylim(top*10.**-Y_DEC, top*TOP_ROOM[i])
-  for ax in axs[4]:
-    ax.set_xlabel(XLABEL, fontsize=FS_LAB)
-  axs[0, 0].set_xlim(*U_LIM)
-  axs[0, 0].set_xticks(10.**np.arange(-4., 17., 4.)*_U)   # none on the edges: the columns touch
-  # named once, between the two rows, with bare marks pointing down from the row above
-  for c in (0, 1):
-    named_ticks_top(axs[3, c], ((GM0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{m},\\!0})$"),
-                                (GMA_M0**2, "$\\nu'_{\\rm syn}(\\gamma_{\\mathrm{M},\\!0})$")))
-    marks_bottom(axs[1, c], (GM0**2, GMA_M0**2))
-  fig.subplots_adjust(right=.84)
-  h = [plt.Line2D([], [], color=MUTED, lw=1.2, label='full kernel'),
-       plt.Line2D([], [], color=MUTED, lw=.9, ls=':', label='step kernel (one curve)'),
-       plt.Line2D([], [], color=INK, lw=.9, ls=(0, (3, 2)), label='broken power law'),
-       plt.Line2D([], [], color=INK, lw=0, marker='|', ms=7, mew=1.1, label='its breaks')]
-  pa, pb = axs[0, 0].get_position(), axs[0, 1].get_position()
-  fig.canvas.draw()
-  r_ = fig.canvas.get_renderer()
-  ytop = max(fig.transFigure.inverted().transform(ax.get_tightbbox(r_))[1, 1]
-             for ax in axs[0])
-  fig.legend(handles=h, loc='lower center', ncol=4, bbox_to_anchor=(.5*(pa.x0 + pb.x1),
-             ytop + .004), bbox_transform=fig.transFigure, fontsize=FS_LEG,
-             frameon=False, handlelength=2., columnspacing=1.2)
-  _colorbar(fig, axs[0, 1], axs[4, 1], norm, cmap)
-  os.makedirs(outdir, exist_ok=True)
-  path = os.path.join(outdir, fname)
-  fig.savefig(path, dpi=300, bbox_inches='tight')
-  print(f'saved {path}')
-  if show:
-    plt.show()
-  return fig, axs
+def plot_shell_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=False):
+  '''Fig. 5 (fig:shell_spectrum), redesigned 2026-10-26: cooling_shell_panels, shared with
+  Fig. 4 (layout, cases, times; L'_nu'/(p'_syn N_e) at nu'/nu'_syn(gamma_e = 1, t')).'''
+  import cooling_shell_panels as csp
+  return csp.fig_spectrum(outdir, fname, show)
 
 
 # --- Figure B -------------------------------------------------------------------------

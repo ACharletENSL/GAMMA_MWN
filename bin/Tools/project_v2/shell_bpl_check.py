@@ -161,10 +161,16 @@ def table(gma, c, regime, tau_end=None):
       br = dict(low=c.ginf(1.), hi=hi)
       f = np.where(gma < hi, seg['frozen'], 0.)
     else:
-      gme = c.gm_of(tau_end)
-      seg = dict(slow=(p - 1.)*a*F/P*(1. - tau_end**(-P))*(gma/gme)**(1. - p))
-      br = dict(low=gme, hi=c.ginf(1.))
-      f = np.where(gma < br['hi'], seg['slow'], 0.)
+      # adiabatic tail [gma_m,ad, gma_m,ad,f] (first line of bpl_SC, Sect. 3.2 since
+      # 2026-10-26) and injected segment of Eq. bpl_finite [gma_m,ad,f, gma_c,ad], with
+      # F_e(t') = a F(tau_end) (tau/tau_end)^a (Eq. F_finite) and gma_m,i extrapolated
+      gme, gm = c.gm_of(tau_end), c.gmi(c.tau)
+      C = (p - 1.)*a*F/P*(c.tau/tau_end)**a
+      seg = dict(adiabatic=C*((gma/gm)**(a/zeta) - c.tau**(-P)*(gma/gm)**(1. - p)),
+                 slow=(p - 1.)*a*F/P*(1. - tau_end**(-P))*(gma/gme)**(1. - p))
+      br = dict(low=c.gm_of(1.), adf=gme, hi=c.ginf(1.))
+      f = np.where(gma < gme, seg['adiabatic'],
+                   np.where(gma < br['hi'], seg['slow'], 0.))
     join = None
     lo = br['low']
   f = np.where(gma >= lo, f, 0.)
