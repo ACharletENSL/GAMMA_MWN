@@ -6,7 +6,8 @@ Paper I, Figs. 4 (fig:intNe_gen) and 5 (fig:shell_spectrum), redesigned 2026-10-
 shell-integrated distribution of the HOMOGENEOUS coasting shell (cooling_shell_integrated)
 and its comoving spectrum (cooling_shell_spectrum), in ONE layout.
 
-    columns  continuous injection | finite injection (Delta t'_inj = 5 t'_0), after its end
+    columns  continuous injection | finite injection (Delta t'_inj = 5 t'_0): the same
+             shell up to the end of the injection (grey), then its old electrons only
     rows     fast cooling at injection (gma_m,0 I_dyn,0 = 1e3) | slow cooling (1e-2)
     each     the curves, and their local slope below
 
@@ -53,10 +54,10 @@ DINJ = 5.                                       # Delta t'_inj/t'_0 (coasting: =
 
 ALL_T = (0.3, 3., 15., 100.)
 TIMES = {('FC', 0): ALL_T, ('SC', 0): (0.3, 3., 15.),
-         ('FC', 1): (15., 100.), ('SC', 1): (15., 100.)}
+         ('FC', 1): ALL_T, ('SC', 1): ALL_T}
 COL = dict(zip(ALL_T, plt.cm.Blues(np.linspace(.45, 1., len(ALL_T)))))
 NAMED = {('FC', 0): 3., ('SC', 0): 3., ('FC', 1): 100., ('SC', 1): 100.}
-NO_BPL = {('FC', 0): (0.3, 100.), ('SC', 0): (0.3,)}
+NO_BPL = {('FC', 0): (0.3, 100.), ('SC', 0): (0.3,), ('FC', 1): (0.3,), ('SC', 1): (0.3,)}
 
 INK, MUTED, GREY = '0.15', '0.45', '0.75'
 FS_LAB, FS_TICK, FS_ANN = 9., 8., 7.
@@ -66,7 +67,7 @@ FS_LAB, FS_TICK, FS_ANN = 9., 8., 7.
 BOX = dict(boxstyle='square,pad=0.1', fc='w', ec='none')
 BPL_LS = dict(color=INK, ls=(0, (3, 2)), lw=.8, zorder=5)
 STEP_LS = dict(ls=':', lw=1.1)
-FINITE_TITLE = r"Finite injection ($\Delta t'_{\rm inj}=5\,t'_0$), after its end"
+FINITE_TITLE = r"Finite injection, $\Delta t'_{\rm inj}=5\,t'_0$"
 
 
 # --- curves ---------------------------------------------------------------------------
@@ -227,7 +228,7 @@ def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=F
         axS.semilogx(g, s, color=COL[t], lw=1.2, zorder=3)
         if t in NO_BPL.get((reg, col), ()):
           continue
-        pieces, br = bpl_pieces(x, reg, finite)
+        pieces, br = bpl_pieces(x, reg, finite and t > DINJ)
         gb = np.geomspace(min(q[0] for q in pieces), max(q[1] for q in pieces), 800)
         fb = eval_pieces(gb, pieces)
         axN.loglog(gb, np.where(fb > 0, fb, np.nan), **BPL_LS)
@@ -292,9 +293,9 @@ def fig_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=False):
         axS.semilogx(u, sl, color=COL[t], lw=1.2, zorder=3)
         if t in NO_BPL.get((reg, col), ()):
           continue
-        pieces, br = bpl_pieces(x, reg, finite)
+        pieces, br = bpl_pieces(x, reg, finite and t > DINJ)
         Lb = css.pl_spectrum(np.sqrt(u), pieces)
-        if finite:                    # Eq. Lnu_bpl drops to 0 at the top of the finite BPL
+        if finite and t > DINJ:       # Eq. Lnu_bpl drops to 0 at the top of the finite BPL
           Lb[u > .3*br['hi']**2] = 0.
         axN.loglog(u, np.where(Lb > 0, Lb, np.nan), **BPL_LS)
         if t == NAMED[(reg, col)]:
