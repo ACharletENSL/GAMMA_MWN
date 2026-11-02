@@ -416,6 +416,97 @@ def main_shells_2sbpl(key=ssh.KEY, method='data_rarcut', windows=WINDOWS_3DEX):
   return df
 
 
+# Ravasio et al. (2019, A&A 625, A60), time-resolved 2SBPL fits of long GRBs (E_break > 20
+# keV, 8 keV-40 MeV): mean and dispersion of alpha1, alpha2, log10 E_break, log10 E_peak.
+RAV19 = dict(a1=(-0.58, 0.16), a2=(-1.52, 0.20), lEbr=(2.00, 0.34), lEpk=(3.00, 0.26))
+
+
+def fs_peak_offsets(key=ssh.KEY, method='data_rarcut'):
+  '''log10 of (total nuFnu peak / FS peak) per regime and kind, the FS being tot - RS.'''
+  rows = []
+  for p in ssh.load_shell_pairs(key=key, method=method):
+    x = p['x']
+    ok = x >= 1./p['env'].gma_m**2
+    for kind in ('fluence', 'peak'):
+      sp, _ = ssh.shell_spectra(p, kind)
+      xx, tot, fs = x[ok], sp['tot'][ok], (sp['tot'] - sp['RS'])[ok]
+      rows.append(dict(logC=round(float(p['log10ratio']), 2), kind=kind,
+                       l_pk_fs=float(np.log10(xx[tot.argmax()]/xx[fs.argmax()]))))
+  return pd.DataFrame(rows)
+
+
+def plot_article_2sbpl(df, fsp, outdir, w_band=(30., 30.), w_2sbpl=(100., 10.),
+    fname='band_2sbpl_article.png'):
+  '''
+  Paper II figure: time-integrated | peak. Top, the indices below the peak against C: Band
+  alpha over w_band (PB's window), 2SBPL alpha1 and alpha2 over w_2sbpl (Ravasio's ~2 dex
+  below and 1 above); RS red, RS+FS black. Bottom, the 2SBPL break below the peak,
+  log10(E_pk/E_br), with the FS peak (fsp, from fs_peak_offsets) under the total one.
+  Ravasio et al. (2019) means +- 1 sigma shaded in the peak column (their fits are
+  time-resolved); the E_pk/E_br band is the difference of their mean logs, the two
+  dispersions added in quadrature.
+  '''
+  fig, axs = plt.subplots(2, 2, figsize=(9.6, 6.4), sharex=True, sharey='row',
+                          layout='constrained', gridspec_kw={'height_ratios': [1., .6]})
+  for j, (kind, title) in enumerate((('fluence', 'time-integrated'), ('peak', 'peak'))):
+    ax, axb = axs[0, j], axs[1, j]
+    _guides(ax, df.p.iloc[0])
+    if kind == 'peak':
+      for q, c in (('a1', '#8fb8de'), ('a2', '#c9c9c9')):
+        m, s = RAV19[q]
+        ax.axhspan(m - s, m + s, color=c, alpha=.45, lw=0, zorder=0)
+      m = RAV19['lEpk'][0] - RAV19['lEbr'][0]
+      s = np.hypot(RAV19['lEpk'][1], RAV19['lEbr'][1])
+      axb.axhspan(m - s, m + s, color='#c9c9c9', alpha=.45, lw=0, zorder=0)
+    for tag, c in (('RS', COL_RS), ('tot', COL_TOT)):
+      d = _sel(df, kind, tag, w_band)
+      ax.plot(d.logC, d.alpha_band, c=c, ls='-', lw=1.1, marker='o', ms=3.5)
+      d = _sel(df, kind, tag, w_2sbpl)
+      ax.plot(d.logC, d.a1, c=c, ls='--', lw=1.1, marker='v', ms=3.5)
+      ax.plot(d.logC, d.a2, c=c, ls=':', lw=1.1, marker='s', ms=3.5)
+      axb.plot(d.logC, d.brk_dex, c=c, ls='--', lw=1.1, marker='v', ms=3.5)
+    f = fsp[fsp.kind == kind].sort_values('logC')
+    axb.plot(f.logC, f.l_pk_fs, c='0.45', ls='-.', lw=1.1, marker='D', ms=3)
+    ax.text(0.03, 0.88, title, transform=ax.transAxes, fontsize=10)
+    axb.set_xlabel(r'$\log_{10}\mathcal{C}$')
+  axs[0, 0].set_ylabel('photon index below the peak')
+  axs[1, 0].set_ylabel(r'$\log_{10}(E_{\rm pk}/E)$')
+  axs[1, 0].set_ylim(-0.2, 1.9)
+  _legend(axs[0, 0], handles=[
+      plt.Line2D([], [], c='k', ls='-', marker='o', ms=3.5, label=rf'Band $\alpha$ ({_wlab(*w_band)})'),
+      plt.Line2D([], [], c='k', ls='--', marker='v', ms=3.5, label=r'2SBPL $\alpha_1$'),
+      plt.Line2D([], [], c='k', ls=':', marker='s', ms=3.5, label=r'2SBPL $\alpha_2$')],
+      loc='upper right')
+  _legend(axs[0, 1], handles=[plt.Line2D([], [], c=COL_RS, label='RS'),
+                              plt.Line2D([], [], c=COL_TOT, label='RS+FS'),
+                              plt.Rectangle((0, 0), 1, 1, fc='#8fb8de', alpha=.45,
+                                            label=r'R19 $\alpha_1$'),
+                              plt.Rectangle((0, 0), 1, 1, fc='#c9c9c9', alpha=.45,
+                                            label=r'R19 $\alpha_2$, $E_{\rm pk}/E_{\rm br}$')],
+          loc='center left', bbox_to_anchor=(0., 0.58))
+  _legend(axs[1, 1], handles=[
+      plt.Line2D([], [], c='k', ls='--', marker='v', ms=3.5,
+                 label=rf'2SBPL $E_{{\rm br}}$ ({_wlab(*w_2sbpl)})'),
+      plt.Line2D([], [], c='0.45', ls='-.', marker='D', ms=3, label='FS peak')],
+      loc='lower left')
+  os.makedirs(outdir, exist_ok=True)
+  path = os.path.join(outdir, fname)
+  fig.savefig(path, dpi=300)
+  plt.close(fig)
+  return path
+
+
+def main_article(key=ssh.KEY, method='data_rarcut'):
+  '''Paper II's Band/2SBPL figure from main_shells_2sbpl's CSV (run that first).'''
+  out = figdir(ssh.OUTDIR_NAME if method == ssh.METHOD else f'{ssh.OUTDIR_NAME}_{method}', key)
+  df = pd.read_csv(os.path.join(out, 'twosbpl_shells_3dex.csv'))
+  fsp = fs_peak_offsets(key, method)
+  fsp.to_csv(os.path.join(out, 'fs_peak_offsets.csv'), index=False, float_format='%.4g')
+  path = plot_article_2sbpl(df, fsp, out)
+  print('wrote', path)
+  return path
+
+
 def plot_shells(df, outdir, fname='band_alpha_shells.png', win=WIN):
   '''
   The Band-alpha counterpart of sweep_shells.plot_shell_slopes: RS (dashed) against RS+FS
