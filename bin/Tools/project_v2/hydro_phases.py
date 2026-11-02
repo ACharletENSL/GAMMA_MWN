@@ -12,11 +12,11 @@ the system moves out by three decades in R. Shell 4 is red and shell 1 blue (COL
 the external medium grey; cells flagged by the shock detector (Sd) are black dots.
 
 Times are lab time since the collision (the dumps' t). On the fiducial (cooling_g100): RS
-leaves shell 4 at ~4.0e4 s, FS leaves shell 1 at ~4.4e4 s, both rarefaction heads reach the CD
-at ~5.6-6e4 s, the trailing compression steepens into a shock at ~4.5e5 s and reaches the CD
+leaves shell 4 at ~4.0e4 s, FS leaves shell 1 at ~4.4e4 s, the rarefaction heads reach the CD
+at ~6.2e4 s (S1, R = 3.31 R_0) and ~7.5e4 s (S4, 3.82 R_0; rarefaction_head_{1,4}.npz), the trailing compression steepens into a shock at ~4.5e5 s and reaches the CD
 at ~3.4e6 s (see prerar_model.plot_trailing_shock_strip).
 
-  python hydro_phases.py [key]          ~20 s, single core
+  python hydro_phases.py [key] [rf]     ~20 s, single core; 'rf' draws PHASE_SNAPS_RF
 '''
 
 import os
@@ -47,6 +47,15 @@ PHASE_SNAPS = (
   (1.2e6,  'trailing shock in S4'),
   (5.6e6,  'shock enters S1'),
 )
+# Paper II: up to the arrival of both rarefaction heads at the CD (Paper III has the rest)
+PHASE_SNAPS_RF = (
+  (0.,     'initial state'),
+  (2.0e4,  'RS and FS propagate'),
+  (4.2e4,  'RS out, FS still in S1'),
+  (5.0e4,  'rarefactions in both shells'),
+  (6.2e4,  'rarefaction at the CD in S1'),
+  (7.6e4,  'rarefaction at the CD in S4'),
+)
 COL_EXT = '0.6'
 X_PAD = 0.15     # fraction of the two shells' extent added either side (external medium)
 
@@ -73,7 +82,7 @@ def load_snapshot(key, t, its=None, ts=None):
   return d
 
 
-def plot_phase_snapshots(key='cooling_g100', snaps=PHASE_SNAPS, outdir=OUTDIR):
+def plot_phase_snapshots(key='cooling_g100', snaps=PHASE_SNAPS, outdir=OUTDIR, suffix=''):
   os.makedirs(outdir, exist_ok=True)
   its, ts = _snap_index(key)
   nrow = len(snaps)
@@ -115,7 +124,7 @@ def plot_phase_snapshots(key='cooling_g100', snaps=PHASE_SNAPS, outdir=OUTDIR):
         matplotlib.ticker.LogFormatterSciNotation(minor_thresholds=(1.1, 0.4)))
   for c in range(3):
     axes[-1, c].set_xlabel(r'$(R - R_{\rm CD})/\Delta_{4,0}$')
-  path = os.path.join(outdir, f'phase_snapshots_{key}.png')
+  path = os.path.join(outdir, f'phase_snapshots_{key}{suffix}.png')
   fig.savefig(path, dpi=200, bbox_inches='tight')
   plt.close(fig)
   print(f'saved {path}')
@@ -123,4 +132,8 @@ def plot_phase_snapshots(key='cooling_g100', snaps=PHASE_SNAPS, outdir=OUTDIR):
 
 
 if __name__ == '__main__':
-  plot_phase_snapshots(*sys.argv[1:2])
+  key = sys.argv[1] if len(sys.argv) > 1 else 'cooling_g100'
+  if sys.argv[2:3] == ['rf']:
+    plot_phase_snapshots(key, PHASE_SNAPS_RF, suffix='_rf')
+  else:
+    plot_phase_snapshots(key)

@@ -1567,6 +1567,10 @@ PHASE_GREY = ('#e2e2e2', '#b4b4b4', '#8a8a8a', '#5e5e5e')
 # One style per boundary, so a guide is read as WHICH transition it marks before its colour is
 # read as which cell: head dashed, Gamma minimum dash-dot, trailing shock dotted.
 PHASE_LS = {'head': (0, (5, 2)), 'tail': (0, (5, 1.6, 1, 1.6)), 'wave': (0, (1, 1.8))}
+# Paper II stops the cell histories once both rarefaction heads have reached the CD: at
+# 3.31 R_0 in S1 and 3.82 R_0 in S4 (rarefaction_head_{1,4}.npz, the CD cells), ~6.2e4 and
+# ~7.5e4 s after the collision. Phases III-IV belong to Paper III.
+R_RF_CD = 3.9
 ARTICLE_FRACS = (0.25, 0.50, 0.75)   # what the figure now selects on: fraction of the shell's
                                # INITIAL width, measured from the contact discontinuity (0 = the
                                # CD-adjacent cell, shocked first at R_inj = R_0; 1 = the external
@@ -1714,10 +1718,13 @@ def _frac_cells(test_key, z, fracs, ncells=NCELLS, half_window=8):
 
 def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
     frac_targets=ARTICLE_FRACS, test_key='cooling_g100', dex_max=1.7, show_model=False,
-    phases=None, xunit='inj', sampling=True):
+    phases=None, xunit='inj', sampling=True, R_max=None):
   """
   Article figure: the hydro evolution of a few representative cells, simulation versus
   semi-analytic reconstruction.
+
+  R_max (xunit='R0' only) ends the radius axis at R_max*R_0 instead of dex_max past the last
+  injection, and the file gets a '_cut' suffix: Paper II uses R_max=R_RF_CD (phases I-II).
 
   xunit = 'inj' puts every cell on its own log10(R/R_inj), so all histories start at 0 and the
   phases are compared cell to cell; 'R0' puts them on the common log10(R/R_0), so each starts
@@ -1806,6 +1813,10 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
     raise ValueError(f'xunit must be inj or R0, not {xunit!r}')
   offs = [np.log10(c[-1]) if xunit == 'R0' else 0. for c in cells]
   x_end = None if dex_max is None else max(offs) + dex_max
+  if R_max is not None:
+    if xunit != 'R0':
+      raise ValueError('R_max needs xunit=R0')
+    x_end = np.log10(R_max)
   starts = []          # (colour, abscissa of the cell's first plotted point)
 
   for ci, (f_req, f_got, k, s_, h, dex, Ri) in enumerate(cells):
@@ -1923,6 +1934,8 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
     # Names over the 25% row, the one that separates all four phases widely enough to hold them.
     ed = _edges(bounds[0][2], x0, x1, bounds[0][3])
     for q, lab in enumerate(PHASE_NAME):
+      if ed[q] >= x1:                 # phase starts past the cut (R_max)
+        continue
       strip.text(0.5*(ed[q] + min(ed[q + 1], x1)), 0.88, lab, fontsize=7.5, ha='center',
                  va='center', color='0.2')
 
@@ -1930,7 +1943,7 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
     _sampling_panel(samp, test_key, z, starts)
 
   path = os.path.join(outdir, f'article_cells_z{z}' + ('_R0' if xunit == 'R0' else '')
-                      + '.png')
+                      + ('_cut' if R_max is not None else '') + '.png')
   fig.savefig(path, dpi=200, bbox_inches='tight')
   plt.close(fig)
   print(f'saved {path}')
@@ -2613,6 +2626,7 @@ def main(table_key=TABLE_KEY, z_list=(4, 1), ncells=NCELLS):
     plot_three_way(table_key, z, ncells)
     plot_article(table_key, z, ncells)
     plot_article(table_key, z, ncells, xunit='R0')
+    plot_article(table_key, z, ncells, xunit='R0', R_max=R_RF_CD)
     if z == 4:
       plot_shell_spreading('cooling_g100', z)
     for tk in ('cooling_g100', table_key):
