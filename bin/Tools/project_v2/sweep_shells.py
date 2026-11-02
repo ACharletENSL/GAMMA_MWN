@@ -681,6 +681,37 @@ def plot_shell_slopes(pairs, outdir=OUTDIR, xhi=10., ylim=(-0.35, 1.45)):
   return f
 
 
+def plot_fluence_slope_shells(key=KEY, method='data_rarcut', outdir=None,
+    fname='fluence_spectra_slope_shells.png'):
+  '''
+  sweep_compare.plot_fluence_with_slope with the two SHELLS as its two sides: RS (dashed)
+  and RS+FS (solid), both from `method` (default the rarefaction-cut sweeps, Paper II's
+  Fig. tint_slope). The sum is on the RS flux scale (load_shell_pairs) and normalises the
+  left panel; its eps_rad is the summed budget (E_rad_rs + E_rad_fs)/(E_inj_rs + E_inj_fs),
+  as in sweep_efficiency. Both sides are measured with _total_nu_break, the lower (FS)
+  break, which only bounds the asymptote scan further down for the RS.
+  '''
+  import sweep_compare as cmp
+  out = figdir(OUTDIR_NAME if method == METHOD else f'{OUTDIR_NAME}_{method}', key) \
+        if outdir is None else outdir
+  os.makedirs(out, exist_ok=True)
+  pairs = []
+  for p in load_shell_pairs(key, method):
+    base = dict(log10ratio=p['log10ratio'], alpha=p['alpha'], env=p['env'], Tb=p['Tb'],
+                nub=p['nub'])
+    rs = dict(base, nuFnu=p['nuFnu_rs'], E_rad=p['E_rad_rs'], E_inj=p['E_inj_rs'])
+    tot = dict(base, nuFnu=p['nuFnu_tot'], E_rad=p['E_rad_rs'] + p['E_rad_fs'],
+               E_inj=p['E_inj_rs'] + p['E_inj_fs'])
+    pairs.append((rs, tot))
+  series = cmp.fluence_series(pairs, nu_break=cmp._total_nu_break)
+  tab = cmp.fluence_slope_table(series, labels=('RS', 'RS+FS'), band_ref=2., verbose=False)
+  tab.to_csv(os.path.join(out, fname.replace('.png', '.csv')), index=False,
+             float_format='%.5g')
+  cmp.plot_fluence_with_slope(pairs, series, outdir=out, labels=('RS', 'RS+FS'),
+                              norm_side='B', fname=fname)
+  return os.path.join(out, fname), tab
+
+
 def plot_shell_width_vs_regime(pairs, kind='peak', key=KEY, outdir=OUTDIR,
     level=WIDTH_LEVEL, rows=None):
   '''
