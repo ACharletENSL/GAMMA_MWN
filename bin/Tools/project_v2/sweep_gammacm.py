@@ -3086,6 +3086,112 @@ def post_rf_reference(method, key, z):
   return res or None
 
 
+def _spectra_panel(ax, r, barT_f, cols, refs, ylo, logt=SPEC_LOGT, three_from=None,
+    fs_text=12, fs_leg=9, leg_kw=None):
+  '''Draw one regime of plot_spectra_per_regime on ax (see its docstring); False if the
+  sweep point has nothing to draw.'''
+  rr = refs.get(round(float(r['log10ratio']), 1))
+  if rr is not None and (rr['nuFnu'].shape != r['nuFnu'].shape
+                         or not np.allclose(rr['Tb'], r['Tb'])):
+    rr = None                         # not the same grids: no share can be read
+  x = nu_over_num(r)
+  p = r['env'].psyn
+  series = _spectra_series(r, barT_f, logt)
+  if not series:
+    return False
+  pkmax = max(np.nanmax(r['nuFnu'][i, :]) for _, _, i in series)   # = the bar{T}_f bin's peak
+  if not (pkmax > 0.):
+    return False
+  handles = []; labels = []; sps = []
+  for k, l, iT in series:
+    col = cols[k]
+    sp = r['nuFnu'][iT, :]
+    # zero/negative samples have no place on a log axis: masking them keeps them out of
+    # the drawn curve AND out of the x-clip below, which is otherwise widened by bins
+    # that show nothing there
+    sp = np.where(np.isfinite(sp) & (sp > 0.), sp, np.nan)
+    sp_draw = phys_mask(x, sp, r)     # drawn above nu_B only; MEASURED on the whole band
+    (h,) = ax.loglog(x, sp_draw/pkmax, color=col, lw=1.6)
+    sps.append(sp_draw/pkmax)
+    ident = identify_segments(x, sp, p)
+    if three_from is not None and r['Tb'][iT] - 1. > three_from:
+      identF = identify_segments(x, sp, p, free_lo=ROUTE_KW['free_lo'])
+      if identF is not None and identF['regime'] is not None:
+        ident = identF
+        # where the three breaks exist -- the same fit and the same acceptance as
+        # track_breaks_route's nu_s -- the four segments are that fit's asymptotes
+        if identF['regime'] == 'SC':
+          env = r['env']; nu_B = 1./env.gma_m**2; nu_gate = fit_nu_floor(r)
+          f = fit_gs02_spectrum(x, sp, p, nu_M_over_num(r), free_bmid=True, nu_B=nu_gate, fit_dec=fit_dec_of(r))
+          t = None if f is None else fit_three_break(
+              x, sp, p, f['nuM'], [(x.min()/10., f['b_lo'], f['b_hi'], 1/3. - 1e-3,
+                                    f['beta_mid']),
+                                   (f['b_lo']/30., f['b_lo'], f['b_hi'], 0., f['beta_mid'])],
+              nu_B=nu_gate, fit_dec=fit_dec_of(r))
+          if t is not None and t['beta_p'] < 1/3. - NU_S_MIN_DEP and not t['at_bound_b1'] \
+             and EDGE_FAC*x.min() < t['b1'] < t['b2']:
+            ident = dict(identF, segs=three_break_segments(t, p, (x.min(), x.max())))
+    # each segment as the line it is DRAWN with (_seg_line: held slope for the asymptotes,
+    # measured for the mid ones), steepest first = left to right, so consecutive entries
+    # are the adjacent pairs and the crossings below are between the lines actually drawn
+    segs = sorted(((n, _seg_line(n, g), g) for n, g in ident['segs'].items()),
+                  key=lambda t: -t[1][0]) if ident else []
+    for j, (name, ln, sg) in enumerate(segs):
+      # run out far enough to meet its neighbours: down to the crossing with the previous
+      # one, up to the crossing with the next, each by SEG_EXT further, so the pair is seen
+      # to cross. The 1-p/2 segment has no neighbour above it and runs to the end of the
+      # band. Running the lines off the curve is deliberate -- see the docstring.
+      l0, l1 = np.log10(sg['x0']), np.log10(sg['x1'])
+      if j:
+        l0 = min(l0, _seg_cross(segs[j-1][1], ln))
+      if j + 1 < len(segs):
+        l1 = max(l1, _seg_cross(ln, segs[j+1][1]))
+      # The LOWEST segment has no neighbour below it, exactly as the 1-p/2 one has none
+      # above, so it runs to the bottom of the band rather than stopping SEG_EXT short.
+      # Without this the extension depended on where the segment happened to be
+      # identified, which is why the FC* band-bottom segment (the 4/3 turn-up caught at
+      # the edge of the array) stopped well short of the VFC one on the same axes.
+      lxs = np.array([np.log10(x.min()) if j == 0 else l0 - SEG_EXT,
+                      np.log10(x.max()) if name == 'hi' else l1 + SEG_EXT])
+      # no guide below the physical floor either (the band may extend below it)
+      lxs[0] = max(lxs[0], np.log10(phys_x_floor(r)))
+      if lxs[1] <= lxs[0]:
+        continue
+      ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
+                color=col, ls='-.', lw=0.9, alpha=0.8)
+    handles.append(h)
+    lab = f"{l:+.0f}: {disp_class(figure_class(ident, r) or '?') if ident else '?'}"
+    if rr is not None:
+      with np.errstate(divide='ignore', invalid='ignore'):
+        share = 1. - rr['nuFnu'][iT, :]/sp
+      vis = np.isfinite(share) & (sp/pkmax > ylo)
+      if vis.any() and np.max(share[vis]) >= POSTRF_MIN_SHARE:
+        lab += ' + post RF'
+    labels.append(lab)
+  ax.set_ylim(ylo, 3.)
+  # clip x to where the (y-clipped) spectra are actually visible, +half a decade
+  with np.errstate(invalid='ignore'):
+    vis = np.any(np.nan_to_num(np.array(sps), nan=0.) > ylo, axis=0)
+  if vis.any():
+    xv = x[vis]
+    ax.set_xlim(max(xv.min()/3., phys_x_floor(r)), xv.max()*3.)
+  ax.set_xlabel(NU_M_LABEL)
+  ax.set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}$')
+  # the regime is stated INSIDE the panel (top left, above the rising low-frequency
+  # ends), not as a title: these go into the article as a series of panels, where a
+  # title band over each one is dead space repeating what one symbol says
+  ax.text(0.03, 0.97, f'$\\log_{{10}}\\mathcal{{C}} = {r["log10ratio"]:+.0f}$',
+          transform=ax.transAxes, ha='left', va='top', fontsize=fs_text)
+  # the time is the legend TITLE, not repeated in every entry: six entries each carrying
+  # the same axis name is a legend box wider than the panel it sits in. Two columns at
+  # the BOTTOM CENTRE -- the spectra all rise from the lower left and fall off to the
+  # right, so the floor of the panel between them is the widest empty space on the
+  # figure, and a 2-column box uses it without reaching either bundle of curves
+  ax.legend(handles, labels, title='$\\log_{10}(\\bar{T}/\\bar{T}_f)$', ncol=2,
+            fontsize=fs_leg, title_fontsize=fs_leg, loc='lower center', **(leg_kw or {}))
+  return True
+
+
 def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, three_from=None,
     ref=None):
   '''
@@ -3157,110 +3263,52 @@ def plot_spectra_per_regime(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, thre
   cols = _series_colors(logt)
   refs = {round(float(q['log10ratio']), 1): q for q in (ref or [])}
   for r in results:
-    rr = refs.get(round(float(r['log10ratio']), 1))
-    if rr is not None and (rr['nuFnu'].shape != r['nuFnu'].shape
-                           or not np.allclose(rr['Tb'], r['Tb'])):
-      rr = None                         # not the same grids: no share can be read
-    x = nu_over_num(r)
-    p = r['env'].psyn
-    series = _spectra_series(r, barT_f, logt)
-    if not series:
-      continue
-    pkmax = max(np.nanmax(r['nuFnu'][i, :]) for _, _, i in series)   # = the bar{T}_f bin's peak
-    if not (pkmax > 0.):
-      continue
     fig, ax = plt.subplots(figsize=(7., 6.5))
-    handles = []; labels = []; sps = []
-    for k, l, iT in series:
-      col = cols[k]
-      sp = r['nuFnu'][iT, :]
-      # zero/negative samples have no place on a log axis: masking them keeps them out of
-      # the drawn curve AND out of the x-clip below, which is otherwise widened by bins
-      # that show nothing there
-      sp = np.where(np.isfinite(sp) & (sp > 0.), sp, np.nan)
-      sp_draw = phys_mask(x, sp, r)     # drawn above nu_B only; MEASURED on the whole band
-      (h,) = ax.loglog(x, sp_draw/pkmax, color=col, lw=1.6)
-      sps.append(sp_draw/pkmax)
-      ident = identify_segments(x, sp, p)
-      if three_from is not None and r['Tb'][iT] - 1. > three_from:
-        identF = identify_segments(x, sp, p, free_lo=ROUTE_KW['free_lo'])
-        if identF is not None and identF['regime'] is not None:
-          ident = identF
-          # where the three breaks exist -- the same fit and the same acceptance as
-          # track_breaks_route's nu_s -- the four segments are that fit's asymptotes
-          if identF['regime'] == 'SC':
-            env = r['env']; nu_B = 1./env.gma_m**2; nu_gate = fit_nu_floor(r)
-            f = fit_gs02_spectrum(x, sp, p, nu_M_over_num(r), free_bmid=True, nu_B=nu_gate, fit_dec=fit_dec_of(r))
-            t = None if f is None else fit_three_break(
-                x, sp, p, f['nuM'], [(x.min()/10., f['b_lo'], f['b_hi'], 1/3. - 1e-3,
-                                      f['beta_mid']),
-                                     (f['b_lo']/30., f['b_lo'], f['b_hi'], 0., f['beta_mid'])],
-                nu_B=nu_gate, fit_dec=fit_dec_of(r))
-            if t is not None and t['beta_p'] < 1/3. - NU_S_MIN_DEP and not t['at_bound_b1'] \
-               and EDGE_FAC*x.min() < t['b1'] < t['b2']:
-              ident = dict(identF, segs=three_break_segments(t, p, (x.min(), x.max())))
-      # each segment as the line it is DRAWN with (_seg_line: held slope for the asymptotes,
-      # measured for the mid ones), steepest first = left to right, so consecutive entries
-      # are the adjacent pairs and the crossings below are between the lines actually drawn
-      segs = sorted(((n, _seg_line(n, g), g) for n, g in ident['segs'].items()),
-                    key=lambda t: -t[1][0]) if ident else []
-      for j, (name, ln, sg) in enumerate(segs):
-        # run out far enough to meet its neighbours: down to the crossing with the previous
-        # one, up to the crossing with the next, each by SEG_EXT further, so the pair is seen
-        # to cross. The 1-p/2 segment has no neighbour above it and runs to the end of the
-        # band. Running the lines off the curve is deliberate -- see the docstring.
-        l0, l1 = np.log10(sg['x0']), np.log10(sg['x1'])
-        if j:
-          l0 = min(l0, _seg_cross(segs[j-1][1], ln))
-        if j + 1 < len(segs):
-          l1 = max(l1, _seg_cross(ln, segs[j+1][1]))
-        # The LOWEST segment has no neighbour below it, exactly as the 1-p/2 one has none
-        # above, so it runs to the bottom of the band rather than stopping SEG_EXT short.
-        # Without this the extension depended on where the segment happened to be
-        # identified, which is why the FC* band-bottom segment (the 4/3 turn-up caught at
-        # the edge of the array) stopped well short of the VFC one on the same axes.
-        lxs = np.array([np.log10(x.min()) if j == 0 else l0 - SEG_EXT,
-                        np.log10(x.max()) if name == 'hi' else l1 + SEG_EXT])
-        # no guide below the physical floor either (the band may extend below it)
-        lxs[0] = max(lxs[0], np.log10(phys_x_floor(r)))
-        if lxs[1] <= lxs[0]:
-          continue
-        ax.loglog(10**lxs, 10**(ln[1] + ln[0]*lxs)/pkmax,
-                  color=col, ls='-.', lw=0.9, alpha=0.8)
-      handles.append(h)
-      lab = f"{l:+.0f}: {disp_class(figure_class(ident, r) or '?') if ident else '?'}"
-      if rr is not None:
-        with np.errstate(divide='ignore', invalid='ignore'):
-          share = 1. - rr['nuFnu'][iT, :]/sp
-        vis = np.isfinite(share) & (sp/pkmax > ylo)
-        if vis.any() and np.max(share[vis]) >= POSTRF_MIN_SHARE:
-          lab += ' + post RF'
-      labels.append(lab)
-    ax.set_ylim(ylo, 3.)
-    # clip x to where the (y-clipped) spectra are actually visible, +half a decade
-    with np.errstate(invalid='ignore'):
-      vis = np.any(np.nan_to_num(np.array(sps), nan=0.) > ylo, axis=0)
-    if vis.any():
-      xv = x[vis]
-      ax.set_xlim(max(xv.min()/3., phys_x_floor(r)), xv.max()*3.)
-    ax.set_xlabel(NU_M_LABEL)
-    ax.set_ylabel('$\\nu F_\\nu/(\\nu F_\\nu)_{\\rm pk}$')
-    # the regime is stated INSIDE the panel (top left, above the rising low-frequency
-    # ends), not as a title: these go into the article as a series of panels, where a
-    # title band over each one is dead space repeating what one symbol says
-    ax.text(0.03, 0.97, f'$\\log_{{10}}\\mathcal{{C}} = {r["log10ratio"]:+.0f}$',
-            transform=ax.transAxes, ha='left', va='top', fontsize=12)
-    # the time is the legend TITLE, not repeated in every entry: six entries each carrying
-    # the same axis name is a legend box wider than the panel it sits in. Two columns at
-    # the BOTTOM CENTRE -- the spectra all rise from the lower left and fall off to the
-    # right, so the floor of the panel between them is the widest empty space on the
-    # figure, and a 2-column box uses it without reaching either bundle of curves
-    ax.legend(handles, labels, title='$\\log_{10}(\\bar{T}/\\bar{T}_f)$', ncol=2,
-              fontsize=9, title_fontsize=9, loc='lower center')
+    if not _spectra_panel(ax, r, barT_f, cols, refs, ylo, logt, three_from):
+      plt.close(fig)
+      continue
     fig.tight_layout()
     fig.savefig(os.path.join(outdir,
         f'spectrum_evolution_logr={r["log10ratio"]:+.1f}.png'), dpi=300)
     plt.close(fig)
+
+
+def plot_spectra_grid(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, three_from=None,
+    ref=None, ncols=3, panel=(4.2, 3.9), name='spectrum_evolution.png'):
+  '''
+  The panels of plot_spectra_per_regime on ONE figure, ncols per row in increasing
+  log10(C), for the article (one file instead of one per regime). The y-axis is shared (the
+  same SPEC_SERIES_YSPAN decades below each panel's peak) and labelled on the left column
+  only; x stays per panel, clipped to its visible spectra as in the single figures, and is
+  labelled on the bottom row only.
+  '''
+  ylo = 10.**(-SPEC_SERIES_YSPAN)
+  cols = _series_colors(logt)
+  refs = {round(float(q['log10ratio']), 1): q for q in (ref or [])}
+  res = sorted(results, key=lambda q: q['log10ratio'])
+  nrows = -(-len(res)//ncols)
+  fig, axs = plt.subplots(nrows, ncols, figsize=(panel[0]*ncols, panel[1]*nrows),
+                          sharey=True, squeeze=False)
+  for ax, r in zip(axs.flat, res):
+    # larger type than the single figures (the grid is printed at ~0.55 scale), kept clear
+    # of the curves by short handles and tight spacing rather than a bigger box
+    if not _spectra_panel(ax, r, barT_f, cols, refs, ylo, logt, three_from,
+                          fs_text=12, fs_leg=9.5,
+                          leg_kw=dict(handlelength=0.8, handletextpad=0.35, columnspacing=0.7,
+                                      borderpad=0.3, labelspacing=0.2, borderaxespad=0.3)):
+      ax.set_axis_off()
+  for ax in axs.flat[len(res):]:
+    ax.set_axis_off()
+  for i, ax in enumerate(axs.flat):
+    if i % ncols:
+      ax.set_ylabel('')
+    if i < len(res) - ncols:
+      ax.set_xlabel('')
+  fig.tight_layout()
+  path = os.path.join(outdir, name)
+  fig.savefig(path, dpi=300)
+  plt.close(fig)
+  return path
 
 
 
@@ -4295,6 +4343,9 @@ def main(key=DEFAULT_KEY, log10ratio_arr=LOG10RATIO_ARR, outdir=None, use_cache=
   plot_spectra_per_regime(results, barT_f, outdir=outdir,
                           three_from=three_break_from(method, barT_f),
                           ref=post_rf_reference(method, key, z))
+  plot_spectra_grid(results, barT_f, outdir=outdir,
+                    three_from=three_break_from(method, barT_f),
+                    ref=post_rf_reference(method, key, z))
   # the lightcurves again unannotated, as a '_plain' series (see the docstring). Named so
   # that no existing glob picks them up -- ARTICLE_SERIES matches on
   # 'lightcurve_shape_nu=*', which '_plain' breaks by construction. The spectra have no
@@ -4434,6 +4485,8 @@ ARTICLE_SERIES = {   # {source figure dir (run folder stripped): globs of the se
       'pulse_characteristics_vs_nu.png',    # Fig. 6, peak time / width / asymmetry vs nu
       'spectrum_shape_spectra_ratios_RS.png',  # Fig. 7, peak vs time-integrated spectra
       'spectrum_evolution_logr=*.png', # Fig. 8, the SPEC_LOGT series per regime
+      'spectrum_evolution.png',        # Fig. 8 as one 3x3 file (plot_spectra_grid), the
+                                       # one Paper II includes
       'break_panels.png',              # Fig. 9, nu_c, nu_m and their ratio (exact name: the
                                        # break_evolution / _ratio diagnostics stay behind)
       'mid_slope_evolution.png',       # Fig. B.1 (mid_slope_evolution.py)
@@ -4461,8 +4514,8 @@ ARTICLE_ANALYTIC = {
       'cooling_integrated_steady.png',
       'cooling_shell_integrated.png',
   ),
-  'prerar_model': (                    # fig:cells_hydro (Sect. 3.1)
-      ('article_cells_z4_R0.png', 'cells_hydro.png'),
+  'prerar_model': (                    # fig:cells_hydro (Paper II App. A), cut once the
+      ('article_cells_z4_R0_cut.png', 'cells_hydro.png'),   # rarefaction reaches the CD
   ),
 }
 # Series a run may take from the FIDUCIAL when it has none of its own: eps_rad comes from the
