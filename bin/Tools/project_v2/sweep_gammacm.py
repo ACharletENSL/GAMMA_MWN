@@ -3291,11 +3291,14 @@ def plot_spectra_grid(results, barT_f, outdir=OUTDIR, logt=SPEC_LOGT, three_from
                           sharey=True, squeeze=False)
   for ax, r in zip(axs.flat, res):
     # larger type than the single figures (the grid is printed at ~0.55 scale), kept clear
-    # of the curves by short handles and tight spacing rather than a bigger box
+    # of the curves by short handles and tight spacing rather than a bigger box, and
+    # centred left of the middle (x = 0.35): it then sits on the 4/3 rises rather than on
+    # the high-energy cutoffs, which carry more of the figure
     if not _spectra_panel(ax, r, barT_f, cols, refs, ylo, logt, three_from,
                           fs_text=12, fs_leg=9.5,
                           leg_kw=dict(handlelength=0.8, handletextpad=0.35, columnspacing=0.7,
-                                      borderpad=0.3, labelspacing=0.2, borderaxespad=0.3)):
+                                      borderpad=0.3, labelspacing=0.2, borderaxespad=0.3,
+                                      bbox_to_anchor=(0.35, 0.))):
       ax.set_axis_off()
   for ax in axs.flat[len(res):]:
     ax.set_axis_off()
