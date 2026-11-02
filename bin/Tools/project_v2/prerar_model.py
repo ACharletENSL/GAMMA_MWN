@@ -1802,10 +1802,13 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
   # Linear inset on rho and p, top right, over the PRE-CRASH window only: on the log main
   # axes the plateau is a few pixels of a 4-decade span, and it is the plateau that carries
   # the causal-contact law (a flat line at 1) the scaling was chosen to expose.
+  # With R_max the crash fills the right half and the lower left is empty (every history is
+  # still on its plateau at the top), so the inset and the legend go there instead.
   ins, dex_seen = {}, [0., np.inf]     # inset window: (last handover, first injection)
+  ins_box = [0.09, 0.11, 0.38, 0.38] if R_max is not None else [0.575, 0.575, 0.40, 0.40]
   for jj, (key, lab, pw, sc) in enumerate(cols):
     if key in ('rho', 'p'):
-      ins[jj] = axes[jj].inset_axes([0.575, 0.575, 0.40, 0.40])
+      ins[jj] = axes[jj].inset_axes(ins_box)
 
   # Abscissa offset per cell: 0 on log10(R/R_inj), log10(R_inj/R_0) on log10(R/R_0). In the
   # R0 version every cell runs to the same RADIUS, dex_max past the last injection.
@@ -1897,7 +1900,8 @@ def plot_article(table_key=TABLE_KEY, z=4, ncells=NCELLS, outdir=OUTDIR,
       # |R_inj - R_0|/Delta_0 runs to ~1e4 and would make nonsense of this key.
       axes[jj].legend(title=rf'$|R_i-R_0|/\Delta_{{0,{z}}}$', fontsize=9,
                       title_fontsize=9, frameon=True, framealpha=0.9, edgecolor='0.85',
-                      loc='lower right', handlelength=1.6)
+                      loc='lower left' if R_max is not None else 'lower right',
+                      handlelength=1.6)
   axes[-1].set_xlabel(r'$\log_{10}(R/R_{\rm inj})$' if xunit == 'inj'
                      else r'$\log_{10}(R/R_0)$')
 
