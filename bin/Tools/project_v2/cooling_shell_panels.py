@@ -138,9 +138,10 @@ def slope(xv, yv):
 # flat, for the length of the article (author, 2026-11-06), on the A&A text width: Figs. 4-5
 # in 2 x 2 (panels 7.6 cm wide), Figs. E.1, F.1 in one row of four (3.4 cm)
 WIDTH = 7.24
-REGIME = {'FC': r'$\gamma_{{\rm m},0}I_{{\rm dyn},0}=10^3$',
-          'SC': r'$\gamma_{{\rm m},0}I_{{\rm dyn},0}=10^{-2}$'}
-SLOPE_LAB = 'local slope'                       # the panels are too low for the fraction
+# {,}: no space after the comma of a subscript (mathtext)
+REGIME = {'FC': r'$\gamma_{{\rm m}{,}0}I_{{\rm dyn}{,}0}=10^3$',
+          'SC': r'$\gamma_{{\rm m}{,}0}I_{{\rm dyn}{,}0}=10^{-2}$'}
+SLOPE_LAB = 'slope'                             # the panels are too low for the fraction
 KW_KEY = dict(loc='lower center', fontsize=FS_ANN, frameon=False, handlelength=1.6,
               columnspacing=1.1, handletextpad=.5, borderaxespad=0, borderpad=0)
 
@@ -264,15 +265,15 @@ G_BREAKS = {  # table break -> quantity (MARK)
   ('SC', 0): {'low': 'm,ad', 'mi': 'm,i', 'b': 'cSC'},
   ('FC', 1): {'low': 'c,ad', 'hi': 'c,l'},
   ('SC', 1): {'low': 'm,ad', 'adf': 'm,l', 'hi': 'c,ad', 'top': 'c,l'}}
-G_LAB = {'c,ad': r'$\gamma_{\rm c,ad}$', 'm,ad': r'$\gamma_{\rm m,ad}$',
+G_LAB = {'c,ad': r'$\gamma_{\rm c{,}ad}$', 'm,ad': r'$\gamma_{\rm m{,}ad}$',
          'cFC': r'$\tilde{\gamma}_{\rm c}$', 'cSC': r'$\tilde{\gamma}_{\rm c}$',
-         'm,i': r'$\gamma_{\rm m}$', 'c,l': r'$\gamma_{\rm c,l}$',
-         'm,l': r'$\gamma_{\rm m,l}$'}
-G_NUDGE = {'FC': {r'$-2/3$': 0., r'$-2$': 2., r'$-p$': -1.5, r'$-(p+1)$': -2.},
+         'm,i': r'$\gamma_{\rm m}$', 'c,l': r'$\gamma_{\rm c{,}l}$',
+         'm,l': r'$\gamma_{\rm m{,}l}$'}
+G_NUDGE = {'FC': {r'$-p_{\rm FC}$': 1., r'$-2$': 2., r'$-p$': -1.5, r'$-(p+1)$': -2.},
            'SC': {r'$-p$': 1.5, r'$-(p+1)$': -2.}}
-G_SLOPES = {'FC': ((-2./3., r'$-2/3$'), (-2., r'$-2$'), (-P, r'$-p$'),
+G_SLOPES = {'FC': ((-2./3., r'$-p_{\rm FC}$'), (-2., r'$-2$'), (-P, r'$-p$'),
                    (-(P + 1.), r'$-(p+1)$')),
-            'SC': ((.5, r'$+1/2$'), (-P, r'$-p$'), (-(P + 1.), r'$-(p+1)$'))}
+            'SC': ((.5, r'$-p_{\rm SC}$'), (-P, r'$-p$'), (-(P + 1.), r'$-(p+1)$'))}
 XLIM_G = (2., 3e9)
 YLIM_F = {'FC': (1e-5, 8.), 'SC': (2e-7, 8.)}
 SL_LIM_G = (-4.3, 1.3)
@@ -329,11 +330,11 @@ def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=F
 
 
 # --- Fig. 5 ---------------------------------------------------------------------------
-U_LAB = {'c,ad': r"$\nu'_{\rm c,ad}$", 'm,ad': r"$\nu'_{\rm m,ad}$", 'cFC': r"$\nu'_{\rm c}$",
-         'cSC': r"$\nu'_{\rm c}$", 'm,i': r"$\nu'_{\rm m}$", 'c,l': r"$\nu'_{\rm c,l}$",
-         'm,l': r"$\nu'_{\rm m,l}$"}
-U_NUDGE = {'FC': {r'$1/3$': 3., r'$1/6$': -3., r'$-1/2$': 2., r'$-(p-1)/2$': -1.}, 'SC': {}}
-U_SLOPES = {'FC': ((1./3., r'$1/3$'), (1./6., r'$1/6$'), (-.5, r'$-1/2$'),
+U_LAB = {'c,ad': r"$\nu'_{\rm c{,}ad}$", 'm,ad': r"$\nu'_{\rm m{,}ad}$", 'cFC': r"$\nu'_{\rm c}$",
+         'cSC': r"$\nu'_{\rm c}$", 'm,i': r"$\nu'_{\rm m}$", 'c,l': r"$\nu'_{\rm c{,}l}$",
+         'm,l': r"$\nu'_{\rm m{,}l}$"}
+U_NUDGE = {'FC': {r'$1/3$': 3.5, r'$\alpha_{\rm FC}$': -1.5, r'$-1/2$': 2., r'$-(p-1)/2$': -1.}, 'SC': {}}
+U_SLOPES = {'FC': ((1./3., r'$1/3$'), (1./6., r'$\alpha_{\rm FC}$'), (-.5, r'$-1/2$'),
                    (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$')),
             'SC': ((1./3., r'$1/3$'), (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$'))}
 XLIM_U = (1e-1, 3e19)
@@ -411,7 +412,7 @@ def _draw_distribution_bpl(reg, col, axN, axS):
 
 
 def fig_distribution_bpl(outdir=OUTDIR, fname='cooling_shell_bpl.png', show=False):
-  return _row(_draw_distribution_bpl, AX_G, r'$f_{\rm e}^{\rm BPL}/f_{\rm e}^{\rm num}$', KEY_BPL,
+  return _row(_draw_distribution_bpl, AX_G, r'$f_{\rm e}^{\,{\rm BPL}}/f_{\rm e}^{\,{\rm num}}$', KEY_BPL,
               outdir, fname, show)
 
 
