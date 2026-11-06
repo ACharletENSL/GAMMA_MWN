@@ -182,10 +182,15 @@ def table_pieces(c, regime, tau_end=None, gM=GMA_M0):
     else:                                                 # adiabatic tail, then bpl_finite
       gme, gm, t = br['adf'], c.gmi(c.tau), c.tau
       C = (p - 1.)*a*F/P*(t/tau_end)**a
+      Mhi = (p - 1.)*a*F/P*(br['hi']/gme)**(1. - p)      # third case of Eq. bpl_finite, at gma_c,ad
       segs = [(br['low'], gme, [(pw(C, gm, a/(2.*zeta)), a/(2.*zeta)),
                                 (pw(-C*t**(-P), gm, (1. - p)/2.), (1. - p)/2.)]),
               (gme, br['hi'],
-               [(pw((p - 1.)*a*F/P*(1. - tau_end**(-P)), gme, (1. - p)/2.), (1. - p)/2.)])]
+               [(pw((p - 1.)*a*F/P*(1. - tau_end**(-P)), gme, (1. - p)/2.), (1. - p)/2.)]),
+              (br['hi'], br['top'],
+               [(pw(Mhi, br['hi'], (1. - p)/2.), (1. - p)/2.),
+                (pw(-Mhi*tau_end**(-P), br['hi'], (1. - p + P/eta)/2.),
+                 (1. - p + P/eta)/2.)])]
   pieces = [(lo, hi, fn(lo), k) for lo, hi, terms in segs if hi > lo for fn, k in terms]
   return pieces, br
 

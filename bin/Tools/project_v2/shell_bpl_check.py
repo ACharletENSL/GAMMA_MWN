@@ -168,7 +168,7 @@ def table(gma, c, regime, tau_end=None):
       C = (p - 1.)*a*F/P*(c.tau/tau_end)**a
       seg = dict(adiabatic=C*((gma/gm)**(a/zeta) - c.tau**(-P)*(gma/gm)**(1. - p)),
                  slow=(p - 1.)*a*F/P*(1. - tau_end**(-P))*(gma/gme)**(1. - p))
-      br = dict(low=c.gm_of(1.), adf=gme, hi=c.ginf(1.))
+      br = dict(low=c.gm_of(1.), adf=gme, hi=c.ginf(1.), top=c.ginf(tau_end))
       f = np.where(gma < gme, seg['adiabatic'],
                    np.where(gma < br['hi'], seg['slow'], 0.))
     join = None
