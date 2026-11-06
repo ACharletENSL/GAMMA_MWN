@@ -5,8 +5,8 @@
 Paper I, Figs. 4 (fig:intNe_gen) and 5 (fig:shell_spectrum), redesigned 2026-10-26, reworked
 after the 2026-11-03 meeting: the shell-integrated distribution of the HOMOGENEOUS coasting
 shell (cooling_shell_integrated) and its comoving spectrum (cooling_shell_spectrum), in ONE
-layout, and their comparisons to the broken power law, Figs. E.1 (fig:shell_bpl) and F.1
-(fig:spectrum_bpl), in the same layout.
+flat 2 x 2 layout, and their comparisons to the broken power law, Figs. E.1 (fig:shell_bpl) and
+F.1 (fig:spectrum_bpl), in one row of four (2026-11-06).
 
     columns  continuous injection | finite injection (Delta t'_inj = t'_0): the same shell
              up to the end of the injection (grey), then its old electrons only
@@ -67,9 +67,9 @@ INK, MUTED, GREY = '0.15', '0.45', '0.75'
 OLD_LS = dict(color='#D55E00', ls=(0, (4, 1.5)), lw=1.3, zorder=4)
 YOUNG_LS = dict(color='#009E73', ls=(0, (1.2, 1.2)), lw=1.5, zorder=4)
 FS_LAB, FS_TICK, FS_ANN = 9., 8., 7.
-# A&A: no grid; the only text in a panel is the regime header (on an opaque white box)
-# and the legend of the break symbols: segments and times are read from the slope
-# panels' guides and the colour key (author, 2026-10-26)
+# A&A: no grid; the only text in a panel is the regime header (on an opaque white box): segments
+# and times are read from the slope panels' guides and the keys above the panels (author,
+# 2026-10-26; the break symbols moved from the panels to the key, 2026-11-06)
 BOX = dict(boxstyle='square,pad=0.1', fc='w', ec='none')
 BPL_LS = dict(color=INK, ls=(0, (3, 2)), lw=.8, zorder=5)
 STEP_LS = dict(ls=':', lw=1.1)
@@ -135,13 +135,14 @@ def slope(xv, yv):
 
 
 # --- shared layout --------------------------------------------------------------------
-def _layout(figsize, slope_h):
-  fig, axs = plt.subplots(5, 2, figsize=figsize, sharex=True,
-      gridspec_kw=dict(height_ratios=[2.1, slope_h, .2, 2.1, slope_h], hspace=.07,
-                       wspace=.05))
-  for ax in axs[2]:
-    ax.set_visible(False)
-  return fig, {'FC': (axs[0], axs[1]), 'SC': (axs[3], axs[4])}, axs
+# flat, for the length of the article (author, 2026-11-06), on the A&A text width: Figs. 4-5
+# in 2 x 2 (panels 7.6 cm wide), Figs. E.1, F.1 in one row of four (3.4 cm)
+WIDTH = 7.24
+REGIME = {'FC': r'$\gamma_{{\rm m},0}I_{{\rm dyn},0}=10^3$',
+          'SC': r'$\gamma_{{\rm m},0}I_{{\rm dyn},0}=10^{-2}$'}
+SLOPE_LAB = 'local slope'                       # the panels are too low for the fraction
+KW_KEY = dict(loc='lower center', fontsize=FS_ANN, frameon=False, handlelength=1.6,
+              columnspacing=1.1, handletextpad=.5, borderaxespad=0, borderpad=0)
 
 
 def _guides(axS_row, levs, nudge):
@@ -162,48 +163,94 @@ def _guides(axS_row, levs, nudge):
                  color=INK, annotation_clip=False)
 
 
-def _headers(rows):
-  rows['FC'][0][0].set_title('Continuous injection', fontsize=FS_LAB, pad=4)
-  rows['FC'][0][1].set_title(FINITE_TITLE, fontsize=FS_LAB, pad=4)
-  for reg, txt in (('FC', 'fast cooling\n' + r'$\gamma_{{\rm m},0}I_{{\rm dyn},0}=10^3$'),
-                   ('SC', 'slow cooling\n' + r'$\gamma_{{\rm m},0}I_{{\rm dyn},0}=10^{-2}$')):
-    for ax in rows[reg][0]:
-      ax.annotate(txt, (.98, .96), xycoords='axes fraction', ha='right', va='top',
-                  multialignment='right', fontsize=FS_ANN, color=INK, bbox=BOX, zorder=8)
+def _key(fig, xy, times, styles, dy=0., breaks=None):
+  '''above the panels, one line for the times and the line styles and, under it, one for
+  the symbols of the breaks (none in Figs. E.1, F.1)'''
+  h = [plt.Line2D([], [], color='none', label=r"$\Delta t'/t'_0$:")]
+  h += [plt.Line2D([], [], color=COL[t], lw=1.8, label=f'{t:g}') for t in times]
+  fig.legend(handles=h + styles, ncol=len(h) + len(styles), bbox_to_anchor=(xy[0], xy[1] + dy),
+             **KW_KEY)
+  if breaks:
+    h = [plt.Line2D([], [], marker=MARK[q], label=breaks[q], **MARK_KW) for q in KEY_BREAKS]
+    fig.legend(handles=h, ncol=len(h), bbox_to_anchor=xy, **dict(KW_KEY, handlelength=1.,
+                                                                 columnspacing=1.4))
 
 
-def _key(fig, axs, styles, times=ALL_T):
-  '''two legends above the panels: the times, named on their left, over the left column,
-  and the line styles over the right one'''
-  kw = dict(loc='lower center', fontsize=FS_ANN, frameon=False, handlelength=1.6,
-            columnspacing=1.1, handletextpad=.5)
-  y = axs[0, 0].get_position().y1 + .035
-  xc = [.5*(ax.get_position().x0 + ax.get_position().x1) for ax in axs[0]]
-  h = [plt.Line2D([], [], color=COL[t], lw=1.8, label=f'{t:g}') for t in times]
-  leg = fig.legend(handles=h, ncol=len(h), bbox_to_anchor=(xc[0], y), **kw)
-  fig.legend(handles=styles, ncol=len(styles), bbox_to_anchor=(xc[1], y), **kw)
-  fig.canvas.draw()
-  bb = leg.get_window_extent().transformed(fig.transFigure.inverted())
-  fig.text(bb.x0 - .012, .5*(bb.y0 + bb.y1), r"$\Delta t'/t'_0$", ha='right', va='center',
-           fontsize=FS_ANN, color=INK)
+def _axes(axN, axS, A, col, sl, every):
+  '''labels and ticks of one (curves, slope or ratio) pair of panels; A = AX_G or AX_U'''
+  axN.set_xlim(*A['xlim'])
+  axS.set_xticks(10.**np.arange(*A['ticks'], every*A['step']))
+  for ax in (axN, axS):
+    ax.tick_params(which='both', labelsize=FS_TICK)
+  if col == 0:
+    _ylab_col0(axN, axS, A['ylab'], sl)
+  else:
+    axN.tick_params(labelleft=False)
+    axS.tick_params(labelleft=False, which='both')
+
+
+def _flat(draw, A, breaks, slopes, nudge, slope_ticks, outdir, fname, show):
+  '''Figs. 4-5: fast cooling above slow cooling, continuous | finite injection'''
+  fig, axs = plt.subplots(5, 2, figsize=(WIDTH, 4.55), sharex=True,
+      gridspec_kw=dict(height_ratios=[2.1, .85, .22, 2.1, .85], hspace=.07, wspace=.05))
+  fig.subplots_adjust(left=.075, right=.905, top=.86, bottom=.09)
+  for ax in axs[2]:
+    ax.set_visible(False)
+  for reg, (axNs, axSs) in (('FC', axs[:2]), ('SC', axs[3:])):
+    for col in (0, 1):
+      draw(reg, col, axNs[col], axSs[col])
+      axNs[col].annotate({'FC': 'fast cooling\n', 'SC': 'slow cooling\n'}[reg] + REGIME[reg],
+                         (.98, .96), xycoords='axes fraction', ha='right', va='top',
+                         multialignment='right', fontsize=FS_ANN, color=INK, bbox=BOX, zorder=8)
+      axSs[col].set_yticks(slope_ticks)
+      _axes(axNs[col], axSs[col], A, col, SLOPE_LAB, 1)
+    _guides(axSs, slopes[reg], nudge[reg])
+  for ax in axs[4]:
+    ax.set_xlabel(A['xlab'], fontsize=FS_LAB)
+  axs[0, 0].set_title('Continuous injection', fontsize=FS_LAB, pad=3)
+  axs[0, 1].set_title(FINITE_TITLE, fontsize=FS_LAB, pad=3)
+  p, q = axs[0, 0].get_position(), axs[0, 1].get_position()
+  _key(fig, (.5*(p.x0 + q.x1), p.y1 + .05), ALL_T, KEY_SPLIT, .04, breaks)
+  return _save(fig, outdir, fname, show)
+
+
+def _row(draw, A, sl, key, outdir, fname, show):
+  '''Figs. E.1, F.1: fast cooling, then slow cooling, each continuous | finite injection'''
+  fig = plt.figure(figsize=(WIDTH, 2.75))
+  gs = fig.add_gridspec(2, 5, height_ratios=[2.2, 1.], width_ratios=[1, 1, .34, 1, 1],
+                        hspace=.07, wspace=.05, left=.075, right=.925, top=.83, bottom=.14)
+  head = {}
+  for i, (reg, col) in zip((0, 1, 3, 4), (('FC', 0), ('FC', 1), ('SC', 0), ('SC', 1))):
+    axN = fig.add_subplot(gs[0, i])
+    axS = fig.add_subplot(gs[1, i], sharex=axN)
+    draw(reg, col, axN, axS)
+    _axes(axN, axS, A, col, sl, 2)
+    axN.tick_params(labelbottom=False)
+    axS.set_xlabel(A['xlab'], fontsize=FS_LAB - A['xlab_small'])
+    axN.text(.5, 1.03, ('continuous', r"finite, $\Delta t'_{\rm inj}=t'_0$")[col], ha='center',
+             va='bottom', transform=axN.transAxes, fontsize=FS_ANN, color=INK)
+    head.setdefault(reg, []).append(axN.get_position())
+  for reg, name in (('FC', 'Fast cooling, '), ('SC', 'Slow cooling, ')):
+    p, q = head[reg]
+    fig.text(.5*(p.x0 + q.x1), p.y1 + .065, name + REGIME[reg], ha='center', va='bottom',
+             fontsize=FS_LAB - 1, color=INK)
+  p, q = head['FC'][0], head['SC'][1]
+  _key(fig, (.5*(p.x0 + q.x1), p.y1 + .135), BPL_T, key)
+  return _save(fig, outdir, fname, show)
 
 
 # one marker per break, the same for a quantity in every panel and in both figures
 MARK = {'c,ad': 'o', 'm,ad': 's', 'cFC': 'D', 'cSC': 'D', 'm,i': '^', 'c,l': 'v',
         'm,l': 'p'}
 MARK_KW = dict(ms=5., mfc='w', mec=INK, mew=1., ls='none')
+KEY_BREAKS = ('c,ad', 'm,ad', 'c,l', 'm,l', 'cFC', 'm,i')
 
 
-def _mark_breaks(ax, at, value, br, quantities, labels, leg):
-  '''a marker on the exact curve at each break; their names in a legend at leg =
-  (loc, (x, y) in axes fraction)'''
-  h = []
+def _mark_breaks(ax, at, value, br, quantities):
+  '''a marker on the exact curve at each break'''
   for k, q in quantities.items():
     xb = at(br[k])
     ax.plot([xb], [value(xb)], marker=MARK[q], zorder=6, **MARK_KW)
-    h.append(plt.Line2D([], [], marker=MARK[q], label=labels[q], **MARK_KW))
-  ax.legend(handles=h, loc=leg[0], bbox_to_anchor=leg[1], fontsize=FS_ANN, frameon=False,
-            handlelength=1., handletextpad=.4, borderpad=.2, labelspacing=.25)
 
 
 def _interp_log(xs, ys):
@@ -221,8 +268,8 @@ G_LAB = {'c,ad': r'$\gamma_{\rm c,ad}$', 'm,ad': r'$\gamma_{\rm m,ad}$',
          'cFC': r'$\tilde{\gamma}_{\rm c}$', 'cSC': r'$\tilde{\gamma}_{\rm c}$',
          'm,i': r'$\gamma_{\rm m}$', 'c,l': r'$\gamma_{\rm c,l}$',
          'm,l': r'$\gamma_{\rm m,l}$'}
-LEG = ('upper right', (.99, .82))   # under the regime header, free in all 8 panels
-G_NUDGE = {'FC': {r'$-2$': 3., r'$-p$': -1.5}, 'SC': {}}   # -2 and -p: 5 pt apart
+G_NUDGE = {'FC': {r'$-2/3$': 0., r'$-2$': 2., r'$-p$': -1.5, r'$-(p+1)$': -2.},
+           'SC': {r'$-p$': 1.5, r'$-(p+1)$': -2.}}
 G_SLOPES = {'FC': ((-2./3., r'$-2/3$'), (-2., r'$-2$'), (-P, r'$-p$'),
                    (-(P + 1.), r'$-(p+1)$')),
             'SC': ((.5, r'$+1/2$'), (-P, r'$-p$'), (-(P + 1.), r'$-(p+1)$'))}
@@ -230,8 +277,7 @@ XLIM_G = (2., 3e9)
 YLIM_F = {'FC': (1e-5, 8.), 'SC': (2e-7, 8.)}
 SL_LIM_G = (-4.3, 1.3)
 F_LAB = r'$f_{\rm e}$'
-SLOPE_LAB = (r'$\dfrac{{\rm d}\ln}{{\rm d}\ln\gamma_{\rm e}}'
-             r'\left[\dfrac{{\rm d}\mathcal{N}_{\rm e}}{{\rm d}\gamma_{\rm e}}\right]$')
+AX_G = dict(xlim=XLIM_G, xlab=r'$\gamma_{\rm e}$', xlab_small=0, ylab=F_LAB, ticks=(1, 10), step=2)
 KEY_SPLIT = [plt.Line2D([], [], color=GREY, lw=1.6, label='end of injection'),
              plt.Line2D([], [], label='old electrons', **OLD_LS),
              plt.Line2D([], [], label='young electrons', **YOUNG_LS)]
@@ -242,7 +288,7 @@ def _ylab_col0(axN, axS, yl, sl):
     axN.set_ylabel(yl, fontsize=FS_LAB, rotation=0, ha='right', va='center', labelpad=5.)
   else:
     axN.set_ylabel(yl, fontsize=FS_LAB)
-  axS.set_ylabel(sl, fontsize=FS_LAB - 1)
+  axS.set_ylabel(sl, fontsize=FS_ANN + .5, labelpad=2.)
 
 
 def _named_g(br, reg, col, g, f):
@@ -254,110 +300,79 @@ def _named_g(br, reg, col, g, f):
   return br
 
 
+def _draw_distribution(reg, col, axN, axS):
+  finite = col == 1
+  if finite:
+    g, f = f_exact(1. + DINJ, reg, False)
+    axN.loglog(g, f, color=GREY, lw=1.4, zorder=2)
+  for t in TIMES[(reg, col)]:
+    x = 1. + t
+    g, f = f_exact(x, reg, finite)
+    axN.loglog(g, f, color=COL[t], lw=1.5, zorder=3)
+    s = slope(g, f/g)                           # of dN/dgma, as the text quotes them
+    s[~np.isfinite(s) | (s < SL_LIM_G[0]) | (s > SL_LIM_G[1])] = np.nan
+    axS.semilogx(g, s, color=COL[t], lw=1.2, zorder=3)
+    if not finite and t == T_SPLIT:
+      ge, _, fo, fy = old_young(x, reg)
+      axN.loglog(ge, np.where(fo > 0, fo, np.nan), **OLD_LS)
+      axN.loglog(ge, np.where(fy > 0, fy, np.nan), **YOUNG_LS)
+    if t == NAMED[(reg, col)]:
+      _, br = bpl_pieces(x, reg, finite and t > DINJ)
+      _mark_breaks(axN, lambda v: np.clip(v, g[0]*1.03, g[-1]/1.03), _interp_log(g, f),
+                   _named_g(br, reg, col, g, f), G_BREAKS[(reg, col)])
+  axN.set_ylim(*YLIM_F[reg])
+  axS.set_ylim(*SL_LIM_G)
+
+
 def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=False):
-  fig, rows, axs = _layout((7.0, 6.4), .8)
-  for reg in ('FC', 'SC'):
-    axNs, axSs = rows[reg]
-    for col in (0, 1):
-      axN, axS = axNs[col], axSs[col]
-      finite = col == 1
-      if finite:
-        g, f = f_exact(1. + DINJ, reg, False)
-        axN.loglog(g, f, color=GREY, lw=1.4, zorder=2)
-      for t in TIMES[(reg, col)]:
-        x = 1. + t
-        g, f = f_exact(x, reg, finite)
-        axN.loglog(g, f, color=COL[t], lw=1.5, zorder=3)
-        s = slope(g, f/g)                      # of dN/dgma, as the text quotes them
-        s[~np.isfinite(s) | (s < SL_LIM_G[0]) | (s > SL_LIM_G[1])] = np.nan
-        axS.semilogx(g, s, color=COL[t], lw=1.2, zorder=3)
-        if not finite and t == T_SPLIT:
-          ge, _, fo, fy = old_young(x, reg)
-          axN.loglog(ge, np.where(fo > 0, fo, np.nan), **OLD_LS)
-          axN.loglog(ge, np.where(fy > 0, fy, np.nan), **YOUNG_LS)
-        if t == NAMED[(reg, col)]:
-          _, br = bpl_pieces(x, reg, finite and t > DINJ)
-          _mark_breaks(axN, lambda v: np.clip(v, g[0]*1.03, g[-1]/1.03), _interp_log(g, f),
-                       _named_g(br, reg, col, g, f), G_BREAKS[(reg, col)], G_LAB, LEG)
-      axN.set_ylim(*YLIM_F[reg])
-      axS.set_ylim(*SL_LIM_G)
-      for ax in (axN, axS):
-        ax.tick_params(which='both', labelsize=FS_TICK)
-      if col == 0:
-        _ylab_col0(axN, axS, F_LAB, SLOPE_LAB)
-      else:
-        axN.tick_params(labelleft=False)
-        axS.tick_params(labelleft=False)
-    _guides(axSs, G_SLOPES[reg], G_NUDGE[reg])
-  for ax in axs[4]:
-    ax.set_xlabel(r'$\gamma_{\rm e}$', fontsize=FS_LAB)
-  axs[0, 0].set_xlim(*XLIM_G)
-  axs[0, 0].set_xticks(10.**np.arange(1, 10, 2))
-  _headers(rows)
-  _key(fig, axs, KEY_SPLIT)
-  return _save(fig, outdir, fname, show)
+  return _flat(_draw_distribution, AX_G, G_LAB, G_SLOPES, G_NUDGE, (-4, -2, 0), outdir, fname, show)
 
 
 # --- Fig. 5 ---------------------------------------------------------------------------
 U_LAB = {'c,ad': r"$\nu'_{\rm c,ad}$", 'm,ad': r"$\nu'_{\rm m,ad}$", 'cFC': r"$\nu'_{\rm c}$",
          'cSC': r"$\nu'_{\rm c}$", 'm,i': r"$\nu'_{\rm m}$", 'c,l': r"$\nu'_{\rm c,l}$",
          'm,l': r"$\nu'_{\rm m,l}$"}
-U_NUDGE = {'FC': {r'$1/3$': 2., r'$1/6$': -2.}, 'SC': {}}  # 1/3 and 1/6: 6 pt apart
+U_NUDGE = {'FC': {r'$1/3$': 3., r'$1/6$': -3., r'$-1/2$': 2., r'$-(p-1)/2$': -1.}, 'SC': {}}
 U_SLOPES = {'FC': ((1./3., r'$1/3$'), (1./6., r'$1/6$'), (-.5, r'$-1/2$'),
                    (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$')),
             'SC': ((1./3., r'$1/3$'), (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$'))}
 XLIM_U = (1e-1, 3e19)
+U = np.geomspace(*XLIM_U, int(np.log10(XLIM_U[1]/XLIM_U[0])*40))
 YLIM_L = {'FC': (1e-5, 8.), 'SC': (1e-6, 8.)}
 SL_LIM_U = (-1.55, .55)
 L_LAB = r"$L'_{\nu'}/(p'_{\rm syn}\mathcal{N}_{\rm e})$"
 U_XLAB = r"$\nu'/\nu'_{\rm syn}(\gamma_{\rm e}=1)$"
+AX_U = dict(xlim=XLIM_U, xlab=U_XLAB, xlab_small=1, ylab=L_LAB, ticks=(0, 20), step=4)
+
+
+def _draw_spectrum(reg, col, axN, axS):
+  finite = col == 1
+  if finite:
+    g, f = f_exact(1. + DINJ, reg, False)
+    axN.loglog(U, spectrum(g, f, U), color=GREY, lw=1.4, zorder=2)
+  for t in TIMES[(reg, col)]:
+    x = 1. + t
+    g, f = f_exact(x, reg, finite)
+    L = spectrum(g, f, U)
+    axN.loglog(U, L, color=COL[t], lw=1.5, zorder=3)
+    sl = slope(U, L)
+    sl[~np.isfinite(sl) | (sl < SL_LIM_U[0]) | (sl > SL_LIM_U[1])] = np.nan
+    axS.semilogx(U, sl, color=COL[t], lw=1.2, zorder=3)
+    if not finite and t == T_SPLIT:
+      ge, _, fo, fy = old_young(x, reg)
+      axN.loglog(U, spectrum(ge, fo, U), **OLD_LS)
+      axN.loglog(U, spectrum(ge, fy, U), **YOUNG_LS)
+    if t == NAMED[(reg, col)]:
+      _, br = bpl_pieces(x, reg, finite and t > DINJ)
+      _mark_breaks(axN, lambda v: np.clip(v, *XLIM_U), _interp_log(U, L),
+                   {k: v**2 for k, v in _named_g(br, reg, col, g, f).items()},
+                   G_BREAKS[(reg, col)])
+  axN.set_ylim(*YLIM_L[reg])
+  axS.set_ylim(*SL_LIM_U)
 
 
 def fig_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=False):
-  u = np.geomspace(*XLIM_U, int(np.log10(XLIM_U[1]/XLIM_U[0])*40))
-  fig, rows, axs = _layout((7.0, 7.3), 1.05)
-  for reg in ('FC', 'SC'):
-    axNs, axSs = rows[reg]
-    for col in (0, 1):
-      axN, axS = axNs[col], axSs[col]
-      finite = col == 1
-      if finite:
-        g, f = f_exact(1. + DINJ, reg, False)
-        axN.loglog(u, spectrum(g, f, u), color=GREY, lw=1.4, zorder=2)
-      for t in TIMES[(reg, col)]:
-        x = 1. + t
-        g, f = f_exact(x, reg, finite)
-        L = spectrum(g, f, u)
-        axN.loglog(u, L, color=COL[t], lw=1.5, zorder=3)
-        sl = slope(u, L)
-        sl[~np.isfinite(sl) | (sl < SL_LIM_U[0]) | (sl > SL_LIM_U[1])] = np.nan
-        axS.semilogx(u, sl, color=COL[t], lw=1.2, zorder=3)
-        if not finite and t == T_SPLIT:
-          ge, _, fo, fy = old_young(x, reg)
-          axN.loglog(u, spectrum(ge, fo, u), **OLD_LS)
-          axN.loglog(u, spectrum(ge, fy, u), **YOUNG_LS)
-        if t == NAMED[(reg, col)]:
-          _, br = bpl_pieces(x, reg, finite and t > DINJ)
-          _mark_breaks(axN, lambda v: np.clip(v, *XLIM_U), _interp_log(u, L),
-                       {k: v**2 for k, v in _named_g(br, reg, col, g, f).items()},
-                       G_BREAKS[(reg, col)], U_LAB, LEG)
-      axN.set_ylim(*YLIM_L[reg])
-      axS.set_ylim(*SL_LIM_U)
-      for ax in (axN, axS):
-        ax.tick_params(which='both', labelsize=FS_TICK)
-      if col == 0:
-        _ylab_col0(axN, axS, L_LAB, r"${\rm d}\ln L'_{\nu'}/{\rm d}\ln\nu'$")
-      else:
-        axN.tick_params(labelleft=False)
-        axS.tick_params(labelleft=False)
-    _guides(axSs, U_SLOPES[reg], U_NUDGE[reg])
-  for ax in axs[4]:
-    ax.set_xlabel(U_XLAB, fontsize=FS_LAB)
-  axs[0, 0].set_xlim(*XLIM_U)
-  axs[0, 0].set_xticks(10.**np.arange(0, 20, 4))
-  _headers(rows)
-  _key(fig, axs, KEY_SPLIT)
-  return _save(fig, outdir, fname, show)
+  return _flat(_draw_spectrum, AX_U, U_LAB, U_SLOPES, U_NUDGE, (-1, 0), outdir, fname, show)
 
 
 # --- the comparisons to the broken power law, Figs. E.1 and F.1 -----------------------
@@ -377,83 +392,55 @@ def _ratio_axes(ax):
   ax.yaxis.set_minor_formatter(plt.NullFormatter())
 
 
+def _draw_distribution_bpl(reg, col, axN, axS):
+  finite = col == 1
+  for t in BPL_TIMES[(reg, col)]:
+    x = 1. + t
+    g, f = f_exact(x, reg, finite)
+    axN.loglog(g, f, color=COL[t], lw=1.5, zorder=3)
+    pieces, _ = bpl_pieces(x, reg, finite and t > DINJ)
+    gb = np.geomspace(min(q[0] for q in pieces), max(q[1] for q in pieces), 800)
+    fb = eval_pieces(gb, pieces)
+    axN.loglog(gb, np.where(fb > 0, fb, np.nan), **BPL_LS)
+    r = eval_pieces(g, pieces)/np.where(f > 0, f, np.nan)
+    # the lowest Lorentz factors differ by ~1 %: not a segment of the distribution
+    r[(g < 1.05*g[0]) | (g > g[-1]/1.05)] = np.nan
+    axS.semilogx(g, np.where(r > 0, r, np.nan), color=COL[t], lw=1.2, zorder=3)
+  axN.set_ylim(*YLIM_F[reg])
+  _ratio_axes(axS)
+
+
 def fig_distribution_bpl(outdir=OUTDIR, fname='cooling_shell_bpl.png', show=False):
-  fig, rows, axs = _layout((7.0, 6.9), .8)
-  for reg in ('FC', 'SC'):
-    axNs, axSs = rows[reg]
-    for col in (0, 1):
-      axN, axS = axNs[col], axSs[col]
-      finite = col == 1
-      for t in BPL_TIMES[(reg, col)]:
-        x = 1. + t
-        g, f = f_exact(x, reg, finite)
-        axN.loglog(g, f, color=COL[t], lw=1.5, zorder=3)
-        pieces, _ = bpl_pieces(x, reg, finite and t > DINJ)
-        gb = np.geomspace(min(q[0] for q in pieces), max(q[1] for q in pieces), 800)
-        fb = eval_pieces(gb, pieces)
-        axN.loglog(gb, np.where(fb > 0, fb, np.nan), **BPL_LS)
-        r = eval_pieces(g, pieces)/np.where(f > 0, f, np.nan)
-        # the lowest Lorentz factors differ by ~1 %: not a segment of the distribution
-        r[(g < 1.05*g[0]) | (g > g[-1]/1.05)] = np.nan
-        axS.semilogx(g, np.where(r > 0, r, np.nan), color=COL[t], lw=1.2, zorder=3)
-      axN.set_ylim(*YLIM_F[reg])
-      _ratio_axes(axS)
-      for ax in (axN, axS):
-        ax.tick_params(which='both', labelsize=FS_TICK)
-      if col == 0:
-        _ylab_col0(axN, axS, F_LAB, r'$f_{\rm e}^{\rm BPL}/f_{\rm e}^{\rm num}$')
-      else:
-        axN.tick_params(labelleft=False)
-        axS.tick_params(labelleft=False, which='both')
-  for ax in axs[4]:
-    ax.set_xlabel(r'$\gamma_{\rm e}$', fontsize=FS_LAB)
-  axs[0, 0].set_xlim(*XLIM_G)
-  axs[0, 0].set_xticks(10.**np.arange(1, 10, 2))
-  _headers(rows)
-  _key(fig, axs, KEY_BPL, BPL_T)
-  return _save(fig, outdir, fname, show)
+  return _row(_draw_distribution_bpl, AX_G, r'$f_{\rm e}^{\rm BPL}/f_{\rm e}^{\rm num}$', KEY_BPL,
+              outdir, fname, show)
+
+
+def _draw_spectrum_bpl(reg, col, axN, axS):
+  finite = col == 1
+  for t in BPL_TIMES[(reg, col)]:
+    x = 1. + t
+    g, f = f_exact(x, reg, finite)
+    L = spectrum(g, f, U)
+    axN.loglog(U, L, color=COL[t], lw=1.5, zorder=3)
+    pieces, _ = bpl_pieces(x, reg, finite and t > DINJ)
+    Lb = css.pl_spectrum(np.sqrt(U), pieces)
+    ok = (Lb > 0) & (L > YLIM_L[reg][0])
+    axN.loglog(U, np.where(Lb > 0, Lb, np.nan), **BPL_LS)
+    with np.errstate(divide='ignore', invalid='ignore'):
+      axS.semilogx(U, np.where(ok, Lb/L, np.nan), color=COL[t], lw=1.2, zorder=3)
+    if t == NAMED[(reg, col)]:
+      Ls = spectrum(g, f, U, full=False)
+      axN.loglog(U, np.where(Ls > 0, Ls, np.nan), color=COL[t], zorder=4, **STEP_LS)
+      with np.errstate(divide='ignore', invalid='ignore'):
+        axS.semilogx(U, np.where(ok & (Ls > 0), Ls/L, np.nan), color=COL[t], zorder=3, **STEP_LS)
+  axN.set_ylim(*YLIM_L[reg])
+  _ratio_axes(axS)
 
 
 def fig_spectrum_bpl(outdir=OUTDIR, fname='cooling_spectrum_bpl.png', show=False):
-  u = np.geomspace(*XLIM_U, int(np.log10(XLIM_U[1]/XLIM_U[0])*40))
-  fig, rows, axs = _layout((7.0, 6.9), .8)
-  for reg in ('FC', 'SC'):
-    axNs, axSs = rows[reg]
-    for col in (0, 1):
-      axN, axS = axNs[col], axSs[col]
-      finite = col == 1
-      for t in BPL_TIMES[(reg, col)]:
-        x = 1. + t
-        g, f = f_exact(x, reg, finite)
-        L = spectrum(g, f, u)
-        axN.loglog(u, L, color=COL[t], lw=1.5, zorder=3)
-        pieces, _ = bpl_pieces(x, reg, finite and t > DINJ)
-        Lb = css.pl_spectrum(np.sqrt(u), pieces)
-        ok = (Lb > 0) & (L > YLIM_L[reg][0])
-        axN.loglog(u, np.where(Lb > 0, Lb, np.nan), **BPL_LS)
-        with np.errstate(divide='ignore', invalid='ignore'):
-          axS.semilogx(u, np.where(ok, Lb/L, np.nan), color=COL[t], lw=1.2, zorder=3)
-        if t == NAMED[(reg, col)]:
-          Ls = spectrum(g, f, u, full=False)
-          axN.loglog(u, np.where(Ls > 0, Ls, np.nan), color=COL[t], zorder=4, **STEP_LS)
-          with np.errstate(divide='ignore', invalid='ignore'):
-            axS.semilogx(u, np.where(ok & (Ls > 0), Ls/L, np.nan), color=COL[t], zorder=3, **STEP_LS)
-      axN.set_ylim(*YLIM_L[reg])
-      _ratio_axes(axS)
-      for ax in (axN, axS):
-        ax.tick_params(which='both', labelsize=FS_TICK)
-      if col == 0:
-        _ylab_col0(axN, axS, L_LAB, r"$L'_{\nu'}/L'^{\,{\rm full}}_{\nu'}$")
-      else:
-        axN.tick_params(labelleft=False)
-        axS.tick_params(labelleft=False, which='both')
-  for ax in axs[4]:
-    ax.set_xlabel(U_XLAB, fontsize=FS_LAB)
-  axs[0, 0].set_xlim(*XLIM_U)
-  axs[0, 0].set_xticks(10.**np.arange(0, 20, 4))
-  _headers(rows)
-  _key(fig, axs, KEY_BPL + [plt.Line2D([], [], color=MUTED, label='step emissivity', **STEP_LS)], BPL_T)
-  return _save(fig, outdir, fname, show)
+  key = KEY_BPL + [plt.Line2D([], [], color=MUTED, label='step emissivity', **STEP_LS)]
+  return _row(_draw_spectrum_bpl, AX_U, r"$L'_{\nu'}/L'^{\,{\rm full}}_{\nu'}$", key,
+              outdir, fname, show)
 
 
 def _save(fig, outdir, fname, show):
