@@ -322,7 +322,7 @@ class RSShell:
 # Laskar+16, +18a) and A_* ~ 3e-3 (GRB 130427A; Laskar+13, Perley+14).
 # eps_B ~ 0.1: fitted eps_B = 0.2 for GRB 130427A (Laskar+13), R_B = eps_B,RS/eps_B,FS ~ 1-100 (Laskar+16, +18a, +19).
 COMMON = dict(E=1e53, p=2.5, epse=0.3, epsB=0.1, z=1., n0=1e-3, Astar=3e-3)
-EJECTA = {'thin': dict(Gam4=100., Dt0=200.), 'thick': dict(Gam4=1000., Dt0=200.),   # same burst duration (T90 7-370 s observed)
+EJECTA = {'thin': dict(Gam4=300., Dt0=2.), 'thick': dict(Gam4=300., Dt0=4000.),   # same ejecta, thin vs thick by the burst duration
           'strat': dict(kej=2.1, Gmax=300., Gmin=30.)}
 KINDS = ('thin', 'thick', 'strat')
 TITLES = {'thin': 'Thin shell', 'thick': 'Thick shell', 'strat': 'Stratified ejecta'}
