@@ -456,7 +456,8 @@ def figure(models, out):
         if Fl.max() > 0:
           ax.loglog(nu, np.where(Fl > 0, Fl, np.nan), color=c, lw=0.9, ls='--')
         ok = Ft > 1e-6*Ft.max()           # index down to 6 decades below the peak (numerical noise beyond)
-        axi.semilogx(nu[ok], np.gradient(np.log(Ft[ok]), np.log(nu[ok])), color=c, lw=1.)
+        idx = np.gradient(np.log(Ft[ok]), np.log(nu[ok]))
+        axi.semilogx(nu[ok], idx, color=c, lw=1.)
       ax.set_ylim(lo, hi)
       for a in (ax, axi):
         a.axvspan(1e9, 3e11, color='#e9e8e4', zorder=0, lw=0)
@@ -465,8 +466,9 @@ def figure(models, out):
         if col == 2:
           axi.text(1.02, v, lab, transform=axi.get_yaxis_transform(), ha='left', va='center', fontsize=6.5,
                    color='#52514e')
-      axi.set_ylim(-2.3, 0.7)
-      axi.set_yticks([-2, -1, 0])
+      axi.set_ylim(-1.85, 0.5)
+      axi.set_yticks([-1.5, -1, -0.5, 0])
+      axi.set_yticklabels(['', '$-1$', '', '$0$'])
       if row == 0:
         ax.set_title(TITLES[kd], fontsize=9)
       ax.text(0.97, 0.95, f'$k={k:.0f}$', transform=ax.transAxes, ha='right', va='top', fontsize=8)
