@@ -316,6 +316,18 @@ def times(m):
   return TRS, TRS*np.array(TFAC)
 
 
+def gamma_a(m, R=None):
+  '''one-zone tau = 1 at R (default: the crossing), full kernel: gamma_a = (nu'_a/1.26 nu'_B)^1/2 and
+  the observed nu_a = 2 Gamma3 nu'_a/(1+z)'''
+  R = m.Rx*(1 - 1e-9) if R is None else R
+  nuB = e_*float(m.B(R))/(2*pi_*me_*c_)
+  nup = np.geomspace(1e3*nuB, 1e12*nuB, 600)
+  _, tau, _ = m.spectrum(R, nup, np.geomspace(1.0, 1e9, 2500))
+  i = np.where(tau >= 1)[0]
+  nua = float(np.exp(np.interp(0., -np.log(tau[i[-1]:i[-1] + 2]), np.log(nup[i[-1]:i[-1] + 2])))) if len(i) else np.nan
+  return np.sqrt(nua/(1.26*nuB)), 2*float(m.Gam(R))*nua/(1 + m.z)
+
+
 def check_literature():
   '''post-crossing indices of the literature model vs Kobayashi 2000 Eq. (11) (thick, k=0,
   BM element, hat gamma 4/3): nu_m ~ t^-73/48, F_max ~ t^-47/48 on the line of sight.'''
@@ -337,12 +349,12 @@ def report(models=None):
       print(f'  k={k:.0f} kej={kej}: m={mm:.3f} x={xq:.4f} Gamma34-1={G34 - 1:.4f}')
   check_literature()
   models = models or {(kd, k): build(kd, k) for k in (0., 2.) for kd in KINDS}
-  print('case        xi      R_RS/Rdec  R_RS[cm]   T_RS[s]  Gam3     G34-1   gm_i   gc     regime')
+  print('case        xi      R_RS/Rdec  R_RS[cm]   T_RS[s]  Gam3     G34-1   gm_i   gc     regime  gamma_a  nu_a,obs[Hz]  R_dec[cm]')
   for (kd, k), m in models.items():
     TRS = float(m.Tr(m.Rx))
     gm, gc = max(m.gm_formal(m.Rx*(1 - 1e-9)), SQ2), m.gc_now(m.Rx*(1 - 1e-9))
     print(f'{kd:6s} k={k:.0f} {m.xi:8.3g} {m.Rx/m.Rdec:8.3f} {m.Rx:9.2e} {TRS:8.1f} {m.Gx:7.1f} '
-          f'{m.G34x - 1:7.3f} {gm:7.1f} {gc:8.3g}  {"FC" if gc < gm else "SC"}')
+          f'{m.G34x - 1:7.3f} {gm:7.1f} {gc:8.3g}  {"FC" if gc < gm else "SC"}  {gamma_a(m)[0]:6.1f}  {gamma_a(m)[1]:9.2g}  {m.Rdec:9.2g}')
   return models
 
 
