@@ -352,16 +352,33 @@ def gamma_a(m, R=None):
 
 
 def check_literature():
-  '''post-crossing indices of the literature model vs Kobayashi 2000 Eq. (11) (thick, k=0,
-  BM element, hat gamma 4/3): nu_m ~ t^-73/48, F_max ~ t^-47/48 on the line of sight.'''
-  m = build('thick', 0.)
-  R = m.Rx*np.array([3., 6.])
-  T = m.Tr(R)
-  num = [m.lit_state(r)['gm']**2*float(m.B(r))*float(m.Gam(r)) for r in R]
-  Fm = [m.Ntot*float(m.B(r))*float(m.Gam(r)) for r in R]
-  sl = lambda y: np.log(y[1]/y[0])/np.log(T[1]/T[0])
-  print(f'literature model, thick k=0: dln nu_m/dln T = {sl(num):.4f} (K00: {-73/48:.4f}), '
-        f'dln F_max/dln T = {sl(Fm):.4f} (K00: {-47/48:.4f})')
+  '''post-crossing indices of the literature model (line of sight) vs the published ones:
+  thick k=0: Kobayashi (2000) Eq. 11, nu_m ~ T^-73/48, F_max ~ T^-47/48 (BM element);
+  thick k=2: Kobayashi & Zhang (2003), Zou+ (2005) Table 1, nu_m ~ T^-15/8, F_max ~ T^-9/8 (BM element);
+  thin k=0 and k=2: Kobayashi & Sari (2000), Zou+ (2005) Table 1, cold shell spreading at its sound
+  speed with hat gamma 4/3: nu_m ~ T^-3(8+5g)/7(1+2g), F_max ~ T^-(12+11g)/7(1+2g); the run itself uses
+  hat gamma 5/3 for the thin shell after the crossing (printed too).'''
+  def slopes(m):
+    R = m.Rx*np.array([50., 100.])
+    T = m.Tr(R)
+    num = [m.lit_state(r)['gm']**2*float(m.B(r))*float(m.Gam(r)) for r in R]
+    Fm = [m.Ntot*float(m.B(r))*float(m.Gam(r)) for r in R]
+    sl = lambda y: np.log(y[1]/y[0])/np.log(T[1]/T[0])
+    return sl(num), sl(Fm)
+  for kd, k, ref, pub in (('thick', 0., 'K00 Eq. 11', (-73/48, -47/48)),
+                          ('thick', 2., 'KZ03, Zou05', (-15/8, -9/8))):
+    a, b = slopes(build(kd, k))
+    print(f'literature model, {kd} k={k:.0f}: nu_m T^{a:.4f} ({ref}: {pub[0]:.4f}), F_max T^{b:.4f} ({pub[1]:.4f})')
+  for k in (0., 2.):
+    m = build('thin', k)
+    g = m.g
+    a5, b5 = slopes(m)
+    m.ln_post, m.le_post, m.hat_post = 6*(3 + g)/7, 8*(3 + g)/7, 4./3.
+    m.setup()
+    a, b = slopes(m)
+    print(f'literature model, thin k={k:.0f} (g={g:g}), hat gamma 4/3: nu_m T^{a:.4f} (KS00, Zou05: '
+          f'{-3*(8 + 5*g)/(7*(1 + 2*g)):.4f}), F_max T^{b:.4f} ({-(12 + 11*g)/(7*(1 + 2*g)):.4f}); '
+          f'with 5/3 (run): nu_m T^{a5:.4f}, F_max T^{b5:.4f}')
 
 
 def report(models=None):
@@ -432,7 +449,7 @@ def figure(models, out):
       for c, T in zip(cols, Ts):
         F = m.Fnu(T, nu, 'ssa'); Ft = m.Fnu(T, nu, 'thin'); Fl = m.Fnu(T, nu, 'lit')
         top = max(top, Ft.max())
-        ax.loglog(nu, Ft, color=c, lw=1.4, label=f'{T/DAY:g} d')
+        ax.loglog(nu, Ft, color=c, lw=1.4)
         ax.loglog(nu, F, color=c, lw=1.1, ls=':')
         if Fl.max() > 0:
           ax.loglog(nu, np.where(Fl > 0, Fl, np.nan), color=c, lw=0.9, ls='--')
@@ -440,13 +457,15 @@ def figure(models, out):
         axi.semilogx(nu[ok], np.gradient(np.log(Ft[ok]), np.log(nu[ok])), color=c, lw=1.)
       for a in (ax, axi):
         a.axvspan(1e9, 3e11, color='#e9e8e4', zorder=0, lw=0)
-      axi.axhline(1/3, color='#52514e', lw=0.6, ls=':')
+      for v, lab in ((1/3, r'$1/3$'), (-(m.p - 1)/2, r'$-(p-1)/2$'), (-m.p/2, r'$-p/2$')):
+        axi.axhline(v, color='#52514e', lw=0.6, ls=':', zorder=1)
+        if col == 2:
+          axi.text(1.02, v, lab, transform=axi.get_yaxis_transform(), ha='left', va='center', fontsize=6.5,
+                   color='#52514e')
       axi.set_ylim(-1.6, 0.7)
       if row == 0:
         ax.set_title(TITLES[kd], fontsize=9)
-      ax.text(0.03, 0.95, f'$k={k:.0f}$', transform=ax.transAxes, ha='left', va='top', fontsize=8)
-      if row == 0 and col == 0:
-        ax.legend(fontsize=6.5, loc='upper right', frameon=False, handlelength=1.5)
+      ax.text(0.97, 0.95, f'$k={k:.0f}$', transform=ax.transAxes, ha='right', va='top', fontsize=8)
       if col == 0:
         ax.set_ylabel(r'$F_\nu$ [mJy]', fontsize=8); axi.set_ylabel('index', fontsize=8)
       else:
@@ -454,15 +473,16 @@ def figure(models, out):
     for col in range(3):
       axes[2*row, col].set_ylim(top*1e-5, top*5)
   key = [Line2D([], [], color='k', lw=1.4), Line2D([], [], color='k', lw=1.1, ls=':'),
-         Line2D([], [], color='k', lw=0.9, ls='--')]
-  fig.legend(key, ['optically thin', 'self-absorbed', 'usual model'], loc='upper center', ncol=3,
-             fontsize=7.5, frameon=False, bbox_to_anchor=(0.5, 0.955))
+         Line2D([], [], color='k', lw=0.9, ls='--')] + [Line2D([], [], color=c, lw=1.4) for c in cols]
+  labs = ['optically thin', 'self-absorbed', 'usual model'] + [f'$T={t/DAY:g}$ d' for t in T_OBS]
+  fig.legend(key, labs, loc='upper center', ncol=6, fontsize=7, frameon=False, handlelength=1.8,
+             columnspacing=1.2, bbox_to_anchor=(0.5, 0.955))
   for ax in axes[-1]:
     ax.set_xlabel(r'$\nu$ [Hz]', fontsize=8)
   for ax in axes.ravel():
     ax.tick_params(labelsize=7)
   fig.subplots_adjust(top=0.88)
-  fig.savefig(out, dpi=200, bbox_inches='tight')
+  fig.savefig(out, dpi=400, bbox_inches='tight')
 
 
 def print_numbers(models):
