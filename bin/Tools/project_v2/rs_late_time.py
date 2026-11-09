@@ -215,9 +215,26 @@ class RSShell:
     return dict(N=self.Ntot, gm=max(self.gm_formal(Rx), SQ2)*A, gc=self.gc_now(Rx)*A, post=True)
 
   # --- emission --------------------------------------------------------------------------
-  def spectrum(self, R, nup, gam):
+  def dist_usual(self, R, gam):
+    '''usual distribution (literature model) as dN/dgamma: SPN98 steady state of N3 during the crossing;
+    after it, cut at gamma_c(R_RS) and shifted (fast cooling: all at gamma_c, as a 2%-wide line)'''
+    s = self.lit_state(R)
+    N, gm, gc, p = s['N'], s['gm'], s['gc'], self.p
+    if s['post']:
+      if s['gc'] < SQ2*self.A_b(R)*(1 + 1e-9) and s['gc'] < s['gm']:
+        return np.zeros_like(gam)
+      if gc <= gm:
+        w = 0.02
+        return N*np.exp(-0.5*(np.log(gam/gc)/w)**2)/(np.sqrt(2*pi_)*w*gam)
+      return np.where((gam >= gm) & (gam <= gc), N*(p - 1)*gm**(p - 1)*gam**(-p), 0.)
+    if gc < gm:
+      return np.where(gam < gc, 0., np.where(gam < gm, N*gc/gam**2, N*gc*gm**(p - 1)*gam**(-p - 1)))
+    return np.where(gam < gm, 0., np.where(gam < gc, N*(p - 1)*gm**(p - 1)*gam**(-p),
+                                           N*(p - 1)*gm**(p - 1)*gc*gam**(-p - 1)))
+
+  def spectrum(self, R, nup, gam, usual=False):
     '''optically thin L'_nu' (full kernel) and one-zone SSA optical depth'''
-    n = self.dist(R, gam)
+    n = self.dist_usual(R, gam) if usual else self.dist(R, gam)
     Bp = float(self.B(R))
     nuB = e_*Bp/(2*pi_*me_*c_)
     pre = sigT_*c_*Bp**2/(9*pi_*nuB*norm_R_)                  # P'_nu' = pre R(x)
@@ -237,12 +254,15 @@ class RSShell:
     self.RE = np.geomspace(self.R0*1.02, Rmax_fac*self.Rx, nR)
     self.nup = np.geomspace(nu_lo, nu_hi, nnu)
     gam = np.geomspace(1.0, 1e9, 2500)
-    self.Lt = np.zeros((nR, nnu)); self.Le = np.zeros((nR, nnu)); self.Ll = np.zeros((nR, nnu))
+    self.Lt, self.Le, self.Ll, self.Lu, self.Lue = (np.zeros((nR, nnu)) for _ in range(5))
     for i, R in enumerate(self.RE):
       L, tau, _ = self.spectrum(R, self.nup, gam)
       self.Lt[i] = L
       self.Le[i] = L*np.where(tau > 1e-6, -np.expm1(-tau)/np.maximum(tau, 1e-300), 1.)
       self.Ll[i] = self.L_lit(R, self.nup)
+      L, tau, _ = self.spectrum(R, self.nup, gam, usual=True)
+      self.Lu[i] = L
+      self.Lue[i] = L*np.where(tau > 1e-6, -np.expm1(-tau)/np.maximum(tau, 1e-300), 1.)
     self.TrE = self.Tr(self.RE)
     return self
 
@@ -272,7 +292,8 @@ class RSShell:
 
   def Fnu(self, T, nu, which='ssa'):
     '''observed flux (mJy). 'ssa', 'thin': shell as one element over its EATS (Eq. F_single);
-    'lit': literature, line of sight only; 'litE': literature distribution over the EATS.'''
+    'lit': literature, line of sight only; 'litE': literature spectrum over the EATS; 'us', 'us_ssa': usual
+    distribution with the same kernel, SSA and EATS as ours (attributes the differences to the old electrons).'''
     nu = np.atleast_1d(nu)
     lnu = np.log(self.nup)
     if which == 'lit':
@@ -281,7 +302,7 @@ class RSShell:
       Lr = np.array([np.exp(np.interp(np.log(v*(1 + self.z)/(2*G)), lnu, np.log(self.L_lit(R, self.nup) + 1e-300),
                                       left=-690, right=-690)) for v in nu])
       return (1 + self.z)*G*Lr/(4*pi_*self.dL**2)/MJY
-    L = {'ssa': self.Le, 'thin': self.Lt, 'litE': self.Ll}[which]
+    L = {'ssa': self.Le, 'thin': self.Lt, 'litE': self.Ll, 'us': self.Lu, 'us_ssa': self.Lue}[which]
     R, G = self.RE, self.Gam(self.RE)
     Tth = (1 + self.z)*R/(2*c_*G**2)
     Tt = 1 + (T - self.TrE)/Tth
@@ -297,12 +318,16 @@ class RSShell:
 
 
 # --- cases --------------------------------------------------------------------------------
-COMMON = dict(E=1e53, p=2.5, epse=0.3, epsB=1e-2, z=1., n0=1., Astar=1.)
-EJECTA = {'thin': dict(Gam4=100., Dt0=1.), 'thick': dict(Gam4=500., Dt0=100.),
+# Media of the observed radio reverse shocks: n ~ 5e-5 - 1e-3 cm^-3 (GRBs 160625B, 160509A, 161219B; Alexander+17,
+# Laskar+16, +18a) and A_* ~ 3e-3 (GRB 130427A; Laskar+13, Perley+14).
+# eps_B ~ 0.1: fitted eps_B = 0.2 for GRB 130427A (Laskar+13), R_B = eps_B,RS/eps_B,FS ~ 1-100 (Laskar+16, +18a, +19).
+COMMON = dict(E=1e53, p=2.5, epse=0.3, epsB=0.1, z=1., n0=1e-3, Astar=3e-3)
+EJECTA = {'thin': dict(Gam4=100., Dt0=1.), 'thick': dict(Gam4=1000., Dt0=200.),
           'strat': dict(kej=2.1, Gmax=300., Gmin=30.)}
 KINDS = ('thin', 'thick', 'strat')
 TITLES = {'thin': 'Thin shell', 'thick': 'Thick shell', 'strat': 'Stratified ejecta'}
-TFAC = (3., 30.)               # T/T_RS (thin, thick); stratified: within the injection, below
+DAY = 86400.
+T_OBS = np.array([0.1, 1., 10.])*DAY   # times of the observed radio-mm reverse shocks (0.1-10 d)
 
 
 def build(kind, k, **kw):
@@ -311,9 +336,7 @@ def build(kind, k, **kw):
 
 def times(m):
   TRS = float(m.Tr(m.Rx))
-  if m.kind == 'strat':
-    return TRS, TRS*np.array([0.1, 1.])
-  return TRS, TRS*np.array(TFAC)
+  return TRS, T_OBS
 
 
 def gamma_a(m, R=None):
@@ -321,7 +344,7 @@ def gamma_a(m, R=None):
   the observed nu_a = 2 Gamma3 nu'_a/(1+z)'''
   R = m.Rx*(1 - 1e-9) if R is None else R
   nuB = e_*float(m.B(R))/(2*pi_*me_*c_)
-  nup = np.geomspace(1e3*nuB, 1e12*nuB, 600)
+  nup = np.geomspace(1.3*nuB, 1e12*nuB, 800)
   _, tau, _ = m.spectrum(R, nup, np.geomspace(1.0, 1e9, 2500))
   i = np.where(tau >= 1)[0]
   nua = float(np.exp(np.interp(0., -np.log(tau[i[-1]:i[-1] + 2]), np.log(nup[i[-1]:i[-1] + 2])))) if len(i) else np.nan
@@ -358,7 +381,7 @@ def report(models=None):
   return models
 
 
-BANDS = (1.4e9, 1.5e10, 1e11, 2.3e11)
+BANDS = (1.4e9, 6e9, 1.5e10, 1e11, 2.3e11)
 
 
 def numbers(m):
@@ -367,30 +390,37 @@ def numbers(m):
   if not hasattr(m, 'Le'):
     m.flux_grid()
   TRS, Ts = times(m)
-  nu = np.geomspace(1e8, 1e18, 400)
+  nu = np.geomspace(1e7, 1e18, 440)
   out = []
   for T in Ts:
-    F, Ft, Fl, FlE = (m.Fnu(T, nu, w) for w in ('ssa', 'thin', 'lit', 'litE'))
+    F, Ft, Fl, FlE, Fu, Fus = (m.Fnu(T, nu, w) for w in ('ssa', 'thin', 'lit', 'litE', 'us', 'us_ssa'))
     a = np.gradient(np.log(Ft + 1e-300), np.log(nu))
     flat = (a >= 0.) & (a <= 0.3) & (Ft > 1e-6*Ft.max())
+    def ix(A, f1, f2):
+      ip = A.argmax()
+      return float(np.log(np.interp(np.log(nu[ip]*f2), np.log(nu), A)/np.interp(np.log(nu[ip]*f1), np.log(nu), A))/np.log(f2/f1))
     band = lambda A: [float(np.exp(np.interp(np.log(v), np.log(nu), np.log(A + 1e-300)))) for v in BANDS]
     out.append(dict(T=T, TT=T/TRS, pk=(nu[F.argmax()], F.max()), pkt=(nu[Ft.argmax()], Ft.max()),
-                    pkl=(nu[Fl.argmax()], Fl.max()), pklE=(nu[FlE.argmax()], FlE.max()), FlE=band(FlE), F=band(F), Ft=band(Ft), Fl=band(Fl),
+                    a_lo=ix(F, 0.1, 0.3), a_hi=ix(F, 3., 10.), u_lo=ix(Fus, 0.1, 0.3), u_hi=ix(Fus, 3., 10.),
+                    pku=(nu[Fus.argmax()], Fus.max()), pkut=(nu[Fu.argmax()], Fu.max()), Fus=band(Fus), Fu=band(Fu), pkl=(nu[Fl.argmax()], Fl.max()), pklE=(nu[FlE.argmax()], FlE.max()), FlE=band(FlE), F=band(F), Ft=band(Ft), Fl=band(Fl),
                     flat=flat.sum()*np.log10(nu[1]/nu[0]), nu_flat=(nu[flat].min() if flat.any() else np.nan,
                                                                    nu[flat].max() if flat.any() else np.nan)))
-  T2 = Ts[-1]*np.array([1., 1.5])
-  sl = lambda w: np.log(m.Fnu(T2[1], [1e11], w)[0]/max(m.Fnu(T2[0], [1e11], w)[0], 1e-300))/np.log(1.5)
-  return out, dict(ssa=sl('ssa'), thin=sl('thin'), lit=sl('lit'))
+  sl = lambda w, v, T1, T2: np.log(max(m.Fnu(T2, [v], w)[0], 1e-300)/max(m.Fnu(T1, [v], w)[0], 1e-300))/np.log(T2/T1)
+  slopes = {(w, v, i): sl(w, v, Ts[i], Ts[i + 1]) for w in ('ssa', 'thin', 'lit', 'us_ssa') for v in (6e9, 1e11) for i in (0, 1)}
+  return out, slopes
 
 
 def figure(models, out):
+  '''optically thin flux solid (main result), with self-absorption dotted, usual model dashed;
+  local index of the optically thin flux below'''
   import matplotlib
   matplotlib.use('Agg')
   import matplotlib.pyplot as plt
-  cols = ['#2a78d6', '#eb6834']
+  from matplotlib.lines import Line2D
+  cols = ['#2a78d6', '#eb6834', '#3a9b5c']
   fig, axes = plt.subplots(4, 3, figsize=(7.2, 6.6), sharex=True,
                            gridspec_kw=dict(height_ratios=[2.2, 1, 2.2, 1], hspace=0.08, wspace=0.06))
-  nu = np.geomspace(1e8, 1e18, 200)
+  nu = np.geomspace(1e7, 1e17, 200)
   for row, k in enumerate((0., 2.)):
     top = 0.
     for col, kd in enumerate(KINDS):
@@ -402,11 +432,10 @@ def figure(models, out):
       for c, T in zip(cols, Ts):
         F = m.Fnu(T, nu, 'ssa'); Ft = m.Fnu(T, nu, 'thin'); Fl = m.Fnu(T, nu, 'lit')
         top = max(top, Ft.max())
-        lab = f'{T/TRS:g} $T_{{\\rm RS}}$'
-        ax.loglog(nu, F, color=c, lw=1.4, label=lab)
-        ax.loglog(nu, Ft, color=c, lw=0.9, ls=':')
+        ax.loglog(nu, Ft, color=c, lw=1.4, label=f'{T/DAY:g} d')
+        ax.loglog(nu, F, color=c, lw=1.1, ls=':')
         if Fl.max() > 0:
-          ax.loglog(nu, np.where(Fl > 0, Fl, np.nan), color=c, lw=1., ls='--')
+          ax.loglog(nu, np.where(Fl > 0, Fl, np.nan), color=c, lw=0.9, ls='--')
         ok = Ft > 1e-8*Ft.max()
         axi.semilogx(nu[ok], np.gradient(np.log(Ft[ok]), np.log(nu[ok])), color=c, lw=1.)
       for a in (ax, axi):
@@ -416,30 +445,38 @@ def figure(models, out):
       if row == 0:
         ax.set_title(TITLES[kd], fontsize=9)
       ax.text(0.03, 0.95, f'$k={k:.0f}$', transform=ax.transAxes, ha='left', va='top', fontsize=8)
-      ax.legend(fontsize=6.5, loc='upper right', frameon=False, handlelength=1.5)
+      if row == 0 and col == 0:
+        ax.legend(fontsize=6.5, loc='upper right', frameon=False, handlelength=1.5)
       if col == 0:
         ax.set_ylabel(r'$F_\nu$ [mJy]', fontsize=8); axi.set_ylabel('index', fontsize=8)
       else:
         ax.set_yticklabels([]); axi.set_yticklabels([])
     for col in range(3):
-      axes[2*row, col].set_ylim(top*1e-6, top*5)
+      axes[2*row, col].set_ylim(top*1e-5, top*5)
+  key = [Line2D([], [], color='k', lw=1.4), Line2D([], [], color='k', lw=1.1, ls=':'),
+         Line2D([], [], color='k', lw=0.9, ls='--')]
+  fig.legend(key, ['optically thin', 'self-absorbed', 'usual model'], loc='upper center', ncol=3,
+             fontsize=7.5, frameon=False, bbox_to_anchor=(0.5, 0.955))
   for ax in axes[-1]:
     ax.set_xlabel(r'$\nu$ [Hz]', fontsize=8)
   for ax in axes.ravel():
     ax.tick_params(labelsize=7)
+  fig.subplots_adjust(top=0.88)
   fig.savefig(out, dpi=200, bbox_inches='tight')
 
 
 def print_numbers(models):
   for (kd, k), m in models.items():
     rows, sl = numbers(m)
-    print(f'=== {kd} k={k:.0f}  slopes at 100 GHz after {rows[-1]["TT"]:g} T_RS: ssa {sl["ssa"]:.2f}, thin {sl["thin"]:.2f}, lit {sl["lit"]:.2f}')
+    print(f'=== {kd} k={k:.0f}  light-curve slopes 0.1-1 d | 1-10 d: ' + '; '.join(
+      f'{v/1e9:g} GHz {w} {sl[(w, v, 0)]:.2f} | {sl[(w, v, 1)]:.2f}' for v in (6e9, 1e11) for w in ('ssa', 'thin', 'lit', 'us_ssa')))
     for r in rows:
-      print(f'  T/T_RS={r["TT"]:5.2g} T={r["T"]:9.3g}s  peak ssa ({r["pk"][0]:.2g} Hz, {r["pk"][1]:.3g} mJy) thin ({r["pkt"][0]:.2g}, {r["pkt"][1]:.3g}) '
-            f'lit ({r["pkl"][0]:.2g}, {r["pkl"][1]:.3g}) litE ({r["pklE"][0]:.2g}, {r["pklE"][1]:.3g});  index 0-0.3 over {r["flat"]:.2f} dec [{r["nu_flat"][0]:.2g}, {r["nu_flat"][1]:.2g}] Hz')
-      print('     F(1.4, 15, 100, 230 GHz) ssa ' + ', '.join(f'{x:.2g}' for x in r['F']) + ' | thin ' +
+      print(f'  T={r["T"]/DAY:5.2g} d T/T_RS={r["TT"]:7.3g}  peak ssa ({r["pk"][0]:.2g} Hz, {r["pk"][1]:.3g} mJy) thin ({r["pkt"][0]:.2g}, {r["pkt"][1]:.3g}) '
+            f'[SSA peak index below {r["a_lo"]:.2f}, above {r["a_hi"]:.2f}; usual+SSA peak ({r["pku"][0]:.2g}, {r["pku"][1]:.3g}) index {r["u_lo"]:.2f}, {r["u_hi"]:.2f}; usual thin peak ({r["pkut"][0]:.2g}, {r["pkut"][1]:.3g})] lit ({r["pkl"][0]:.2g}, {r["pkl"][1]:.3g}) litE ({r["pklE"][0]:.2g}, {r["pklE"][1]:.3g});  index 0-0.3 over {r["flat"]:.2f} dec [{r["nu_flat"][0]:.2g}, {r["nu_flat"][1]:.2g}] Hz')
+      print('     F(1.4, 6, 15, 100, 230 GHz) ssa ' + ', '.join(f'{x:.2g}' for x in r['F']) + ' | thin ' +
             ', '.join(f'{x:.2g}' for x in r['Ft']) + ' | lit ' + ', '.join(f'{x:.2g}' for x in r['Fl']) +
-            ' | litE ' + ', '.join(f'{x:.2g}' for x in r['FlE']))
+            ' | litE ' + ', '.join(f'{x:.2g}' for x in r['FlE']) + ' | usual ' + ', '.join(f'{x:.2g}' for x in r['Fu']) +
+            ' | usual+SSA ' + ', '.join(f'{x:.2g}' for x in r['Fus']))
 
 
 if __name__ == '__main__':
