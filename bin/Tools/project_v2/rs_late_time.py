@@ -436,25 +436,28 @@ def figure(models, out):
   from matplotlib.lines import Line2D
   cols = ['#2a78d6', '#eb6834', '#3a9b5c']
   fig, axes = plt.subplots(4, 3, figsize=(7.2, 6.6), sharex=True,
-                           gridspec_kw=dict(height_ratios=[2.2, 1, 2.2, 1], hspace=0.08, wspace=0.06))
+                           gridspec_kw=dict(height_ratios=[2.2, 1, 2.2, 1], hspace=0.08, wspace=0.27))
   nu = np.geomspace(1e7, 1e17, 200)
   for row, k in enumerate((0., 2.)):
-    top = 0.
     for col, kd in enumerate(KINDS):
       m = models[(kd, k)]
       if not hasattr(m, 'Le'):
         m.flux_grid()
       TRS, Ts = times(m)
       ax, axi = axes[2*row, col], axes[2*row + 1, col]
-      for c, T in zip(cols, Ts):
-        F = m.Fnu(T, nu, 'ssa'); Ft = m.Fnu(T, nu, 'thin'); Fl = m.Fnu(T, nu, 'lit')
-        top = max(top, Ft.max())
+      curves = [(c, m.Fnu(T, nu, 'thin'), m.Fnu(T, nu, 'ssa'), m.Fnu(T, nu, 'lit')) for c, T in zip(cols, Ts)]
+      # per-panel range: from 3x the highest curve down to 30x below the lowest self-absorbed peak,
+      # so that every peak (optically thin, self-absorbed, usual) and the cutoffs show
+      hi = 3*max(max(Ft.max(), Fl.max()) for _, Ft, _, Fl in curves)
+      lo = max(min(F.max() for _, _, F, _ in curves)/30, hi*1e-9)
+      for c, Ft, F, Fl in curves:
         ax.loglog(nu, Ft, color=c, lw=1.4)
         ax.loglog(nu, F, color=c, lw=1.1, ls=':')
         if Fl.max() > 0:
           ax.loglog(nu, np.where(Fl > 0, Fl, np.nan), color=c, lw=0.9, ls='--')
-        ok = Ft > 1e-8*Ft.max()
+        ok = Ft > 1e-6*Ft.max()           # index down to 6 decades below the peak (numerical noise beyond)
         axi.semilogx(nu[ok], np.gradient(np.log(Ft[ok]), np.log(nu[ok])), color=c, lw=1.)
+      ax.set_ylim(lo, hi)
       for a in (ax, axi):
         a.axvspan(1e9, 3e11, color='#e9e8e4', zorder=0, lw=0)
       for v, lab in ((1/3, r'$1/3$'), (-(m.p - 1)/2, r'$-(p-1)/2$'), (-m.p/2, r'$-p/2$')):
@@ -462,16 +465,15 @@ def figure(models, out):
         if col == 2:
           axi.text(1.02, v, lab, transform=axi.get_yaxis_transform(), ha='left', va='center', fontsize=6.5,
                    color='#52514e')
-      axi.set_ylim(-1.6, 0.7)
+      axi.set_ylim(-2.3, 0.7)
+      axi.set_yticks([-2, -1, 0])
       if row == 0:
         ax.set_title(TITLES[kd], fontsize=9)
       ax.text(0.97, 0.95, f'$k={k:.0f}$', transform=ax.transAxes, ha='right', va='top', fontsize=8)
       if col == 0:
         ax.set_ylabel(r'$F_\nu$ [mJy]', fontsize=8); axi.set_ylabel('index', fontsize=8)
       else:
-        ax.set_yticklabels([]); axi.set_yticklabels([])
-    for col in range(3):
-      axes[2*row, col].set_ylim(top*1e-5, top*5)
+        axi.set_yticklabels([])
   key = [Line2D([], [], color='k', lw=1.4), Line2D([], [], color='k', lw=1.1, ls=':'),
          Line2D([], [], color='k', lw=0.9, ls='--')] + [Line2D([], [], color=c, lw=1.4) for c in cols]
   labs = ['optically thin', 'self-absorbed', 'usual model'] + [f'$T={t/DAY:g}$ d' for t in T_OBS]
