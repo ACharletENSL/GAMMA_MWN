@@ -70,8 +70,11 @@ def ns06_jump(k, kej, hat_gamma=5./3.):
 
 class RSShell:
   def __init__(self, kind, k, E=1e53, Gam4=100., Dt0=1., kej=2.1, Gmax=300., Gmin=30., n0=1.,
-               Astar=1., epse=0.3, epsB=1e-2, p=2.5, z=1., dL=2.0e28, nel=400, g_thin=None):
-    self.__dict__.update(dict(kind=kind, k=k, E=E, epse=epse, epsB=epsB, p=p, z=z, dL=dL, nel=nel))
+               Astar=1., epse=0.3, epsB=1e-2, p=2.5, z=1., dL=2.0e28, nel=400, g_thin=None, field='epsB'):
+    '''field: 'epsB' = B'^2 = 8 pi eps_B e' in every element at all times (common field, homogeneous shell);
+    'frozen' = B'^2 = 8 pi eps_B e' at injection only, then frozen in a tangled field, B'^2 ~ n'^4/3
+    (each element keeps its own field; homogeneous only for hat gamma = 4/3)'''
+    self.__dict__.update(dict(kind=kind, k=k, E=E, epse=epse, epsB=epsB, p=p, z=z, dL=dL, nel=nel, field=field))
     self.rhoR = 5e11*Astar if k == 2 else n0*mp_*(1e17)**k
     self.rho = lambda R: self.rhoR*np.asarray(R, float)**-k
     if kind in ('thin', 'thick'):
@@ -141,8 +144,26 @@ class RSShell:
     return np.where(R < self.Rx, 4*self.Gam(R)**2*self.rho(R)*c_**2,
                     self.ex*(np.maximum(R, self.Rx)/self.Rx)**-self.le_post)
 
-  def B(self, R):
+  def Bc(self, R):
+    '''field at injection (eps_B of the common pressure)'''
     return np.sqrt(8*pi_*self.epsB*self.eint(R))
+
+  def _a(self, R):
+    return np.exp(np.interp(np.log(R), np.log(self.Rg), np.log(self.a)))
+
+  def B(self, R):
+    '''field of the latest element (all elements for field = 'epsB')'''
+    if self.field == 'epsB':
+      return self.Bc(R)
+    R = np.asarray(R, float)
+    Rl = np.minimum(R, self.Rx*(1 - 1e-12))
+    return self.Bc(Rl)*(self._a(R)/self._a(Rl))**2
+
+  def b_el(self, R):
+    '''B'(R; R_i)/B(R) of the elements injected before R'''
+    if self.field == 'epsB':
+      return np.ones_like(self.Ric)
+    return self.Bi*(self._a(R)/self.ai)**2/float(self.B(R))
 
   def N3(self, R):
     return self.Ntot*(np.interp(R, self.tab['R'], self.tab['N']) if R < self.Rx else 1.)
@@ -165,8 +186,11 @@ class RSShell:
     lna = np.where(Rg < self.Rx, np.log(e_)/(3*self.hat),
                    np.log(self.ex)/(3*self.hat) + (np.log(e_) - np.log(self.ex))/(3*self.hat_post))
     a = np.exp(lna - lna[0])                                 # A(R; R_i) = a(R)/a(R_i)
-    tc = 6*pi_*me_*c_/(sigT_*8*pi_*self.epsB*e_)
-    integ = a/(tc*c_*self.Gam(Rg))
+    if self.field == 'epsB':
+      tc = 6*pi_*me_*c_/(sigT_*8*pi_*self.epsB*e_)
+      integ = a/(tc*c_*self.Gam(Rg))
+    else:                                                    # B'^2(R; R_i) = Bc^2(R_i) (a/a_i)^4
+      integ = a**5*sigT_/(6*pi_*me_*c_)/(c_*self.Gam(Rg))
     self.Rg, self.a = Rg, a
     self.J = np.concatenate([[0.], np.cumsum(0.5*(integ[1:] + integ[:-1])*np.diff(Rg))])
     t0 = self.R0/(c_*self.Gam(self.R0))
@@ -180,6 +204,8 @@ class RSShell:
     self.dNacc = dN*np.minimum(1., np.maximum(gmf, 0.)/SQ2)
     self.ai = np.exp(np.interp(np.log(self.Ric), np.log(Rg), np.log(a)))
     self.Ji = np.interp(np.log(self.Ric), np.log(Rg), self.J)
+    self.Bi = self.Bc(self.Ric)
+    self.ci = 1/self.ai if self.field == 'epsB' else self.Bi**2/self.ai**5   # I = (J(R) - J_i) c_i
     return self
 
   def gc_now(self, R):
@@ -191,20 +217,27 @@ class RSShell:
            np.exp(np.interp(np.log(self.Rx), np.log(self.Rg), np.log(self.a)))
 
   # --- distributions ---------------------------------------------------------------------
-  def dist(self, R, gam):
-    '''dN/dgamma of the shell at R (exact element sum), gamma_e >= sqrt 2'''
+  def dist(self, R, gam, wpow=None):
+    '''dN/dgamma of the shell at R (exact element sum), gamma_e >= sqrt 2. With elements in their own
+    fields b B(R): an electron gamma in b B radiates as gamma b^1/2 in B with b times the power, and absorbs
+    with b^3/2 times the weight; dist returns sum_i b_i^wpow n_i(gam/b_i^1/2)/b_i^1/2 (wpow = 1 for the
+    emission, 3/2 for the absorption); wpow = None: the true distribution'''
     aR = np.exp(np.interp(np.log(R), np.log(self.Rg), np.log(self.a)))
     JR = np.interp(np.log(R), np.log(self.Rg), self.J)
     on = self.Ric < R
     A = (aR/self.ai)[on][:, None]
-    I = ((JR - self.Ji)/self.ai)[on][:, None]
-    den = A - gam[None, :]*I
+    I = ((JR - self.Ji)*self.ci)[on][:, None]
+    b = self.b_el(R)[on][:, None] if wpow is not None else np.ones((on.sum(), 1))
+    wpow = 0.5 if wpow is None else wpow
+    gt = gam[None, :]/np.sqrt(b)                              # true Lorentz factor
+    den = A - gt*I
     ok = den > 0
     d = np.where(ok, den, 1.)
-    gi = gam[None, :]/d
+    gi = gt/d
     gm = self.gmi[on][:, None]
-    n = np.where(ok & (gi >= gm), self.dNacc[on][:, None]*(self.p - 1)*gm**(self.p - 1)*gi**(-self.p)*A/d**2, 0.)
-    return np.where(gam >= SQ2, n.sum(0), 0.)
+    n = np.where(ok & (gi >= gm) & (gt >= SQ2),
+                 self.dNacc[on][:, None]*(self.p - 1)*gm**(self.p - 1)*gi**(-self.p)*A/d**2*b**(wpow - 0.5), 0.)
+    return n.sum(0)
 
   def lit_state(self, R):
     '''literature model: N, gamma_m, gamma_c (or cut), shift, regime and post-crossing flag'''
@@ -234,7 +267,10 @@ class RSShell:
 
   def spectrum(self, R, nup, gam, usual=False):
     '''optically thin L'_nu' (full kernel) and one-zone SSA optical depth'''
-    n = self.dist_usual(R, gam) if usual else self.dist(R, gam)
+    if usual:
+      n = na = self.dist_usual(R, gam)
+    else:
+      n, na = self.dist(R, gam, 1.), self.dist(R, gam, 1.5)
     Bp = float(self.B(R))
     nuB = e_*Bp/(2*pi_*me_*c_)
     pre = sigT_*c_*Bp**2/(9*pi_*nuB*norm_R_)                  # P'_nu' = pre R(x)
@@ -246,7 +282,7 @@ class RSShell:
     L = pre*np.trapezoid(w[None, :]*Rx, lg, axis=1)
     # tau = 1/(8 pi m_e nu'^2 4 pi R^2) int (n/gam^2) d[gam^2 p']/dgam dgam,
     # d[gam^2 p']/dgam = 2 gam pre R (1 - dlnR/dlnx)
-    integ = (n/gam**2)*2*gam*pre*Rx*(1 - dlnR)*gam
+    integ = (na/gam**2)*2*gam*pre*Rx*(1 - dlnR)*gam
     tau = np.trapezoid(integ, lg, axis=1)/(8*pi_*me_*nup**2*4*pi_*R**2)
     return L, tau, n
 

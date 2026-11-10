@@ -259,19 +259,20 @@ def _panel_tag(ax, lab, xy, ha, va, box=True):
   The case a panel shows, written inside it (A&A: no titles), on an opaque box where a
   line crosses it; box=False where none does (panel (a) of the tracks).
   '''
-  ax.annotate(lab, xy, xycoords='axes fraction', ha=ha, va=va, color=INK,
-              fontsize=FS_ANN, multialignment=ha, bbox=TEXT_BOX if box else None,
-              zorder=7)
+  return ax.annotate(lab, xy, xycoords='axes fraction', ha=ha, va=va, color=INK,
+                     fontsize=FS_ANN, multialignment=ha, bbox=TEXT_BOX if box else None,
+                     zorder=7)
 
 
-def _vline(ax, v, lab=None, ls='-', lw=.8, color=INK, ha='center'):
+def _vline(ax, v, lab=None, ls='-', lw=.8, color=INK, ha='center', ymax=1.):
   '''
   A marked vertical. With a name (the tracks' times), the name sits on the FLOOR, in the
   gutter below gma_e = 1, and the line STOPS above it (FLOOR_GAP): nothing crosses the
   text, so it needs no box. Without one (the shapes' Lorentz factors), the name is a
   named tick on the top axis instead (named_ticks_top).
   '''
-  ax.axvline(v, ymin=FLOOR_GAP if lab else 0., color=color, ls=ls, lw=lw, zorder=1)
+  ax.axvline(v, ymin=FLOOR_GAP if lab else 0., ymax=ymax, color=color, ls=ls, lw=lw,
+             zorder=1)
   if lab:
     ax.annotate(lab, (v, .015), xycoords=('data', 'axes fraction'), color=color,
                 fontsize=FS_ANN, ha=ha, va='bottom')
@@ -440,10 +441,6 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     for v, ls, lab in zip(knees, ('-', '--'), (LAB_TMM, LAB_TM)):
       if v is not None:
         _vline(ax, v, lab, ls=ls, ha='left' if (late_m and lab == LAB_TM) else 'center')
-    if kind == 'syn':
-      # t'_c,1 = t'_c,i: the time to cool down to gamma_e = 1, where VFC starts (meeting
-      # 2026-11-10); on this abscissa it is x = 1, the FC/VFC boundary
-      _vline(ax, 1., LAB_TC1, ls=':', lw=.9, ha='right')
     if ttd is not None:
       _vline(ax, ttd, LAB_TDYN, ls='-.', lw=.9,   # t'_dyn IS tt_dyn on this abscissa
              ha='right' if late_m else 'center')
@@ -454,8 +451,19 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     ax.set_xlabel(f"$\\Delta t'_i/{TCI}$", fontsize=FS_LAB, labelpad=1.)
     # the case INSIDE the panel (A&A: no titles), top right where every track has
     # already fallen away; (a) drops it below its regime-band row
-    _panel_tag(ax, plab, (.97, .86 if kind == 'syn' else .97), 'right', 'top',
-               box=kind != 'syn')            # (a): no line crosses it
+    tag = _panel_tag(ax, plab, (.97, .86 if kind == 'syn' else .97), 'right', 'top',
+                     box=kind != 'syn')      # (a): no line crosses it
+    if kind == 'syn':
+      # t'_c,1 = t'_c,i: the time to cool down to gamma_e = 1, where VFC starts (meeting
+      # 2026-11-10); on this abscissa it is x = 1, the FC/VFC boundary. Its name is centred
+      # on the line, and the line stops below the panel tag (and the VFC band name above
+      # it), so that it crosses no text.
+      ax.set_xlim(x[0], x[-1]); ax.set_ylim(*GMA_LIM)
+      bb = tag.get_window_extent(fig.canvas.get_renderer())
+      (x0t, y0t), (x1t, _) = ax.transAxes.inverted().transform(bb.get_points())
+      xl = ax.transAxes.inverted().transform(ax.transData.transform((1., 1.)))[0]
+      _vline(ax, 1., LAB_TC1, ls=':', lw=.9, ha='center',
+             ymax=y0t - .02 if x0t - .01 <= xl <= x1t + .01 else 1.)
     ax.tick_params(axis='x', pad=1.5)
     ax.tick_params(which='both', labelsize=FS_TICK)
   axs[0].set_ylabel('$\\gamma_{\\rm e}$', fontsize=FS_LAB)
