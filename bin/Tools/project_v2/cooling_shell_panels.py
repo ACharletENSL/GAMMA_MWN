@@ -83,10 +83,10 @@ def _exp_label(v, table):
   return None
 
 
-def _draw_guides(ax, segs, curve, table, var, min_dec, ylim, line=None, prio=0):
+def _draw_guides(ax, segs, curve, table, var, min_dec, ylim, line=None, prio=0, t=None):
   '''queue the guides of one curve (placed by _place_guides once the panel is complete); prio 0 for the
   curves chosen in GUIDES, 1 for the others, which take a slope only where the chosen curves have no room'''
-  ax.__dict__.setdefault('_guide_req', []).append((segs, curve, table, var, min_dec, ylim, line, prio))
+  ax.__dict__.setdefault('_guide_req', []).append((segs, curve, table, var, min_dec, ylim, line, prio, t))
 
 
 GUIDE_CORE = (.25, .75)      # the guide covers the central half of its segment (in log), away from its breaks
@@ -116,7 +116,16 @@ def _place_guides(ax):
   fig.canvas.draw()
   rnd = fig.canvas.get_renderer()
   cands = []
-  for segs, curve, table, var, min_dec, ylim, target, prio in ax.__dict__.get('_guide_req', []):
+  done = set()
+  for spec in ax.__dict__.get('_guide_manual', []):   # guides placed by hand (author 2026-11-10)
+    for segs, curve, table, var, min_dec, ylim, target, prio, t in ax.__dict__.get('_guide_req', []):
+      if t != spec['t']:
+        continue
+      for lo, hi, e in segs:
+        if abs(e - spec['e']) < 1e-6 and _force_guide(ax, rnd, _exp_label(e, table), lo, hi, e, curve, var, spec, target):
+          done.add(_exp_label(e, table))
+          break
+  for segs, curve, table, var, min_dec, ylim, target, prio, t in ax.__dict__.get('_guide_req', []):
     for lo, hi, e in segs:
       lab = _exp_label(e, table)
       if lab is None:
@@ -128,7 +137,6 @@ def _place_guides(ax):
         continue
       cands.append((prio, -np.log10(vis[-1]/vis[0]), lab, vis[0], vis[-1], e, curve, var, ylim, target))
   cands.sort(key=lambda c: (c[0], c[1]))
-  done = set()
   for prio, _, lab, lo, hi, e, curve, var, ylim, target in cands:
     if lab in done:
       continue
@@ -157,6 +165,101 @@ def _line_points(ax, ln):
   n = np.maximum((seg/1.5).astype(int), 1)
   return np.vstack([P[k] + np.outer(np.linspace(0., 1., n[k], endpoint=False), P[k + 1] - P[k])
                     for k in range(len(n))] + [P[-1:]])
+
+
+def _stretch(lo, hi, e, curve, tol=None, ax=None, room=30.):
+  '''the longest stretch of [lo, hi] where the curve follows the slope e within tol (GUIDE_TOL) and, with ax,
+  stays inside the panel with room (a factor) above its lower limit'''
+  xd = np.geomspace(lo, hi, 300)
+  ld = np.log10([curve(v) for v in xd])
+  okd = np.abs(np.gradient(ld, np.log10(xd)) - e) < (tol or GUIDE_TOL)
+  if ax is not None:
+    (x0, x1), (y0, y1) = ax.get_xlim(), ax.get_ylim()
+    okd &= (xd > x0*1.5) & (xd < x1/1.5) & (ld > np.log10(y0*room)) & (ld < np.log10(y1/3.))
+  best, run = (0, 0), None
+  for k, v in enumerate(np.r_[okd, False]):
+    if v and run is None:
+      run = k
+    elif not v and run is not None:
+      if k - run > best[1] - best[0]:
+        best = (run, k)
+      run = None
+  return (xd[best[0]], xd[best[1] - 1]) if best[1] - best[0] >= 3 else None
+
+
+GUIDE_CLEAR = 6.          # px: least distance between a guide and any other line
+
+
+def _force_guide(ax, rnd, lab, lo, hi, e, curve, var, spec, target=None):
+  '''a guide placed by hand: spec = dict(t, e, win=(w0, w1) within the stretch that follows the slope,
+  side=+1 above / -1 below the curve, fac=least offset factor, text='beyond' (default) | 'above' | 'below',
+  dx=+1 right / -1 left, at=position along the guide). The offset grows until the guide is GUIDE_CLEAR from
+  every other line, and the label takes the first position (preferred first) that crosses no line, symbol
+  or other label and stays inside the panel.'''
+  st = _stretch(lo, hi, e, curve, spec.get('tol', .3), ax, spec['fac']*2. if spec['side'] < 0 else 3.)
+  if st is None:
+    return False
+  lo, hi = st
+  a, b = lo*(hi/lo)**spec['win'][0], lo*(hi/lo)**spec['win'][1]
+  xx = np.geomspace(a, b, 40)
+  xc = np.sqrt(a*b)
+  lines = [ln for ln in ax.get_lines()]
+  pts = {id(ln): _line_points(ax, ln) for ln in lines}
+  y0l, y1l = np.log10(ax.get_ylim())
+  lg = None
+  for f in spec['fac']*np.array([1., 1.4, 2., 2.8, 4.]):
+    cand = np.log10(curve(xc)) + e*np.log10(xx/xc) + spec['side']*np.log10(f)
+    if cand.min() < y0l + .15 or cand.max() > y1l - .15:
+      break
+    G = ax.transData.transform(np.c_[xx, 10.**cand])
+    dmin = min((np.min(np.hypot(*(pts[id(ln)][:, None, :] - G[None, :, :]).transpose(2, 0, 1)))
+                for ln in lines if ln is not target and pts[id(ln)].size), default=99.)
+    lg = cand
+    if dmin >= GUIDE_CLEAR:
+      break
+  if lg is None:
+    return False
+  gl, = ax.plot(xx, 10.**lg, **GUIDE_LS)
+  G = ax.transData.transform(np.c_[xx, 10.**lg])
+  axbb = ax.get_window_extent(rnd)
+  texts = ax.__dict__.get('_guide_texts', [])
+  beyond = spec['side'] > 0
+  up0 = {'beyond': beyond, 'above': True, 'below': False}[spec.get('text', 'beyond')]
+  dx0 = spec.get('dx', 1. if (e < 0) == up0 else -1.)
+  opts = []
+  for f_at in (spec.get('at', .5), .5, 0., 1.):
+    for up in (up0, not up0):
+      for dx in (dx0, -dx0):
+        opts.append((f_at, up, dx))
+  txt = None
+  for f_at, up, dx in opts:
+    xm = a*(b/a)**f_at
+    yv = 10.**np.interp(np.log10(xm), np.log10(xx), lg)
+    t = ax.annotate(rf'$\propto{var}^{{{lab}}}$', (xm, yv), textcoords='offset points',
+                    xytext=(4.*dx, 3. if up else -3.), ha='left' if dx > 0 else 'right',
+                    va='bottom' if up else 'top', fontsize=FS_ANN - .5, color='0.3', zorder=7)
+    bb = t.get_window_extent(rnd).expanded(1.08, 1.2)
+    ok = axbb.x0 <= bb.x0 and bb.x1 <= axbb.x1 and axbb.y0 <= bb.y0 and bb.y1 <= axbb.y1
+    if ok:
+      for P in [pts[id(ln)] for ln in lines] + [G]:
+        if np.any((P[:, 0] > bb.x0) & (P[:, 0] < bb.x1) & (P[:, 1] > bb.y0) & (P[:, 1] < bb.y1)):
+          ok = False; break
+    if ok and any(bb.overlaps(o.get_window_extent(rnd)) for o in texts):
+      ok = False
+    if ok:
+      txt = t; break
+    if txt is None and (f_at, up, dx) == opts[0]:
+      first = (f_at, up, dx)
+    t.remove()
+  if txt is None:                                   # nothing clear: the preferred position
+    f_at, up, dx = opts[0]
+    xm = a*(b/a)**f_at; yv = 10.**np.interp(np.log10(xm), np.log10(xx), lg)
+    txt = ax.annotate(rf'$\propto{var}^{{{lab}}}$', (xm, yv), textcoords='offset points',
+                      xytext=(4.*dx, 3. if up else -3.), ha='left' if dx > 0 else 'right',
+                      va='bottom' if up else 'top', fontsize=FS_ANN - .5, color='0.3', zorder=7)
+  ax.__dict__.setdefault('_guide_lines', []).append(gl)
+  ax.__dict__.setdefault('_guide_texts', []).append(txt)
+  return True
 
 
 GUIDE_TOL = .12          # the curve follows the guide's slope within this, over the guide
@@ -492,7 +595,8 @@ def _named_g(br, reg, col, g, f):
   return br
 
 
-def _draw_distribution(reg, col, axN, axS):
+def _draw_distribution(reg, col, axN, axS, ylim=None):
+  ylim = ylim or YLIM_F[reg]
   finite = col == 1
   if finite:
     g, f = f_exact(1. + DINJ, reg, False)
@@ -516,13 +620,13 @@ def _draw_distribution(reg, col, axN, axS):
       axN.loglog(gb, np.where(fb > 0, fb, np.nan), **BPL_LS)
     pieces, _ = bpl_pieces(x, reg, after)
     _draw_guides(axN, [(lo, min(hi, g[-1]), 2.*al) for lo, hi, _, al in pieces], _interp_log(g, f),
-                 F_EXP, r'\gamma_{\rm e}', .5, YLIM_F[reg], cur, 0 if t in GUIDES[(reg, col)] else 1)
+                 F_EXP, r'\gamma_{\rm e}', .5, ylim, cur, 0 if t in GUIDES[(reg, col)] else 1, t)
     if t in NAMED[(reg, col)]:
       _, br = bpl_pieces(x, reg, after)
       cb = col if after else 0
       _mark_breaks(axN, lambda v: np.clip(v, g[0]*1.03, g[-1]/1.03), _interp_log(g, f),
                    _named_g(br, reg, cb, g, f), G_BREAKS[(reg, cb)])
-  axN.set_ylim(*YLIM_F[reg])
+  axN.set_ylim(*ylim)
   axS.set_ylim(*SL_LIM_G)
 
 
@@ -547,7 +651,8 @@ U_XLAB = r"$\nu'/\nu'_{\rm syn}(\gamma_{\rm e}=1)$"
 AX_U = dict(xlim=XLIM_U, xlab=U_XLAB, xlab_small=1, ylab=L_LAB, ticks=(0, 20), step=4)
 
 
-def _draw_spectrum(reg, col, axN, axS):
+def _draw_spectrum(reg, col, axN, axS, ylim=None):
+  ylim = ylim or YLIM_L[reg]
   finite = col == 1
   if finite:
     g, f = f_exact(1. + DINJ, reg, False)
@@ -573,15 +678,15 @@ def _draw_spectrum(reg, col, axN, axS):
     lo0 = min(q[0] for q in pieces)
     segs = [(max(XLIM_U[0]*3., lo0**2/1e4), lo0**2, 1./3.)]
     segs += [(lo**2, min(hi, g[-1])**2, al) for lo, hi, _, al in pieces if al < 1./3.]
-    _draw_guides(axN, segs, _interp_log(U, L), U_EXP, r"\nu'", 1.5, YLIM_L[reg], cur,
-                 0 if t in GUIDES_U[(reg, col)] else 1)
+    _draw_guides(axN, segs, _interp_log(U, L), U_EXP, r"\nu'", 1.5, ylim, cur,
+                 0 if t in GUIDES_U[(reg, col)] else 1, t)
     if t in NAMED[(reg, col)]:
       _, br = bpl_pieces(x, reg, after)
       cb = col if after else 0
       _mark_breaks(axN, lambda v: np.clip(v, *XLIM_U), _interp_log(U, L),
                    {k: v**2 for k, v in _named_g(br, reg, cb, g, f).items()},
                    G_BREAKS[(reg, cb)])
-  axN.set_ylim(*YLIM_L[reg])
+  axN.set_ylim(*ylim)
   axS.set_ylim(*SL_LIM_U)
 
 
@@ -591,6 +696,22 @@ def fig_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=False):
 
 # --- Figs. 4-5 merged per regime (meeting 2026-11-10): distribution above spectrum ----
 FIG_REGIME = {'FC': 'cooling_shell_FC.png', 'SC': 'cooling_shell_SC.png'}
+YLIM_REG = {'FC': ((1e-5, 8.), (1e-6, 8.)), 'SC': ((1e-8, 8.), (1e-8, 8.))}   # (f_e, L'), author 2026-11-10
+# guides placed by hand (author 2026-11-10): (regime, 0 distribution | 1 spectrum, column) -> specs
+P2 = -P/2.
+GUIDE_MANUAL = {
+  ('FC', 0, 0): [dict(t=.3, e=-P, win=(.05, .95), side=-1., fac=2.5)],
+  ('FC', 1, 0): [dict(t=.3, e=P2, win=(.05, .95), side=-1., fac=2.5),
+                 dict(t=.3, e=-.5, win=(.3, .8), side=-1., fac=3., text='below', dx=1.)],
+  ('FC', 1, 1): [dict(t=.3, e=1./3., win=(.1, .45), side=-1., fac=2.5),
+                 dict(t=.3, e=-.5, win=(.25, .75), side=1., fac=2.5),
+                 dict(t=.3, e=P2, win=(.05, .95), side=1., fac=2.5)],
+  ('SC', 0, 0): [dict(t=.3, e=-P, win=(.0, .45), side=-1., fac=2.5)],
+  ('SC', 0, 1): [dict(t=.3, e=-P, win=(.2, .7), side=1., fac=3.)],
+  ('SC', 1, 0): [dict(t=.3, e=P2, win=(.0, .45), side=-1., fac=2.5)],
+  ('SC', 1, 1): [dict(t=.3, e=P2, win=(.2, .7), side=1., fac=3.),
+                 dict(t=.3, e=1./3., win=(.1, .4), side=-1., fac=3.)],
+}
 
 
 def fig_regime(reg, outdir=OUTDIR, fname=None, show=False):
@@ -603,8 +724,10 @@ def fig_regime(reg, outdir=OUTDIR, fname=None, show=False):
     ax.set_visible(False)
   for col in (0, 1):
     axs[1, col].sharex(axs[0, col]); axs[4, col].sharex(axs[3, col])
-    _draw_distribution(reg, col, axs[0, col], axs[1, col])
-    _draw_spectrum(reg, col, axs[3, col], axs[4, col])
+    _draw_distribution(reg, col, axs[0, col], axs[1, col], YLIM_REG[reg][0])
+    _draw_spectrum(reg, col, axs[3, col], axs[4, col], YLIM_REG[reg][1])
+    axs[0, col]._guide_manual = GUIDE_MANUAL.get((reg, 0, col), [])
+    axs[3, col]._guide_manual = GUIDE_MANUAL.get((reg, 1, col), [])
     axs[1, col].set_yticks((-4, -2, 0)); axs[4, col].set_yticks((-1, 0))
     _axes(axs[0, col], axs[1, col], AX_G, col, SLOPE_LAB, 1)
     _axes(axs[3, col], axs[4, col], AX_U, col, 'index', 1)
