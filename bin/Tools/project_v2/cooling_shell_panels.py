@@ -716,7 +716,7 @@ GUIDE_MANUAL = {
 }
 
 
-def fig_regime(reg, outdir=OUTDIR, fname=None, show=False):
+def fig_regime(reg, outdir=OUTDIR, fname=None, show=False, guides=True):
   '''one figure per cooling regime: distribution (f_e, slope of dN_e/dgma_e) above the comoving
   spectrum (L'_nu', index), continuous | impulsive injection'''
   fig, axs = plt.subplots(5, 2, figsize=(WIDTH, 5.0),
@@ -738,7 +738,7 @@ def fig_regime(reg, outdir=OUTDIR, fname=None, show=False):
     axs[4, col].set_xlabel(AX_U['xlab'], fontsize=FS_LAB - AX_U['xlab_small'], labelpad=1.)
   _guides(axs[1], G_SLOPES[reg], G_NUDGE[reg])
   _guides(axs[4], U_SLOPES[reg], U_NUDGE[reg])
-  for ax in (axs[0, 0], axs[0, 1], axs[3, 0], axs[3, 1]):
+  for ax in (axs[0, 0], axs[0, 1], axs[3, 0], axs[3, 1]) if guides else ():
     _place_guides(ax)
   axs[0, 0].set_title('Continuous injection', fontsize=FS_LAB, pad=3)
   axs[0, 1].set_title(FINITE_TITLE, fontsize=FS_LAB, pad=3)
