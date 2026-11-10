@@ -73,7 +73,7 @@ FS_LAB, FS_TICK, FS_ANN = 9., 8., 7.
 BOX = dict(boxstyle='square,pad=0.1', fc='w', ec='none')
 BPL_LS = dict(color=INK, ls=(0, (3, 2)), lw=.8, zorder=5)
 STEP_LS = dict(ls=':', lw=1.1)
-FINITE_TITLE = r"Finite injection, $\Delta t'_{\rm inj}=t'_0$"
+FINITE_TITLE = r"Impulsive injection, $\Delta t'_{\rm inj}=t'_0$"
 
 
 # --- curves ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ def _row(draw, A, sl, key, outdir, fname, show):
     _axes(axN, axS, A, col, sl, 2)
     axN.tick_params(labelbottom=False)
     axS.set_xlabel(A['xlab'], fontsize=FS_LAB - A['xlab_small'])
-    axN.text(.5, 1.03, ('continuous', r"finite, $\Delta t'_{\rm inj}=t'_0$")[col], ha='center',
+    axN.text(.5, 1.03, ('continuous', r"impulsive, $\Delta t'_{\rm inj}=t'_0$")[col], ha='center',
              va='bottom', transform=axN.transAxes, fontsize=FS_ANN, color=INK)
     head.setdefault(reg, []).append(axN.get_position())
   for reg, name in (('FC', 'Fast cooling, '), ('SC', 'Slow cooling, ')):
@@ -267,8 +267,8 @@ G_BREAKS = {  # table break -> quantity (MARK)
   ('SC', 1): {'low': 'm,ad', 'adf': 'm,l', 'hi': 'c,ad', 'top': 'c,l'}}
 G_LAB = {'c,ad': r'$\gamma_{\rm c{,}ad}$', 'm,ad': r'$\gamma_{\rm m{,}ad}$',
          'cFC': r'$\tilde{\gamma}_{\rm c}$', 'cSC': r'$\tilde{\gamma}_{\rm c}$',
-         'm,i': r'$\gamma_{\rm m}$', 'c,l': r'$\gamma_{\rm c{,}l}$',
-         'm,l': r'$\gamma_{\rm m{,}l}$'}
+         'm,i': r'$\gamma_{\rm m}$', 'c,l': r'$\gamma_{\rm c{,}inj}$',
+         'm,l': r'$\gamma_{\rm m{,}inj}$'}
 G_NUDGE = {'FC': {r'$-p_{\rm FC}$': 1., r'$-2$': 2., r'$-p$': -1.5, r'$-(p+1)$': -2.},
            'SC': {r'$-p$': 1.5, r'$-(p+1)$': -2.}}
 G_SLOPES = {'FC': ((-2./3., r'$-p_{\rm FC}$'), (-2., r'$-2$'), (-P, r'$-p$'),
@@ -331,8 +331,8 @@ def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=F
 
 # --- Fig. 5 ---------------------------------------------------------------------------
 U_LAB = {'c,ad': r"$\nu'_{\rm c{,}ad}$", 'm,ad': r"$\nu'_{\rm m{,}ad}$", 'cFC': r"$\nu'_{\rm c}$",
-         'cSC': r"$\nu'_{\rm c}$", 'm,i': r"$\nu'_{\rm m}$", 'c,l': r"$\nu'_{\rm c{,}l}$",
-         'm,l': r"$\nu'_{\rm m{,}l}$"}
+         'cSC': r"$\nu'_{\rm c}$", 'm,i': r"$\nu'_{\rm m}$", 'c,l': r"$\nu'_{\rm c{,}inj}$",
+         'm,l': r"$\nu'_{\rm m{,}inj}$"}
 U_NUDGE = {'FC': {r'$1/3$': 3.5, r'$\alpha_{\rm FC}$': -1.5, r'$-1/2$': 2., r'$-(p-1)/2$': -1.}, 'SC': {}}
 U_SLOPES = {'FC': ((1./3., r'$1/3$'), (1./6., r'$\alpha_{\rm FC}$'), (-.5, r'$-1/2$'),
                    (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$')),
