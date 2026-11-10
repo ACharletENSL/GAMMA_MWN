@@ -59,7 +59,11 @@ ALL_T = (0.3, 3., 15., 100.)
 TIMES = {('FC', 0): ALL_T, ('SC', 0): (0.3, 3., 15.),
          ('FC', 1): ALL_T, ('SC', 1): ALL_T}
 COL = dict(zip(ALL_T, plt.cm.Blues(np.linspace(.45, 1., len(ALL_T)))))
-NAMED = {('FC', 0): 3., ('SC', 0): 3., ('FC', 1): 100., ('SC', 1): 100.}
+NAMED = {('FC', 0): (3.,), ('SC', 0): (3.,), ('FC', 1): (0.3, 100.), ('SC', 1): (0.3, 100.)}
+# meeting 2026-11-10: 'add a couple broken power laws and some missing breaks, especially before the
+# end of the injection': breaks on the curve during the injection in the impulsive column too, and
+# the broken power law of the text over one curve per panel
+OVER_BPL = {('FC', 0): (15.,), ('SC', 0): (15.,), ('FC', 1): (100.,), ('SC', 1): (100.,)}
 T_SPLIT = 3.                                    # the curve split into old and young electrons
 NO_BPL = {('FC', 0): (0.3, 100.), ('SC', 0): (0.3,), ('FC', 1): (0.3,), ('SC', 1): (0.3,)}
 
@@ -317,10 +321,17 @@ def _draw_distribution(reg, col, axN, axS):
       ge, _, fo, fy = old_young(x, reg)
       axN.loglog(ge, np.where(fo > 0, fo, np.nan), **OLD_LS)
       axN.loglog(ge, np.where(fy > 0, fy, np.nan), **YOUNG_LS)
-    if t == NAMED[(reg, col)]:
-      _, br = bpl_pieces(x, reg, finite and t > DINJ)
+    after = finite and t > DINJ
+    if t in OVER_BPL[(reg, col)]:
+      pieces, _ = bpl_pieces(x, reg, after)
+      gb = np.geomspace(min(q[0] for q in pieces), max(q[1] for q in pieces), 800)
+      fb = eval_pieces(gb, pieces)
+      axN.loglog(gb, np.where(fb > 0, fb, np.nan), **BPL_LS)
+    if t in NAMED[(reg, col)]:
+      _, br = bpl_pieces(x, reg, after)
+      cb = col if after else 0
       _mark_breaks(axN, lambda v: np.clip(v, g[0]*1.03, g[-1]/1.03), _interp_log(g, f),
-                   _named_g(br, reg, col, g, f), G_BREAKS[(reg, col)])
+                   _named_g(br, reg, cb, g, f), G_BREAKS[(reg, cb)])
   axN.set_ylim(*YLIM_F[reg])
   axS.set_ylim(*SL_LIM_G)
 
@@ -363,17 +374,56 @@ def _draw_spectrum(reg, col, axN, axS):
       ge, _, fo, fy = old_young(x, reg)
       axN.loglog(U, spectrum(ge, fo, U), **OLD_LS)
       axN.loglog(U, spectrum(ge, fy, U), **YOUNG_LS)
-    if t == NAMED[(reg, col)]:
-      _, br = bpl_pieces(x, reg, finite and t > DINJ)
+    after = finite and t > DINJ
+    if t in OVER_BPL[(reg, col)]:
+      pieces, _ = bpl_pieces(x, reg, after)
+      Lb = css.pl_spectrum(np.sqrt(U), pieces)
+      axN.loglog(U, np.where(Lb > 0, Lb, np.nan), **BPL_LS)
+    if t in NAMED[(reg, col)]:
+      _, br = bpl_pieces(x, reg, after)
+      cb = col if after else 0
       _mark_breaks(axN, lambda v: np.clip(v, *XLIM_U), _interp_log(U, L),
-                   {k: v**2 for k, v in _named_g(br, reg, col, g, f).items()},
-                   G_BREAKS[(reg, col)])
+                   {k: v**2 for k, v in _named_g(br, reg, cb, g, f).items()},
+                   G_BREAKS[(reg, cb)])
   axN.set_ylim(*YLIM_L[reg])
   axS.set_ylim(*SL_LIM_U)
 
 
 def fig_spectrum(outdir=OUTDIR, fname='cooling_shell_spectrum.png', show=False):
   return _flat(_draw_spectrum, AX_U, U_LAB, U_SLOPES, U_NUDGE, (-1, 0), outdir, fname, show)
+
+
+# --- Figs. 4-5 merged per regime (meeting 2026-11-10): distribution above spectrum ----
+FIG_REGIME = {'FC': 'cooling_shell_FC.png', 'SC': 'cooling_shell_SC.png'}
+
+
+def fig_regime(reg, outdir=OUTDIR, fname=None, show=False):
+  '''one figure per cooling regime: distribution (f_e, slope of dN_e/dgma_e) above the comoving
+  spectrum (L'_nu', index), continuous | impulsive injection'''
+  fig, axs = plt.subplots(5, 2, figsize=(WIDTH, 5.0),
+      gridspec_kw=dict(height_ratios=[2.1, .85, .72, 2.1, .85], hspace=.07, wspace=.05))
+  fig.subplots_adjust(left=.075, right=.905, top=.83, bottom=.08)
+  for ax in axs[2]:
+    ax.set_visible(False)
+  for col in (0, 1):
+    axs[1, col].sharex(axs[0, col]); axs[4, col].sharex(axs[3, col])
+    _draw_distribution(reg, col, axs[0, col], axs[1, col])
+    _draw_spectrum(reg, col, axs[3, col], axs[4, col])
+    axs[1, col].set_yticks((-4, -2, 0)); axs[4, col].set_yticks((-1, 0))
+    _axes(axs[0, col], axs[1, col], AX_G, col, SLOPE_LAB, 1)
+    _axes(axs[3, col], axs[4, col], AX_U, col, 'index', 1)
+    axs[0, col].tick_params(labelbottom=False); axs[3, col].tick_params(labelbottom=False)
+    axs[1, col].set_xlabel(AX_G['xlab'], fontsize=FS_LAB, labelpad=1.)
+    axs[4, col].set_xlabel(AX_U['xlab'], fontsize=FS_LAB - AX_U['xlab_small'], labelpad=1.)
+  _guides(axs[1], G_SLOPES[reg], G_NUDGE[reg])
+  _guides(axs[4], U_SLOPES[reg], U_NUDGE[reg])
+  axs[0, 0].set_title('Continuous injection', fontsize=FS_LAB, pad=3)
+  axs[0, 1].set_title(FINITE_TITLE, fontsize=FS_LAB, pad=3)
+  p, q = axs[0, 0].get_position(), axs[0, 1].get_position()
+  fig.text(.5*(p.x0 + q.x1), p.y1 + .118, {'FC': 'Fast cooling, ', 'SC': 'Slow cooling, '}[reg] + REGIME[reg],
+           ha='center', va='bottom', fontsize=FS_LAB, color=INK)
+  _key(fig, (.5*(p.x0 + q.x1), p.y1 + .035), ALL_T, KEY_SPLIT + KEY_BPL, .04, G_LAB)
+  return _save(fig, outdir, fname or FIG_REGIME[reg], show)
 
 
 # --- the comparisons to the broken power law, Figs. E.1 and F.1 -----------------------
@@ -429,7 +479,7 @@ def _draw_spectrum_bpl(reg, col, axN, axS):
     axN.loglog(U, np.where(Lb > 0, Lb, np.nan), **BPL_LS)
     with np.errstate(divide='ignore', invalid='ignore'):
       axS.semilogx(U, np.where(ok, Lb/L, np.nan), color=COL[t], lw=1.2, zorder=3)
-    if t == NAMED[(reg, col)]:
+    if t == NAMED[(reg, col)][-1]:
       Ls = spectrum(g, f, U, full=False)
       axN.loglog(U, np.where(Ls > 0, Ls, np.nan), color=COL[t], zorder=4, **STEP_LS)
       with np.errstate(divide='ignore', invalid='ignore'):
@@ -511,6 +561,8 @@ def report():
 
 def main(show=False):
   report()
+  fig_regime('FC', show=show)
+  fig_regime('SC', show=show)
   fig_distribution(show=show)
   fig_spectrum(show=show)
   fig_distribution_bpl(show=show)
