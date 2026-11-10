@@ -72,7 +72,8 @@ GUIDES_U = {('FC', 0): (3.,), ('SC', 0): (3.,), ('FC', 1): (0.3, 100.), ('SC', 1
 GUIDE_LS = dict(color='0.35', ls=(0, (1, 1.3)), lw=.9, zorder=5)
 GUIDE_FAC = 4.
 P_FC, P_SC = 2./3., -.5                          # reference fluid element, kappa_N = kappa_m = 0
-F_EXP = {1. - P_FC: r'1-p_{\rm FC}', -1.: r'-1', -P: r'-p', 1. - P: r'1-p', 1. - P_SC: r'1-p_{\rm SC}'}
+# keys: exponent of the plotted quantity (f_e); labels: slope of dN_e/dgma_e = exponent - 1 (author 2026-11-10)
+F_EXP = {1. - P_FC: r'-p_{\rm FC}', -1.: r'-2', -P: r'-(p+1)', 1. - P: r'-p', 1. - P_SC: r'-p_{\rm SC}'}
 U_EXP = {1./3.: r'1/3', (1. - P_FC)/2.: r'\alpha_{\rm FC}', -.5: r'-1/2', -(P - 1.)/2.: r'-(p-1)/2', -P/2.: r'-p/2'}
 
 
@@ -144,7 +145,7 @@ def _place_guides(ax):
       done.add(lab)
 
 
-GUIDE_WINDOWS = ((.25, .75), (.1, .6), (.4, .9), (.1, .45), (.55, .9), (.3, .65))   # fractions of the segment (log)
+GUIDE_WINDOWS = ((.2, .8), (.27, .73), (.33, .67))   # centred on the stretch that has the slope (author 2026-11-10)
 GUIDE_LABEL_AT = (.5, 0., 1.)                                                       # along the guide (log)
 
 
@@ -196,11 +197,12 @@ def _force_guide(ax, rnd, lab, lo, hi, e, curve, var, spec, target=None):
   dx=+1 right / -1 left, at=position along the guide). The offset grows until the guide is GUIDE_CLEAR from
   every other line, and the label takes the first position (preferred first) that crosses no line, symbol
   or other label and stays inside the panel.'''
-  st = _stretch(lo, hi, e, curve, spec.get('tol', .3), ax, spec['fac']*2. if spec['side'] < 0 else 3.)
+  st = _stretch(lo, hi, e, curve, spec.get('tol', .3), ax, 1.5)   # the visible stretch that has the slope
   if st is None:
     return False
   lo, hi = st
-  a, b = lo*(hi/lo)**spec['win'][0], lo*(hi/lo)**spec['win'][1]
+  w = spec.get('width', .6)
+  a, b = lo*(hi/lo)**(.5 - w/2.), lo*(hi/lo)**(.5 + w/2.)
   xx = np.geomspace(a, b, 40)
   xc = np.sqrt(a*b)
   lines = [ln for ln in ax.get_lines()]
@@ -235,7 +237,7 @@ def _force_guide(ax, rnd, lab, lo, hi, e, curve, var, spec, target=None):
   for f_at, up, dx in opts:
     xm = a*(b/a)**f_at
     yv = 10.**np.interp(np.log10(xm), np.log10(xx), lg)
-    t = ax.annotate(rf'$\propto{var}^{{{lab}}}$', (xm, yv), textcoords='offset points',
+    t = ax.annotate(rf'${lab}$', (xm, yv), textcoords='offset points',
                     xytext=(4.*dx, 3. if up else -3.), ha='left' if dx > 0 else 'right',
                     va='bottom' if up else 'top', fontsize=FS_ANN - .5, color='0.3', zorder=7)
     bb = t.get_window_extent(rnd).expanded(1.08, 1.2)
@@ -254,7 +256,7 @@ def _force_guide(ax, rnd, lab, lo, hi, e, curve, var, spec, target=None):
   if txt is None:                                   # nothing clear: the preferred position
     f_at, up, dx = opts[0]
     xm = a*(b/a)**f_at; yv = 10.**np.interp(np.log10(xm), np.log10(xx), lg)
-    txt = ax.annotate(rf'$\propto{var}^{{{lab}}}$', (xm, yv), textcoords='offset points',
+    txt = ax.annotate(rf'${lab}$', (xm, yv), textcoords='offset points',
                       xytext=(4.*dx, 3. if up else -3.), ha='left' if dx > 0 else 'right',
                       va='bottom' if up else 'top', fontsize=FS_ANN - .5, color='0.3', zorder=7)
   ax.__dict__.setdefault('_guide_lines', []).append(gl)
@@ -333,7 +335,7 @@ def _try_guide(ax, rnd, lab, lo, hi, e, curve, var, ylim, target):
           xm = a*(b/a)**f_at
           y0 = 10.**np.interp(np.log10(xm), np.log10(xx), lg)
           sidex = (1. if (e < 0) == up else -1.) if f_at == .5 else (-1. if f_at == 0. else 1.)
-          txt = ax.annotate(rf'$\propto{var}^{{{lab}}}$', (xm, y0), textcoords='offset points',
+          txt = ax.annotate(rf'${lab}$', (xm, y0), textcoords='offset points',
                             xytext=(4.*sidex, 3. if up else -3.), ha='left' if sidex > 0 else 'right',
                             va='bottom' if up else 'top', fontsize=FS_ANN - .5, color='0.3', zorder=7)
           bb = txt.get_window_extent(rnd).expanded(1.08, 1.2)
@@ -700,17 +702,17 @@ YLIM_REG = {'FC': ((1e-5, 8.), (1e-6, 8.)), 'SC': ((1e-8, 8.), (1e-8, 8.))}   # 
 # guides placed by hand (author 2026-11-10): (regime, 0 distribution | 1 spectrum, column) -> specs
 P2 = -P/2.
 GUIDE_MANUAL = {
-  ('FC', 0, 0): [dict(t=.3, e=-P, win=(.05, .95), side=-1., fac=2.5)],
-  ('FC', 1, 0): [dict(t=.3, e=P2, win=(.05, .95), side=-1., fac=2.5),
-                 dict(t=.3, e=-.5, win=(.3, .8), side=-1., fac=3., text='below', dx=1.)],
-  ('FC', 1, 1): [dict(t=.3, e=1./3., win=(.1, .45), side=-1., fac=2.5),
-                 dict(t=.3, e=-.5, win=(.25, .75), side=1., fac=2.5),
-                 dict(t=.3, e=P2, win=(.05, .95), side=1., fac=2.5)],
-  ('SC', 0, 0): [dict(t=.3, e=-P, win=(.0, .45), side=-1., fac=2.5)],
-  ('SC', 0, 1): [dict(t=.3, e=-P, win=(.2, .7), side=1., fac=3.)],
-  ('SC', 1, 0): [dict(t=.3, e=P2, win=(.0, .45), side=-1., fac=2.5)],
-  ('SC', 1, 1): [dict(t=.3, e=P2, win=(.2, .7), side=1., fac=3.),
-                 dict(t=.3, e=1./3., win=(.1, .4), side=-1., fac=3.)],
+  ('FC', 0, 0): [dict(t=.3, e=-P, side=-1., fac=2.5)],
+  ('FC', 1, 0): [dict(t=.3, e=P2, side=-1., fac=2.5),
+                 dict(t=.3, e=-.5, side=-1., fac=3., text='below', dx=1.)],
+  ('FC', 1, 1): [dict(t=.3, e=1./3., side=-1., fac=2.5),
+                 dict(t=.3, e=-.5, side=1., fac=2.5),
+                 dict(t=.3, e=P2, side=1., fac=2.5)],
+  ('SC', 0, 0): [dict(t=.3, e=-P, side=-1., fac=2.5)],
+  ('SC', 0, 1): [dict(t=.3, e=-P, side=1., fac=3.)],
+  ('SC', 1, 0): [dict(t=.3, e=P2, side=-1., fac=2.5)],
+  ('SC', 1, 1): [dict(t=.3, e=P2, side=1., fac=3.),
+                 dict(t=.3, e=1./3., side=-1., fac=3.)],
 }
 
 
