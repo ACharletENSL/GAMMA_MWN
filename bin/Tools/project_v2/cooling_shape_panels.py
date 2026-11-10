@@ -280,10 +280,11 @@ def _vline(ax, v, lab=None, ls='-', lw=.8, color=INK, ha='center'):
 # --- (1) the edge tracks ----------------------------------------------------------------
 LAB_GM, LAB_GMM = '$\\gamma_\\mathrm{m}$', '$\\gamma_\\mathrm{M}$'
 TCI = "t'_{{\\rm c},\\!i}"          # the article's t'_{\\c,i}: upright c, italic i
-LAB_GUIDE, LAB_TDYN = f"$(\\Delta t'/{TCI})^{{-1}}$", "$t'_{\\rm dyn}$"
+LAB_GUIDE, LAB_TDYN = f"$(\\Delta t'_i/{TCI})^{{-1}}$", "$t'_{\\rm dyn}$"
 # the knees are named for the PHYSICAL time, not for tt: the abscissa is t'/t'_c,i, and
 # outside panel (a) that is not tt at all -- tt lags it once the field decays
 LAB_TMM, LAB_TM = "$t'_\\mathrm{M}$", "$t'_\\mathrm{m}$"
+LAB_TC1 = "$t'_{\\rm c,1}$"      # time to cool down to gamma_e = 1 (VFC from there)
 LAB_SYN = 'syn. only'       # the same population with the expansion switched off
 LAB_GC = '$I_{\\rm dyn}^{-1}$'   # 1/I(2t'_i), where the line is drawn (article 2026-10-23)
 SYN_REF = '0.62'            # lighter than the tracks, and solid/dashed rather than the
@@ -300,7 +301,7 @@ def lab_adrift(a_rho=A_RHO):
   '''
   if abs(a_rho) < 1e-12:      # no drag: once the burn freezes gma_e simply STOPS
     return 'const.'
-  return f"$(\\Delta t'/{TCI})^{{" + _frac_tex(a_rho/3.) + "}$"
+  return f"$(\\Delta t'_i/{TCI})^{{" + _frac_tex(a_rho/3.) + "}$"
 # mathtext puts no space after the comma, so the \! keeps the two indices from touching
 LAB_GMI = '$\\gamma_{\\mathrm{m},\\!i}$'
 LAB_GMMI = '$\\gamma_{\\mathrm{M},\\!i}$'
@@ -439,6 +440,10 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     for v, ls, lab in zip(knees, ('-', '--'), (LAB_TMM, LAB_TM)):
       if v is not None:
         _vline(ax, v, lab, ls=ls, ha='left' if (late_m and lab == LAB_TM) else 'center')
+    if kind == 'syn':
+      # t'_c,1 = t'_c,i: the time to cool down to gamma_e = 1, where VFC starts (meeting
+      # 2026-11-10); on this abscissa it is x = 1, the FC/VFC boundary
+      _vline(ax, 1., LAB_TC1, ls=':', lw=.9, ha='right')
     if ttd is not None:
       _vline(ax, ttd, LAB_TDYN, ls='-.', lw=.9,   # t'_dyn IS tt_dyn on this abscissa
              ha='right' if late_m else 'center')
@@ -446,7 +451,7 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     ax.set_ylim(*GMA_LIM)
     ax.set_yticks(10.**np.arange(0., np.log10(gM0) + 1., 2.))
     # the clock starts at injection, Delta t' = t'-t'_i: sigma = x/tt_dyn is Delta t'/t'_i, R/R_0 = 1 + sigma
-    ax.set_xlabel(f"$\\Delta t'/{TCI}$", fontsize=FS_LAB, labelpad=1.)
+    ax.set_xlabel(f"$\\Delta t'_i/{TCI}$", fontsize=FS_LAB, labelpad=1.)
     # the case INSIDE the panel (A&A: no titles), top right where every track has
     # already fallen away; (a) drops it below its regime-band row
     _panel_tag(ax, plab, (.97, .86 if kind == 'syn' else .97), 'right', 'top',
@@ -523,7 +528,7 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
   axs[0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
 
   _legend_above(fig, axs, ncol=len(logtt),
-                title=f"$\\log_{{10}}(\\Delta t'/{TCI})$")
+                title=f"$\\log_{{10}}(\\Delta t'_i/{TCI})$")
   fig.legends[-1].get_title().set_fontsize(FS_LEG)
   return _save(fig, axs, outdir, fname, show)
 
