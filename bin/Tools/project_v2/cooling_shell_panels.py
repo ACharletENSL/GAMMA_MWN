@@ -63,7 +63,54 @@ NAMED = {('FC', 0): (3.,), ('SC', 0): (3.,), ('FC', 1): (0.3, 100.), ('SC', 1): 
 # meeting 2026-11-10: 'add a couple broken power laws and some missing breaks, especially before the
 # end of the injection': breaks on the curve during the injection in the impulsive column too, and
 # the broken power law of the text over one curve per panel
-OVER_BPL = {('FC', 0): (15.,), ('SC', 0): (15.,), ('FC', 1): (100.,), ('SC', 1): (100.,)}
+OVER_BPL = {('FC', 0): (), ('SC', 0): (), ('FC', 1): (), ('SC', 1): ()}   # superseded by GUIDES
+# author 2026-11-10: power-law GUIDES (as in the old steady-state figure) rather than broken power laws:
+# each segment of these curves gets a dotted line parallel to it, offset above, with its slope written
+GUIDES = {('FC', 0): (3.,), ('SC', 0): (3.,), ('FC', 1): (0.3, 100.), ('SC', 1): (0.3, 100.)}
+GUIDES_U = {('FC', 0): (3.,), ('SC', 0): (3.,), ('FC', 1): (0.3,), ('SC', 1): (0.3,)}   # spectra
+GUIDE_LS = dict(color='0.35', ls=(0, (1, 1.3)), lw=.9, zorder=5)
+GUIDE_FAC = 4.
+P_FC, P_SC = 2./3., -.5                          # reference fluid element, kappa_N = kappa_m = 0
+F_EXP = {1. - P_FC: r'1-p_{\rm FC}', -1.: r'-1', -P: r'-p', 1. - P: r'1-p', 1. - P_SC: r'1-p_{\rm SC}'}
+U_EXP = {1./3.: r'1/3', (1. - P_FC)/2.: r'\alpha_{\rm FC}', -.5: r'-1/2', -(P - 1.)/2.: r'-(p-1)/2', -P/2.: r'-p/2'}
+
+
+def _exp_label(v, table):
+  for k, t in table.items():
+    if abs(v - k) < 1e-6:
+      return t
+  return None
+
+
+def _draw_guides(ax, segs, curve, table, var, min_dec, ylim):
+  '''segs = [(lo, hi, exponent)]: a dotted line parallel to each segment of the curve, GUIDE_FAC above
+  it (below it near the top of the panel), over its central part where the curve is visible, with its
+  exponent written beside its middle; each exponent once per panel'''
+  done = ax.__dict__.setdefault('_guided', set())
+  for lo, hi, e in segs:
+    lab = _exp_label(e, table)
+    if lab is None or lab in done:
+      continue
+    xs = np.geomspace(lo, hi, 200)
+    vis = xs[np.array([curve(v) for v in xs]) > 3.*ylim[0]]
+    if vis.size < 2 or np.log10(vis[-1]/vis[0]) < min_dec:
+      continue
+    lo, hi = vis[0], vis[-1]
+    a, b = lo*(hi/lo)**.15, lo*(hi/lo)**.85
+    xm = np.sqrt(a*b)
+    up = GUIDE_FAC*curve(xm)*30. < ylim[1]
+    y0 = curve(xm)*(GUIDE_FAC if up else 1./GUIDE_FAC)
+    xx = np.geomspace(a, b, 20)
+    ax.loglog(xx, y0*(xx/xm)**e, **GUIDE_LS)
+    side = 1. if (e < 0) == up else -1.       # beside the line, on the side away from it
+    ax.annotate(rf'$\propto{var}^{{{lab}}}$', (xm, y0), textcoords='offset points',
+                xytext=(4.*side, 3. if up else -3.), ha='left' if side > 0 else 'right',
+                va='bottom' if up else 'top',
+                fontsize=FS_ANN - .5, color='0.3', zorder=7,
+                bbox=dict(boxstyle='square,pad=0.05', fc='w', ec='none', alpha=.85))
+    done.add(lab)
+
+
 T_SPLIT = 3.                                    # the curve split into old and young electrons
 NO_BPL = {('FC', 0): (0.3, 100.), ('SC', 0): (0.3,), ('FC', 1): (0.3,), ('SC', 1): (0.3,)}
 
@@ -327,6 +374,10 @@ def _draw_distribution(reg, col, axN, axS):
       gb = np.geomspace(min(q[0] for q in pieces), max(q[1] for q in pieces), 800)
       fb = eval_pieces(gb, pieces)
       axN.loglog(gb, np.where(fb > 0, fb, np.nan), **BPL_LS)
+    if t in GUIDES[(reg, col)]:
+      pieces, _ = bpl_pieces(x, reg, after)
+      _draw_guides(axN, [(lo, min(hi, g[-1]), 2.*al) for lo, hi, _, al in pieces], _interp_log(g, f),
+                   F_EXP, r'\gamma_{\rm e}', .5, YLIM_F[reg])
     if t in NAMED[(reg, col)]:
       _, br = bpl_pieces(x, reg, after)
       cb = col if after else 0
@@ -379,6 +430,12 @@ def _draw_spectrum(reg, col, axN, axS):
       pieces, _ = bpl_pieces(x, reg, after)
       Lb = css.pl_spectrum(np.sqrt(U), pieces)
       axN.loglog(U, np.where(Lb > 0, Lb, np.nan), **BPL_LS)
+    if t in GUIDES_U[(reg, col)]:
+      pieces, _ = bpl_pieces(x, reg, after)
+      lo0 = min(q[0] for q in pieces)
+      segs = [(max(XLIM_U[0]*3., lo0**2/1e4), lo0**2, 1./3.)]
+      segs += [(lo**2, min(hi, g[-1])**2, al) for lo, hi, _, al in pieces if al < 1./3.]
+      _draw_guides(axN, segs, _interp_log(U, L), U_EXP, r"\nu'", 1.5, YLIM_L[reg])
     if t in NAMED[(reg, col)]:
       _, br = bpl_pieces(x, reg, after)
       cb = col if after else 0
@@ -422,7 +479,7 @@ def fig_regime(reg, outdir=OUTDIR, fname=None, show=False):
   p, q = axs[0, 0].get_position(), axs[0, 1].get_position()
   fig.text(.5*(p.x0 + q.x1), p.y1 + .118, {'FC': 'Fast cooling, ', 'SC': 'Slow cooling, '}[reg] + REGIME[reg],
            ha='center', va='bottom', fontsize=FS_LAB, color=INK)
-  _key(fig, (.5*(p.x0 + q.x1), p.y1 + .035), ALL_T, KEY_SPLIT + KEY_BPL, .04, G_LAB)
+  _key(fig, (.5*(p.x0 + q.x1), p.y1 + .035), ALL_T, KEY_SPLIT, .04, G_LAB)
   return _save(fig, outdir, fname or FIG_REGIME[reg], show)
 
 
