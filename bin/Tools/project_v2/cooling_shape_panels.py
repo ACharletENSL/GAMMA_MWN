@@ -477,9 +477,16 @@ def plot_cooling_tracks(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
 
 # --- (2) the distribution shapes ---------------------------------------------------------
 def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
-    logtt=LOGTT_SAMPLES, logC_m=LOGC_PANELS, outdir=OUTDIR, fname=FN_SHAPES, show=False):
+    logtt=LOGTT_SAMPLES, logC_m=LOGC_PANELS, outdir=OUTDIR, fname=FN_SHAPES, show=False,
+    regime_bands=True):
   '''
-  N(gma,t') at the sampled log10(t'/t'_c,i), one panel per physics case. Same panel
+  N(gma,t') at the sampled log10(t'/t'_c,i), one panel per physics case.
+
+  regime_bands (meeting 2026-11-10, 'all information on regimes visible by eye'): the gamma_e
+  axis of panel (a) only is shaded with the regime bands of Fig. 1 (a), in the same colours, read for a cooling
+  Lorentz factor: VFC below 1, FC up to gma_m,i, MFC within MFC_FAC of it, SC up to gma_M,i,
+  VSC above. In (a) the band holding each dot (gma_M = t'_c,i/Delta t'_i) is the regime that
+  Delta t'_i would give as a dynamical time. Same panel
   order as plot_cooling_tracks, and the SAME sampled times in every panel.
 
   Every vertical is named ON its line along the top strip: the two injected bounds in
@@ -531,8 +538,22 @@ def plot_cooling_shapes(p=P_SYN, gm0=GM0, gM0=GMA_M0, a_rho=A_RHO, q=Q_C,
     # bottom left: the cooled curves never reach below N ~ 1e-9 at gma_e < 1e2
     _panel_tag(ax, plab, (.03, .03), 'left', 'bottom')
     ax.tick_params(which='both', labelsize=FS_TICK)
-  for ax in axs:
-    ax.set_xlim(.5*lo, 2.*gM0)
+  for k, ax in enumerate(axs):
+    ax.set_xlim(.3 if regime_bands else .5*lo, 2.*gM0)
+    if regime_bands and k == 0:          # author 2026-11-10: bands in the synchrotron-only panel only
+      x0, x1 = ax.get_xlim()
+      bands = (('VFC', x0, 1., '#2166ac'), ('FC', 1., gm0/MFC_FAC, '#67a9cf'),
+               ('MFC', gm0/MFC_FAC, gm0*MFC_FAC, '0.6'), ('SC', gm0*MFC_FAC, gM0, '#ef8a62'),
+               ('VSC', gM0, x1, '#b2182b'))
+      for lab, a_, b_, col in bands:
+        ax.axvspan(a_, b_, color=col, alpha=BAND_ALPHA, lw=0, zorder=0)
+        if lab in ('VFC', 'VSC'):            # narrow bands: name set inside, flush with the spine
+          ax.annotate(lab, (.015 if lab == 'VFC' else .985, .985), xycoords='axes fraction',
+                      color=INK, fontsize=FS_ANN - 1, ha='left' if lab == 'VFC' else 'right',
+                      va='top', rotation=90, bbox=dict(fc=_band_bg(col), ec='none', pad=1.))
+        else:
+          ax.annotate(lab, (np.sqrt(a_*b_), .985), xycoords=('data', 'axes fraction'), color=INK,
+                      fontsize=FS_ANN, ha='center', va='top', bbox=dict(fc=_band_bg(col), ec='none', pad=1.5))
   axs[0].set_ylabel("$N_{\\rm e}^{-1}\\,{\\rm d}N_{\\rm e}/{\\rm d}\\gamma_{\\rm e}$", fontsize=FS_LAB)
 
   _legend_above(fig, axs, ncol=len(logtt),
