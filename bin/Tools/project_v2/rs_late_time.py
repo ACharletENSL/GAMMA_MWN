@@ -71,7 +71,7 @@ def ns06_jump(k, kej, hat_gamma=5./3.):
 class RSShell:
   def __init__(self, kind, k, E=1e53, Gam4=100., Dt0=1., kej=2.1, Gmax=300., Gmin=30., n0=1.,
                Astar=1., epse=0.3, epsB=1e-2, p=2.5, z=1., dL=2.0e28, nel=400, g_thin=None, field='toroidal',
-               sigma4=1e-3):
+               sigma4=1e-4, epsB_max=1/3):
     '''field: 'toroidal' (default since 2026-11-11, J. Granot): a toroidal field frozen in the ejecta,
     B' ~ 1/(R Delta') ~ n' R, compressed by the shock with the density, so that B'/(n'R) = K is the same in
     all the elements at all times; B'_i = K n'_i R_i with n'_i = e'_3/[(Gamma34 - 1) m_p c^2], and K set
@@ -79,7 +79,7 @@ class RSShell:
     'epsB' = B'^2 = 8 pi eps_B e' in every element at all times (common field, homogeneous shell);
     'frozen' = B'^2 = 8 pi eps_B e' at injection only, then frozen in a tangled field, B'^2 ~ n'^4/3'''
     self.__dict__.update(dict(kind=kind, k=k, E=E, epse=epse, epsB=epsB, p=p, z=z, dL=dL, nel=nel, field=field,
-                              sigma4=sigma4))
+                              sigma4=sigma4, epsB_max=epsB_max))
     self.rhoR = 5e11*Astar if k == 2 else n0*mp_*(1e17)**k
     self.rho = lambda R: self.rhoR*np.asarray(R, float)**-k
     if kind in ('thin', 'thick'):
@@ -113,7 +113,12 @@ class RSShell:
     if self.kind == 'thin':
       G34 = 1. + phi**2/2; Gr = np.ones_like(x); h = 4*phi/3
     else:
-      G34 = np.maximum(np.sqrt(phi/2), 1.); Gr = np.minimum((2*phi)**-0.5, 1.); h = 2*phi
+      # exact planar pressure balance 4 G34 (G34 - 1) n4 = 4 G3 (G3 - 1) n1, n4/n1 = (Gamma4/phi)^2 (fixes the early,
+      # Newtonian phase, where the relativistic limit gave Gamma34 = 1; 2026-11-11); -> (phi/2)^1/2 for phi >> 1
+      G3 = self._g3_exact(phi)
+      G4 = self.Gam4
+      G34 = 1 + (G3 - G4)**2/(G3*G4 - 1 + np.sqrt((G3**2 - 1)*(G4**2 - 1)))
+      Gr = G3/self.Gam4; h = 2*phi
     integ = h/(xi + x)
     N = np.concatenate([[0.], np.cumsum(0.5*(integ[1:] + integ[:-1])*np.diff(x))]) + integ[0]*x[0]/1.5
     ix = np.searchsorted(N, 1.)
@@ -123,6 +128,22 @@ class RSShell:
     self.Gx = np.interp(self.Rx, self.tab['R'], self.tab['G'])
     self.G34x = np.interp(self.Rx, self.tab['R'], self.tab['G34'])
     self.phix = np.sqrt((3 - k)*(xi + self.Rx/self.Rdec)*(self.Rx/self.Rdec)**(2 - k))
+
+  def _g3_exact(self, phi):
+    from scipy.optimize import brentq
+    G4 = self.Gam4
+    b4 = np.sqrt(1 - 1/G4**2)
+    pg = np.geomspace(phi.min(), phi.max(), 400)
+    out = np.empty_like(pg)
+    for j, ph in enumerate(pg):
+      f = (G4/ph)**2
+      def res(lg):
+        G3 = 1 + np.exp(lg)
+        sq = np.sqrt((G3**2 - 1)*(G4**2 - 1))
+        d34 = (G3 - G4)**2/(G3*G4 - 1 + sq)                 # Gamma34 - 1 without cancellation
+        return np.log((1 + d34)*d34*f) - np.log(G3*(G3 - 1))
+      out[j] = 1 + np.exp(brentq(res, np.log(1e-12), np.log((G4 - 1)*(1 - 1e-10))))
+    return 1 + np.exp(np.interp(np.log(phi), np.log(pg), np.log(out - 1)))
 
   def _crossing_strat(self):
     k, kej, Gmin, Gmax, E = self.k, self.kej, self.Gmin, self.Gmax, self.E
@@ -229,6 +250,15 @@ class RSShell:
     gmf = self.gm_formal(self.Ric)
     self.gmi = np.maximum(gmf, SQ2)
     self.dNacc = dN*np.minimum(1., np.maximum(gmf, 0.)/SQ2)
+    if self.field == 'toroidal':
+      # validity of the hydrodynamic framework (author 2026-11-11): the magnetic over thermal pressure behind the
+      # reverse shock is 1.5 eps_B,i; the hydrodynamic pressure balance (Gamma34, N3, R_RS) holds while it is <~ 1/2,
+      # eps_B,i <= 1/3. Where it is larger, the field of the ejecta supports the contact discontinuity and only a weak
+      # reverse shock forms (Granot 2012, Sect. 4): those electrons are not accelerated
+      self.cut = float(np.sum(dN*np.minimum(1., np.maximum(gmf, 0.)/SQ2)*(self.epsB_inj(self.Ric) > self.epsB_max)))
+      self.dNacc = np.where(self.epsB_inj(self.Ric) <= self.epsB_max, self.dNacc, 0.)
+      self.cut /= max(float(np.sum(dN*np.minimum(1., np.maximum(gmf, 0.)/SQ2))), 1e-300)
+    self.Nacc_c = np.concatenate([[0.], np.cumsum(self.dNacc)])   # accelerated electrons injected up to Ri
     self.ai = np.exp(np.interp(np.log(self.Ric), np.log(Rg), np.log(a)))
     self.Ji = np.interp(np.log(self.Ric), np.log(Rg), self.J)
     self.Bi = self.Bc(self.Ric)
@@ -267,13 +297,18 @@ class RSShell:
                  self.dNacc[on][:, None]*(self.p - 1)*gm**(self.p - 1)*gi**(-self.p)*A/d**2*b**(wpow - 0.5), 0.)
     return n.sum(0)
 
+  def Nacc(self, R):
+    '''accelerated electrons injected up to R (the electrons of the usual model, for a like-for-like comparison)'''
+    Ri = np.geomspace(self.R0, self.Rx, self.nel + 1)
+    return float(np.interp(min(R, self.Rx), Ri, self.Nacc_c))
+
   def lit_state(self, R):
     '''literature model: N, gamma_m, gamma_c (or cut), shift, regime and post-crossing flag'''
     if R <= self.Rx:
-      return dict(N=self.N3(R), gm=max(self.gm_formal(R), SQ2), gc=self.gc_now(R), post=False)
+      return dict(N=self.Nacc(R), gm=max(self.gm_formal(R), SQ2), gc=self.gc_now(R), post=False)
     Rx = self.Rx*(1 - 1e-9)
     A = self.A_b(R)
-    return dict(N=self.Ntot, gm=max(self.gm_formal(Rx), SQ2)*A, gc=self.gc_now(Rx)*A, post=True)
+    return dict(N=self.Nacc(self.Rx), gm=max(self.gm_formal(Rx), SQ2)*A, gc=self.gc_now(Rx)*A, post=True)
 
   # --- emission --------------------------------------------------------------------------
   def dist_usual(self, R, gam):
@@ -453,13 +488,13 @@ def report(models=None):
       print(f'  k={k:.0f} kej={kej}: m={mm:.3f} x={xq:.4f} Gamma34-1={G34 - 1:.4f}')
   check_literature()
   models = models or {(kd, k): build(kd, k) for k in (0., 2.) for kd in KINDS}
-  print('case        xi      R_RS/Rdec  R_RS[cm]   T_RS[s]  Gam3     G34-1   gm_i   gc     regime  gamma_a  nu_a,obs[Hz]  R_dec[cm]  epsB(R_RS) epsB(N=10%)')
+  print('case        xi      R_RS/Rdec  R_RS[cm]   T_RS[s]  Gam3     G34-1   gm_i   gc     regime  gamma_a  nu_a,obs[Hz]  R_dec[cm]  epsB(R_RS) epsB(N=10%) cut')
   for (kd, k), m in models.items():
     TRS = float(m.Tr(m.Rx))
     gm, gc = max(m.gm_formal(m.Rx*(1 - 1e-9)), SQ2), m.gc_now(m.Rx*(1 - 1e-9))
     print(f'{kd:6s} k={k:.0f} {m.xi:8.3g} {m.Rx/m.Rdec:8.3f} {m.Rx:9.2e} {TRS:8.1f} {m.Gx:7.1f} '
           f'{m.G34x - 1:7.3f} {gm:7.1f} {gc:8.3g}  {"FC" if gc < gm else "SC"}  {gamma_a(m)[0]:6.1f}  {gamma_a(m)[1]:9.2g}  {m.Rdec:9.2g}'
-          f'  {float(m.epsB_inj(m.Rx*(1 - 1e-9))):9.3g} {float(m.epsB_inj(np.interp(.1, m.tab["N"], m.tab["R"]))):9.3g}')
+          f'  {float(m.epsB_inj(m.Rx*(1 - 1e-9))):9.3g} {float(m.epsB_inj(np.interp(.1, m.tab["N"], m.tab["R"]))):9.3g} {getattr(m, "cut", 0.):6.3f}')
   return models
 
 
@@ -554,6 +589,57 @@ def figure(models, out):
   fig.savefig(out, dpi=400, bbox_inches='tight')
 
 
+LC_NU = (6e9, 1e11, 2.3e11)
+LC_T = np.geomspace(0.01, 30., 36)*DAY
+
+
+def lightcurves(models, out):
+  '''F_nu(T) at LC_NU: ours with self-absorption (solid), optically thin (thin), usual distribution with the same
+  kernel, SSA and EATS (dashed), literature line of sight (dotted)'''
+  import matplotlib
+  matplotlib.use('Agg')
+  import matplotlib.pyplot as plt
+  from matplotlib.lines import Line2D
+  cols = ['#2a78d6', '#eb6834', '#3a9b5c']
+  fig, axes = plt.subplots(2, 3, figsize=(7.2, 4.8), sharex=True, gridspec_kw=dict(hspace=0.08, wspace=0.27))
+  for row, k in enumerate((0., 2.)):
+    for col, kd in enumerate(KINDS):
+      m = models[(kd, k)]
+      if not hasattr(m, 'Le'):
+        m.flux_grid()
+      ax = axes[row, col]
+      TRS = float(m.Tr(m.Rx))
+      hi = 0.
+      for c, v in zip(cols, LC_NU):
+        F = np.array([m.Fnu(T, [v], 'ssa')[0] for T in LC_T])
+        Fu = np.array([m.Fnu(T, [v], 'us_ssa')[0] for T in LC_T])
+        Fl = np.array([m.Fnu(T, [v], 'lit')[0] for T in LC_T])
+        ax.loglog(LC_T/DAY, F, color=c, lw=1.4)
+        ax.loglog(LC_T/DAY, Fu, color=c, lw=0.9, ls='--')
+        ax.loglog(LC_T/DAY, np.where(Fl > 0, Fl, np.nan), color=c, lw=0.8, ls=':')
+        hi = max(hi, F.max(), Fu.max())
+      ax.set_ylim(hi*1e-5, hi*3)
+      if TRS/DAY > LC_T[0]/DAY:
+        ax.axvline(TRS/DAY, color='#52514e', lw=0.6, ls='-.')
+      if row == 0:
+        ax.set_title(TITLES[kd], fontsize=9)
+      ax.text(0.97, 0.95, f'$k={k:.0f}$', transform=ax.transAxes, ha='right', va='top', fontsize=8)
+      if col == 0:
+        ax.set_ylabel(r'$F_\nu$ [mJy]', fontsize=8)
+      ax.tick_params(labelsize=7)
+  for ax in axes[-1]:
+    ax.set_xlabel(r'$T$ [d]', fontsize=8)
+  key = [Line2D([], [], color='k', lw=1.4), Line2D([], [], color='k', lw=0.9, ls='--'),
+         Line2D([], [], color='k', lw=0.8, ls=':'), Line2D([], [], color='#52514e', lw=0.6, ls='-.')] + \
+        [Line2D([], [], color=c, lw=1.4) for c in cols]
+  labs = ['this work', 'usual distribution', 'literature model', r'$T_{\rm RS}$'] + \
+         [f'{v/1e9:g} GHz' for v in LC_NU]
+  fig.legend(key, labs, loc='upper center', ncol=7, fontsize=7, frameon=False, handlelength=1.8,
+             columnspacing=1.0, bbox_to_anchor=(0.5, 0.99))
+  fig.subplots_adjust(top=0.88)
+  fig.savefig(out, dpi=300, bbox_inches='tight')
+
+
 def print_numbers(models):
   for (kd, k), m in models.items():
     rows, sl = numbers(m)
@@ -577,5 +663,7 @@ if __name__ == '__main__':
     out = os.path.join(os.path.dirname(__file__), '..', 'figures', 'afterglow', 'rs_late_time.png')
     figure(models, out)
     print('figure', out)
+    lightcurves(models, out.replace('rs_late_time.png', 'rs_lightcurves.png'))
+    print('light curves', out.replace('rs_late_time.png', 'rs_lightcurves.png'))
     print_numbers(models)
   print(f'[{time.time() - t0:.0f} s]')
