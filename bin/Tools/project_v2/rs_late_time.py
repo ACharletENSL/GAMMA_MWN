@@ -349,8 +349,11 @@ class RSShell:
     tau = np.trapezoid(integ, lg, axis=1)/(8*pi_*me_*nup**2*4*pi_*R**2)
     return L, tau, n
 
-  def flux_grid(self, nR=160, nnu=220, nu_lo=1e5, nu_hi=1e20, Rmax_fac=200.):
-    self.RE = np.geomspace(self.R0*1.02, Rmax_fac*self.Rx, nR)
+  def flux_grid(self, nR=240, nnu=220, nu_lo=1e5, nu_hi=1e20, Rmax_fac=200.):
+    # denser around the crossing, where the spectrum changes fastest (smooth light curves near T_RS)
+    self.RE = np.unique(np.concatenate([np.geomspace(self.R0*1.02, Rmax_fac*self.Rx, nR),
+                                        np.geomspace(0.3*self.Rx, 3*self.Rx, 80)]))
+    nR = len(self.RE)
     self.nup = np.geomspace(nu_lo, nu_hi, nnu)
     gam = np.geomspace(1.0, 1e9, 2500)
     self.Lt, self.Le, self.Ll, self.Lu, self.Lue = (np.zeros((nR, nnu)) for _ in range(5))
@@ -402,17 +405,34 @@ class RSShell:
                                       left=-690, right=-690)) for v in nu])
       return (1 + self.z)*G*Lr/(4*pi_*self.dL**2)/MJY
     L = {'ssa': self.Le, 'thin': self.Lt, 'litE': self.Ll, 'us': self.Lu, 'us_ssa': self.Lue}[which]
-    R, G = self.RE, self.Gam(self.RE)
-    Tth = (1 + self.z)*R/(2*c_*G**2)
-    Tt = 1 + (T - self.TrE)/Tth
-    ok = Tt >= 1
-    dl = 2*G/np.where(ok, Tt, 1.)
+    # EATS integral on a fine radius grid that ends exactly at R_l (T_r(R_l) = T), with ln L interpolated bilinearly
+    # in (ln R, ln nu'). Integrating on the coarse table grid with the cut Tt >= 1 made the light curves jump each
+    # time R_l crossed a grid point.
+    lR, lT = np.log(self.RE), np.log(self.TrE)
+    if T <= self.TrE[0]:
+      return np.zeros(len(nu))
+    Rl = np.exp(min(np.interp(np.log(T), lT, lR), lR[-1]))
+    Rf = np.unique(np.concatenate([np.geomspace(self.RE[0], Rl, 700),
+                                   Rl*(1 - np.geomspace(1e-5, 1 - self.RE[0]/Rl, 300))]))
+    Rf = Rf[(Rf >= self.RE[0]) & (Rf <= Rl)]
+    lRf = np.log(Rf)
+    G = self.Gam(Rf)
+    Trf = np.exp(np.interp(lRf, lR, lT))
+    Tth = (1 + self.z)*Rf/(2*c_*G**2)
+    dl = 2*G/np.maximum(1 + (T - Trf)/Tth, 1.)
     lL = np.log(L + 1e-300)
+    iR = np.clip(np.searchsorted(lR, lRf) - 1, 0, len(lR) - 2)
+    wR = (lRf - lR[iR])/(lR[iR + 1] - lR[iR])
+    dlnu = lnu[1] - lnu[0]
     out = np.zeros(len(nu))
     for j, v in enumerate(nu):
-      nupv = np.log(v*(1 + self.z)/dl)
-      Lv = np.array([np.exp(np.interp(nupv[i], lnu, lL[i], left=-690, right=-690)) for i in range(len(R))])
-      out[j] = np.trapezoid(np.where(ok, dl**2/(G*R)*Lv, 0.), R)
+      x = (np.log(v*(1 + self.z)/dl) - lnu[0])/dlnu
+      inside = (x >= 0) & (x <= len(lnu) - 1)
+      iN = np.clip(np.floor(x).astype(int), 0, len(lnu) - 2)
+      wN = np.clip(x - iN, 0., 1.)
+      lv = ((1 - wR)*((1 - wN)*lL[iR, iN] + wN*lL[iR, iN + 1]) +
+            wR*((1 - wN)*lL[iR + 1, iN] + wN*lL[iR + 1, iN + 1]))
+      out[j] = np.trapezoid(dl**2/(G*Rf)*np.where(inside, np.exp(lv), 0.), Rf)
     return (1 + self.z)/(8*pi_*self.dL**2)*out/MJY
 
 
@@ -590,7 +610,7 @@ def figure(models, out):
 
 
 LC_NU = (6e9, 1e11, 2.3e11)
-LC_T = np.geomspace(0.01, 30., 36)*DAY
+LC_T = np.geomspace(0.01, 30., 90)*DAY
 
 
 def lightcurves(models, out):
