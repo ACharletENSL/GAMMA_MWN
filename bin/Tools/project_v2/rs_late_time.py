@@ -101,15 +101,18 @@ def planar(G4, f):
 class RSShell:
   def __init__(self, kind, k, E=1e53, Gam4=100., Dt0=1., kej=2.1, Gmax=300., Gmin=30., n0=1.,
                Astar=1., epse=0.3, epsB=1e-2, p=2.5, z=1., dL=2.0e28, nel=400, g_thin=None, field='toroidal',
-               sigma4=1e-4, epsB_max=1/3):
+               sigma4=1e-4, epsB_max=1/3, R_int=1e11, shell='analytic'):
     '''field: 'toroidal' (default since 2026-11-11, J. Granot): a toroidal field frozen in the ejecta,
     B' ~ 1/(R Delta') ~ n' R, compressed by the shock with the density, so that B'/(n'R) = K is the same in
     all the elements at all times; B'_i = K n'_i R_i with n'_i = e'_3/[(Gamma34 - 1) m_p c^2], and K set
     by the magnetization sigma4 of the ejecta shocked at R_RS: eps_B,i(R_RS) = 2 sigma4 Gamma34/(Gamma34 - 1);
     'epsB' = B'^2 = 8 pi eps_B e' in every element at all times (common field, homogeneous shell);
     'frozen' = B'^2 = 8 pi eps_B e' at injection only, then frozen in a tangled field, B'^2 ~ n'^4/3'''
+    # R_int (author 2026-11-11): radius where the interaction with the medium starts, a model parameter (the jet
+    # leaves the stellar envelope of a collapsar, ~1e11 cm; the surrounding ejecta of a merger, 1e9-1e10 cm).
+    # shell: 'analytic' = distribution from the shell results of Sects. 3-4 (dist_an), 'elements' = exact element sum
     self.__dict__.update(dict(kind=kind, k=k, E=E, epse=epse, epsB=epsB, p=p, z=z, dL=dL, nel=nel, field=field,
-                              sigma4=sigma4, epsB_max=epsB_max))
+                              sigma4=sigma4, epsB_max=epsB_max, R_int=R_int, shell=shell))
     self.rhoR = 5e11*Astar if k == 2 else n0*mp_*(1e17)**k
     self.rho = lambda R: self.rhoR*np.asarray(R, float)**-k
     if kind in ('thin', 'thick'):
@@ -138,7 +141,7 @@ class RSShell:
   # --- crossing ---------------------------------------------------------------------------
   def _crossing_shell(self):
     k, xi = self.k, self.xi
-    x = np.geomspace(1e-4*max(1., xi**0.5), 1e3*max(1., xi**0.5), 20000)
+    x = np.geomspace(self.R_int/self.Rdec, 1e3*max(1., xi**0.5), 20000)
     phi = np.sqrt((3 - k)*(xi + x)*x**(2 - k))
     # exact planar solution (one ingredient for all cases, author 2026-11-11), tabulated in phi
     pg = np.geomspace(phi.min(), phi.max(), 500)
@@ -182,13 +185,10 @@ class RSShell:
       _, _, h = planar(G4, np.array([ff(lR, G4)]))
       b4 = np.sqrt(1 - 1/G4**2); dbs = h[0]/G4**2
       return [-G4**2*b4**2*dbs/(b4 - dbs)]
-    Rdec_min = ((3 - k)*E/(4*pi_*Gmax**2*c_**2*self.rhoR))**(1/(3 - k))
-    lR0 = np.log(1e-4*Rdec_min)
-    while planar(Gmax*(1 - 1e-9), np.array([ff(lR0, Gmax*(1 - 1e-9))]))[2][0] > 1e-4:
-      lR0 -= np.log(10.)
+    lR0 = np.log(self.R_int)
     ev = lambda lR, y: y[0] - np.log(Gmin)
     ev.terminal = True
-    sol = solve_ivp(rhs, (lR0, lR0 + np.log(1e14)), [np.log(Gmax*(1 - 1e-9))], events=ev, rtol=1e-6, atol=1e-9,
+    sol = solve_ivp(rhs, (lR0, lR0 + np.log(1e12)), [np.log(Gmax*(1 - 1e-9))], events=ev, rtol=1e-6, atol=1e-9,
                     dense_output=True, max_step=0.05, first_step=1e-3)
     lRx = sol.t_events[0][0]
     lR = np.linspace(lR0, lRx, 4000)
@@ -217,7 +217,7 @@ class RSShell:
   def n_inj(self, R):
     '''proper density of the ejecta shocked at R (energy per particle (Gamma34 - 1) m_p c^2)'''
     R = np.minimum(np.asarray(R, float), self.Rx)
-    return 4*self.Gam(R)**2*self.rho(R)*c_**2/(np.maximum(self.G34(R) - 1, 1e-6)*mp_*c_**2)   # floor: no shock yet
+    return 4*self.Gam(R)**2*self.rho(R)*c_**2/(np.maximum(self.G34(R) - 1, 1e-300)*mp_*c_**2)
 
   def Bc(self, R):
     '''field at injection: eps_B of the common pressure, or the compressed toroidal field K n'_i R'''
@@ -299,9 +299,11 @@ class RSShell:
     self.Nacc_c = np.concatenate([[0.], np.cumsum(self.dNacc)])   # accelerated electrons injected up to Ri
     self.ai = np.exp(np.interp(np.log(self.Ric), np.log(Rg), np.log(a)))
     self.Ji = np.interp(np.log(self.Ric), np.log(Rg), self.J)
-    self.Bi = self.Bc(self.Ric)
+    self.Bi = np.minimum(self.Bc(self.Ric), 1e30)               # no shock where eps_B,i diverges (cut anyway)
     self.ci = (1/self.ai if self.field == 'epsB' else                       # I = (J(R) - J_i) c_i
                (self.Bi/(self.ai**3*self.Ric))**2/self.ai if self.field == 'toroidal' else self.Bi**2/self.ai**5)
+    if self.shell == 'analytic':
+      self._an_setup()
     return self
 
   def gc_now(self, R):
@@ -335,6 +337,166 @@ class RSShell:
                  self.dNacc[on][:, None]*(self.p - 1)*gm**(self.p - 1)*gi**(-self.p)*A/d**2*b**(wpow - 0.5), 0.)
     return n.sum(0)
 
+  # --- analytic shell (Sects. 3-4 of Paper I; author 2026-11-11) ---------------------------------------
+  def an_indices(self, regime):
+    """analytic comoving indices with the toroidal field (B'_i = K n'_i R_i), t' ~ R^(1+g):
+      'newt_const'  Newtonian reverse shock, constant comoving width (thin shell before it spreads, thick shell
+                    before Gamma34 - 1 ~ 1): Gamma34 - 1 ~ phi^2 ~ R^(2-k), Gamma3 = Gamma4
+      'newt_spread' Newtonian reverse shock in a spreading shell (Granot 2012 thin shell)
+      'rel_const'   relativistic reverse shock, constant width (Granot 2012 thick shell)
+      'strat'       stratified ejecta, constant Gamma34 (NS06)
+    after the crossing: spreading cold shell (thin) or Blandford-McKee element (thick, stratified)"""
+    k, hat = self.k, self.hat
+    if regime == 'newt_const':
+      c = 1.; ln = k/hat; kB = 1.; kN = (2 - k)/2; km = -(2 - k)
+    elif regime == 'newt_spread':
+      c = 1.; ln = k/hat; kB = 3*c - c; kN = (3 - k)/2 - 1; km = k - 3
+    elif regime == 'rel_const':
+      g = (2 - k)/4; c = 1/(1 + g)
+      ln = (2 + k)/(2*hat)*c; kB = (6 + k)/4*c - c; kN = 2*(4 - k)/(6 - k) - 1; km = -(2 - k)/(6 - k)
+    else:
+      g = (3 - k)/(1 + self.kej); c = 1/(1 + g)
+      ln = (2*g + k)/hat*c; kB = (2*g + k)*c - c; kN = self.kej*g/(1 + g) - 1; km = 0.
+    ca = 1/(1 + self.g)
+    lna = self.ln_post*ca
+    return dict(kN=kN, km=km, kB=kB, ln=ln, lB=ln - c, lna=lna, lBa=lna - ca, regime=regime)
+
+  def _phase(self, Ra, Rb, regime, NB=60, NF=60):
+    """one injection phase: analytic shell injected from t'(Ra) to t'(Rb) with the indices of the regime; values at
+    Rb from the dynamics, extrapolated to t'(Ra) with these indices"""
+    q = self.an_indices(regime)
+    kN, km, kB, ln, lB = q['kN'], q['km'], q['kB'], q['ln'], q['lB']
+    p, R = self.p, self.tab['R']
+    Rb_ = Rb*(1 - 1e-9)
+    t0, tx = float(self.tpf(Ra)), float(self.tpf(Rb_))
+    taux = tx/t0
+    gmx, Bx = float(self.gm_formal(Rb_)), float(self.Bc(Rb_))
+    gbcx = 6*pi_*me_*c_/(sigT_*Bx**2)/tx
+    s_ = ln/3 + 2*lB - 1
+    zeta = ln/3 - km
+    eta = (ln/3 + 2*kB - 1) if s_ > 0 else 2*(kB - lB)
+    P = 1 + kN + (p - 1)*zeta
+    assert zeta > 0 and P > 0 and kN > -1, (regime, zeta, P, kN)
+    Ne = self.Ntot*(float(np.interp(Rb, R, self.tab['N'])) - float(np.interp(Ra, R, self.tab['N'])))
+    gm0, gbc0 = gmx*taux**km, gbcx*taux**(-(2*kB - 1))
+    x = 2*kB + km - 1
+    tau_tr = 1.
+    if gbc0 < gm0:
+      assert x > 0, 'fast cooling throughout a phase: not implemented'
+      tau_tr = min((gbc0/gm0)**(-1/x), taux)
+    elif x < 0:
+      assert (gbc0/gm0)**(-1/x) > taux, 'slow to fast cooling within a phase: not implemented'
+    ab = float(np.exp(np.interp(np.log(Rb_), np.log(self.Rg), np.log(self.a))))
+    ph = dict(an=q, Ra=Ra, Rb=Rb, t0=t0, tx=tx, taux=taux, gm0=gm0, gbc0=gbc0, s=s_, zeta=zeta, eta=eta, P=P, Ne=Ne,
+              N0t0=Ne*(1 + kN)/(taux**(1 + kN) - 1), tau_tr=tau_tr, Bx=Bx, NB=NB, NF=NF, ab=ab,
+              Jb=float(np.interp(np.log(Rb_), np.log(self.Rg), self.J)), cb=(Bx/(ab**3*Rb_))**2/ab)
+    ph['comps_end'] = self._an_comps(ph, taux)
+    return ph
+
+  def _an_setup(self):
+    """phases of the analytic shell from R_start, the first radius >= R_int where the reverse shock exists in the
+    hydrodynamic framework (eps_B,i <= 1/3), to the crossing. A change of regime starts a new phase, whose electrons
+    form a second shell; earlier phases restart at its start element by element (App. D.4)"""
+    assert self.field == 'toroidal'
+    self.tpf = lambda R: np.exp(np.interp(np.log(R), np.log(self.Rg), np.log(self.tp)))
+    R = self.tab['R']
+    ok = self.epsB_inj(R*(1 - 1e-12)) <= self.epsB_max
+    Rs, Rx = float(R[np.argmax(ok)]), self.Rx
+    if self.kind == 'strat':
+      cuts = [(Rs, Rx, 'strat')]
+    else:
+      if self.kind == 'thin':
+        Rb, first, second = self.xi*self.Rdec, 'newt_const', 'newt_spread'      # the shell starts spreading
+      else:
+        x = np.geomspace(1e-12, 1e3, 200000)                                      # phi = 1: relativistic reverse shock
+        Rb = float(np.interp(1., np.sqrt((3 - self.k)*(self.xi + x)*x**(2 - self.k)), x))*self.Rdec
+        first, second = 'newt_const', 'rel_const'
+      if Rb <= Rs:
+        cuts = [(Rs, Rx, second)]
+      elif Rb >= Rx:
+        cuts = [(Rs, Rx, first)]
+      else:
+        cuts = [(Rs, Rb, first), (Rb, Rx, second)]
+    self.R_start = Rs
+    self.phases = [self._phase(*c) for c in cuts]
+    return self
+
+  def _an_comps(self, ph, tau):
+    """analytic shell of one phase at tau = t'/t'_0 <= tau_x, as components (b, n): b = field of the elements over
+    that of the phase's latest one, n(gamma) = dN/dgamma. Slow cooling elements: Eq. SC_general split into
+    injection-time bins (each in its own field), cooled segment of the young electrons above the cooling break
+    (Eqs. bpl_SC, breaks); fast cooling elements injected before t'_tr: Eq. FC_param (relic tail)"""
+    q, a, p = ph['an'], ph, self.p
+    kN, kB, ln, lB = q['kN'], q['kB'], q['ln'], q['lB']
+    P, zeta, s_ = a['P'], a['zeta'], a['s']
+    te = min(tau, a['taux']); ts = min(a['tau_tr'], te)
+    gmad0 = a['gm0']*tau**(-ln/3)
+    pref = (p - 1)*a['N0t0']/P
+    comps = []
+    if te > ts*(1 + 1e-9):
+      gc = a['gbc0']*te**(2*kB - 1)
+      gct = P*gc/((p - 1)*(1 - (ts/te)**P))
+      ed = np.geomspace(ts, te, a['NB'] + 1)
+      for ta, tb in zip(ed[:-1], ed[1:]):
+        def n(g, ta=ta, tb=tb):
+          tpl = np.minimum(tb, (np.maximum(g, 1e-300)/gmad0)**(1/zeta))
+          w = np.where(tpl > ta, tpl**P - ta**P, 0.)
+          return np.where(g < gct, pref*(g/gmad0)**(1 - p)*w/g, 0.)
+        comps.append(((np.sqrt(ta*tb)/te)**(lB - kB), n))
+      comps.append((1., lambda g, gct=gct: np.where(g >= gct, pref*(g/gmad0)**(1 - p)*(te**P - ts**P)*(gct/g)/g, 0.)))
+    if ts > 1:
+      gM = lambda t: s_*a['gbc0']*t**(2*kB - 1)*(t/tau)**(ln/3)/(1 - (t/tau)**s_)
+      ti = np.geomspace(1., ts*(1 - 1e-6), a['NF'] + 1)
+      for ta, tb in zip(ti[:-1], ti[1:]):
+        dN = a['N0t0']*(tb**(1 + kN) - ta**(1 + kN))/(1 + kN)
+        g1, g2 = sorted((gM(ta), gM(tb)))
+        comps.append(((np.sqrt(ta*tb)/te)**(lB - kB),
+                      lambda g, g1=g1, g2=g2, dN=dN: np.where((g >= g1) & (g < g2), dN/max(g2 - g1, 1e-300), 0.)))
+    return comps
+
+  def dist_an(self, R, gam, wpow=None):
+    """analytic shell distribution at R, same conventions as dist(): the phase being injected follows the shell
+    results; completed phases (and all after the crossing) restart from their end element by element (App. D.4,
+    Eqs. I_broken, restart) with the dynamics after it"""
+    w = 0.5 if wpow is None else wpow
+    out = np.zeros_like(gam)
+    lR = np.log(R)
+    aR = float(np.exp(np.interp(lR, np.log(self.Rg), np.log(self.a))))
+    JR = float(np.interp(lR, np.log(self.Rg), self.J))
+    BR = float(self.B(R))
+    for ph in self.phases:
+      if R <= ph['Ra']:
+        continue
+      if R < ph['Rb']:
+        tau = float(self.tpf(R))/ph['t0']
+        if tau <= 1.:
+          continue
+        comps, A, I, bref = self._an_comps(ph, tau), 1., 0., 1.
+      else:
+        comps = ph['comps_end']
+        A, I = aR/ph['ab'], (JR - ph['Jb'])*ph['cb']
+        Rb_ = ph['Rb']*(1 - 1e-9)
+        bref = float(self.Bc(Rb_))*A**3*(R/Rb_)/BR          # field of the phase's last element over B(R)
+      for b, n in comps:
+        bb = 1. if wpow is None else b*bref
+        gt = gam/np.sqrt(bb)
+        if I == 0.:
+          nn = n(gt)
+        else:
+          den = A - gt*b**2*I
+          ok = den > 0
+          d = np.where(ok, den, 1.)
+          nn = np.where(ok, n(gt/d)*A/d**2, 0.)
+        out += np.where(gt >= SQ2, nn*bb**(w - 0.5), 0.)
+    return out
+
+  def Nrad(self, R):
+    """radiating electrons (gamma_e >= sqrt 2) of the model shell at R (the electrons of the usual model)"""
+    if self.shell != 'analytic':
+      return self.Nacc(R)
+    gam = np.geomspace(SQ2, 1e10, 3000)
+    return float(np.trapezoid(self.dist_an(min(R, self.Rx), gam), gam))
+
   def Nacc(self, R):
     '''accelerated electrons injected up to R (the electrons of the usual model, for a like-for-like comparison)'''
     Ri = np.geomspace(self.R0, self.Rx, self.nel + 1)
@@ -343,10 +505,10 @@ class RSShell:
   def lit_state(self, R):
     '''literature model: N, gamma_m, gamma_c (or cut), shift, regime and post-crossing flag'''
     if R <= self.Rx:
-      return dict(N=self.Nacc(R), gm=max(self.gm_formal(R), SQ2), gc=self.gc_now(R), post=False)
+      return dict(N=self.Nrad(R), gm=max(self.gm_formal(R), SQ2), gc=self.gc_now(R), post=False)
     Rx = self.Rx*(1 - 1e-9)
     A = self.A_b(R)
-    return dict(N=self.Nacc(self.Rx), gm=max(self.gm_formal(Rx), SQ2)*A, gc=self.gc_now(Rx)*A, post=True)
+    return dict(N=self.Nrad(self.Rx), gm=max(self.gm_formal(Rx), SQ2)*A, gc=self.gc_now(Rx)*A, post=True)
 
   # --- emission --------------------------------------------------------------------------
   def dist_usual(self, R, gam):
@@ -371,7 +533,8 @@ class RSShell:
     if usual:
       n = na = self.dist_usual(R, gam)
     else:
-      n, na = self.dist(R, gam, 1.), self.dist(R, gam, 1.5)
+      d = self.dist_an if self.shell == 'analytic' else self.dist
+      n, na = d(R, gam, 1.), d(R, gam, 1.5)
     Bp = float(self.B(R))
     nuB = e_*Bp/(2*pi_*me_*c_)
     pre = sigT_*c_*Bp**2/(9*pi_*nuB*norm_R_)                  # P'_nu' = pre R(x)
@@ -389,46 +552,80 @@ class RSShell:
 
   def flux_grid(self, nR=240, nnu=220, nu_lo=1e5, nu_hi=1e20, Rmax_fac=200.):
     # denser around the crossing, where the spectrum changes fastest (smooth light curves near T_RS)
-    self.RE = np.unique(np.concatenate([np.geomspace(self.R0*1.02, Rmax_fac*self.Rx, nR),
+    R_lo = max(self.R0*1.02, 0.5*getattr(self, 'R_start', self.R0))    # no electrons before the shock forms
+    self.RE = np.unique(np.concatenate([np.geomspace(R_lo, Rmax_fac*self.Rx, nR),
                                         np.geomspace(0.3*self.Rx, 3*self.Rx, 80)]))
     nR = len(self.RE)
     self.nup = np.geomspace(nu_lo, nu_hi, nnu)
     gam = np.geomspace(1.0, 1e9, 2500)
-    self.Lt, self.Le, self.Ll, self.Lu, self.Lue = (np.zeros((nR, nnu)) for _ in range(5))
+    self.Lt, self.Le, self.Ll, self.Lu, self.Lue, self.Lt_el = (np.zeros((nR, nnu)) for _ in range(6))
+    self.nua_tab = np.zeros(nR)
     for i, R in enumerate(self.RE):
       L, tau, _ = self.spectrum(R, self.nup, gam)
       self.Lt[i] = L
       self.Le[i] = L*np.where(tau > 1e-6, -np.expm1(-tau)/np.maximum(tau, 1e-300), 1.)
-      self.Ll[i] = self.L_lit(R, self.nup)
       L, tau, _ = self.spectrum(R, self.nup, gam, usual=True)
       self.Lu[i] = L
       self.Lue[i] = L*np.where(tau > 1e-6, -np.expm1(-tau)/np.maximum(tau, 1e-300), 1.)
+      if np.any(tau >= 1) and tau[-1] < 1:                 # tau = 1, interpolated in log-log (smooth light curves)
+        j = np.nonzero(tau >= 1)[0].max()
+        lt = np.log(np.maximum(tau[j:j + 2], 1e-300))
+        self.nua_tab[i] = float(np.exp(np.interp(0., lt[::-1], np.log(self.nup[j:j + 2])[::-1])))
+      else:
+        self.nua_tab[i] = 0.
+      self.Ll[i] = self.L_lit(R, self.nup, nua=self.nua_tab[i])
+      if self.shell == 'analytic':                       # element sum, as the accuracy check
+        sh = self.shell; self.shell = 'elements'
+        self.Lt_el[i] = self.spectrum(R, self.nup, gam)[0]
+        self.shell = sh
     self.TrE = self.Tr(self.RE)
     return self
 
-  def L_lit(self, R, nup):
-    '''literature comoving spectrum: sharp SPN98 broken power law of the literature state'''
-    s = self.lit_state(R)
+  def L_lit(self, R, nup, nua=None):
+    """literature comoving spectrum, as used in the fits of observed reverse shocks (Laskar et al. 2018, 2019):
+    the smoothly broken power laws of Granot & Sari (2002, Eqs. 1, 3-6, sharpness s(p) of their Table 2 for k = 0
+    or 2) through the breaks of the literature state, with self-absorption at nu'_a (one-zone tau = 1 of the
+    literature distribution, nua). After the crossing, exponential cutoff above the synchrotron frequency of the cut
+    gamma_c(R_RS). Fast cooling (not met at the crossing here): sharp SPN98 segments."""
+    st = self.lit_state(R)
     Bp = float(self.B(R))
     nuB = e_*Bp/(2*pi_*me_*c_)
     Pmax = me_*c_**2*sigT_*Bp/(3*e_)
-    num, nuc = s['gm']**2*nuB, s['gc']**2*nuB
+    num, nuc = st['gm']**2*nuB, st['gc']**2*nuB
     p = self.p
-    L = np.zeros_like(nup)
-    if s['post'] and s['gc'] < SQ2*self.A_b(R)*(1 + 1e-9) and s['gc'] < s['gm']:
-      return np.zeros_like(nup)       # gamma_c(R_RS) < sqrt 2: no radiating electron left (undefined there)
-    if s['post']:
-      if nuc <= num:                  # fast cooling at the crossing: mono-energetic at gamma_c
-        L = np.where(nup < nuc, (nup/nuc)**(1/3), 0.)
+    if st['post'] and st['gc'] < SQ2*self.A_b(R)*(1 + 1e-9) and st['gc'] < st['gm']:
+      return np.zeros_like(nup)       # gamma_c(R_RS) < sqrt 2: no radiating electron left
+    Lm = st['N']*Pmax
+    if nuc <= num:                    # fast cooling: sharp segments
+      if st['post']:
+        return Lm*np.where(nup < nuc, (nup/nuc)**(1/3), 0.)
+      return Lm*np.where(nup < nuc, (nup/nuc)**(1/3), np.where(nup < num, (nup/nuc)**-0.5,
+                         (num/nuc)**-0.5*(nup/num)**(-p/2)))
+    if nua is None:
+      nua = float(np.exp(np.interp(np.log(R), np.log(self.RE), np.log(np.maximum(self.nua_tab, 1e-300))))) \
+            if hasattr(self, 'nua_tab') else 0.
+    k2 = self.k == 2
+    s1 = 1.06 if k2 else 1.64
+    s2 = (1.76 - 0.38*p) if k2 else (1.84 - 0.40*p)
+    s3 = (0.80 - 0.03*p) if k2 else (1.15 - 0.06*p)
+    s4 = (3.63*p - 1.60) if k2 else (3.44*p - 1.41)
+    s5 = (1.25 - 0.18*p) if k2 else (1.47 - 0.21*p)
+    nu = np.asarray(nup, float)
+    with np.errstate(over='ignore', under='ignore', divide='ignore'):
+      Ft2 = (1 + (nu/num)**(s2*(1/3 - (1 - p)/2)))**(-1/s2)
+      if nua < 1.:                    # optically thin
+        F = Lm*(nu/num)**(1/3)*Ft2
+      elif nua < num:                 # GS02 spectrum 1: F1 F~2 (F~3)
+        F = Lm*(nua/num)**(1/3)*((nu/nua)**(-2*s1) + (nu/nua)**(-s1/3))**(-1/s1)*Ft2
+      else:                           # GS02 spectrum 2: F4 F~5 (F~3), F4 from their Eq. 3
+        phi = nu/num
+        F = Lm*(nua/num)**((1 - p)/2)*(num/nua)**2.5*(phi**2*np.exp(-s4*phi**(2/3)) + phi**2.5) \
+            *(1 + (nu/nua)**(s5*(2.5 - (1 - p)/2)))**(-1/s5)
+      if st['post']:
+        F = F*np.exp(-nu/nuc)
       else:
-        L = np.where(nup < num, (nup/num)**(1/3), np.where(nup < nuc, (nup/num)**(-(p - 1)/2), 0.))
-    elif nuc < num:
-      L = np.where(nup < nuc, (nup/nuc)**(1/3), np.where(nup < num, (nup/nuc)**-0.5,
-                   (num/nuc)**-0.5*(nup/num)**(-p/2)))
-    else:
-      L = np.where(nup < num, (nup/num)**(1/3), np.where(nup < nuc, (nup/num)**(-(p - 1)/2),
-                   (nuc/num)**(-(p - 1)/2)*(nup/nuc)**(-p/2)))
-    return s['N']*Pmax*L
+        F = F*(1 + (nu/nuc)**(s3*0.5))**(-1/s3)
+    return np.nan_to_num(F)
 
   def Fnu(self, T, nu, which='ssa'):
     '''observed flux (mJy). 'ssa', 'thin': shell as one element over its EATS (Eq. F_single);
@@ -442,7 +639,7 @@ class RSShell:
       Lr = np.array([np.exp(np.interp(np.log(v*(1 + self.z)/(2*G)), lnu, np.log(self.L_lit(R, self.nup) + 1e-300),
                                       left=-690, right=-690)) for v in nu])
       return (1 + self.z)*G*Lr/(4*pi_*self.dL**2)/MJY
-    L = {'ssa': self.Le, 'thin': self.Lt, 'litE': self.Ll, 'us': self.Lu, 'us_ssa': self.Lue}[which]
+    L = {'ssa': self.Le, 'thin': self.Lt, 'litE': self.Ll, 'us': self.Lu, 'us_ssa': self.Lue, 'thin_el': self.Lt_el}[which]
     # EATS integral on a fine radius grid that ends exactly at R_l (T_r(R_l) = T), with ln L interpolated bilinearly
     # in (ln R, ln nu'). Integrating on the coarse table grid with the cut Tt >= 1 made the light curves jump each
     # time R_l crossed a grid point.
@@ -701,6 +898,11 @@ def lightcurves(models, out):
 def print_numbers(models):
   for (kd, k), m in models.items():
     rows, sl = numbers(m)
+    if getattr(m, 'shell', '') == 'analytic':
+      chk = [m.Fnu(T, [6e9, 1e11], 'thin')/np.maximum(m.Fnu(T, [6e9, 1e11], 'thin_el'), 1e-300) for T in T_OBS]
+      print(f'=== {kd} k={k:.0f}  analytic shell / element sum (optically thin; 6, 100 GHz at 0.1, 1, 10 d): ' +
+            ' | '.join(f'{c[0]:.2f}, {c[1]:.2f}' for c in chk) + f'; R_start = {m.R_start:.3g} cm, phases ' +
+            ', '.join(f"{q['an']['regime']} from {q['Ra']:.2g} cm (t'_inj/t'_0 = {q['taux']:.3g})" for q in m.phases))
     print(f'=== {kd} k={k:.0f}  light-curve slopes 0.1-1 d | 1-10 d: ' + '; '.join(
       f'{v/1e9:g} GHz {w} {sl[(w, v, 0)]:.2f} | {sl[(w, v, 1)]:.2f}' for v in (6e9, 1e11) for w in ('ssa', 'thin', 'lit', 'us_ssa')))
     for r in rows:
