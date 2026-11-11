@@ -716,7 +716,39 @@ GUIDE_MANUAL = {
 }
 
 
-def fig_regime(reg, outdir=OUTDIR, fname=None, show=False, guides=True):
+# guides drawn by hand by the author (2026-11-11, notes/meeting_1110_round5/*_handdrawn_guides.png), read off the
+# images: (exponent of the plotted quantity, midpoint (log x, log y), half length in log x, label (log x, log y)).
+# The slope is the exact one of the segment; the label is centred at its position. Crossing a line is accepted
+# only at the boundaries of the curves (1/3 rise and exponential decay of the spectra, sharp drop of f_e).
+A_FC = (1. - P_FC)/2.
+GUIDE_EXPLICIT = {
+  ('FC', 0, 0): [(1. - P_FC, (2.35, -2.12), .63, (2.6, -2.55)), (-1., (4.12, -2.20), .43, (3.89, -2.41)),
+                 (-P, (5.32, -4.03), .27, (4.6, -4.1))],
+  ('FC', 0, 1): [(1. - P_FC, (1.09, -.165), .26, (.98, .38)), (-1., (4.55, -1.74), .37, (4.72, -1.38)),
+                 (-P, (5.71, -3.88), .22, (6.45, -3.72))],
+  ('FC', 1, 0): [(1./3., (.52, -1.19), 1., (.33, -.67)), (A_FC, (4.02, -1.73), 1.74, (4.17, -2.25)),
+                 (-.5, (7.99, -2.31), .99, (8.0, -2.95)), (-P/2., (14.43, -4.50), .91, (15.34, -4.11))],
+  ('FC', 1, 1): [(1./3., (1.0, -1.73), 1.33, (1.14, -2.25)), (-.5, (8.88, -1.99), .92, (9.47, -1.57)),
+                 (-P/2., (12.03, -4.78), .72, (12.93, -4.56))],
+  ('SC', 0, 0): [(1. - P_SC, (4.50, -.30), .28, (4.22, .35)), (1. - P, (6.35, -1.44), .58, (6.48, -1.01)),
+                 (-P, (8.49, -7.09), .31, (7.65, -7.0))],
+  ('SC', 0, 1): [(1. - P, (6.14, -1.12), .56, (6.32, -.66)), (-P, (8.60, -5.98), .47, (8.85, -4.85))],
+  ('SC', 1, 0): [(1./3., (3.93, -1.69), 2.08, (3.59, -.96)), (-(P - 1.)/2., (12.38, -1.76), .94, (13.40, -1.10)),
+                 (-P/2., (16.68, -7.20), .45, (15.6, -6.9))],
+  ('SC', 1, 1): [(1./3., (2.79, -1.40), 1.33, (2.65, -.76)), (-(P - 1.)/2., (12.69, -1.93), 1., (14.0, -1.25)),
+                 (-P/2., (16.79, -6.15), 1.06, (17.42, -5.67))],
+}
+
+
+def _explicit_guides(ax, specs, table):
+  for e, (xm, ym), h, (xl, yl) in specs:
+    xx = np.linspace(xm - h, xm + h, 2)
+    ax.plot(10.**xx, 10.**(ym + e*(xx - xm)), **GUIDE_LS)
+    ax.text(10.**xl, 10.**yl, f'${_exp_label(e, table)}$', ha='center', va='center', fontsize=FS_ANN - .5,
+            color='0.3', zorder=7)
+
+
+def fig_regime(reg, outdir=OUTDIR, fname=None, show=False, guides='explicit'):
   '''one figure per cooling regime: distribution (f_e, slope of dN_e/dgma_e) above the comoving
   spectrum (L'_nu', index), continuous | impulsive injection'''
   fig, axs = plt.subplots(5, 2, figsize=(WIDTH, 5.0),
@@ -738,8 +770,12 @@ def fig_regime(reg, outdir=OUTDIR, fname=None, show=False, guides=True):
     axs[4, col].set_xlabel(AX_U['xlab'], fontsize=FS_LAB - AX_U['xlab_small'], labelpad=1.)
   _guides(axs[1], G_SLOPES[reg], G_NUDGE[reg])
   _guides(axs[4], U_SLOPES[reg], U_NUDGE[reg])
-  for ax in (axs[0, 0], axs[0, 1], axs[3, 0], axs[3, 1]) if guides else ():
-    _place_guides(ax)
+  if guides == 'explicit':
+    for (row, col), ax in (((0, 0), axs[0, 0]), ((0, 1), axs[0, 1]), ((1, 0), axs[3, 0]), ((1, 1), axs[3, 1])):
+      _explicit_guides(ax, GUIDE_EXPLICIT[(reg, row, col)], F_EXP if row == 0 else U_EXP)
+  elif guides:
+    for ax in (axs[0, 0], axs[0, 1], axs[3, 0], axs[3, 1]):
+      _place_guides(ax)
   axs[0, 0].set_title('Continuous injection', fontsize=FS_LAB, pad=3)
   axs[0, 1].set_title(FINITE_TITLE, fontsize=FS_LAB, pad=3)
   p, q = axs[0, 0].get_position(), axs[0, 1].get_position()
