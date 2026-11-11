@@ -7,19 +7,15 @@ reverse-shocked ejecta, for three physical cases applied to k = 0 (uniform mediu
 (wind), with the full synchrotron kernel and one-zone self-absorption, compared with the
 post-crossing models of the literature.
 
-THE THREE CASES (Granot 2012, Sect. 2; Nakamura & Shigeyama 2006):
-  thin shell   xi = Gamma4^2 Delta0/R_dec << 1: the shell spreads, Delta4 = Delta0 + R/Gamma4^2,
-               Newtonian reverse shock (limit of the jump conditions), Gamma3 = Gamma4,
-               Gamma34 - 1 = phi^2/2, dN3/N_ej = (4 phi/3) dx/(xi + x)          -> FINITE injection
-  thick shell  xi >> 1: no spreading, relativistic reverse shock, Gamma34 = (phi/2)^1/2,
-               Gamma3 = Gamma4 (2 phi)^-1/2, dN3/N_ej = 2 phi dx/(xi + x)      -> FINITE injection
-               with phi^2 = (3-k)(xi + x) x^(2-k), x = R/R_dec
-  stratified   free ejecta rho_e ~ t^-3 Gamma^-n, N(>Gamma) ~ Gamma^-kej, kej = n + 1, between
-               Gamma_max and Gamma_min; NS06 self-similar jump: gamma_e = (m+1)^1/2 Gamma_RS at the
-               reverse shock, m = (6-2k)/(n+2), x = gamma_2/Gamma_RS root of NS06 Eq. 14 (hat
-               gamma = 5/3 in the shocked ejecta), Gamma3 = x Gamma_RS, Gamma34 = (y + 1/y)/2,
-               y = (m+1)^1/2/x, CONSTANT; radius from energy conservation (one zone,
-               E(>gamma_e) = 4 pi/(3-k) rho R^3 c^2 Gamma3^2)               -> CONTINUOUS injection
+THE THREE CASES, one jump for all (author 2026-11-11): the exact planar reverse-shock solution (planar(): pressure
+balance with the Kumar & Granot 2003 adiabatic index on both sides, (Gamma34^2 - 1) n4' = (Gamma3^2 - 1) n1, compression
+4 Gamma34, reverse-shock speed from particle flux conservation), with the local Gamma4 and n4'/n1:
+  thin shell   xi = Gamma4^2 Delta0/R_dec << 1: the shell spreads, Delta4 = Delta0 + R/Gamma4^2  -> IMPULSIVE injection
+  thick shell  xi >> 1: no spreading                                                       -> IMPULSIVE injection
+               (n4'/n1 = (Gamma4/phi)^2, phi^2 = (3-k)(xi + x) x^(2-k), x = R/R_dec; Granot 2012's Newtonian and
+               relativistic limits are those of planar())
+  stratified   free ejecta N(>Gamma) ~ Gamma^-kej between Gamma_max and Gamma_min, R = beta c t; the reverse-shock
+               speed sets the ejecta it reaches; Gamma34 tends to NS06's self-similar value   -> CONTINUOUS injection
   after the crossing: thin = cold shocked shell spreading at its sound speed (hat gamma 5/3,
   Gamma ~ R^-g, g = 2 for k = 0, Kobayashi & Sari 2000; g = 1 for k = 2, Zou+2005);
   thick and stratified = Blandford-McKee element of the same k.
@@ -68,6 +64,40 @@ def ns06_jump(k, kej, hat_gamma=5./3.):
   return m, x, 0.5*(y + 1./y)
 
 
+
+def planar(G4, f):
+  """Exact planar reverse-shock solution for a cold shell of proper density n4' = f n1 running into a cold medium
+  n1 (2026-11-11, one ingredient for all cases): pressure balance at the contact with the adiabatic index of
+  Kumar & Granot (2003), hat gamma = (4 Gamma + 1)/(3 Gamma), for which e' = 4 Gamma (Gamma - 1) n and
+  p = (4/3)(Gamma^2 - 1) n on both sides, so (Gamma34^2 - 1) n4' = (Gamma3^2 - 1) n1 (Newtonian limit
+  Gamma34 - 1 = Gamma4^2/(2f), Granot 2012 thin shell; relativistic Gamma34 = (Gamma4^2/4f)^1/4, thick shell).
+  The compression is n3'/n4' = 4 Gamma34, and particle flux conservation across the reverse shock gives its speed:
+  h = Gamma4^2 (beta4 - beta_RS) = Gamma4^2 r Gamma3 (beta4 - beta3)/(r Gamma3 - Gamma4) (4 phi/3 and 2 phi in the two
+  limits, with phi^2 = Gamma4^2/f). Returns Gamma3, Gamma34 - 1, h (arrays, G4 scalar or array)."""
+  from scipy.optimize import brentq
+  G4 = np.broadcast_to(np.asarray(G4, float), np.shape(f)).ravel()
+  f = np.asarray(f, float).ravel()
+  def g3m1(g4, d):
+    '''Gamma3 - 1 for Gamma34 = 1 + d (region 3 slower than region 4), without cancellation'''
+    g34 = 1 + d
+    return (g4 - g34)**2/((g4*g34 - 1) + np.sqrt((g4**2 - 1)*d*(d + 2)))
+  G3 = np.empty_like(f); d34 = np.empty_like(f); dG = np.empty_like(f)
+  for j in range(len(f)):
+    g4, fj = G4[j], f[j]
+    def res(ld):                                                            # unknown: ln(Gamma34 - 1)
+      d = np.exp(ld); x = g3m1(g4, d)
+      return np.log(d*(d + 2)*fj) - np.log(x*(x + 2))
+    ld = brentq(res, np.log(1e-250), np.log((g4 - 1)*(1 - 1e-9)), xtol=1e-13)
+    d = np.exp(ld)
+    d34[j], G3[j] = d, 1 + g3m1(g4, d)
+    dG[j] = np.sqrt((g4**2 - 1)*d*(d + 2)) - g4*d                            # Gamma4 - Gamma3
+  b3, b4 = np.sqrt(1 - 1/G3**2), np.sqrt(1 - 1/G4**2)
+  db = dG*(G4 + G3)/(G3**2*G4**2)/(b4 + b3)                                 # beta4 - beta3
+  r = 4*(1 + d34)
+  h = G4**2*r*G3*db/(r*G3 - G4)
+  return G3, d34, h
+
+
 class RSShell:
   def __init__(self, kind, k, E=1e53, Gam4=100., Dt0=1., kej=2.1, Gmax=300., Gmin=30., n0=1.,
                Astar=1., epse=0.3, epsB=1e-2, p=2.5, z=1., dL=2.0e28, nel=400, g_thin=None, field='toroidal',
@@ -110,15 +140,14 @@ class RSShell:
     k, xi = self.k, self.xi
     x = np.geomspace(1e-4*max(1., xi**0.5), 1e3*max(1., xi**0.5), 20000)
     phi = np.sqrt((3 - k)*(xi + x)*x**(2 - k))
-    if self.kind == 'thin':
-      G34 = 1. + phi**2/2; Gr = np.ones_like(x); h = 4*phi/3
-    else:
-      # exact planar pressure balance 4 G34 (G34 - 1) n4 = 4 G3 (G3 - 1) n1, n4/n1 = (Gamma4/phi)^2 (fixes the early,
-      # Newtonian phase, where the relativistic limit gave Gamma34 = 1; 2026-11-11); -> (phi/2)^1/2 for phi >> 1
-      G3 = self._g3_exact(phi)
-      G4 = self.Gam4
-      G34 = 1 + (G3 - G4)**2/(G3*G4 - 1 + np.sqrt((G3**2 - 1)*(G4**2 - 1)))
-      Gr = G3/self.Gam4; h = 2*phi
+    # exact planar solution (one ingredient for all cases, author 2026-11-11), tabulated in phi
+    pg = np.geomspace(phi.min(), phi.max(), 500)
+    G3g, d34g, hg = planar(self.Gam4, (self.Gam4/pg)**2)
+    lphi = np.log(phi)
+    G3 = 1 + np.exp(np.interp(lphi, np.log(pg), np.log(G3g - 1)))
+    G34 = 1 + np.exp(np.interp(lphi, np.log(pg), np.log(d34g)))
+    h = np.exp(np.interp(lphi, np.log(pg), np.log(hg)))
+    Gr = G3/self.Gam4
     integ = h/(xi + x)
     N = np.concatenate([[0.], np.cumsum(0.5*(integ[1:] + integ[:-1])*np.diff(x))]) + integ[0]*x[0]/1.5
     ix = np.searchsorted(N, 1.)
@@ -129,38 +158,47 @@ class RSShell:
     self.G34x = np.interp(self.Rx, self.tab['R'], self.tab['G34'])
     self.phix = np.sqrt((3 - k)*(xi + self.Rx/self.Rdec)*(self.Rx/self.Rdec)**(2 - k))
 
-  def _g3_exact(self, phi):
-    from scipy.optimize import brentq
-    G4 = self.Gam4
-    b4 = np.sqrt(1 - 1/G4**2)
-    pg = np.geomspace(phi.min(), phi.max(), 400)
-    out = np.empty_like(pg)
-    for j, ph in enumerate(pg):
-      f = (G4/ph)**2
-      def res(lg):
-        G3 = 1 + np.exp(lg)
-        sq = np.sqrt((G3**2 - 1)*(G4**2 - 1))
-        d34 = (G3 - G4)**2/(G3*G4 - 1 + sq)                 # Gamma34 - 1 without cancellation
-        return np.log((1 + d34)*d34*f) - np.log(G3*(G3 - 1))
-      out[j] = 1 + np.exp(brentq(res, np.log(1e-12), np.log((G4 - 1)*(1 - 1e-10))))
-    return 1 + np.exp(np.interp(np.log(phi), np.log(pg), np.log(out - 1)))
-
   def _crossing_strat(self):
+    """Stratified ejecta with the same planar solution as the shells (author 2026-11-11): the reverse shock moves
+    through freely expanding ejecta, R = beta c t for the ejecta of Lorentz factor Gamma (N(>Gamma) ~ Gamma^-kej
+    between Gmin and Gmax), whose proper density at R is n4' = Gamma^2 beta^2 (dN/dGamma)/(4 pi R^3). At each R
+    the planar solution with the local Gamma4 and n4'/n1 gives Gamma3, Gamma34 and the reverse-shock speed, which
+    sets the ejecta it reaches: d ln Gamma4/d ln R = -Gamma4^2 beta4^2 (beta4 - beta_RS)/beta_RS. Crossing at
+    Gamma4 = Gmin. Gamma34 tends to NS06's self-similar value (ns06_jump, kept as a check) to 1-3%: their crossing is
+    set by the same density ratio at the shock. (The former radius from E(>Gamma4) = shocked-medium energy put all
+    the energy in the shocked medium; a one-zone energy closure with both regions at Gamma3 gives Gamma34 6-10 times
+    NS06's: the shocked ejecta are not uniform in the self-similar flow.)"""
+    from scipy.integrate import solve_ivp
     k, kej, Gmin, Gmax, E = self.k, self.kej, self.Gmin, self.Gmax, self.E
-    self.m, self.xq, G34 = ns06_jump(k, kej)
-    rG = self.xq/np.sqrt(self.m + 1.)                      # Gamma3/gamma_e
-    gcr = (3 - k)/(1 + kej)
-    # E Gmin^(kej-1) ge^(1-kej) = 4 pi/(3-k) rhoR R^(3-k) c^2 (rG ge)^2
-    C = E*Gmin**(kej - 1)*(3 - k)/(4*pi_*self.rhoR*c_**2*rG**2)
-    self.Rx = (C/Gmin**(1 + kej))**(1/(3 - k))
-    self.R0 = self.Rx*(Gmax/Gmin)**(-1/gcr)
-    self.Rdec = ((3 - k)*E/(4*pi_*Gmin**2*c_**2*self.rhoR))**(1/(3 - k))
-    R = np.geomspace(self.R0, self.Rx, 4000)
-    ge = Gmin*(R/self.Rx)**-gcr
-    f = lambda G: G**-kej - Gmax**-kej
+    self.m, self.xq, self.G34_ns06 = ns06_jump(k, kej)
+    fG = lambda G: G**-kej - Gmax**-kej
     self.Ntot = (kej - 1)*E/(kej*Gmin*mp_*c_**2)*(1 - (Gmax/Gmin)**-kej)/(1 - (Gmax/Gmin)**(1 - kej))
-    self.tab = dict(R=R, G=rG*ge, G34=np.full_like(R, G34), N=f(ge)/f(Gmin))
-    self.Gx, self.G34x, self.gcr, self.xi, self.phix = rG*Gmin, G34, gcr, np.nan, np.nan
+    dNdG = lambda G: self.Ntot*kej*G**(-kej - 1)/fG(Gmin)
+    def ff(lR, G4):
+      R = np.exp(lR)
+      return G4**2*(1 - 1/G4**2)*dNdG(G4)/(4*pi_*R**3)/(self.rho(R)/mp_)
+    def rhs(lR, y):
+      G4 = np.exp(y[0])
+      _, _, h = planar(G4, np.array([ff(lR, G4)]))
+      b4 = np.sqrt(1 - 1/G4**2); dbs = h[0]/G4**2
+      return [-G4**2*b4**2*dbs/(b4 - dbs)]
+    Rdec_min = ((3 - k)*E/(4*pi_*Gmax**2*c_**2*self.rhoR))**(1/(3 - k))
+    lR0 = np.log(1e-4*Rdec_min)
+    while planar(Gmax*(1 - 1e-9), np.array([ff(lR0, Gmax*(1 - 1e-9))]))[2][0] > 1e-4:
+      lR0 -= np.log(10.)
+    ev = lambda lR, y: y[0] - np.log(Gmin)
+    ev.terminal = True
+    sol = solve_ivp(rhs, (lR0, lR0 + np.log(1e14)), [np.log(Gmax*(1 - 1e-9))], events=ev, rtol=1e-6, atol=1e-9,
+                    dense_output=True, max_step=0.05, first_step=1e-3)
+    lRx = sol.t_events[0][0]
+    lR = np.linspace(lR0, lRx, 4000)
+    G4 = np.minimum(np.exp(sol.sol(lR)[0]), Gmax*(1 - 1e-9))
+    G3, d34, _ = planar(G4, np.array([ff(l, g) for l, g in zip(lR, G4)]))
+    R = np.exp(lR)
+    self.Rx, self.R0 = R[-1], R[0]
+    self.Rdec = ((3 - k)*E/(4*pi_*Gmin**2*c_**2*self.rhoR))**(1/(3 - k))
+    self.tab = dict(R=R, G=G3, G34=1 + d34, N=fG(G4)/fG(Gmin), G4=G4)
+    self.Gx, self.G34x, self.gcr, self.xi, self.phix = G3[-1], 1 + d34[-1], 0., np.nan, np.nan
 
   # --- hydrodynamics ------------------------------------------------------------------------
   def Gam(self, R):
