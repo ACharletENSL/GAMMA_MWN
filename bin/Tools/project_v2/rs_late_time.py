@@ -70,11 +70,16 @@ def ns06_jump(k, kej, hat_gamma=5./3.):
 
 class RSShell:
   def __init__(self, kind, k, E=1e53, Gam4=100., Dt0=1., kej=2.1, Gmax=300., Gmin=30., n0=1.,
-               Astar=1., epse=0.3, epsB=1e-2, p=2.5, z=1., dL=2.0e28, nel=400, g_thin=None, field='epsB'):
-    '''field: 'epsB' = B'^2 = 8 pi eps_B e' in every element at all times (common field, homogeneous shell);
-    'frozen' = B'^2 = 8 pi eps_B e' at injection only, then frozen in a tangled field, B'^2 ~ n'^4/3
-    (each element keeps its own field; homogeneous only for hat gamma = 4/3)'''
-    self.__dict__.update(dict(kind=kind, k=k, E=E, epse=epse, epsB=epsB, p=p, z=z, dL=dL, nel=nel, field=field))
+               Astar=1., epse=0.3, epsB=1e-2, p=2.5, z=1., dL=2.0e28, nel=400, g_thin=None, field='toroidal',
+               sigma4=1e-3):
+    '''field: 'toroidal' (default since 2026-11-11, J. Granot): a toroidal field frozen in the ejecta,
+    B' ~ 1/(R Delta') ~ n' R, compressed by the shock with the density, so that B'/(n'R) = K is the same in
+    all the elements at all times; B'_i = K n'_i R_i with n'_i = e'_3/[(Gamma34 - 1) m_p c^2], and K set
+    by the magnetization sigma4 of the ejecta shocked at R_RS: eps_B,i(R_RS) = 2 sigma4 Gamma34/(Gamma34 - 1);
+    'epsB' = B'^2 = 8 pi eps_B e' in every element at all times (common field, homogeneous shell);
+    'frozen' = B'^2 = 8 pi eps_B e' at injection only, then frozen in a tangled field, B'^2 ~ n'^4/3'''
+    self.__dict__.update(dict(kind=kind, k=k, E=E, epse=epse, epsB=epsB, p=p, z=z, dL=dL, nel=nel, field=field,
+                              sigma4=sigma4))
     self.rhoR = 5e11*Astar if k == 2 else n0*mp_*(1e17)**k
     self.rho = lambda R: self.rhoR*np.asarray(R, float)**-k
     if kind in ('thin', 'thick'):
@@ -96,6 +101,9 @@ class RSShell:
       self.g = (7 - 2*k)/2
       self.ln_post, self.le_post, self.hat_post = (13 - 2*k)/2, 2*(13 - 2*k)/3, 4./3.
     self.ex = 4*self.Gx**2*self.rho(self.Rx)*c_**2
+    if field == 'toroidal':
+      self.epsBx = 2*sigma4*self.G34x/(self.G34x - 1)
+      self.K = np.sqrt(8*pi_*self.epsBx*self.ex)/(self.n_inj(self.Rx)*self.Rx)
 
   # --- crossing ---------------------------------------------------------------------------
   def _crossing_shell(self):
@@ -144,9 +152,22 @@ class RSShell:
     return np.where(R < self.Rx, 4*self.Gam(R)**2*self.rho(R)*c_**2,
                     self.ex*(np.maximum(R, self.Rx)/self.Rx)**-self.le_post)
 
+  def G34(self, R):
+    return np.interp(np.minimum(R, self.Rx), self.tab['R'], self.tab['G34'])
+
+  def n_inj(self, R):
+    '''proper density of the ejecta shocked at R (energy per particle (Gamma34 - 1) m_p c^2)'''
+    R = np.minimum(np.asarray(R, float), self.Rx)
+    return 4*self.Gam(R)**2*self.rho(R)*c_**2/(np.maximum(self.G34(R) - 1, 1e-6)*mp_*c_**2)   # floor: no shock yet
+
   def Bc(self, R):
-    '''field at injection (eps_B of the common pressure)'''
+    '''field at injection: eps_B of the common pressure, or the compressed toroidal field K n'_i R'''
+    if self.field == 'toroidal':
+      return self.K*self.n_inj(R)*np.minimum(np.asarray(R, float), self.Rx)
     return np.sqrt(8*pi_*self.epsB*self.eint(R))
+
+  def epsB_inj(self, R):
+    return self.Bc(R)**2/(8*pi_*self.eint(np.minimum(R, self.Rx)))
 
   def _a(self, R):
     return np.exp(np.interp(np.log(R), np.log(self.Rg), np.log(self.a)))
@@ -157,12 +178,16 @@ class RSShell:
       return self.Bc(R)
     R = np.asarray(R, float)
     Rl = np.minimum(R, self.Rx*(1 - 1e-12))
+    if self.field == 'toroidal':
+      return self.Bc(Rl)*(self._a(R)/self._a(Rl))**3*R/Rl
     return self.Bc(Rl)*(self._a(R)/self._a(Rl))**2
 
   def b_el(self, R):
     '''B'(R; R_i)/B(R) of the elements injected before R'''
     if self.field == 'epsB':
       return np.ones_like(self.Ric)
+    if self.field == 'toroidal':
+      return self.Bi*(self._a(R)/self.ai)**3*(R/self.Ric)/float(self.B(R))
     return self.Bi*(self._a(R)/self.ai)**2/float(self.B(R))
 
   def N3(self, R):
@@ -189,6 +214,8 @@ class RSShell:
     if self.field == 'epsB':
       tc = 6*pi_*me_*c_/(sigT_*8*pi_*self.epsB*e_)
       integ = a/(tc*c_*self.Gam(Rg))
+    elif self.field == 'toroidal':                           # B'(R; R_i) = Bc(R_i) (a/a_i)^3 R/R_i
+      integ = a**7*Rg**2*sigT_/(6*pi_*me_*c_)/(c_*self.Gam(Rg))
     else:                                                    # B'^2(R; R_i) = Bc^2(R_i) (a/a_i)^4
       integ = a**5*sigT_/(6*pi_*me_*c_)/(c_*self.Gam(Rg))
     self.Rg, self.a = Rg, a
@@ -205,7 +232,8 @@ class RSShell:
     self.ai = np.exp(np.interp(np.log(self.Ric), np.log(Rg), np.log(a)))
     self.Ji = np.interp(np.log(self.Ric), np.log(Rg), self.J)
     self.Bi = self.Bc(self.Ric)
-    self.ci = 1/self.ai if self.field == 'epsB' else self.Bi**2/self.ai**5   # I = (J(R) - J_i) c_i
+    self.ci = (1/self.ai if self.field == 'epsB' else                       # I = (J(R) - J_i) c_i
+               (self.Bi/(self.ai**3*self.Ric))**2/self.ai if self.field == 'toroidal' else self.Bi**2/self.ai**5)
     return self
 
   def gc_now(self, R):
@@ -425,12 +453,13 @@ def report(models=None):
       print(f'  k={k:.0f} kej={kej}: m={mm:.3f} x={xq:.4f} Gamma34-1={G34 - 1:.4f}')
   check_literature()
   models = models or {(kd, k): build(kd, k) for k in (0., 2.) for kd in KINDS}
-  print('case        xi      R_RS/Rdec  R_RS[cm]   T_RS[s]  Gam3     G34-1   gm_i   gc     regime  gamma_a  nu_a,obs[Hz]  R_dec[cm]')
+  print('case        xi      R_RS/Rdec  R_RS[cm]   T_RS[s]  Gam3     G34-1   gm_i   gc     regime  gamma_a  nu_a,obs[Hz]  R_dec[cm]  epsB(R_RS) epsB(N=10%)')
   for (kd, k), m in models.items():
     TRS = float(m.Tr(m.Rx))
     gm, gc = max(m.gm_formal(m.Rx*(1 - 1e-9)), SQ2), m.gc_now(m.Rx*(1 - 1e-9))
     print(f'{kd:6s} k={k:.0f} {m.xi:8.3g} {m.Rx/m.Rdec:8.3f} {m.Rx:9.2e} {TRS:8.1f} {m.Gx:7.1f} '
-          f'{m.G34x - 1:7.3f} {gm:7.1f} {gc:8.3g}  {"FC" if gc < gm else "SC"}  {gamma_a(m)[0]:6.1f}  {gamma_a(m)[1]:9.2g}  {m.Rdec:9.2g}')
+          f'{m.G34x - 1:7.3f} {gm:7.1f} {gc:8.3g}  {"FC" if gc < gm else "SC"}  {gamma_a(m)[0]:6.1f}  {gamma_a(m)[1]:9.2g}  {m.Rdec:9.2g}'
+          f'  {float(m.epsB_inj(m.Rx*(1 - 1e-9))):9.3g} {float(m.epsB_inj(np.interp(.1, m.tab["N"], m.tab["R"]))):9.3g}')
   return models
 
 
