@@ -858,6 +858,38 @@ def fig_spectrum_bpl(outdir=OUTDIR, fname='cooling_spectrum_bpl.png', show=False
               outdir, fname, show)
 
 
+def fig_bpl(outdir=OUTDIR, fname='cooling_bpl.png', show=False):
+  '''Fig. B.1 (author 2026-11-12, merges the former Figs. B.1 and C.1): distributions (top block) and spectra
+  (bottom block) against their broken power laws, fast cooling | slow cooling, each continuous | impulsive,
+  one key and one set of headers for both blocks'''
+  fig = plt.figure(figsize=(WIDTH, 4.3))
+  gs = fig.add_gridspec(5, 5, height_ratios=[1.75, .9, .95, 1.75, .9], width_ratios=[1, 1, .34, 1, 1],
+                        hspace=.07, wspace=.05, left=.075, right=.925, top=.86, bottom=.08)
+  head = {}
+  blocks = ((0, _draw_distribution_bpl, AX_G, r'$f_{\rm e}^{\,{\rm BPL}}/f_{\rm e}^{\,{\rm num}}$'),
+            (3, _draw_spectrum_bpl, AX_U, r"$L'_{\nu'}/L'^{\,{\rm full}}_{\nu'}$"))
+  for row, draw, A, sl in blocks:
+    for i, (reg, col) in zip((0, 1, 3, 4), (('FC', 0), ('FC', 1), ('SC', 0), ('SC', 1))):
+      axN = fig.add_subplot(gs[row, i])
+      axS = fig.add_subplot(gs[row + 1, i], sharex=axN)
+      draw(reg, col, axN, axS)
+      _axes(axN, axS, A, col, sl, 2)
+      axN.tick_params(labelbottom=False)
+      axS.set_xlabel(A['xlab'], fontsize=FS_LAB - A['xlab_small'])
+      if row == 0:
+        axN.text(.5, 1.03, ('continuous', r"impulsive, $\Delta t'_{\rm inj}=t'_0$")[col], ha='center',
+                 va='bottom', transform=axN.transAxes, fontsize=FS_ANN, color=INK)
+        head.setdefault(reg, []).append(axN.get_position())
+  for reg, name in (('FC', 'Fast cooling, '), ('SC', 'Slow cooling, ')):
+    p, q = head[reg]
+    fig.text(.5*(p.x0 + q.x1), p.y1 + .045, name + REGIME[reg], ha='center', va='bottom',
+             fontsize=FS_LAB - 1, color=INK)
+  key = KEY_BPL + [plt.Line2D([], [], color=MUTED, label='step emissivity', **STEP_LS)]
+  p, q = head['FC'][0], head['SC'][1]
+  _key(fig, (.5*(p.x0 + q.x1), p.y1 + .095), BPL_T, key)
+  return _save(fig, outdir, fname, show)
+
+
 def _save(fig, outdir, fname, show):
   os.makedirs(outdir, exist_ok=True)
   path = os.path.join(outdir, fname)
@@ -929,8 +961,7 @@ def main(show=False):
   fig_regime('SC', show=show)
   fig_distribution(show=show)
   fig_spectrum(show=show)
-  fig_distribution_bpl(show=show)
-  fig_spectrum_bpl(show=show)
+  fig_bpl(show=show)
 
 
 if __name__ == '__main__':
