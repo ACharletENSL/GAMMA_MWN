@@ -101,7 +101,7 @@ def planar(G4, f):
 class RSShell:
   def __init__(self, kind, k, E=1e53, Gam4=100., Dt0=1., kej=2.1, Gmax=300., Gmin=30., n0=1.,
                Astar=1., epse=0.3, epsB=1e-2, p=2.5, z=1., dL=2.0e28, nel=400, g_thin=None, field='toroidal',
-               sigma4=1e-4, epsB_max=1/3, R_int=1e11, shell='analytic'):
+               sigma4=1e-4, epsB_max=1/3, R_int=1e11, shell='analytic', thick_one_phase=True):
     '''field: 'toroidal' (default since 2026-11-11, J. Granot): a toroidal field frozen in the ejecta,
     B' ~ 1/(R Delta') ~ n' R, compressed by the shock with the density, so that B'/(n'R) = K is the same in
     all the elements at all times; B'_i = K n'_i R_i with n'_i = e'_3/[(Gamma34 - 1) m_p c^2], and K set
@@ -112,7 +112,8 @@ class RSShell:
     # leaves the stellar envelope of a collapsar, ~1e11 cm; the surrounding ejecta of a merger, 1e9-1e10 cm).
     # shell: 'analytic' = distribution from the shell results of Sects. 3-4 (dist_an), 'elements' = exact element sum
     self.__dict__.update(dict(kind=kind, k=k, E=E, epse=epse, epsB=epsB, p=p, z=z, dL=dL, nel=nel, field=field,
-                              sigma4=sigma4, epsB_max=epsB_max, R_int=R_int, shell=shell))
+                              sigma4=sigma4, epsB_max=epsB_max, R_int=R_int, shell=shell,
+                              thick_one_phase=thick_one_phase))
     self.rhoR = 5e11*Astar if k == 2 else n0*mp_*(1e17)**k
     self.rho = lambda R: self.rhoR*np.asarray(R, float)**-k
     if kind in ('thin', 'thick'):
@@ -411,6 +412,8 @@ class RSShell:
         x = np.geomspace(1e-12, 1e3, 200000)                                      # phi = 1: relativistic reverse shock
         Rb = float(np.interp(1., np.sqrt((3 - self.k)*(self.xi + x)*x**(2 - self.k)), x))*self.Rdec
         first, second = 'newt_const', 'rel_const'
+        if self.thick_one_phase:              # author 2026-11-12: thick shells injected with the relativistic
+          Rb = Rs                             # indices only (the Newtonian start holds ~1% of the electrons)
       if Rb <= Rs:
         cuts = [(Rs, Rx, second)]
       elif Rb >= Rx:
