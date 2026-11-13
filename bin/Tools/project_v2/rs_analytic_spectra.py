@@ -18,7 +18,7 @@ import numpy as np
 from fractions import Fraction as Fr
 
 P = 2.5
-KEJ = 2.1
+KEJ = 1.5           # figure value (author's choice 2026-11-12: energy x10 for Gamma_max/Gamma_min = 100)
 TAUS = (3., 30.)
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'figures', 'cooling_distributions',
                    'rs_observed_spectra.png')
@@ -33,8 +33,39 @@ def rows(k):
                         lB=(6*g + 3*k - 5)/(5*(1 + g)), kB=(2*g + k)/(2*(1 + g)))}
 
 
-def S(x):
+def S_step(x):
   return np.where(x < 1, np.cbrt(x), x**(-(P - 1)/2))
+
+
+_SF = None
+
+
+def S_full(x):
+  '''one element (power law -p above its minimum) with the exact synchrotron kernel of App. A (kernel_full, same
+  p'_syn and nu'_syn as the step emissivity), normalized like S_step: -> x^(1/3) below, (p-1)/(p-1/3)-scaled tail'''
+  global _SF
+  if _SF is None:
+    from cooling_shell_spectrum import kernel_full
+    lx = np.linspace(-14., 6., 1001)
+    lu = np.linspace(0., 10., 5001)
+    u = np.exp(lu)[None, :]
+    y = np.exp(lx)[:, None]/u**2
+    tab = (P - 1/3)*np.trapezoid(u**(1 - P)*kernel_full(y), lu, axis=1)
+    _SF = (lx, np.log(np.maximum(tab, 1e-300)))
+  lx, lt = _SF
+  l = np.log(x)
+  out = np.interp(l, lx, lt)
+  hi, lo = l > lx[-1], l < lx[0]          # power-law asymptotes outside the table
+  out = np.where(hi, lt[-1] - (P - 1)/2*(l - lx[-1]), out)
+  out = np.where(lo, lt[0] + (l - lx[0])/3, out)
+  return np.exp(out)
+
+
+KERNEL = 'full'      # Sect. 5 figure: exact kernel (author 2026-11-13); 'step' = Eq. p_nu_step
+
+
+def S(x):
+  return S_full(x) if KERNEL == 'full' else S_step(x)
 
 
 def spectrum(r, tau, x):
@@ -99,7 +130,13 @@ def observed(kd, k, T, nu):
       a, b = AFTER[(kd, k)]
       lnu, lF = lnu + a*np.log(T/Tc), lF + b*np.log(T/Tc)
   x = nu/np.exp(lnu)
-  return np.exp(lF)*spectrum(r, tau, x), np.exp(lF)*S(x)
+  return np.exp(lF)*spectrum(r, tau, x)/PEAK(), np.exp(lF)*S(x)/PEAK()
+
+
+def PEAK():
+  '''peak of one element's spectrum (= the usual model at T_dec) in units of S at x = 1'''
+  xx = np.geomspace(1e-3, 1e2, 2001)
+  return S(xx).max()
 
 
 def figure(out=OUT):
