@@ -19,7 +19,8 @@ Shell, newest elements in fast cooling (Q < 1): cooled line Q nu^-p/2 above nu'_
 Electrons below gamma_e = sqrt(2) do not radiate: each tail stops at the element whose minimum (slow cooling) or maximum
 (fast cooling) is sqrt(2), which moves up after the crossing as all the electrons cool adiabatically.
 After the crossing: no young electrons; the shape at the crossing ends at the last element's break (Q^2) and shifts
-rigidly. Usage: python3 rs_bpl_spectra.py  -> report + figures/cooling_distributions/rs_observed_spectra.png
+rigidly. Self-absorption frequency of the shell (nu_a, dotted vertical lines; author 2026-11-13): one-zone thin = thick
+flux, absolute values from the fiducials at T_dec evolved with tab:indices. Usage: python3 rs_bpl_spectra.py  -> report + figures/cooling_distributions/rs_observed_spectra.png
 """
 import os
 import numpy as np
@@ -61,7 +62,7 @@ def fiducial(kd, k):
   epsB = 2*FID['sigma4']*(1 + G34m1)/G34m1
   gc = (1 + g)*3*ME/(16*SIGT*epsB*G3*rho*R)
   tau = (gm/np.sqrt(2))**(1/(3 - k)) if kd == 'thin' else TAU_DEC_STRAT_THICK
-  return dict(gm=gm, gc=gc, Q=gc/gm, epsB=epsB, G34m1=G34m1, tau=tau, R=R)
+  return dict(gm=gm, gc=gc, Q=gc/gm, epsB=epsB, G34m1=G34m1, tau=tau, R=R, G3=G3, rho=rho)
 
 
 def indices(kd, k):
@@ -241,6 +242,69 @@ def observed(kd, k, T, nu):
   return np.exp(lF)*evaluate(s, an, x), np.exp(lF)*evaluate(u, au, x), info
 
 
+def after_lB(kd, k):
+  """comoving field index after the crossing (tab:indices)"""
+  if kd == 'thin':
+    g = 2. if k == 0 else 1.
+    return (3*g + 5)/(4*(1 + g))
+  return (11 - 2*k)/(9 - 2*k)
+
+
+ECH = 4.8032e-10
+
+
+def nu_a(kd, k, T):
+  """self-absorption frequency of the shell, in units of nu_m^usual(T_dec) (same mapping as observed()).
+  One zone (App. D): optically thin comoving luminosity L' = N_e p'_syn ell(x) (ell: the shell broken power law in units
+  of the usual peak, x = nu'/nu'_m of the newest element) meets the optically thick one, 16 pi^2 R^2 m_e nu'^2 gamma_nu'
+  (Eq. L_thick without its factor of order unity, gamma_nu' floored at sqrt 2), with gamma_nu' in the newest field.
+  Absolute values at T_dec from the fiducials: R = R_dec, B'^2 = 8 pi eps_B 4 Gamma_3^2 rho c^2, N_e = N_ej (thin),
+  N_ej (T_dec/T_RS)^((4-k)/(2(1+2g))) (thick), E/(Gamma_4 m_p c^2) (stratified); then the power laws of tab:indices:
+  N_e ~ tau^(1+kappa_N), B' ~ tau^(-kappa_B) of the newest element during the injection, R ~ T^(1/(1+2g)); after the
+  crossing N_e constant, B' ~ t'^(-lambda_B,b), R ~ T^(1/(1+2g_b))."""
+  f, r = fiducial(kd, k), rows(k)[kd]
+  Nej = FID['E']/(FID['G4']*MP*C**2)
+  B0 = np.sqrt(8*np.pi*f['epsB']*4*f['G3']**2*f['rho']*C**2)
+  g = G[kd](k)
+  if kd == 'thin':
+    N0, Tc = Nej, 1.
+  elif kd == 'thick':
+    N0, Tc = Nej*(1/T_RS[kd])**((4 - k)/(2*(1 + 2*g))), min(T, T_RS[kd])
+  else:
+    N0, Tc = Nej, T
+  if kd == 'thin':
+    N, B, R = N0, B0, f['R']
+  else:
+    c = inj_indices(kd, k)[2]
+    N = N0*Tc**(c*(1 + r['kN']))
+    B = B0*Tc**(-c*r['kB'])
+    R = f['R']*Tc**(1/(1 + 2*g))
+  if T > Tc:
+    lnb, gb = after_ln_g(kd, k)
+    B *= (T/Tc)**(-(1 + gb)*after_lB(kd, k)/(1 + 2*gb))
+    R *= (T/Tc)**(1/(1 + 2*gb))
+  gm = state(kd, k, T)[3]
+  psyn = 0.353*SIGT*ME*C**2*B/ECH
+  num = 1.26*gm**2*ECH*B/(2*np.pi*ME*C)
+  Sig = N/(4*np.pi*R**2)
+  x = np.geomspace(1e-12, 1e8, 20001)
+  s, an, _ = lines_shell(kd, k, T)
+  ell = evaluate(s, an, x)
+  thick = 4*np.pi*ME*num**2*x**2*np.maximum(gm*np.sqrt(x), np.sqrt(2))/(Sig*psyn)
+  over = np.nonzero((thick > ell) & (ell > 0))[0]
+  thick_all = len(over) == 0                    # optically thick up to the highest frequency of the shell
+  xa = x[ell > 0].max() if thick_all else x[over[0]]
+  # observed mapping of observed(): x in units of nu_m^usual(T)
+  if kd == 'thin':
+    lnu = AFTER[(kd, k)][0]*np.log(T)
+  else:
+    ai = inj_indices(kd, k)[0]
+    lnu = ai*np.log(min(T, T_RS[kd]))
+    if T > T_RS[kd]:
+      lnu += AFTER[(kd, k)][0]*np.log(T/T_RS[kd])
+  return xa*np.exp(lnu), thick_all
+
+
 def report():
   for k in (0., 2.):
     for kd in ('thin', 'thick', 'strat'):
@@ -253,6 +317,8 @@ def report():
         print(f"     T={T:5g}: tau={info['tau']:.3g} Q={info['Q']:.3g} during={info['during']} gm={info['gm']:.3g} "
               f"t_tr/t_inj={info['utr']:.3g} mixed={info['mixed']} u_sqrt2: SC {info['u_sc']:.3g} FC {info['u_fc']:.3g} "
               f"(u0={1/info['tau']:.3g}) F={info['F']:.3g} Flo={info['Flo']:.3g}")
+      print('     nu_a/nu_m^usual(T_dec), shell:', ', '.join(
+        '%.3g%s' % (lambda r: (r[0], ' (thick throughout)' if r[1] else ''))(nu_a(kd, k, T)) for T in T_OBS))
       if kd != 'thin':                          # switch of the newest element during the injection
         c = inj_indices(kd, k)[2]
         if ix['qexp'] != 0:
@@ -298,6 +364,12 @@ def figure(out=OUT):
         axi.semilogx(nu[ok], idx, color=c, lw=1.)
         hi = max(hi, F.max(), Fu.max())
       ax.set_ylim(hi*1e-6, hi*3)
+      for c, T in zip(cols, T_OBS):               # self-absorption frequency of the shell (arrow: thick throughout)
+        xa, thick_all = nu_a(kd, k, T)
+        ax.axvline(xa, color=c, lw=0.8, ls=':', zorder=1)
+        if thick_all:
+          ax.annotate('', xy=(xa*30, hi*1.2), xytext=(xa, hi*1.2),
+                      arrowprops=dict(arrowstyle='->', color=c, lw=0.8))
       for v in (1/3, -(P - 1)/2, -P/2):
         axi.axhline(v, color='#52514e', lw=0.6, ls=':', zorder=1)
       for v, cg in tails_shown(kd, k):            # alpha_SC, alpha_FC of tab:indices where the tail shows
@@ -319,10 +391,11 @@ def figure(out=OUT):
         axi.set_yticklabels([])
   key = [Line2D([], [], color='k', lw=1.4), Line2D([], [], color='k', lw=0.9, ls='--')] + \
         [Line2D([], [], color=c, lw=1.4) for c in cols] + \
-        [Line2D([], [], color=GUIDE_COL[n], lw=0.9, ls='-.') for n in ('SC', 'FC')]
+        [Line2D([], [], color=GUIDE_COL[n], lw=0.9, ls='-.') for n in ('SC', 'FC')] + \
+        [Line2D([], [], color='k', lw=0.8, ls=':')]
   labs = ['shell', 'usual model'] + [rf'$T/T_{{\rm dec}}={a:g}$' for a in T_OBS] + \
-         [r'$\alpha_{\rm SC}$', r'$\alpha_{\rm FC}$']
-  fig.legend(key, labs, loc='upper center', ncol=7, fontsize=7, frameon=False, handlelength=1.8,
+         [r'$\alpha_{\rm SC}$', r'$\alpha_{\rm FC}$', r'$\nu_{\rm a}$']
+  fig.legend(key, labs, loc='upper center', ncol=8, fontsize=7, frameon=False, handlelength=1.8,
              columnspacing=1.2, bbox_to_anchor=(0.5, 0.955))
   for ax in axes[-1]:
     ax.set_xlabel(r'$\nu/\nu^{\rm usual}_\mathrm{m}(T_{\rm dec})$', fontsize=8)
