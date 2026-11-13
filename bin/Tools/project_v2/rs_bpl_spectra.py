@@ -260,6 +260,21 @@ def report():
           print(f"     newest element switches regime at T/T_dec = {Tsw:.3g} (injection until {T_RS[kd]})")
 
 
+GUIDE_COL = {'SC': '#7b3fa0', 'FC': '#8c5a2b'}
+
+
+def tails_shown(kd, k):
+  """(alpha, colour) of the adiabatic and relic tails that appear as segments of the shell at one of the times"""
+  ix = indices(kd, k)
+  out = []
+  for name, a in (('SC', ix['aSC']), ('FC', ix['aFC'])):
+    if not -(P - 1)/2 < a < 1/3:
+      continue
+    if any(abs(sg[2] - a) < 1e-9 and sg[1] > sg[0] for T in T_OBS for sg in lines_shell(kd, k, T)[0]):
+      out.append((a, GUIDE_COL[name]))
+  return out
+
+
 def figure(out=OUT):
   import matplotlib
   matplotlib.use('Agg')
@@ -285,6 +300,8 @@ def figure(out=OUT):
       ax.set_ylim(hi*1e-6, hi*3)
       for v in (1/3, -(P - 1)/2, -P/2):
         axi.axhline(v, color='#52514e', lw=0.6, ls=':', zorder=1)
+      for v, cg in tails_shown(kd, k):            # alpha_SC, alpha_FC of tab:indices where the tail shows
+        axi.axhline(v, color=cg, lw=0.9, ls='-.', zorder=1.5)
       if col == 2:
         for v, lab in ((1/3, r'$1/3$'), (-(P - 1)/2, r'$-(p-1)/2$'), (-P/2, r'$-p/2$')):
           axi.text(1.02, v, lab, transform=axi.get_yaxis_transform(), ha='left', va='center', fontsize=6.5,
@@ -301,10 +318,12 @@ def figure(out=OUT):
       else:
         axi.set_yticklabels([])
   key = [Line2D([], [], color='k', lw=1.4), Line2D([], [], color='k', lw=0.9, ls='--')] + \
-        [Line2D([], [], color=c, lw=1.4) for c in cols]
-  labs = ['shell', 'usual model'] + [rf'$T/T_{{\rm dec}}={a:g}$' for a in T_OBS]
-  fig.legend(key, labs, loc='upper center', ncol=5, fontsize=7, frameon=False, handlelength=1.8,
-             columnspacing=1.5, bbox_to_anchor=(0.5, 0.955))
+        [Line2D([], [], color=c, lw=1.4) for c in cols] + \
+        [Line2D([], [], color=GUIDE_COL[n], lw=0.9, ls='-.') for n in ('SC', 'FC')]
+  labs = ['shell', 'usual model'] + [rf'$T/T_{{\rm dec}}={a:g}$' for a in T_OBS] + \
+         [r'$\alpha_{\rm SC}$', r'$\alpha_{\rm FC}$']
+  fig.legend(key, labs, loc='upper center', ncol=7, fontsize=7, frameon=False, handlelength=1.8,
+             columnspacing=1.2, bbox_to_anchor=(0.5, 0.955))
   for ax in axes[-1]:
     ax.set_xlabel(r'$\nu/\nu^{\rm usual}_\mathrm{m}(T_{\rm dec})$', fontsize=8)
   for ax in axes.ravel():
