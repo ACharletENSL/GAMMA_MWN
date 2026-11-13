@@ -27,7 +27,7 @@ import numpy as np
 from rs_analytic_spectra import rows, G, AFTER, inj_indices, KEJ, P, TITLES, T_OBS
 
 ME, MP, SIGT, C = 9.1094e-28, 1.6726e-24, 6.6524e-25, 2.9979e10
-FID = dict(E=1e53, G4=300., eps_e=0.3, sigma4=1e-4, n=1., Astar=0.1, xi=10.)
+FID = dict(E=1e53, G4=300., eps_e=0.3, sigma4=1e-4, n=1., Astar=0.1, xi=10., xi_e=0.1)   # xi_e: accelerated fraction
 NS06 = {0.: 0.106, 2.: 0.025}       # Gamma_34 - 1 of the self-similar solution for k_ej = 1.5 (planar runs, 2026-11-12)
 TAU_DEC_STRAT_THICK = 1e4            # t'_inj/t'_0 at T_dec, i.e. R_0 ~ 1e-3 to 1e-4 R_dec
 T_RS = {'thin': 1., 'thick': 10., 'strat': np.inf}
@@ -36,7 +36,7 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'figures', 
 
 
 def gm_from(G34m1):
-  return FID['eps_e']*G34m1*MP/ME*(P - 2)/(P - 1)
+  return FID['eps_e']/FID['xi_e']*G34m1*MP/ME*(P - 2)/(P - 1)
 
 
 def fiducial(kd, k):
@@ -263,7 +263,7 @@ def nu_a(kd, k, T):
   N_e ~ tau^(1+kappa_N), B' ~ tau^(-kappa_B) of the newest element during the injection, R ~ T^(1/(1+2g)); after the
   crossing N_e constant, B' ~ t'^(-lambda_B,b), R ~ T^(1/(1+2g_b))."""
   f, r = fiducial(kd, k), rows(k)[kd]
-  Nej = FID['E']/(FID['G4']*MP*C**2)
+  Nej = FID['xi_e']*FID['E']/(FID['G4']*MP*C**2)    # accelerated electrons
   B0 = np.sqrt(8*np.pi*f['epsB']*4*f['G3']**2*f['rho']*C**2)
   g = G[kd](k)
   if kd == 'thin':
