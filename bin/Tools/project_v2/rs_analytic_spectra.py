@@ -8,9 +8,9 @@ p'_syn(B) N (p-1)/(p-1/3) S(nu'/nu'_i), S = x^(1/3) below, x^(-(p-1)/2) above.
 The shell is the integral over u in [1/tau_inj, 1]; the usual model puts all the electrons at the minimum and in the
 field of the latest element. Both in units of the usual model at nu'_m (latest element), nu' in units of nu'_m.
 The shape is kept after the crossing (the elements share the new laws, Eq. restart), so it is the observed shape too.
-Observed spectra (author 2026-11-12): line of sight, nu = 2 Gamma nu'/(1+z), breaks from the after-crossing rows of
-tab:indices (single shells, T/T_RS = 1, 10, 100) and from Eq. nu_obs_T during the continuous injection (stratified,
-T/T_RS = 0.01, 0.1, 1, tau_inj growing as T^((1+g)/(1+2g)) up to 100 at T_RS).
+Observed spectra (author 2026-11-12, J. Granot 2026-11-13): line of sight, nu = 2 Gamma nu'/(1+z), after the crossing
+(T/T_RS = 1, 10, 100) with the after-crossing rows of tab:indices; constant magnetization of the unshocked ejecta,
+B'_i ~ (Gamma_34 n'_i)^(1/2), frozen toroidal field after injection.
 Usage: python3 rs_analytic_spectra.py   ->  figures/cooling_distributions/rs_observed_spectra.png
 """
 import os
@@ -26,11 +26,11 @@ OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'figures', 
 
 def rows(k):
   g = (3 - k)/(1 + KEJ)
-  return {'thin': dict(ln=3*k/5, kN=(1 - k)/2, km=k - 3, lB=(3*k - 5)/5, kB=2.),
+  return {'thin': dict(ln=3*k/5, kN=(1 - k)/2, km=k - 3, lB=(3*k - 5)/5, kB=1.5),
           'thick': dict(ln=3*(2 + k)/(2*(6 - k)), kN=(2 - k)/(6 - k), km=-(2 - k)/(6 - k),
                         lB=(3*k - 2)/(2*(6 - k)), kB=(2 + k)/(6 - k)),
           'strat': dict(ln=3*(2*g + k)/(5*(1 + g)), kN=KEJ*g/(1 + g) - 1, km=0.,
-                        lB=(6*g + 3*k - 5)/(5*(1 + g)), kB=(2*g + k - 1)/(1 + g))}
+                        lB=(6*g + 3*k - 5)/(5*(1 + g)), kB=(2*g + k)/(2*(1 + g)))}
 
 
 def S(x):
@@ -41,7 +41,7 @@ def spectrum(r, tau, x):
   zeta = r['ln']/3 - r['km']
   D = r['kB'] - r['lB']
   xnu = 2*zeta - D
-  lu = np.linspace(-np.log(tau), 0., 4001)
+  lu = np.linspace(-np.log(tau), 0., 8001)
   u = np.exp(lu)[:, None]
   w = u**(1 + r['kN'])
   L = np.trapezoid(w*u**(-D)*S(x[None, :]/u**xnu), lu, axis=0)
@@ -62,10 +62,13 @@ TITLES = {'thin': 'Thin shell', 'thick': 'Thick shell', 'strat': 'Stratified eje
 # after the crossing, from the 'after' rows of tab:indices (toroidal frozen field): thin g = 2 (k=0), 1 (k=2); BM
 AFTER = {('thin', 0.): (-29/20, -19/20), ('thin', 2.): (-5/3, -1.), ('thick', 0.): (-5/3, -9/8),
          ('thick', 2.): (-2., -5/4)}
-TAU_INJ = {('thin', 0.): 3., ('thin', 2.): 10., ('thick', 0.): 10., ('thick', 2.): 10.}
-T_SINGLE = (1., 10., 100.)        # T / T_RS after the crossing (single shells)
-T_STRAT = (0.01, 0.1, 1.)         # T / T_RS during the injection (stratified ejecta), T_RS = end of the injection
-TAU_STRAT = 100.                  # t'_inj / t'_0 at T_RS
+AFTER[('strat', 0.)], AFTER[('strat', 2.)] = AFTER[('thick', 0.)], AFTER[('thick', 2.)]   # BM after the crossing
+# J. Granot (2026-11-13): anchor at the crossing, injection from R_0 << R_RS, constant magnetization of the ejecta.
+# Thin shells: the radiating electrons start where gamma_m,i ~ t_i'^(3-k) reaches sqrt(2): tau_inj = (30/sqrt 2)^(1/(3-k))
+# for gamma_m,i(R_RS) = 30; thick shells and stratified ejecta: tau_inj = 1e4 (R_0 ~ 1e-3 to 1e-4 R_RS)
+TAU_INJ = {('thin', 0.): (30/2**0.5)**(1/3), ('thin', 2.): 30/2**0.5, ('thick', 0.): 1e4, ('thick', 2.): 1e4,
+           ('strat', 0.): 1e4, ('strat', 2.): 1e4}
+T_OBS = (1., 10., 100.)           # T / T_RS after the crossing
 
 
 def strat_indices(k):
@@ -80,11 +83,7 @@ def strat_indices(k):
 def observed(kd, k, T, nu):
   """F_nu / F_nu,max^usual(T_RS) at nu / nu_m^usual(T_RS); returns (shell, usual)"""
   r = rows(k)[kd]
-  if kd == 'strat':
-    a, b, c = strat_indices(k)
-    tau = TAU_STRAT*T**c
-  else:
-    (a, b), tau = AFTER[(kd, k)], TAU_INJ[(kd, k)]
+  (a, b), tau = AFTER[(kd, k)], TAU_INJ[(kd, k)]
   x = nu/T**a
   return T**b*spectrum(r, tau, x), T**b*S(x)
 
@@ -95,13 +94,13 @@ def figure(out=OUT):
   import matplotlib.pyplot as plt
   from matplotlib.lines import Line2D
   cols = ['#2a78d6', '#eb6834', '#3a9b5c']
-  nu = np.geomspace(1e-7, 1e4, 600)
+  nu = np.geomspace(1e-8, 1e2, 600)
   fig, axes = plt.subplots(4, 3, figsize=(7.2, 6.4), sharex=True,
                            gridspec_kw=dict(height_ratios=[2.2, 1, 2.2, 1], hspace=0.08, wspace=0.27))
   for row, k in enumerate((0., 2.)):
     for col, kd in enumerate(('thin', 'thick', 'strat')):
       ax, axi = axes[2*row, col], axes[2*row + 1, col]
-      Ts = T_STRAT if kd == 'strat' else T_SINGLE
+      Ts = T_OBS
       hi = 0.
       for c, T in zip(cols, Ts):
         F, Fu = observed(kd, k, T, nu)
@@ -131,7 +130,7 @@ def figure(out=OUT):
         axi.set_yticklabels([])
   key = [Line2D([], [], color='k', lw=1.4), Line2D([], [], color='k', lw=0.9, ls='--')] + \
         [Line2D([], [], color=c, lw=1.4) for c in cols]
-  labs = ['shell', 'usual model'] + [rf'$T/T_{{\rm RS}}={a:g}$ ({b:g})' for a, b in zip(T_SINGLE, T_STRAT)]
+  labs = ['shell', 'usual model'] + [rf'$T/T_{{\rm RS}}={a:g}$' for a in T_OBS]
   fig.legend(key, labs, loc='upper center', ncol=5, fontsize=7, frameon=False,
              handlelength=1.8, columnspacing=1.5, bbox_to_anchor=(0.5, 0.955))
   for ax in axes[-1]:
