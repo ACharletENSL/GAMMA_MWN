@@ -540,7 +540,7 @@ def _row(draw, A, sl, key, outdir, fname, show):
 MARK = {'c,ad': 'o', 'm,ad': 's', 'cFC': 'D', 'cSC': 'D', 'm,i': '^', 'c,l': 'v',
         'm,l': 'p'}
 MARK_KW = dict(ms=5., mfc='w', mec=INK, mew=1., ls='none')
-KEY_BREAKS = ('c,ad', 'm,ad', 'c,l', 'm,l', 'cFC', 'm,i')
+KEY_BREAKS = ('c,ad', 'm,ad', 'c,l', 'm,l', 'cFC')
 
 
 def _mark_breaks(ax, at, value, br, quantities):
@@ -557,8 +557,8 @@ def _interp_log(xs, ys):
 
 # --- Fig. 4 ---------------------------------------------------------------------------
 G_BREAKS = {  # table break -> quantity (MARK)
-  ('FC', 0): {'low': 'c,ad', 'fr': 'cFC', 'mi': 'm,i'},
-  ('SC', 0): {'low': 'm,ad', 'mi': 'm,i', 'b': 'cSC'},
+  ('FC', 0): {'low': 'c,ad', 'fr': 'cFC', 'mi': 'm,l'},
+  ('SC', 0): {'low': 'm,ad', 'mi': 'm,l', 'b': 'cSC'},
   ('FC', 1): {'low': 'c,ad', 'hi': 'c,l'},
   ('SC', 1): {'low': 'm,ad', 'adf': 'm,l', 'hi': 'c,ad', 'top': 'c,l'}}
 G_LAB = {'c,ad': r'$\gamma_{\rm c{,}ad}$', 'm,ad': r'$\gamma_{\rm m{,}ad}$',
