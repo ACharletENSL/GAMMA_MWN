@@ -725,8 +725,8 @@ def plot_fluence_slope_shells(key=KEY, method='data_rarcut', outdir=None,
     tab[f'{k}_cut'], tab[f'{k}_full'] = va, vb
   tab.to_csv(os.path.join(out, fname.replace('.png', '.csv')), index=False,
              float_format='%.5g')
+  # alpha1 stays in the CSV but off the figure (author's choice, 2026-11-20)
   extra = {'band': ('o', 'Band $\\alpha$', fits['band']),
-           'a1': ('v', '2SBPL $\\alpha_1$', fits['a1']),
            'a2': ('s', '2SBPL $\\alpha_2$', fits['a2'])}
   cmp.plot_fluence_with_slope(pairs, series, outdir=out, labels=('RS', 'RS+FS'),
                               norm_side='B', fname=fname,
