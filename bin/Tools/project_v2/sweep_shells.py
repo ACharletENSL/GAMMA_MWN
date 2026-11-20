@@ -690,8 +690,14 @@ def plot_fluence_slope_shells(key=KEY, method='data_rarcut', outdir=None,
   left panel; its eps_rad is the summed budget (E_rad_rs + E_rad_fs)/(E_inj_rs + E_inj_fs),
   as in sweep_efficiency. Both sides are measured with _total_nu_break, the lower (FS)
   break, which only bounds the asymptote scan further down for the RS.
+  The right panel carries the indices an observer's fit would return rather than the
+  asymptote: the fixed-window index, the Band alpha (band_alpha.fit_band over
+  nu_pk/30-30 nu_pk) and the 2SBPL alpha1, alpha2 (band_alpha.fit_2sbpl over nu_pk/100-
+  10 nu_pk), all on the same time-integrated spectra and band (nu >= nu_B).
   '''
   import sweep_compare as cmp
+  import band_alpha as ba
+  import sweep_gammacm as swp
   out = figdir(OUTDIR_NAME if method == METHOD else f'{OUTDIR_NAME}_{method}', key) \
         if outdir is None else outdir
   os.makedirs(out, exist_ok=True)
@@ -705,10 +711,28 @@ def plot_fluence_slope_shells(key=KEY, method='data_rarcut', outdir=None,
     pairs.append((rs, tot))
   series = cmp.fluence_series(pairs, nu_break=cmp._total_nu_break)
   tab = cmp.fluence_slope_table(series, labels=('RS', 'RS+FS'), band_ref=2., verbose=False)
+  fits = {k: ([], []) for k in ('band', 'a1', 'a2')}
+  for (ra, _), e in zip(pairs, series):
+    g = e['x'] >= swp.phys_x_floor(ra)
+    for side, sp in enumerate((e['sp_a'], e['sp_b'])):
+      fb = ba.fit_band(e['x'][g], sp[g], 30., 30.)
+      f2 = ba.fit_2sbpl(e['x'][g], sp[g], 10., 100.)
+      fits['band'][side].append(fb['alpha'])
+      fits['a1'][side].append(f2['a1'])
+      fits['a2'][side].append(f2['a2'])
+  for k, (va, vb) in fits.items():          # side A = RS ('cut' columns), B = RS+FS ('full')
+    tab[f'{k}_cut'], tab[f'{k}_full'] = va, vb
   tab.to_csv(os.path.join(out, fname.replace('.png', '.csv')), index=False,
              float_format='%.5g')
+  extra = {'band': ('o', 'Band $\\alpha$', fits['band']),
+           'a1': ('v', '2SBPL $\\alpha_1$', fits['a1']),
+           'a2': ('s', '2SBPL $\\alpha_2$', fits['a2'])}
   cmp.plot_fluence_with_slope(pairs, series, outdir=out, labels=('RS', 'RS+FS'),
-                              norm_side='B', fname=fname)
+                              norm_side='B', fname=fname,
+                              slope_kw=dict(estimators=('band',), extra=extra,
+                                            ylim=(-2.0, -0.55),
+                                            legend_kw=dict(loc='upper left',
+                                                           bbox_to_anchor=(0., 0.93))))
   return os.path.join(out, fname), tab
 
 

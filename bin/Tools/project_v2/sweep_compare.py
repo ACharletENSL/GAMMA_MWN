@@ -1114,7 +1114,8 @@ def _draw_slope_profile(ax, series, colors, labels):
   ax.legend(loc='lower left', fontsize=9)
 
 
-def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
+def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.,
+    estimators=('asym', 'band'), extra=None, ylim=(-1.85, -0.55), legend_kw=None):
   '''
   eps_rad against the Band low-energy index alpha = a - 2 of the time-integrated spectrum,
   one point per regime, both sides. Line style = side (dashed A / solid B), marker = the
@@ -1122,6 +1123,8 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
   a_inf), diamonds for the peak-anchored index band_dex decades below the nuFnu peak --
   the one a fit around the peak would see. Both come from `series`, eps_rad from the
   pairs' own energy budgets, so the panel describes the run the spectra come from.
+  estimators picks which of the two are drawn; extra adds indices measured elsewhere,
+  {name: (marker, label, (alpha_A, alpha_B))}, photon indices one per pair and side.
   '''
   la, lb = labels
   band = lambda f: next((v for d, v in f['a_band'].items() if float(d) == band_dex), np.nan)
@@ -1129,10 +1132,13 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
   # legend gives the window, not a single frequency
   est = {'asym': ('o', lambda f: f['a_inf'], 'asymptote'),
          'band': ('D', band, f'$10^{{{-band_dex-1:g}}}$–$10^{{{-band_dex:g}}}\\,\\nu_{{\\rm pk}}$')}
+  est = {k: est[k] for k in estimators}
+  extra = extra or {}
   for side, (i, fk, ls) in enumerate(((0, 'fa', '--'), (1, 'fb', '-'))):
     eps = np.array([compute_efficiency(p[i]) for p in pairs])
-    for mk, get, _ in est.values():
-      al = np.array([get(e[fk]) for e in series]) - 2.
+    curves = [(mk, np.array([get(e[fk]) for e in series]) - 2.) for mk, get, _ in est.values()]
+    curves += [(mk, np.asarray(al[side], float)) for mk, _, al in extra.values()]
+    for mk, al in curves:
       ax.plot(eps, al, color='k', ls=ls, lw=1, zorder=1)
       # every point filled, resolved or not (user's choice, 2026-10-10). NB in deep fast
       # cooling the 4/3 segment lies below nu_B (fluence_series measures on nu >= nu_B), so
@@ -1149,13 +1155,14 @@ def _draw_efficiency_slope(ax, pairs, series, colors, labels, band_dex=2.):
                 ha='left', va='bottom')
   ax.set_xscale('log')
   ax.set_xlim(1e-2, 1.5)
-  ax.set_ylim(-1.85, -0.55)
+  ax.set_ylim(*ylim)
   ax.set_xlabel('$\\varepsilon_{\\rm rad}$')
   ax.set_ylabel('$\\alpha = a - 2$')
   ax.plot([], [], 'k--', lw=1, label=la); ax.plot([], [], 'k-', lw=1, label=lb)
-  for mk, _, lab in est.values():
+  keys = [(mk, lab) for mk, _, lab in est.values()] + [(mk, lab) for mk, lab, _ in extra.values()]
+  for mk, lab in keys:
     ax.plot([], [], ls='none', marker=mk, mfc='0.7', mec='k', mew=.5, ms=6, label=lab)
-  ax.legend(loc='center left', fontsize=9, frameon=False)
+  ax.legend(**{**dict(loc='center left', fontsize=9, frameon=False), **(legend_kw or {})})
 
 
 def plot_fluence_slope_profile(series, outdir=OUTDIR, labels=LABELS, fname=None,
@@ -1353,7 +1360,7 @@ def plot_lightcurve_panels(pairs, barT_f, barT_off=None, nu_targets=NU_TARGETS,
 
 
 def plot_fluence_with_slope(pairs, series=None, outdir=OUTDIR, labels=LABELS,
-    norm_side='B', mode='eff', fname=None):
+    norm_side='B', mode='eff', fname=None, slope_kw=None):
   '''
   The time-integrated spectra of both sides and, beside them, what their low-energy index
   costs in radiative efficiency (_draw_efficiency_slope): eps_rad against alpha, per regime.
@@ -1398,7 +1405,7 @@ def plot_fluence_with_slope(pairs, series=None, outdir=OUTDIR, labels=LABELS,
   ax_s.set_xlabel(NU_M_LABEL)
   # no key here: the right panel's legend carries the same two linestyles, and one key
   # serves both panels of a single figure
-  _draw_efficiency_slope(ax_p, pairs, series, colors, labels)
+  _draw_efficiency_slope(ax_p, pairs, series, colors, labels, **(slope_kw or {}))
   # the label belongs to the RIGHT panel: at the default pad it floats in the gap between
   # the two, nearer the left panel's frame than its own tick labels
   ax_p.yaxis.labelpad = 1.
