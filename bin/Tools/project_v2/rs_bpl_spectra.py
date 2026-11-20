@@ -394,7 +394,7 @@ def figure(out=OUT):
         [Line2D([], [], color=GUIDE_COL[n], lw=0.9, ls='-.') for n in ('SC', 'FC')] + \
         [Line2D([], [], color='k', lw=0.8, ls=':')]
   labs = ['shell', 'usual model'] + [rf'$T/T_{{\rm dec}}={a:g}$' for a in T_OBS] + \
-         [r'$\alpha_{\rm SC}$', r'$\alpha_{\rm FC}$', r'$\nu_{\rm a}$']
+         [r'$b_{\rm SC}$', r'$b_{\rm FC}$', r'$\nu_{\rm a}$']
   fig.legend(key, labs, loc='upper center', ncol=8, fontsize=7, frameon=False, handlelength=1.8,
              columnspacing=1.2, bbox_to_anchor=(0.5, 0.955))
   for ax in axes[-1]:

@@ -74,7 +74,7 @@ GUIDE_FAC = 4.
 P_FC, P_SC = 2./3., -.5                          # reference fluid element, kappa_N = kappa_m = 0
 # keys: exponent of the plotted quantity (f_e); labels: slope of dN_e/dgma_e = exponent - 1 (author 2026-11-10)
 F_EXP = {1. - P_FC: r'-p_{\rm FC}', -1.: r'-2', -P: r'-(p+1)', 1. - P: r'-p', 1. - P_SC: r'-p_{\rm SC}'}
-U_EXP = {1./3.: r'1/3', (1. - P_FC)/2.: r'\alpha_{\rm FC}', -.5: r'-1/2', -(P - 1.)/2.: r'-(p-1)/2', -P/2.: r'-p/2'}
+U_EXP = {1./3.: r'1/3', (1. - P_FC)/2.: r'b_{\rm FC}', -.5: r'-1/2', -(P - 1.)/2.: r'-(p-1)/2', -P/2.: r'-p/2'}
 
 
 def _exp_label(v, table):
@@ -640,8 +640,8 @@ def fig_distribution(outdir=OUTDIR, fname='cooling_shell_integrated.png', show=F
 U_LAB = {'c,ad': r"$\nu'_{\rm c{,}ad}$", 'm,ad': r"$\nu'_{\rm m{,}ad}$", 'cFC': r"$\nu'_{\rm c}$",
          'cSC': r"$\nu'_{\rm c}$", 'm,i': r"$\nu'_{\rm m}$", 'c,l': r"$\nu'_{\rm c{,}inj}$",
          'm,l': r"$\nu'_{\rm m{,}inj}$"}
-U_NUDGE = {'FC': {r'$1/3$': 3.5, r'$\alpha_{\rm FC}$': -1.5, r'$-1/2$': 2., r'$-(p-1)/2$': -1.}, 'SC': {}}
-U_SLOPES = {'FC': ((1./3., r'$1/3$'), (1./6., r'$\alpha_{\rm FC}$'), (-.5, r'$-1/2$'),
+U_NUDGE = {'FC': {r'$1/3$': 3.5, r'$b_{\rm FC}$': -1.5, r'$-1/2$': 2., r'$-(p-1)/2$': -1.}, 'SC': {}}
+U_SLOPES = {'FC': ((1./3., r'$1/3$'), (1./6., r'$b_{\rm FC}$'), (-.5, r'$-1/2$'),
                    (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$')),
             'SC': ((1./3., r'$1/3$'), (-(P - 1.)/2., r'$-(p-1)/2$'), (-P/2., r'$-p/2$'))}
 XLIM_U = (1e-1, 3e19)
