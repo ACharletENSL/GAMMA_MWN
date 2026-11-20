@@ -692,8 +692,8 @@ def plot_fluence_slope_shells(key=KEY, method='data_rarcut', outdir=None,
   break, which only bounds the asymptote scan further down for the RS.
   The right panel carries the indices an observer's fit would return rather than the
   asymptote: the fixed-window index, the Band alpha (band_alpha.fit_band over
-  nu_pk/30-30 nu_pk) and the 2SBPL alpha1, alpha2 (band_alpha.fit_2sbpl over nu_pk/100-
-  10 nu_pk), all on the same time-integrated spectra and band (nu >= nu_B).
+  nu_pk/30-30 nu_pk) and the 2SBPL alpha1, alpha2 (band_alpha.fit_2sbpl over the same
+  window), all on the same time-integrated spectra and band (nu >= nu_B).
   '''
   import sweep_compare as cmp
   import band_alpha as ba
@@ -716,7 +716,7 @@ def plot_fluence_slope_shells(key=KEY, method='data_rarcut', outdir=None,
     g = e['x'] >= swp.phys_x_floor(ra)
     for side, sp in enumerate((e['sp_a'], e['sp_b'])):
       fb = ba.fit_band(e['x'][g], sp[g], 30., 30.)
-      f2 = ba.fit_2sbpl(e['x'][g], sp[g], 10., 100.)
+      f2 = ba.fit_2sbpl(e['x'][g], sp[g], 30., 30.)
       fits['band'][side].append(fb['alpha'])
       fits['a1'][side].append(f2['a1'])
       fits['a2'][side].append(f2['a2'])
