@@ -725,13 +725,13 @@ def plot_fluence_slope_shells(key=KEY, method='data_rarcut', outdir=None,
     tab[f'{k}_cut'], tab[f'{k}_full'] = va, vb
   tab.to_csv(os.path.join(out, fname.replace('.png', '.csv')), index=False,
              float_format='%.5g')
-  # alpha1 stays in the CSV but off the figure (author's choice, 2026-11-20)
-  extra = {'band': ('o', 'Band $\\alpha$', fits['band']),
-           'a2': ('s', '2SBPL $\\alpha_2$', fits['a2'])}
+  # the 2SBPL indices stay in the CSV but off the figure (author's choice, 2026-11-21): on
+  # the decade grid only C = 1 has its cooling transition inside the fitted window
+  extra = {'band': ('o', 'Band $\\alpha$', fits['band'])}
   cmp.plot_fluence_with_slope(pairs, series, outdir=out, labels=('RS', 'RS+FS'),
                               norm_side='B', fname=fname,
                               slope_kw=dict(estimators=('band',), extra=extra,
-                                            ylim=(-2.0, -0.55),
+                                            ylim=(-1.9, -0.55),
                                             legend_kw=dict(loc='upper left',
                                                            bbox_to_anchor=(0., 0.93))))
   return os.path.join(out, fname), tab
