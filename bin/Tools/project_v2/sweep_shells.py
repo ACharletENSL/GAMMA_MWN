@@ -630,6 +630,71 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
   print(f'{kind} spectra composite ({len(sel)} regimes) saved to {f}')
 
 
+EFFECT_PANELS = ((-2., 'Fast cooling: the FS adds a break'),
+                 (0., 'Marginally fast cooling: the FS\nmoves the cooling transition'),
+                 (2., 'Slow cooling: the FS is hidden'))
+
+
+def plot_shell_effects(pairs, kind='fluence', panels=EFFECT_PANELS, outdir=OUTDIR,
+    xlim=(1e-5, 1e6), ylim=(1e-3, 3.), win=(100., 10.), fname=None):
+  '''
+  Paper II Fig. RS+FS: what the FS does to the spectrum in each cooling regime, one column
+  per regime. Top: the three spectra, normalised to the total's peak. Bottom: the local
+  index a = d log(nuFnu)/d log(nu) of the RS and of the sum, so that a break added,
+  moved or left alone by the FS reads directly as a change of a. Both panels shade the fit
+  window [nu_pk/win[0], win[1] nu_pk] around the total's peak (the GBM-like band of the
+  Band fits), which is where an effect is observable. Guides: the one-zone indices 4/3,
+  1/2 and (3-p)/2. Same x unit as plot_shell_spectra_panels (nu_m,0 of the RS), so the
+  FS signature stays at ~nu_m,FS while the peak moves with the regime.
+  '''
+  os.makedirs(outdir, exist_ok=True)
+  by_logr = {round(p['log10ratio'], 6): p for p in pairs}
+  sel = [(by_logr[round(lr, 6)], t) for lr, t in panels if round(lr, 6) in by_logr]
+  fig, axs = plt.subplots(2, len(sel), figsize=(4.3*len(sel), 5.6), sharex=True,
+      sharey='row', squeeze=False, gridspec_kw={'height_ratios': [2., 1.2]})
+  for j, (p, title) in enumerate(sel):
+    ax_s, ax_a = axs[0, j], axs[1, j]
+    sp, _ = shell_spectra(p, kind)
+    x, flo = p['x'], 1./p['env'].gma_m**2
+    norm = float(np.nanmax(sp['tot']))
+    xpk = x[int(np.nanargmax(sp['tot']))]
+    for ax in (ax_s, ax_a):
+      ax.axvspan(xpk/win[0], xpk*win[1], color='0.9', zorder=0, lw=0)
+    for tag in ('RS', 'FS', 'tot'):
+      y = sp[tag]/norm
+      ax_s.loglog(x, np.where((y > 0.) & (x >= flo), y, np.nan), **STY[tag])
+    for tag in ('RS', 'tot'):
+      lx, _, a = sb.segment_slopes(x, sp[tag])
+      xa = 10.**lx
+      ax_a.plot(xa, np.where(xa >= flo, a, np.nan),
+                **{k: v for k, v in STY[tag].items() if k != 'label'})
+    pp = float(p['env'].psyn)
+    for g in (4./3., 0.5, (3. - pp)/2.):
+      ax_a.axhline(g, color='grey', ls=':', lw=.8, zorder=1)
+    ax_a.set_xscale('log')
+    ax_s.set_title(title, fontsize=10)
+    lr = float(p['log10ratio'])
+    ax_s.text(.03, .97, f'$\\log_{{10}}\\mathcal{{C}}_{{\\rm RS}} = {lr:+.0f}$'.replace('+0$', '0$'),
+              transform=ax_s.transAxes, ha='left', va='top', fontsize=10)
+    ax_a.set_xlabel(NU_M_RS_LABEL)
+  axs[0, 0].set_xlim(*xlim)
+  axs[0, 0].set_ylim(*ylim)
+  axs[1, 0].set_ylim(-0.6, 1.5)
+  sym = KIND_SYM[kind]
+  axs[0, 0].set_ylabel(f'${sym}/({sym})_{{\\rm max}}$')
+  axs[1, 0].set_ylabel('local index $a$')
+  h = [plt.Line2D([], [], **{k: v for k, v in STY[t].items() if k != 'label'})
+       for t in ('RS', 'FS', 'tot')]
+  fig.legend(h, [STY[t]['label'] for t in ('RS', 'FS', 'tot')], loc='lower center',
+             ncol=3, fontsize=9, frameon=False)
+  fig.tight_layout(rect=(0., 0.045, 1., 1.))
+  f = os.path.join(outdir, fname or f'shell_effects_{kind}.png')
+  fig.savefig(f, dpi=300)
+  plt.close(fig)
+  print(f'FS effects figure saved to {f}')
+  return f
+
+
 def plot_shell_slopes(pairs, outdir=OUTDIR, xhi=10., ylim=(-0.35, 1.45)):
   '''
   The local index a = d log(nuFnu)/d log(nu) of the RS (dashed) and of the RS+FS sum
