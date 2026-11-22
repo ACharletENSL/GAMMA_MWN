@@ -207,9 +207,10 @@ def plot_fig5(pairs=None, eps=None, tab=None, outdir=None, key=KEY, show=SHOW,
                                          gridspec_kw={'width_ratios': [0.85, 1.1, 1.]})
 
   # (a) eps_rad against log C
-  for k, ls, name, x0, dy in ((0, '--', 'RS', -1.6, 1.25), (1, ':', 'FS', -0.2, 0.7),
-                              (2, '-', 'RS+FS', 1.3, 1.15)):
-    ax_e.semilogy(lr, eps[:, k], color='k', ls=ls, lw=1.3)
+  # the shells' colours and line styles of Fig. RS+FS (sweep_shells.STY)
+  EPS_STY = ((0, 'RS'), (1, 'FS'), (2, 'tot'))
+  for k, tag in EPS_STY:
+    ax_e.semilogy(lr, eps[:, k], **{q: v for q, v in ssh.STY[tag].items() if q != 'label'})
   ax_e.axhline(1., color='grey', ls=':', lw=.8)
   ax_e.set_xlabel(ss._CLABEL)
   ax_e.set_ylabel('$\\varepsilon_{\\rm rad}$')
@@ -260,8 +261,9 @@ def plot_fig5(pairs=None, eps=None, tab=None, outdir=None, key=KEY, show=SHOW,
               fontsize=9, loc='upper left', bbox_to_anchor=(0., 0.93), frameon=False)
   fig.tight_layout(w_pad=1.0)
   # names on the curves
-  for k, name in ((0, 'RS'), (2, 'RS+FS'), (1, 'FS')):
-    ax_e.text(CRANGE[1] + 0.1, eps[-1, k], name, ha='left', va='center', fontsize=9)
+  for k, tag in EPS_STY:
+    ax_e.text(CRANGE[1] + 0.1, eps[-1, k], 'RS+FS' if tag == 'tot' else tag,
+              color=ssh.STY[tag]['color'], ha='left', va='center', fontsize=9)
   for (x, y, ha), text, c in ((LBL_FIXED, '$10^{-3}$–$10^{-2}\\,\\nu_{\\rm pk}$', cw),
                               (LBL_BAND, 'Band', cb)):
     ax_i.text(x, y, text, color=c, ha=ha, va='center', fontsize=9)
