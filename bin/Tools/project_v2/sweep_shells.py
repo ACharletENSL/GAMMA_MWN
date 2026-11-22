@@ -630,13 +630,12 @@ def plot_shell_spectra_panels(pairs, kind='peak', logr_list=LOGR_PANELS,
   print(f'{kind} spectra composite ({len(sel)} regimes) saved to {f}')
 
 
-EFFECT_PANELS = ((-2., 'Fast cooling: the FS adds a break'),
-                 (0., 'Marginally fast cooling: the FS\nmoves the cooling transition'),
-                 (2., 'Slow cooling: the FS is hidden'))
+EFFECT_PANELS = ((-3., 'FC'), (0., 'MFC'), (3., 'SC'))   # log10 C_RS and regime tag; +-3 so
+# that the fast and slow cooling effects are free of the marginal one (it shows from -2 on)
 
 
 def plot_shell_effects(pairs, kind='fluence', panels=EFFECT_PANELS, outdir=OUTDIR,
-    xlim=(1e-5, 1e6), ylim=(1e-3, 3.), win=(100., 10.), fname=None):
+    xlim=(1e-6, 1e8), ylim=(1e-3, 3.), win=(100., 10.), fname=None):
   '''
   Paper II Fig. RS+FS: what the FS does to the spectrum in each cooling regime, one column
   per regime. Top: the three spectra, normalised to the total's peak. Bottom: the local
@@ -652,7 +651,7 @@ def plot_shell_effects(pairs, kind='fluence', panels=EFFECT_PANELS, outdir=OUTDI
   sel = [(by_logr[round(lr, 6)], t) for lr, t in panels if round(lr, 6) in by_logr]
   fig, axs = plt.subplots(2, len(sel), figsize=(4.3*len(sel), 5.6), sharex=True,
       sharey='row', squeeze=False, gridspec_kw={'height_ratios': [2., 1.2]})
-  for j, (p, title) in enumerate(sel):
+  for j, (p, tag_reg) in enumerate(sel):
     ax_s, ax_a = axs[0, j], axs[1, j]
     sp, _ = shell_spectra(p, kind)
     x, flo = p['x'], 1./p['env'].gma_m**2
@@ -672,17 +671,20 @@ def plot_shell_effects(pairs, kind='fluence', panels=EFFECT_PANELS, outdir=OUTDI
     for g in (4./3., 0.5, (3. - pp)/2.):
       ax_a.axhline(g, color='grey', ls=':', lw=.8, zorder=1)
     ax_a.set_xscale('log')
-    ax_s.set_title(title, fontsize=10)
     lr = float(p['log10ratio'])
-    ax_s.text(.03, .97, f'$\\log_{{10}}\\mathcal{{C}}_{{\\rm RS}} = {lr:+.0f}$'.replace('+0$', '0$'),
+    ax_s.text(.03, .97, f'$\\log_{{10}}\\mathcal{{C}}_{{\\rm RS}} = {lr:+.0f}$'.replace('+0$', '0$') + f' ({tag_reg})',
               transform=ax_s.transAxes, ha='left', va='top', fontsize=10)
     ax_a.set_xlabel(NU_M_RS_LABEL)
   axs[0, 0].set_xlim(*xlim)
   axs[0, 0].set_ylim(*ylim)
   axs[1, 0].set_ylim(-0.6, 1.5)
+  # major ticks every 3 decades, none at the edges: the end labels of adjacent columns
+  # would otherwise collide
+  lo, hi = np.ceil(np.log10(xlim[0])) + 1, np.floor(np.log10(xlim[1]))
+  axs[1, 0].set_xticks(10.**np.arange(lo, hi, 3.))
   sym = KIND_SYM[kind]
   axs[0, 0].set_ylabel(f'${sym}/({sym})_{{\\rm max}}$')
-  axs[1, 0].set_ylabel('local index $a$')
+  axs[1, 0].set_ylabel('$a$')
   h = [plt.Line2D([], [], **{k: v for k, v in STY[t].items() if k != 'label'})
        for t in ('RS', 'FS', 'tot')]
   fig.legend(h, [STY[t]['label'] for t in ('RS', 'FS', 'tot')], loc='lower center',
